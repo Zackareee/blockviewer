@@ -363,43 +363,84 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
   const sizes = [sizeX, sizeY, sizeZ];
   const mins = [minX, minY, minZ];
 
-  // Build grids
-  const grid = new Uint16Array(sizeX * sizeY * sizeZ);
-  const typeGrid = new Uint8Array(sizeX * sizeY * sizeZ);
-
   const blockPalette = new Map();
   const paletteList = [null];
-
-  const getIdx = (x, y, z) => (x - minX) + (y - minY) * sizeX + (z - minZ) * sizeX * sizeY;
-
-  // Fill grid with target blocks
-  for (let i = 0; i < targetBlocks.length; i++) {
-    const b = targetBlocks[i];
-    let paletteIdx = blockPalette.get(b.block);
-    if (paletteIdx === undefined) {
-      paletteIdx = paletteList.length;
-      blockPalette.set(b.block, paletteIdx);
-      paletteList.push(b.block);
+  
+  // For large regions, use Map-based sparse lookup to avoid memory exhaustion
+  const totalCells = sizeX * sizeY * sizeZ;
+  const useMapLookup = totalCells > 10000000; // 10M cells threshold (more conservative for workers)
+  
+  let grid, typeGrid, getIdx, getPaletteIdx, getBlockType;
+  
+  if (useMapLookup) {
+    // Sparse Map-based lookup for large regions
+    const blockMap = new Map(); // key -> paletteIdx
+    const typeMap = new Map();  // key -> type
+    const key = (x, y, z) => `${x},${y},${z}`;
+    
+    // Fill maps with target blocks
+    for (let i = 0; i < targetBlocks.length; i++) {
+      const b = targetBlocks[i];
+      let paletteIdx = blockPalette.get(b.block);
+      if (paletteIdx === undefined) {
+        paletteIdx = paletteList.length;
+        blockPalette.set(b.block, paletteIdx);
+        paletteList.push(b.block);
+      }
+      const k = key(b.x, b.y, b.z);
+      blockMap.set(k, paletteIdx);
+      typeMap.set(k, targetType);
     }
-    const idx = getIdx(b.x, b.y, b.z);
-    grid[idx] = paletteIdx;
-    typeGrid[idx] = targetType;
-  }
+    
+    // Fill type map with other blocks
+    for (let i = 0; i < otherBlocks.length; i++) {
+      const b = otherBlocks[i];
+      typeMap.set(key(b.x, b.y, b.z), isWaterBlock(b.block) ? 2 : 1);
+    }
+    
+    getPaletteIdx = (x, y, z) => blockMap.get(key(x, y, z)) || 0;
+    getBlockType = (x, y, z) => typeMap.get(key(x, y, z)) || 0;
+  } else {
+    // Dense array lookup for smaller regions (faster)
+    grid = new Uint16Array(totalCells);
+    typeGrid = new Uint8Array(totalCells);
+    getIdx = (x, y, z) => (x - minX) + (y - minY) * sizeX + (z - minZ) * sizeX * sizeY;
 
-  // Fill type grid with other blocks
-  for (let i = 0; i < otherBlocks.length; i++) {
-    const b = otherBlocks[i];
-    const idx = getIdx(b.x, b.y, b.z);
-    typeGrid[idx] = isWaterBlock(b.block) ? 2 : 1;
+    // Fill grid with target blocks
+    for (let i = 0; i < targetBlocks.length; i++) {
+      const b = targetBlocks[i];
+      let paletteIdx = blockPalette.get(b.block);
+      if (paletteIdx === undefined) {
+        paletteIdx = paletteList.length;
+        blockPalette.set(b.block, paletteIdx);
+        paletteList.push(b.block);
+      }
+      const idx = getIdx(b.x, b.y, b.z);
+      grid[idx] = paletteIdx;
+      typeGrid[idx] = targetType;
+    }
+
+    // Fill type grid with other blocks
+    for (let i = 0; i < otherBlocks.length; i++) {
+      const b = otherBlocks[i];
+      const idx = getIdx(b.x, b.y, b.z);
+      typeGrid[idx] = isWaterBlock(b.block) ? 2 : 1;
+    }
+    
+    getPaletteIdx = (x, y, z) => {
+      if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) return 0;
+      return grid[getIdx(x, y, z)];
+    };
+    getBlockType = (x, y, z) => {
+      if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) return 0;
+      return typeGrid[getIdx(x, y, z)];
+    };
   }
 
   const cullTypes = targetType === 1 ? [1] : [1, 2];
 
   const shouldCull = (x, y, z) => {
-    if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
-      return false;
-    }
-    const type = typeGrid[getIdx(x, y, z)];
+    const type = getBlockType(x, y, z);
     return cullTypes.includes(type);
   };
 
@@ -442,8 +483,7 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
           coords[w] = mins[w] + d;
 
           const [x, y, z] = coords;
-          const idx = getIdx(x, y, z);
-          const paletteIdx = grid[idx];
+          const paletteIdx = getPaletteIdx(x, y, z);
 
           if (paletteIdx === 0) continue;
 
@@ -543,6 +583,36 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
 }
 
 /**
+ * Convert typed array blocks to object format for mesh building
+ * @param {Object} typedBlocks - { x, y, z, blockType, count }
+ * @param {string[]} palette - Block name palette
+ * @param {number} minY - Min Y filter
+ * @param {number} maxY - Max Y filter
+ * @returns {{ solidBlocks: Array, waterBlocks: Array }}
+ */
+function typedBlocksToSeparated(typedBlocks, palette, minY, maxY) {
+  const { x, y, z, blockType, count } = typedBlocks;
+  const solidBlocks = [];
+  const waterBlocks = [];
+  
+  for (let i = 0; i < count; i++) {
+    const blockY = y[i];
+    if (blockY < minY || blockY > maxY) continue;
+    
+    const blockName = palette[blockType[i]] || 'minecraft:air';
+    const block = { x: x[i], y: blockY, z: z[i], block: blockName };
+    
+    if (isWaterBlock(blockName)) {
+      waterBlocks.push(block);
+    } else {
+      solidBlocks.push(block);
+    }
+  }
+  
+  return { solidBlocks, waterBlocks };
+}
+
+/**
  * Main worker message handler
  */
 self.onmessage = function(e) {
@@ -609,6 +679,160 @@ self.onmessage = function(e) {
         timeMs: elapsed,
       }
     }, transferables);
+  }
+  
+  // New typed array path for maximum performance
+  if (type === 'buildMeshTyped') {
+    const { typedBlocks, palette, offset, minY, maxY } = data;
+    
+    const startTime = performance.now();
+    
+    // Convert typed arrays to separated block lists
+    const { solidBlocks, waterBlocks } = typedBlocksToSeparated(typedBlocks, palette, minY, maxY);
+
+    // Build meshes
+    const solidResult = buildGreedyMeshArrays(solidBlocks, waterBlocks, offset, 1);
+    const waterResult = buildGreedyMeshArrays(waterBlocks, solidBlocks, offset, 2);
+
+    const elapsed = performance.now() - startTime;
+
+    // Prepare transferable arrays
+    const transferables = [];
+    
+    if (solidResult) {
+      transferables.push(
+        solidResult.positions.buffer,
+        solidResult.normals.buffer,
+        solidResult.colors.buffer,
+        solidResult.indices.buffer
+      );
+    }
+    
+    if (waterResult) {
+      transferables.push(
+        waterResult.positions.buffer,
+        waterResult.normals.buffer,
+        waterResult.colors.buffer,
+        waterResult.indices.buffer
+      );
+    }
+
+    self.postMessage({
+      type: 'meshResult',
+      id,
+      solid: solidResult,
+      water: waterResult,
+      stats: {
+        solidBlocks: solidBlocks.length,
+        waterBlocks: waterBlocks.length,
+        solidTriangles: solidResult?.triangleCount || 0,
+        waterTriangles: waterResult?.triangleCount || 0,
+        timeMs: elapsed,
+      }
+    }, transferables);
+  }
+  
+  // Subchunk mesh building - for parallel region meshing
+  // Solid subchunk: receives pre-separated solid blocks + neighbor blocks
+  if (type === 'buildSubchunkMesh') {
+    const { solidBlocks, neighborBlocks, offset, subchunkY } = data;
+    
+    try {
+      const startTime = performance.now();
+      
+      // Build solid mesh only - neighbor blocks used for culling
+      // targetType=1 means solid, which culls against solid only
+      const result = buildGreedyMeshArrays(solidBlocks, neighborBlocks, offset, 1);
+      
+      const elapsed = performance.now() - startTime;
+      
+      const transferables = [];
+      if (result) {
+        transferables.push(
+          result.positions.buffer,
+          result.normals.buffer,
+          result.colors.buffer,
+          result.indices.buffer
+        );
+      }
+      
+      self.postMessage({
+        type: 'subchunkMeshResult',
+        id,
+        subchunkY,
+        geometry: result,
+        stats: {
+          blockCount: solidBlocks.length,
+          triangleCount: result?.triangleCount || 0,
+          timeMs: elapsed,
+        }
+      }, transferables);
+    } catch (error) {
+      console.error(`Worker error building subchunk ${subchunkY}:`, error);
+      self.postMessage({
+        type: 'subchunkMeshResult',
+        id,
+        subchunkY,
+        geometry: null,
+        stats: {
+          blockCount: solidBlocks?.length || 0,
+          triangleCount: 0,
+          timeMs: 0,
+          error: error.message
+        }
+      });
+    }
+  }
+  
+  // Water subchunk mesh building
+  // Water culls against both solid and water blocks
+  if (type === 'buildWaterSubchunkMesh') {
+    const { waterBlocks, neighborBlocks, offset, subchunkY } = data;
+    
+    try {
+      const startTime = performance.now();
+      
+      // Build water mesh - targetType=2 means water, which culls against solid+water
+      const result = buildGreedyMeshArrays(waterBlocks, neighborBlocks, offset, 2);
+      
+      const elapsed = performance.now() - startTime;
+      
+      const transferables = [];
+      if (result) {
+        transferables.push(
+          result.positions.buffer,
+          result.normals.buffer,
+          result.colors.buffer,
+          result.indices.buffer
+        );
+      }
+      
+      self.postMessage({
+        type: 'waterSubchunkMeshResult',
+        id,
+        subchunkY,
+        geometry: result,
+        stats: {
+          blockCount: waterBlocks.length,
+          triangleCount: result?.triangleCount || 0,
+          timeMs: elapsed,
+        }
+      }, transferables);
+    } catch (error) {
+      console.error(`Worker error building water subchunk ${subchunkY}:`, error);
+      self.postMessage({
+        type: 'waterSubchunkMeshResult',
+        id,
+        subchunkY,
+        geometry: null,
+        stats: {
+          blockCount: waterBlocks?.length || 0,
+          triangleCount: 0,
+          timeMs: 0,
+          error: error.message
+        }
+      });
+    }
   }
 };
 

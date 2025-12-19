@@ -55,115 +55,114 @@ export async function parseMCAFile(file) {
   return chunks;
 }
 
+// Pre-computed BigInt bit offsets for common bitsPerBlock values (4-15)
+// Avoids creating new BigInts in hot loops
+const BIT_OFFSETS = Array.from({ length: 16 }, (_, i) => 
+  Array.from({ length: 64 }, (_, j) => BigInt(j * i))
+);
+
 // Unpack block indices from packed long array (Minecraft 1.16+ format)
+// Optimized version: pre-compute masks, use typed arrays, minimize BigInt creation
 function unpackBlockIndices(data, bitsPerBlock, totalBlocks) {
-  const indices = new Array(totalBlocks);
+  const indices = new Uint16Array(totalBlocks);
   const mask = (1n << BigInt(bitsPerBlock)) - 1n;
-  
-  // In 1.16+, entries don't span across longs
   const entriesPerLong = Math.floor(64 / bitsPerBlock);
   
-  for (let i = 0; i < totalBlocks; i++) {
-    const longIndex = Math.floor(i / entriesPerLong);
-    const indexInLong = i % entriesPerLong;
-    const bitOffset = indexInLong * bitsPerBlock;
+  // Pre-convert all longs to unsigned BigInts once
+  const dataLen = data.length;
+  const longValues = new Array(dataLen);
+  for (let j = 0; j < dataLen; j++) {
+    const val = data[j];
+    longValues[j] = typeof val === 'bigint' ? BigInt.asUintN(64, val) : BigInt(val >>> 0);
+  }
+  
+  // Use pre-computed bit offsets if available
+  const bitOffsets = bitsPerBlock < 16 ? BIT_OFFSETS[bitsPerBlock] : null;
+  
+  let i = 0;
+  for (let longIndex = 0; longIndex < dataLen && i < totalBlocks; longIndex++) {
+    const longValue = longValues[longIndex];
     
-    if (longIndex >= data.length) {
-      indices[i] = 0;
-      continue;
+    for (let indexInLong = 0; indexInLong < entriesPerLong && i < totalBlocks; indexInLong++) {
+      const bitOffset = bitOffsets ? bitOffsets[indexInLong] : BigInt(indexInLong * bitsPerBlock);
+      indices[i++] = Number((longValue >> bitOffset) & mask);
     }
-    
-    // Handle BigInt from NBT parser
-    let longValue = data[longIndex];
-    if (typeof longValue === 'bigint') {
-      longValue = BigInt.asUintN(64, longValue);
-    } else {
-      longValue = BigInt(longValue >>> 0);
-    }
-    
-    indices[i] = Number((longValue >> BigInt(bitOffset)) & mask);
   }
   
   return indices;
 }
 
+// Air block name set for O(1) lookup
+const AIR_BLOCKS = new Set([
+  'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'air'
+]);
+
+// Fast air check - avoid string operations in hot path
+function isAirBlockFast(name) {
+  if (!name) return true;
+  return AIR_BLOCKS.has(name) || name.endsWith(':air');
+}
+
+// Pre-process palette to extract block names and identify air blocks
+// Returns: { names: string[], airMask: Uint8Array }
+function preprocessPalette(palette) {
+  const len = palette.length;
+  const names = new Array(len);
+  const airMask = new Uint8Array(len); // 1 = air, 0 = solid
+  
+  for (let i = 0; i < len; i++) {
+    const entry = palette[i];
+    const name = typeof entry === 'string' ? entry : (entry.Name || 'minecraft:air');
+    names[i] = name;
+    airMask[i] = isAirBlockFast(name) ? 1 : 0;
+  }
+  
+  return { names, airMask };
+}
+
 // Extract block data from a chunk based on Minecraft version format
+// Optimized: removed debug logging, pre-process palettes, batch operations
 export function extractBlocks(chunk) {
   const blocks = [];
   const data = chunk.data;
-  
-  // Debug: log chunk structure
-  console.log('=== CHUNK DEBUG ===');
-  console.log('Chunk data keys:', Object.keys(data));
-  
-  // Log first level structure
-  for (const key of Object.keys(data)) {
-    const value = data[key];
-    if (Array.isArray(value)) {
-      console.log(`  ${key}: Array[${value.length}]`);
-      if (value.length > 0 && typeof value[0] === 'object') {
-        console.log(`    First item keys:`, Object.keys(value[0]));
-      }
-    } else if (typeof value === 'object' && value !== null) {
-      console.log(`  ${key}: Object with keys:`, Object.keys(value));
-    } else {
-      console.log(`  ${key}:`, value);
-    }
-  }
   
   // Try modern format (1.18+) with sections
   let sections = data.sections || (data.Level && data.Level.Sections);
   
   if (!sections) {
-    console.warn('No sections found in chunk. Available keys:', Object.keys(data));
     return blocks;
   }
-  
-  console.log(`Found ${sections.length} sections`);
 
-  for (const section of sections) {
+  for (let s = 0; s < sections.length; s++) {
+    const section = sections[s];
     const y = section.Y !== undefined ? Number(section.Y) : 0;
     const baseY = y * 16;
     
     // Skip sections outside reasonable range
     if (baseY < -64 || baseY > 320) continue;
     
-    // Debug section structure
-    console.log(`\nSection Y=${y} keys:`, Object.keys(section));
-    
     // Modern format with block_states (1.18+)
     const blockStates = section.block_states;
     if (blockStates) {
-      const palette = blockStates.palette || [];
+      const palette = blockStates.palette;
+      if (!palette || palette.length === 0) continue;
+      
       const blockData = blockStates.data;
       
-      if (palette.length === 0) continue;
-      
-      console.log(`Section Y=${y}: palette size=${palette.length}, has data=${!!blockData}, data length=${blockData?.length}`);
-      if (palette.length > 0) {
-        console.log(`  First palette entry:`, JSON.stringify(palette[0]));
-        if (palette.length > 1) console.log(`  Second palette entry:`, JSON.stringify(palette[1]));
-      }
-      if (blockData && blockData.length > 0) {
-        console.log(`  First data long:`, blockData[0]?.toString());
-      }
+      // Pre-process palette once per section
+      const { names, airMask } = preprocessPalette(palette);
       
       // If there's only one block type in the section (no data array needed)
       if (palette.length === 1 || !blockData || blockData.length === 0) {
-        const entry = palette[0];
-        const blockName = typeof entry === 'string' ? entry : (entry.Name || 'minecraft:air');
-        if (isAirBlock(blockName)) continue;
+        if (airMask[0]) continue; // Skip all-air sections
         
+        const blockName = names[0];
         // Fill entire section with this block
         for (let ly = 0; ly < 16; ly++) {
+          const worldY = baseY + ly;
           for (let lz = 0; lz < 16; lz++) {
             for (let lx = 0; lx < 16; lx++) {
-              blocks.push({
-                x: lx,
-                y: baseY + ly,
-                z: lz,
-                block: blockName
-              });
+              blocks.push({ x: lx, y: worldY, z: lz, block: blockName });
             }
           }
         }
@@ -179,24 +178,15 @@ export function extractBlocks(chunk) {
       // Minecraft stores blocks in YZX order within a section
       let blockIndex = 0;
       for (let ly = 0; ly < 16; ly++) {
+        const worldY = baseY + ly;
         for (let lz = 0; lz < 16; lz++) {
           for (let lx = 0; lx < 16; lx++) {
-            const paletteIndex = indices[blockIndex];
+            const paletteIndex = indices[blockIndex++];
             
-            if (paletteIndex < palette.length) {
-              const entry = palette[paletteIndex];
-              const blockName = typeof entry === 'string' ? entry : (entry.Name || 'minecraft:air');
-              
-              if (!isAirBlock(blockName)) {
-                blocks.push({
-                  x: lx,
-                  y: baseY + ly,
-                  z: lz,
-                  block: blockName
-                });
-              }
+            // Skip air blocks (use pre-computed mask)
+            if (paletteIndex < palette.length && !airMask[paletteIndex]) {
+              blocks.push({ x: lx, y: worldY, z: lz, block: names[paletteIndex] });
             }
-            blockIndex++;
           }
         }
       }
@@ -206,24 +196,21 @@ export function extractBlocks(chunk) {
       const palette = section.Palette;
       const blockData = section.BlockStates;
       
-      console.log(`Section Y=${y} (legacy): palette size=${palette.length}`);
-      
       if (palette.length === 0) continue;
+      
+      // Pre-process palette
+      const { names, airMask } = preprocessPalette(palette);
       
       // Single block type in section
       if (palette.length === 1) {
-        const blockName = palette[0].Name || 'minecraft:air';
-        if (isAirBlock(blockName)) continue;
+        if (airMask[0]) continue;
         
+        const blockName = names[0];
         for (let ly = 0; ly < 16; ly++) {
+          const worldY = baseY + ly;
           for (let lz = 0; lz < 16; lz++) {
             for (let lx = 0; lx < 16; lx++) {
-              blocks.push({
-                x: lx,
-                y: baseY + ly,
-                z: lz,
-                block: blockName
-              });
+              blocks.push({ x: lx, y: worldY, z: lz, block: blockName });
             }
           }
         }
@@ -235,22 +222,14 @@ export function extractBlocks(chunk) {
       
       let blockIndex = 0;
       for (let ly = 0; ly < 16; ly++) {
+        const worldY = baseY + ly;
         for (let lz = 0; lz < 16; lz++) {
           for (let lx = 0; lx < 16; lx++) {
-            const paletteIndex = indices[blockIndex];
+            const paletteIndex = indices[blockIndex++];
             
-            if (paletteIndex < palette.length) {
-              const blockName = palette[paletteIndex].Name || 'minecraft:air';
-              if (!isAirBlock(blockName)) {
-                blocks.push({
-                  x: lx,
-                  y: baseY + ly,
-                  z: lz,
-                  block: blockName
-                });
-              }
+            if (paletteIndex < palette.length && !airMask[paletteIndex]) {
+              blocks.push({ x: lx, y: worldY, z: lz, block: names[paletteIndex] });
             }
-            blockIndex++;
           }
         }
       }
@@ -260,10 +239,9 @@ export function extractBlocks(chunk) {
       const blocksArray = section.Blocks;
       const addArray = section.Add || null;
       
-      console.log(`Section Y=${y} (pre-1.13): blocks array length=${blocksArray.length}`);
-      
       let blockIndex = 0;
       for (let ly = 0; ly < 16; ly++) {
+        const worldY = baseY + ly;
         for (let lz = 0; lz < 16; lz++) {
           for (let lx = 0; lx < 16; lx++) {
             let blockId = blocksArray[blockIndex] & 0xFF;
@@ -281,12 +259,7 @@ export function extractBlocks(chunk) {
             
             // Skip air (block ID 0)
             if (blockId !== 0) {
-              blocks.push({
-                x: lx,
-                y: baseY + ly,
-                z: lz,
-                block: `minecraft:legacy_${blockId}`
-              });
+              blocks.push({ x: lx, y: worldY, z: lz, block: `minecraft:legacy_${blockId}` });
             }
             blockIndex++;
           }
@@ -295,18 +268,10 @@ export function extractBlocks(chunk) {
     }
   }
 
-  console.log(`Total blocks extracted: ${blocks.length}`);
   return blocks;
 }
 
-function isAirBlock(name) {
-  if (!name) return true;
-  return name === 'minecraft:air' || 
-         name === 'minecraft:cave_air' || 
-         name === 'minecraft:void_air' ||
-         name === 'air' ||
-         name.endsWith(':air');
-}
+// Note: isAirBlock replaced by isAirBlockFast and AIR_BLOCKS set above
 
 // Get block color based on block name
 export function getBlockColor(blockName) {
@@ -561,4 +526,117 @@ export function getBlockColor(blockName) {
   
   // Unknown block - use a subtle gray
   return '#707070';
+}
+
+/**
+ * Typed Array Block Format
+ * 
+ * For performance-critical paths, blocks are stored as parallel typed arrays:
+ * - x: Int32Array (world X coordinates, supports full Minecraft world range)
+ * - y: Int16Array (-64 to 320+)
+ * - z: Int32Array (world Z coordinates, supports full Minecraft world range)
+ * - blockType: Uint16Array (palette index)
+ * - count: number
+ * 
+ * This format allows zero-copy transfer between workers and reduces memory pressure.
+ */
+
+/**
+ * Convert typed array blocks to object array format (for backwards compatibility)
+ * @param {Object} typedBlocks - { x, y, z, blockType, count }
+ * @param {string[]} palette - Array of block names indexed by blockType
+ * @returns {Array<{x, y, z, block}>}
+ */
+export function typedBlocksToObjects(typedBlocks, palette) {
+  const { x, y, z, blockType, count } = typedBlocks;
+  const blocks = new Array(count);
+  
+  for (let i = 0; i < count; i++) {
+    blocks[i] = {
+      x: x[i],
+      y: y[i],
+      z: z[i],
+      block: palette[blockType[i]] || 'minecraft:air'
+    };
+  }
+  
+  return blocks;
+}
+
+/**
+ * Convert object array blocks to typed array format
+ * @param {Array<{x, y, z, block}>} blocks - Object array of blocks
+ * @returns {{x: Uint8Array, y: Int16Array, z: Uint8Array, blockType: Uint16Array, count: number, palette: string[]}}
+ */
+export function objectsToTypedBlocks(blocks) {
+  const count = blocks.length;
+  const x = new Int32Array(count);  // Int32 for world coordinates
+  const y = new Int16Array(count);
+  const z = new Int32Array(count);  // Int32 for world coordinates
+  const blockType = new Uint16Array(count);
+  
+  const palette = ['minecraft:air'];
+  const paletteMap = new Map([['minecraft:air', 0]]);
+  
+  for (let i = 0; i < count; i++) {
+    const block = blocks[i];
+    x[i] = block.x;
+    y[i] = block.y;
+    z[i] = block.z;
+    
+    let typeIdx = paletteMap.get(block.block);
+    if (typeIdx === undefined) {
+      typeIdx = palette.length;
+      palette.push(block.block);
+      paletteMap.set(block.block, typeIdx);
+    }
+    blockType[i] = typeIdx;
+  }
+  
+  return { x, y, z, blockType, count, palette };
+}
+
+/**
+ * Filter typed blocks by Y range (in-place efficient)
+ * @param {Object} typedBlocks - { x, y, z, blockType, count }
+ * @param {number} minY - Minimum Y (inclusive)
+ * @param {number} maxY - Maximum Y (inclusive)
+ * @returns {Object} - New typed blocks with only blocks in range
+ */
+export function filterTypedBlocksByY(typedBlocks, minY, maxY) {
+  const { x, y, z, blockType, count } = typedBlocks;
+  
+  // First pass: count blocks in range
+  let newCount = 0;
+  for (let i = 0; i < count; i++) {
+    if (y[i] >= minY && y[i] <= maxY) newCount++;
+  }
+  
+  // Allocate new arrays
+  const newX = new Int32Array(newCount);  // Int32 for world coordinates
+  const newY = new Int16Array(newCount);
+  const newZ = new Int32Array(newCount);  // Int32 for world coordinates
+  const newBlockType = new Uint16Array(newCount);
+  
+  // Second pass: copy filtered blocks
+  let j = 0;
+  for (let i = 0; i < count; i++) {
+    if (y[i] >= minY && y[i] <= maxY) {
+      newX[j] = x[i];
+      newY[j] = y[i];
+      newZ[j] = z[i];
+      newBlockType[j] = blockType[i];
+      j++;
+    }
+  }
+  
+  return { x: newX, y: newY, z: newZ, blockType: newBlockType, count: newCount };
+}
+
+/**
+ * Check if a block name represents water
+ */
+export function isWaterBlock(blockName) {
+  if (!blockName) return false;
+  return blockName.includes('water');
 }

@@ -1,8 +1,9 @@
 import { useMemo, useEffect, useState, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { extractBlocks } from '../utils/mcaParser';
-import { getBlockColor } from '../utils/mcaParser';
+import { extractBlocks, getBlockColor } from '../utils/mcaParser';
+import { getExtractionWorkerManager } from '../utils/extractionWorkerManager';
+import { meshWorkerManager } from '../utils/meshWorkerManager';
 import { 
   SubchunkManager, 
   buildSubchunkMesh,
@@ -66,7 +67,7 @@ export default function ChunkedRegion({
     if (isBuilt) return;
     
     const currentBuildId = ++buildIdRef.current;
-    onProgress?.(0, chunkRefs.length + 1, true, 'Extracting blocks...');
+    onProgress?.(0, chunkRefs.length, true, 'Extracting blocks...');
     
     let cancelled = false;
     
@@ -74,39 +75,75 @@ export default function ChunkedRegion({
       const startTime = performance.now();
       const manager = new SubchunkManager();
       
-      // Extract blocks from each chunk
-      for (let i = 0; i < chunkRefs.length; i++) {
-        if (cancelled) return;
-        
-        const chunkRef = chunkRefs[i];
+      // Use parallel worker extraction for large chunk sets
+      const useParallelExtraction = chunkRefs.length >= 8;
+      
+      const totalChunks = chunkRefs.length;
+      
+      if (useParallelExtraction) {
+        // Parallel extraction using worker pool
+        const extractionManager = getExtractionWorkerManager();
+        extractionManager.resetPalette(); // Reset for new region
         
         try {
-          const blocks = extractBlocks(chunkRef.rawData);
+          const { blocks: typedBlocks, palette, totalTime } = await extractionManager.extractChunksParallel(
+            chunkRefs,
+            (completed, total) => {
+              if (!cancelled && currentBuildId === buildIdRef.current) {
+                onProgress?.(completed, total, true, 'Extracting blocks...');
+              }
+            }
+          );
           
-          // Convert to world coordinates and filter by Y range
-          const worldBlocks = [];
-          for (const block of blocks) {
-            if (block.y >= minY && block.y <= maxY) {
-              worldBlocks.push({
-                ...block,
-                x: block.x + chunkRef.chunkX * 16,
-                z: block.z + chunkRef.chunkZ * 16
-              });
+          if (cancelled || currentBuildId !== buildIdRef.current) return;
+          
+          // Show 100% completion for extraction phase
+          onProgress?.(totalChunks, totalChunks, true, 'Extracting blocks...');
+          await new Promise(resolve => setTimeout(resolve, 50)); // Brief pause to show 100%
+          
+          // Filter by Y range and add to manager
+          onProgress?.(0, 1, true, 'Processing blocks...');
+          
+          const { x, y, z, blockType, count } = typedBlocks;
+          
+          // Create filtered typed arrays
+          let filteredCount = 0;
+          for (let i = 0; i < count; i++) {
+            if (y[i] >= minY && y[i] <= maxY) filteredCount++;
+          }
+          
+          const filteredX = new Int32Array(filteredCount);
+          const filteredY = new Int16Array(filteredCount);
+          const filteredZ = new Int32Array(filteredCount);
+          const filteredBlockType = new Uint16Array(filteredCount);
+          
+          let j = 0;
+          for (let i = 0; i < count; i++) {
+            if (y[i] >= minY && y[i] <= maxY) {
+              filteredX[j] = x[i];
+              filteredY[j] = y[i];
+              filteredZ[j] = z[i];
+              filteredBlockType[j] = blockType[i];
+              j++;
             }
           }
           
-          // Add to subchunk manager
-          manager.addBlocks(worldBlocks);
+          manager.addTypedBlocks(
+            { x: filteredX, y: filteredY, z: filteredZ, blockType: filteredBlockType, count: filteredCount },
+            palette
+          );
+          
+          onProgress?.(1, 1, true, 'Processing blocks...');
+          
+          console.log(`Parallel extraction: ${count.toLocaleString()} blocks in ${totalTime.toFixed(0)}ms using ${extractionManager.workerCount} workers`);
         } catch (e) {
-          console.warn(`Failed to extract chunk:`, e.message);
+          console.error('Parallel extraction failed, falling back to sequential:', e);
+          // Fall back to sequential extraction
+          await extractSequential(manager, chunkRefs, minY, maxY, cancelled, currentBuildId, buildIdRef, onProgress);
         }
-        
-        onProgress?.(i + 1, chunkRefs.length + 1, true, 'Extracting blocks...');
-        
-        // Yield every few chunks
-        if (i % 8 === 0) {
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
+      } else {
+        // Sequential extraction for small chunk sets
+        await extractSequential(manager, chunkRefs, minY, maxY, cancelled, currentBuildId, buildIdRef, onProgress);
       }
       
       if (cancelled || currentBuildId !== buildIdRef.current) return;
@@ -122,64 +159,30 @@ export default function ChunkedRegion({
       const subchunkYIndices = manager.getSubchunkYIndices();
       const newGeometries = new Map();
       
-      onProgress?.(0, subchunkYIndices.length, true, 'Building subchunk meshes...');
+      // For large regions (>500k blocks), use main-thread sequential meshing
+      // to avoid memory exhaustion from structured cloning to workers
+      const totalBlocks = manager.solidBlockCount + manager.waterBlockCount;
+      const useMainThread = totalBlocks > 500000;
       
-      for (let i = 0; i < subchunkYIndices.length; i++) {
-        if (cancelled || currentBuildId !== buildIdRef.current) return;
-        
-        const subchunkY = subchunkYIndices[i];
-        const blocks = manager.getSubchunkBlocks(subchunkY);
-        const neighborBlocks = manager.getNeighborBlocks(subchunkY);
-        
-        const geometry = buildSubchunkMesh(
-          blocks,
-          neighborBlocks,
-          getBlockColor,
-          { x: regionCenter.x, y: 0, z: regionCenter.z }
-        );
-        
-        if (geometry) {
-          const range = getSubchunkYRange(subchunkY);
-          newGeometries.set(subchunkY, {
-            geometry,
-            range,
-            visible: true, // Will be updated based on Y range
-            needsRemesh: false
-          });
-        }
-        
-        onProgress?.(i + 1, subchunkYIndices.length, true, 'Building subchunk meshes...');
-        
-        // Yield every few subchunks
-        if (i % 4 === 0) {
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
+      if (useMainThread) {
+        console.log(`Using main-thread meshing for ${totalBlocks.toLocaleString()} blocks (too large for workers)`);
       }
       
-      if (cancelled || currentBuildId !== buildIdRef.current) {
-        // Dispose geometries if cancelled
-        for (const data of newGeometries.values()) {
-          data.geometry?.dispose();
-        }
-        return;
-      }
+      // Show 0% for mesh building phase
+      onProgress?.(0, subchunkYIndices.length, true, 'Building solid meshes...');
+      await new Promise(resolve => setTimeout(resolve, 0)); // Yield to show UI update
       
-      // Build water subchunk meshes
-      const waterYIndices = manager.getWaterSubchunkYIndices();
-      const newWaterGeometries = new Map();
-      
-      if (waterYIndices.length > 0) {
-        onProgress?.(0, waterYIndices.length, true, 'Building water subchunks...');
-        
-        for (let i = 0; i < waterYIndices.length; i++) {
+      if (useMainThread) {
+        // Main-thread sequential meshing for large regions
+        for (let i = 0; i < subchunkYIndices.length; i++) {
           if (cancelled || currentBuildId !== buildIdRef.current) return;
           
-          const subchunkY = waterYIndices[i];
-          const waterBlocks = manager.getWaterSubchunkBlocks(subchunkY);
-          const neighborBlocks = manager.getWaterNeighborBlocks(subchunkY);
+          const subchunkY = subchunkYIndices[i];
+          const blocks = manager.getSubchunkBlocks(subchunkY);
+          const neighborBlocks = manager.getNeighborBlocks(subchunkY);
           
-          const geometry = buildWaterSubchunkMesh(
-            waterBlocks,
+          const geometry = buildSubchunkMesh(
+            blocks,
             neighborBlocks,
             getBlockColor,
             { x: regionCenter.x, y: 0, z: regionCenter.z }
@@ -187,19 +190,152 @@ export default function ChunkedRegion({
           
           if (geometry) {
             const range = getSubchunkYRange(subchunkY);
-            newWaterGeometries.set(subchunkY, {
+            newGeometries.set(subchunkY, {
               geometry,
               range,
-              visible: true
+              visible: true,
+              needsRemesh: false
             });
           }
           
-          onProgress?.(i + 1, waterYIndices.length, true, 'Building water subchunks...');
+          onProgress?.(i + 1, subchunkYIndices.length, true, 'Building solid meshes...');
           
+          // Yield every few subchunks
           if (i % 4 === 0) {
             await new Promise(resolve => setTimeout(resolve, 0));
           }
         }
+      } else {
+        // Worker pool parallel meshing for smaller regions
+        const solidJobs = subchunkYIndices.map(subchunkY => ({
+          solidBlocks: manager.getSubchunkBlocks(subchunkY),
+          neighborBlocks: manager.getNeighborBlocks(subchunkY),
+          offset: { x: regionCenter.x, y: 0, z: regionCenter.z },
+          subchunkY
+        }));
+        
+        const solidResults = await meshWorkerManager.buildSubchunkMeshes(
+          solidJobs,
+          (completed, total) => {
+            if (!cancelled && currentBuildId === buildIdRef.current) {
+              onProgress?.(completed, total, true, 'Building solid meshes...');
+            }
+          }
+        );
+        
+        if (cancelled || currentBuildId !== buildIdRef.current) {
+          for (const result of solidResults) {
+            result.geometry?.dispose();
+          }
+          return;
+        }
+        
+        for (const result of solidResults) {
+          if (result.geometry) {
+            const range = getSubchunkYRange(result.subchunkY);
+            newGeometries.set(result.subchunkY, {
+              geometry: result.geometry,
+              range,
+              visible: true,
+              needsRemesh: false
+            });
+          }
+        }
+      }
+      
+      if (cancelled || currentBuildId !== buildIdRef.current) {
+        for (const data of newGeometries.values()) {
+          data.geometry?.dispose();
+        }
+        return;
+      }
+      
+      // Show 100% completion for solid meshes
+      onProgress?.(subchunkYIndices.length, subchunkYIndices.length, true, 'Building solid meshes...');
+      await new Promise(resolve => setTimeout(resolve, 50)); // Brief pause to show 100%
+      
+      // Build water subchunk meshes
+      const waterYIndices = manager.getWaterSubchunkYIndices();
+      const newWaterGeometries = new Map();
+      
+      if (waterYIndices.length > 0) {
+        onProgress?.(0, waterYIndices.length, true, 'Building water meshes...');
+        await new Promise(resolve => setTimeout(resolve, 0)); // Yield to show UI update
+        
+        if (useMainThread) {
+          // Main-thread sequential meshing for large regions
+          for (let i = 0; i < waterYIndices.length; i++) {
+            if (cancelled || currentBuildId !== buildIdRef.current) return;
+            
+            const subchunkY = waterYIndices[i];
+            const waterBlocks = manager.getWaterSubchunkBlocks(subchunkY);
+            const neighborBlocks = manager.getWaterNeighborBlocks(subchunkY);
+            
+            const geometry = buildWaterSubchunkMesh(
+              waterBlocks,
+              neighborBlocks,
+              getBlockColor,
+              { x: regionCenter.x, y: 0, z: regionCenter.z }
+            );
+            
+            if (geometry) {
+              const range = getSubchunkYRange(subchunkY);
+              newWaterGeometries.set(subchunkY, {
+                geometry,
+                range,
+                visible: true
+              });
+            }
+            
+            onProgress?.(i + 1, waterYIndices.length, true, 'Building water meshes...');
+            
+            if (i % 4 === 0) {
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
+          }
+        } else {
+          // Worker pool parallel meshing for smaller regions
+          const waterJobs = waterYIndices.map(subchunkY => ({
+            waterBlocks: manager.getWaterSubchunkBlocks(subchunkY),
+            neighborBlocks: manager.getWaterNeighborBlocks(subchunkY),
+            offset: { x: regionCenter.x, y: 0, z: regionCenter.z },
+            subchunkY
+          }));
+          
+          const waterResults = await meshWorkerManager.buildWaterSubchunkMeshes(
+            waterJobs,
+            (completed, total) => {
+              if (!cancelled && currentBuildId === buildIdRef.current) {
+                onProgress?.(completed, total, true, 'Building water meshes...');
+              }
+            }
+          );
+          
+          if (cancelled || currentBuildId !== buildIdRef.current) {
+            for (const result of waterResults) {
+              result.geometry?.dispose();
+            }
+            for (const data of newGeometries.values()) {
+              data.geometry?.dispose();
+            }
+            return;
+          }
+          
+          for (const result of waterResults) {
+            if (result.geometry) {
+              const range = getSubchunkYRange(result.subchunkY);
+              newWaterGeometries.set(result.subchunkY, {
+                geometry: result.geometry,
+                range,
+                visible: true
+              });
+            }
+          }
+        }
+        
+        // Show 100% completion for water meshes
+        onProgress?.(waterYIndices.length, waterYIndices.length, true, 'Building water meshes...');
+        await new Promise(resolve => setTimeout(resolve, 50)); // Brief pause to show 100%
       }
       
       if (cancelled || currentBuildId !== buildIdRef.current) {
@@ -211,6 +347,10 @@ export default function ChunkedRegion({
         }
         return;
       }
+      
+      // Show finalizing
+      onProgress?.(1, 1, true, 'Finalizing...');
+      await new Promise(resolve => setTimeout(resolve, 0));
       
       const totalTime = performance.now() - startTime;
       const meshTime = performance.now() - meshStartTime;
@@ -511,4 +651,46 @@ export default function ChunkedRegion({
       {waterMeshes}
     </group>
   );
+}
+
+/**
+ * Sequential extraction fallback for small chunk sets or when parallel fails
+ */
+async function extractSequential(manager, chunkRefs, minY, maxY, cancelled, currentBuildId, buildIdRef, onProgress) {
+  for (let i = 0; i < chunkRefs.length; i++) {
+    if (cancelled) return;
+    
+    const chunkRef = chunkRefs[i];
+    
+    try {
+      const blocks = extractBlocks(chunkRef.rawData);
+      
+      // Convert to world coordinates and filter by Y range
+      const worldBlocks = [];
+      for (const block of blocks) {
+        if (block.y >= minY && block.y <= maxY) {
+          worldBlocks.push({
+            ...block,
+            x: block.x + chunkRef.chunkX * 16,
+            z: block.z + chunkRef.chunkZ * 16
+          });
+        }
+      }
+      
+      // Add to subchunk manager
+      manager.addBlocks(worldBlocks);
+    } catch (e) {
+      console.warn(`Failed to extract chunk:`, e.message);
+    }
+    
+    onProgress?.(i + 1, chunkRefs.length, true, 'Extracting blocks...');
+    
+    // Yield every few chunks
+    if (i % 8 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+  
+  // Show 100% completion
+  onProgress?.(chunkRefs.length, chunkRefs.length, true, 'Extracting blocks...');
 }

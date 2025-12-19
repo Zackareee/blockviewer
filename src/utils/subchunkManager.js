@@ -5,6 +5,8 @@ import { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh, buil
  * 
  * Each subchunk is identified by its Y-level index (subchunkY).
  * For Minecraft's Y range of -64 to 320, this gives 24 subchunk layers.
+ * 
+ * Supports both object-based blocks and typed array blocks for performance.
  */
 export class SubchunkManager {
   constructor() {
@@ -22,6 +24,9 @@ export class SubchunkManager {
     // Track water subchunk bounds separately
     this.minWaterSubchunkY = Infinity;
     this.maxWaterSubchunkY = -Infinity;
+    
+    // Palette for typed array blocks (shared across all chunks)
+    this.palette = null;
   }
 
   /**
@@ -36,6 +41,61 @@ export class SubchunkManager {
     this.maxSubchunkY = -Infinity;
     this.minWaterSubchunkY = Infinity;
     this.maxWaterSubchunkY = -Infinity;
+    this.palette = null;
+  }
+
+  /**
+   * Set the block palette for typed array operations
+   * @param {string[]} palette - Array of block names indexed by block type
+   */
+  setPalette(palette) {
+    this.palette = palette;
+  }
+
+  /**
+   * Add blocks from typed arrays (high-performance path)
+   * @param {Object} typedBlocks - { x: Uint8Array, y: Int16Array, z: Uint8Array, blockType: Uint16Array, count: number }
+   * @param {string[]} palette - Block name palette
+   */
+  addTypedBlocks(typedBlocks, palette) {
+    const { x, y, z, blockType, count } = typedBlocks;
+    
+    // Store palette for later use
+    if (!this.palette) {
+      this.palette = palette;
+    }
+    
+    for (let i = 0; i < count; i++) {
+      const blockX = x[i];
+      const blockY = y[i];
+      const blockZ = z[i];
+      const blockName = palette[blockType[i]] || 'minecraft:air';
+      const subchunkY = getSubchunkY(blockY);
+      
+      const block = { x: blockX, y: blockY, z: blockZ, block: blockName };
+      
+      if (isWaterBlock(blockName)) {
+        this.waterBlocks.push(block);
+        
+        if (subchunkY < this.minWaterSubchunkY) this.minWaterSubchunkY = subchunkY;
+        if (subchunkY > this.maxWaterSubchunkY) this.maxWaterSubchunkY = subchunkY;
+        
+        if (!this.waterSubchunks.has(subchunkY)) {
+          this.waterSubchunks.set(subchunkY, []);
+        }
+        this.waterSubchunks.get(subchunkY).push(block);
+      } else {
+        this.allSolidBlocks.push(block);
+        
+        if (subchunkY < this.minSubchunkY) this.minSubchunkY = subchunkY;
+        if (subchunkY > this.maxSubchunkY) this.maxSubchunkY = subchunkY;
+        
+        if (!this.subchunks.has(subchunkY)) {
+          this.subchunks.set(subchunkY, []);
+        }
+        this.subchunks.get(subchunkY).push(block);
+      }
+    }
   }
 
   /**

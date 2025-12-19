@@ -45,7 +45,7 @@ class MeshWorkerManager {
    * Handle message from worker
    */
   handleWorkerMessage(worker, e) {
-    const { type, id, solid, water, stats } = e.data;
+    const { type, id, solid, water, stats, subchunkY, geometry } = e.data;
 
     if (type === 'meshResult') {
       const job = this.pendingJobs.get(id);
@@ -59,6 +59,28 @@ class MeshWorkerManager {
         job.resolve({ solidGeometry, waterGeometry, stats });
       }
 
+      // Return worker to pool and process next job
+      this.availableWorkers.push(worker);
+      this.processQueue();
+    }
+    
+    // Handle subchunk mesh results
+    if (type === 'subchunkMeshResult' || type === 'waterSubchunkMeshResult') {
+      const job = this.pendingJobs.get(id);
+      if (job) {
+        this.pendingJobs.delete(id);
+        
+        // Create THREE.js geometry from raw arrays
+        const resultGeometry = geometry ? this.createGeometry(geometry) : null;
+        
+        job.resolve({ 
+          geometry: resultGeometry, 
+          subchunkY, 
+          stats,
+          isWater: type === 'waterSubchunkMeshResult'
+        });
+      }
+      
       // Return worker to pool and process next job
       this.availableWorkers.push(worker);
       this.processQueue();
@@ -133,7 +155,7 @@ class MeshWorkerManager {
       this.pendingJobs.set(job.id, job);
 
       worker.postMessage({
-        type: 'buildMesh',
+        type: job.messageType || 'buildMesh',
         id: job.id,
         data: job.data,
       });
@@ -149,6 +171,150 @@ class MeshWorkerManager {
       this.buildMesh(job.blocks, job.offset, job.minY, job.maxY)
     );
     return Promise.all(promises);
+  }
+  
+  /**
+   * Build a single solid subchunk mesh
+   * @param {Array} solidBlocks - Solid blocks in the subchunk
+   * @param {Array} neighborBlocks - Boundary blocks for culling
+   * @param {Object} offset - World offset {x, y, z}
+   * @param {number} subchunkY - Subchunk Y index (for identification)
+   * @returns {Promise<{geometry, subchunkY, stats}>}
+   */
+  buildSubchunkMesh(solidBlocks, neighborBlocks, offset, subchunkY) {
+    this.init();
+    
+    return new Promise((resolve, reject) => {
+      const id = this.nextJobId++;
+      
+      this.jobQueue.push({
+        id,
+        messageType: 'buildSubchunkMesh',
+        data: { solidBlocks, neighborBlocks, offset, subchunkY },
+        resolve,
+        reject,
+      });
+      
+      this.processQueue();
+    });
+  }
+  
+  /**
+   * Build a single water subchunk mesh
+   * @param {Array} waterBlocks - Water blocks in the subchunk
+   * @param {Array} neighborBlocks - Boundary blocks for culling (solid + water)
+   * @param {Object} offset - World offset {x, y, z}
+   * @param {number} subchunkY - Subchunk Y index (for identification)
+   * @returns {Promise<{geometry, subchunkY, stats, isWater: true}>}
+   */
+  buildWaterSubchunkMesh(waterBlocks, neighborBlocks, offset, subchunkY) {
+    this.init();
+    
+    return new Promise((resolve, reject) => {
+      const id = this.nextJobId++;
+      
+      this.jobQueue.push({
+        id,
+        messageType: 'buildWaterSubchunkMesh',
+        data: { waterBlocks, neighborBlocks, offset, subchunkY },
+        resolve,
+        reject,
+      });
+      
+      this.processQueue();
+    });
+  }
+  
+  /**
+   * Build multiple solid subchunk meshes with controlled concurrency
+   * @param {Array} jobs - Array of {solidBlocks, neighborBlocks, offset, subchunkY}
+   * @param {Function} onProgress - Optional callback (completed, total)
+   * @returns {Promise<Array<{geometry, subchunkY, stats}>>}
+   */
+  async buildSubchunkMeshes(jobs, onProgress = null) {
+    if (jobs.length === 0) return [];
+    
+    this.init();
+    
+    // Log job sizes to help debug memory issues
+    let totalBlocks = 0;
+    for (const job of jobs) {
+      totalBlocks += job.solidBlocks.length + job.neighborBlocks.length;
+    }
+    console.log(`MeshWorkerManager: Building ${jobs.length} solid subchunks (${totalBlocks.toLocaleString()} total blocks)`);
+    
+    let completed = 0;
+    const total = jobs.length;
+    const results = [];
+    
+    // Process in batches to avoid memory exhaustion
+    // Limit concurrent jobs to worker pool size
+    const batchSize = this.poolSize;
+    
+    for (let i = 0; i < jobs.length; i += batchSize) {
+      const batch = jobs.slice(i, i + batchSize);
+      
+      const batchPromises = batch.map(job => {
+        return this.buildSubchunkMesh(
+          job.solidBlocks, 
+          job.neighborBlocks, 
+          job.offset, 
+          job.subchunkY
+        ).then(result => {
+          completed++;
+          onProgress?.(completed, total);
+          return result;
+        });
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+    }
+    
+    return results;
+  }
+  
+  /**
+   * Build multiple water subchunk meshes with controlled concurrency
+   * @param {Array} jobs - Array of {waterBlocks, neighborBlocks, offset, subchunkY}
+   * @param {Function} onProgress - Optional callback (completed, total)
+   * @returns {Promise<Array<{geometry, subchunkY, stats, isWater: true}>>}
+   */
+  async buildWaterSubchunkMeshes(jobs, onProgress = null) {
+    if (jobs.length === 0) return [];
+    
+    this.init();
+    
+    console.log(`MeshWorkerManager: Building ${jobs.length} water subchunks`);
+    
+    let completed = 0;
+    const total = jobs.length;
+    const results = [];
+    
+    // Process in batches to avoid memory exhaustion
+    const batchSize = this.poolSize;
+    
+    for (let i = 0; i < jobs.length; i += batchSize) {
+      const batch = jobs.slice(i, i + batchSize);
+      
+      const batchPromises = batch.map(job => {
+        return this.buildWaterSubchunkMesh(
+          job.waterBlocks, 
+          job.neighborBlocks, 
+          job.offset, 
+          job.subchunkY
+        ).then(result => {
+          completed++;
+          onProgress?.(completed, total);
+          return result;
+        });
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+    }
+    
+    return results;
   }
 
   /**
