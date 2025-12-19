@@ -89,6 +89,15 @@ export default function ChunkedRegion({
     let cancelled = false;
     
     const buildMesh = async () => {
+      console.log('=== ChunkedRegion Building Mesh ===');
+      console.log('Region center used for MESH OFFSET:', JSON.stringify(regionCenter));
+      console.log('Offset passed to mesher: { x:', regionCenter.x, ', y: 0, z:', regionCenter.z, '}');
+      console.log('Group position will be: [0,', -regionCenter.y, ', 0]');
+      console.log('Chunk count:', chunkRefs.length);
+      if (chunkRefs.length > 0) {
+        console.log('First chunk:', chunkRefs[0].chunkX, chunkRefs[0].chunkZ);
+      }
+      
       const startTime = performance.now();
       const manager = new SubchunkManager();
       

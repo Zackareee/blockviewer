@@ -3,6 +3,18 @@ import ChunkViewer from './components/ChunkViewer';
 import { parseMCAFile, extractBlocks } from './utils/mcaParser';
 import './App.css';
 
+// Build collision world from blocks with Y filtering
+function buildCollisionSet(blocks, filterMinY = -64, filterMaxY = 320) {
+  const world = new Set();
+  for (const block of blocks) {
+    const y = Math.floor(block.y);
+    if (y >= filterMinY && y <= filterMaxY) {
+      world.add(`${Math.floor(block.x)},${y},${Math.floor(block.z)}`);
+    }
+  }
+  return world;
+}
+
 // Helper to get Y range without stack overflow for large arrays
 function getYRange(blocks) {
   if (blocks.length === 0) return { min: -64, max: 320 };
@@ -46,6 +58,19 @@ function App() {
   // Build progress for region rendering
   const [buildProgress, setBuildProgress] = useState({ current: 0, total: 0, isBuilding: false, message: '' });
   
+  // Camera mode: 'freecam' or 'walk'
+  const [cameraMode, setCameraMode] = useState('freecam');
+  
+  // Collision world for walking mode
+  const [collisionWorld, setCollisionWorld] = useState(null);
+  const [collisionCenter, setCollisionCenter] = useState({ x: 0, y: 0, z: 0 });
+  
+  // Player position for display
+  const [playerPosition, setPlayerPosition] = useState(null);
+  
+  // Walk mode FOV (field of view)
+  const [walkFov, setWalkFov] = useState(70);
+  
   // Drag painting state for chunk selection
   const [isDragging, setIsDragging] = useState(false);
   const [dragMode, setDragMode] = useState(null); // 'add' or 'remove'
@@ -57,6 +82,220 @@ function App() {
   
   const handleBuildProgress = useCallback((current, total, isBuilding, message = '') => {
     setBuildProgress({ current, total, isBuilding, message });
+  }, []);
+
+  // Track the Y range used for the last collision build to avoid unnecessary rebuilds
+  const lastCollisionYRangeRef = useRef({ minY: null, maxY: null });
+  const collisionRebuildTimeoutRef = useRef(null);
+
+  // Async collision world builder with progress
+  const buildCollisionWorldAsync = useCallback(async (chunkRefs, center, filterMinY, filterMaxY, onProgress) => {
+    const world = new Set();
+    const totalChunks = chunkRefs.length;
+    
+    console.log('=== Building Collision World ===');
+    console.log('Total chunks:', totalChunks, 'Center:', JSON.stringify(center));
+    console.log('Y filter:', filterMinY, 'to', filterMaxY);
+    if (chunkRefs.length > 0) {
+      console.log('First chunk:', chunkRefs[0].chunkX, chunkRefs[0].chunkZ);
+    }
+    
+    // Process ALL chunks for collision - async extraction handles large maps fine
+    const chunksToProcess = chunkRefs;
+    const processTotal = chunksToProcess.length;
+    
+    let totalBlocksExtracted = 0;
+    let actualMinY = Infinity, actualMaxY = -Infinity;
+    let chunksWithBlocks = 0;
+    let chunksEmpty = 0;
+    
+    for (let i = 0; i < processTotal; i++) {
+      const chunkRef = chunksToProcess[i];
+      
+      try {
+        const chunkBlocks = extractBlocks(chunkRef.rawData);
+        
+        // Filter blocks by Y range
+        let blocksInRange = 0;
+        for (const block of chunkBlocks) {
+          const worldY = Math.floor(block.y);
+          
+          // Apply Y filter
+          if (worldY < filterMinY || worldY > filterMaxY) continue;
+          
+          const worldX = Math.floor(block.x + chunkRef.chunkX * 16);
+          const worldZ = Math.floor(block.z + chunkRef.chunkZ * 16);
+          
+          if (worldY < actualMinY) actualMinY = worldY;
+          if (worldY > actualMaxY) actualMaxY = worldY;
+          
+          world.add(`${worldX},${worldY},${worldZ}`);
+          blocksInRange++;
+        }
+        
+        if (blocksInRange === 0) {
+          chunksEmpty++;
+        } else {
+          chunksWithBlocks++;
+          totalBlocksExtracted += blocksInRange;
+        }
+      } catch (e) {
+        console.warn(`Failed to extract chunk (${chunkRef.chunkX}, ${chunkRef.chunkZ}):`, e.message);
+      }
+      
+      // Report progress and yield every few chunks
+      if (i % 4 === 0 || i === processTotal - 1) {
+        onProgress?.(i + 1, processTotal);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    
+    console.log(`Built collision world with ${world.size} unique blocks from ${chunksWithBlocks} chunks`);
+    console.log(`  Y range in collision: ${actualMinY} to ${actualMaxY}`);
+    
+    return world;
+  }, []);
+
+  // Handle camera mode change
+  const handleCameraModeChange = useCallback(async (mode) => {
+    if (mode === cameraMode) return;
+    
+    if (mode === 'walk') {
+      // Build collision world for walking (async)
+      let world = null;
+      let center = { x: 0, y: 64, z: 0 };
+      
+      if (viewMode === 'region' && regionChunkData) {
+        setBuildProgress({ current: 0, total: 1, isBuilding: true, message: 'Building collision...' });
+        
+        world = await buildCollisionWorldAsync(
+          regionChunkData.chunkRefs,
+          regionChunkData.center,
+          minY,
+          maxY,
+          (current, total) => {
+            setBuildProgress({ current, total, isBuilding: true, message: 'Building collision...' });
+          }
+        );
+        center = regionChunkData.center;
+        
+        setBuildProgress({ current: 0, total: 0, isBuilding: false, message: '' });
+      } else if (chunkViewData) {
+        setBuildProgress({ current: 0, total: 1, isBuilding: true, message: 'Building collision...' });
+        
+        world = await buildCollisionWorldAsync(
+          chunkViewData.chunkRefs,
+          chunkViewData.center,
+          minY,
+          maxY,
+          (current, total) => {
+            setBuildProgress({ current, total, isBuilding: true, message: 'Building collision...' });
+          }
+        );
+        center = chunkViewData.center;
+        
+        setBuildProgress({ current: 0, total: 0, isBuilding: false, message: '' });
+      } else if (blocks.length > 0) {
+        // Single chunk view - fast enough to do synchronously
+        world = buildCollisionSet(blocks, minY, maxY);
+        // Calculate center from blocks
+        let minX = Infinity, maxX = -Infinity;
+        let minYBlock = Infinity, maxYBlock = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
+        for (const b of blocks) {
+          if (b.x < minX) minX = b.x;
+          if (b.x > maxX) maxX = b.x;
+          if (b.y < minYBlock) minYBlock = b.y;
+          if (b.y > maxYBlock) maxYBlock = b.y;
+          if (b.z < minZ) minZ = b.z;
+          if (b.z > maxZ) maxZ = b.z;
+        }
+        center = {
+          x: (minX + maxX) / 2,
+          y: (minYBlock + maxYBlock) / 2,
+          z: (minZ + maxZ) / 2
+        };
+      }
+      
+      if (!world || world.size === 0) {
+        console.error('Failed to build collision world! viewMode:', viewMode, 'regionChunkData:', !!regionChunkData, 'chunkViewData:', !!chunkViewData, 'blocks:', blocks.length);
+        return; // Don't switch to walk mode without collision
+      }
+      
+      // Set collision data and mode together in same render
+      console.log('=== Setting Collision State ===');
+      console.log('Collision world size:', world.size);
+      console.log('Collision center being set:', JSON.stringify(center));
+      console.log('regionChunkData.center:', JSON.stringify(regionChunkData?.center || chunkViewData?.center));
+      setCollisionWorld(world);
+      setCollisionCenter(center);
+      lastCollisionYRangeRef.current = { minY, maxY }; // Track what we built
+      setCameraMode(mode);
+    } else {
+      setPlayerPosition(null);
+      setCameraMode(mode);
+    }
+  }, [cameraMode, viewMode, regionChunkData, chunkViewData, blocks, minY, maxY, buildCollisionWorldAsync]);
+
+  // Rebuild collision world when Y range changes while in walk mode (debounced)
+  useEffect(() => {
+    // Only rebuild if in walk mode
+    if (cameraMode !== 'walk') return;
+    
+    // Check if Y range actually changed from what we last built
+    if (lastCollisionYRangeRef.current.minY === minY && 
+        lastCollisionYRangeRef.current.maxY === maxY) {
+      return; // No change, don't rebuild
+    }
+    
+    // Clear any pending rebuild
+    if (collisionRebuildTimeoutRef.current) {
+      clearTimeout(collisionRebuildTimeoutRef.current);
+    }
+    
+    // Debounce the rebuild by 500ms
+    collisionRebuildTimeoutRef.current = setTimeout(async () => {
+      console.log('Rebuilding collision for Y range change:', minY, 'to', maxY);
+      
+      let chunkRefs = null;
+      let center = null;
+      
+      if (viewMode === 'region' && regionChunkData) {
+        chunkRefs = regionChunkData.chunkRefs;
+        center = regionChunkData.center;
+      } else if (chunkViewData) {
+        chunkRefs = chunkViewData.chunkRefs;
+        center = chunkViewData.center;
+      }
+      
+      if (chunkRefs && center) {
+        setBuildProgress({ current: 0, total: 1, isBuilding: true, message: 'Rebuilding collision...' });
+        
+        const world = await buildCollisionWorldAsync(
+          chunkRefs,
+          center,
+          minY,
+          maxY,
+          (current, total) => {
+            setBuildProgress({ current, total, isBuilding: true, message: 'Rebuilding collision...' });
+          }
+        );
+        
+        setBuildProgress({ current: 0, total: 0, isBuilding: false, message: '' });
+        setCollisionWorld(world);
+        lastCollisionYRangeRef.current = { minY, maxY };
+      }
+    }, 500);
+    
+    return () => {
+      if (collisionRebuildTimeoutRef.current) {
+        clearTimeout(collisionRebuildTimeoutRef.current);
+      }
+    };
+  }, [minY, maxY, cameraMode, viewMode, regionChunkData, chunkViewData, buildCollisionWorldAsync]);
+
+  const handlePlayerPosition = useCallback((pos) => {
+    setPlayerPosition(pos);
   }, []);
 
   // Calculate actual Y range from blocks (capped at 320 max for slider)
@@ -513,16 +752,31 @@ function App() {
           </div>
         )}
         {(blocks.length > 0 || regionChunkData || chunkViewData) && !loading ? (
-          <ChunkViewer 
-            blocks={blocks} 
-            minY={minY} 
-            maxY={maxY}
-            autoRotate={autoRotate}
-            isRegion={viewMode === 'region'}
-            regionChunkData={regionChunkData}
-            chunkViewData={chunkViewData}
-            onBuildProgress={handleBuildProgress}
-          />
+          <>
+            <ChunkViewer 
+              blocks={blocks} 
+              minY={minY} 
+              maxY={maxY}
+              autoRotate={autoRotate}
+              isRegion={viewMode === 'region'}
+              regionChunkData={regionChunkData}
+              chunkViewData={chunkViewData}
+              onBuildProgress={handleBuildProgress}
+              cameraMode={cameraMode}
+              collisionWorld={collisionWorld}
+              regionCenter={collisionCenter}
+              onPlayerPosition={handlePlayerPosition}
+              walkFov={walkFov}
+            />
+            {cameraMode === 'walk' && (
+              <>
+                <div className="walk-crosshair" />
+                <div className="walk-hint-overlay">
+                  Click to start walking • ESC to release cursor
+                </div>
+              </>
+            )}
+          </>
         ) : !loading && (
           <div className="empty-state">
             <div className="empty-icon">⛏️</div>
@@ -622,7 +876,7 @@ function App() {
       <div className="control-panel">
         <div className="panel-header">
           <h1>Block Viewer</h1>
-          <span className="version">v1.5</span>
+          <span className="version">v1.6</span>
         </div>
 
         {/* File Upload */}
@@ -776,17 +1030,91 @@ function App() {
         {(blocks.length > 0 || regionChunkData) && (
           <section className="panel-section">
             <h3>View Options</h3>
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={autoRotate}
-                onChange={(e) => setAutoRotate(e.target.checked)}
-              />
-              <span className="toggle-label">Auto Rotate</span>
-            </label>
-            {viewMode === 'region' && (
+            
+            {/* Camera Mode Toggle */}
+            <div className="camera-mode-toggle">
+              <span className="toggle-section-label">Camera Mode</span>
+              <div className="mode-buttons">
+                <button
+                  className={`mode-btn small ${cameraMode === 'freecam' ? 'active' : ''}`}
+                  onClick={() => handleCameraModeChange('freecam')}
+                >
+                  🎥 Freecam
+                </button>
+                <button
+                  className={`mode-btn small ${cameraMode === 'walk' ? 'active' : ''}`}
+                  onClick={() => handleCameraModeChange('walk')}
+                >
+                  🚶 Walk
+                </button>
+              </div>
+            </div>
+            
+            {cameraMode === 'walk' && playerPosition && (
+              <div className="player-position">
+                <span className="position-label">Position:</span>
+                <span className="position-value">
+                  X: {Math.floor(playerPosition.x)} Y: {Math.floor(playerPosition.y)} Z: {Math.floor(playerPosition.z)}
+                </span>
+              </div>
+            )}
+            
+            {cameraMode === 'walk' && (
+              <div className="fov-slider">
+                <label>
+                  <span className="fov-label">FOV: {walkFov}°</span>
+                  <input
+                    type="range"
+                    min="50"
+                    max="120"
+                    value={walkFov}
+                    onChange={(e) => setWalkFov(Number(e.target.value))}
+                    className="slider"
+                  />
+                </label>
+                <div className="fov-presets">
+                  <button 
+                    className={`fov-preset-btn ${walkFov === 70 ? 'active' : ''}`}
+                    onClick={() => setWalkFov(70)}
+                  >
+                    Normal
+                  </button>
+                  <button 
+                    className={`fov-preset-btn ${walkFov === 90 ? 'active' : ''}`}
+                    onClick={() => setWalkFov(90)}
+                  >
+                    Wide
+                  </button>
+                  <button 
+                    className={`fov-preset-btn ${walkFov === 110 ? 'active' : ''}`}
+                    onClick={() => setWalkFov(110)}
+                  >
+                    Quake Pro
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {cameraMode === 'freecam' && (
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={autoRotate}
+                  onChange={(e) => setAutoRotate(e.target.checked)}
+                />
+                <span className="toggle-label">Auto Rotate</span>
+              </label>
+            )}
+            
+            {viewMode === 'region' && cameraMode === 'freecam' && (
               <p className="hint-text">
                 💡 Chunks load dynamically as you move the camera. Zoom in to see more detail.
+              </p>
+            )}
+            
+            {cameraMode === 'walk' && (
+              <p className="hint-text">
+                🎮 Click to lock cursor. WASD to move, Space to jump, ESC to unlock.
               </p>
             )}
           </section>
@@ -828,11 +1156,20 @@ function App() {
         {/* Instructions */}
         <section className="panel-section instructions">
           <h3>Controls</h3>
-          <ul>
-            <li><kbd>Drag</kbd> Rotate view</li>
-            <li><kbd>Scroll</kbd> Zoom in/out</li>
-            <li><kbd>Right Drag</kbd> Pan view</li>
-          </ul>
+          {cameraMode === 'freecam' ? (
+            <ul>
+              <li><kbd>Drag</kbd> Rotate view</li>
+              <li><kbd>Scroll</kbd> Zoom in/out</li>
+              <li><kbd>Right Drag</kbd> Pan view</li>
+            </ul>
+          ) : (
+            <ul>
+              <li><kbd>W A S D</kbd> Move</li>
+              <li><kbd>Mouse</kbd> Look around</li>
+              <li><kbd>Space</kbd> Jump</li>
+              <li><kbd>Esc</kbd> Unlock cursor</li>
+            </ul>
+          )}
         </section>
       </div>
     </div>

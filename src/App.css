@@ -896,6 +896,153 @@ kbd {
   }
 }
 
+/* Camera Mode Toggle */
+.camera-mode-toggle {
+  margin-bottom: 1rem;
+}
+
+.toggle-section-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.mode-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mode-btn.small {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+/* Player Position Display */
+.player-position {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.75rem;
+}
+
+/* FOV Slider */
+.fov-slider {
+  margin-bottom: 0.75rem;
+}
+
+.fov-slider label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.fov-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.fov-presets {
+  display: flex;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.fov-preset-btn {
+  flex: 1;
+  padding: 0.375rem 0.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.fov-preset-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+
+.fov-preset-btn.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+.position-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.position-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--diamond);
+}
+
+/* Walking mode crosshair */
+.walk-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+  z-index: 50;
+}
+
+.walk-crosshair::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Walk mode hint overlay */
+.walk-hint-overlay {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(10, 10, 15, 0.8);
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-accent);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  pointer-events: none;
+  z-index: 50;
+  backdrop-filter: blur(4px);
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .app {

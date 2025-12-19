@@ -1,26 +1,40 @@
-import { useMemo, useRef, useEffect } from 'react';
+import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { getBlockColor } from '../utils/mcaParser';
 import CulledMesh from './CulledMesh';
 import ChunkedRegion from './ChunkedRegion';
+import FirstPersonControls from './FirstPersonControls';
 import * as THREE from 'three';
 
-// Helper to set initial camera target
-function CameraTargetSetter({ target, controlsRef }) {
+// Helper to set initial camera target (only on first mount, not on mode switches)
+function CameraTargetSetter({ target, controlsRef, skipIfAlreadySet = false }) {
   const hasSet = useRef(false);
+  const initialTargetRef = useRef(target);
   
   useFrame(() => {
     if (!hasSet.current && controlsRef.current) {
-      controlsRef.current.target.set(...target);
-      controlsRef.current.update();
+      // Only set if skipIfAlreadySet is false, or if the controls haven't been positioned yet
+      if (!skipIfAlreadySet) {
+        controlsRef.current.target.set(...target);
+        controlsRef.current.update();
+      }
       hasSet.current = true;
     }
   });
   
-  // Reset when target changes
+  // Only reset on significant target changes (not mode switches)
   useEffect(() => {
-    hasSet.current = false;
+    const prevTarget = initialTargetRef.current;
+    const targetChanged = 
+      Math.abs(prevTarget[0] - target[0]) > 1 ||
+      Math.abs(prevTarget[1] - target[1]) > 1 ||
+      Math.abs(prevTarget[2] - target[2]) > 1;
+    
+    if (targetChanged) {
+      hasSet.current = false;
+      initialTargetRef.current = target;
+    }
   }, [target[0], target[1], target[2]]);
   
   return null;
@@ -127,7 +141,7 @@ function ChunkContainer({ blocks, minY, maxY, autoRotate }) {
 }
 
 // Container for region with optional rotation
-function RegionContainer({ regionChunkData, minY, maxY, autoRotate, onProgress }) {
+function RegionContainer({ regionChunkData, minY, maxY, autoRotate, onProgress, onManagerReady, regionCenter }) {
   const groupRef = useRef();
   
   useFrame((state, delta) => {
@@ -138,6 +152,7 @@ function RegionContainer({ regionChunkData, minY, maxY, autoRotate, onProgress }
 
   if (!regionChunkData) return null;
 
+  // Always use the provided regionCenter (computed in SceneContent)
   return (
     <group ref={groupRef}>
       <ChunkedRegion 
@@ -145,29 +160,71 @@ function RegionContainer({ regionChunkData, minY, maxY, autoRotate, onProgress }
         minY={minY}
         maxY={maxY}
         getBlockColor={getBlockColor}
-        regionCenter={regionChunkData.center}
+        regionCenter={regionCenter}
         onProgress={onProgress}
+        onManagerReady={onManagerReady}
       />
     </group>
   );
 }
 
-export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, regionChunkData, chunkViewData, onBuildProgress }) {
-  // Determine if we're in multi-chunk mode
-  const isMultiChunk = !isRegion && chunkViewData && chunkViewData.chunkRefs?.length > 1;
+// Component to dynamically update camera FOV
+function DynamicFOV({ fov, enabled }) {
+  const { camera } = useThree();
+  
+  useEffect(() => {
+    if (enabled && camera.isPerspectiveCamera) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
+  }, [fov, enabled, camera]);
+  
+  return null;
+}
+
+// Scene content component (inside Canvas)
+function SceneContent({ 
+  blocks, 
+  minY, 
+  maxY, 
+  autoRotate, 
+  isRegion, 
+  regionChunkData, 
+  chunkViewData, 
+  onBuildProgress,
+  cameraMode,
+  collisionWorld,
+  regionCenter: regionCenterProp,
+  onPlayerPosition,
+  walkFov = 70
+}) {
   const controlsRef = useRef();
+  const { camera } = useThree();
+  const isMultiChunk = !isRegion && chunkViewData && chunkViewData.chunkRefs?.length > 1;
+  
+  // Compute the effective region center from source data
+  // This ensures mesh and collision use the exact same center
+  const effectiveRegionCenter = useMemo(() => {
+    let center;
+    if (isRegion && regionChunkData?.center) {
+      center = regionChunkData.center;
+    } else if (isMultiChunk && chunkViewData?.center) {
+      center = chunkViewData.center;
+    } else {
+      // Fallback for single chunk view
+      center = regionCenterProp || { x: 0, y: 64, z: 0 };
+    }
+    console.log('SceneContent: effectiveRegionCenter =', JSON.stringify(center));
+    return center;
+  }, [isRegion, regionChunkData, isMultiChunk, chunkViewData, regionCenterProp]);
   
   // Calculate camera distance and orbit target based on content size
   const cameraConfig = useMemo(() => {
     if (isRegion && regionChunkData) {
-      // For region, the mesh is centered around [0, 0, 0] in XZ
-      // and shifted by -regionCenter.y in Y (so Minecraft Y=64 is at world Y=0)
-      // Orbit target should be at the center of the region
-      const targetY = 0; // This corresponds to ~Y=64 in Minecraft coords
-      
+      const targetY = 0;
       return { 
         position: [100, 80, 100],
-        target: [0, targetY, 0], // Exact center of region in X and Z
+        target: [0, targetY, 0],
         distance: 500,
         maxDistance: 2000,
         fogNear: 800,
@@ -176,7 +233,6 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
     }
     
     if (isMultiChunk && chunkViewData) {
-      // Multi-chunk view - similar to region but smaller scale
       const numChunks = chunkViewData.chunkRefs.length;
       const distance = Math.max(50, numChunks * 8);
       
@@ -213,7 +269,6 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
     const maxDimension = Math.max(width, depth, 32);
     const distance = maxDimension * 2;
     
-    // Center the orbit target on the chunk
     const centerX = (minX + maxX) / 2;
     const centerY = (minYBlock + maxYBlock) / 2;
     const centerZ = (minZ + maxZ) / 2;
@@ -228,8 +283,37 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
     };
   }, [blocks, isRegion, regionChunkData, isMultiChunk, chunkViewData]);
   
-  // Use key to force remount when switching between chunk/region
-  // NOTE: Do NOT include minY/maxY - components handle range changes internally
+  // Track previous camera mode to detect switches
+  const prevCameraModeRef = useRef(cameraMode);
+  const [cameFromWalk, setCameFromWalk] = useState(false);
+  
+  // Handle camera mode switches - preserve position
+  useEffect(() => {
+    const prevMode = prevCameraModeRef.current;
+    prevCameraModeRef.current = cameraMode;
+    
+    if (prevMode === cameraMode) return;
+    
+    if (cameraMode === 'freecam') {
+      // Mark that we came from walk mode
+      if (prevMode === 'walk') {
+        setCameFromWalk(true);
+      }
+      
+      if (controlsRef.current) {
+        // Switching from walk to freecam: set orbit target in front of camera
+        const forward = new THREE.Vector3(0, 0, -1);
+        forward.applyQuaternion(camera.quaternion);
+        const target = camera.position.clone().add(forward.multiplyScalar(20));
+        controlsRef.current.target.copy(target);
+        controlsRef.current.update();
+      }
+    }
+    // When switching to walk mode, just keep the current camera position
+    // FirstPersonControls will take over from there
+  }, [cameraMode, camera]);
+
+  // Key for remounting
   const key = useMemo(() => {
     if (isRegion) {
       return `region-${regionChunkData?.chunkRefs?.length || 0}`;
@@ -239,14 +323,9 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
     }
     return `chunk-${blocks.length}`;
   }, [blocks.length, isRegion, regionChunkData, isMultiChunk, chunkViewData]);
-  
+
   return (
-    <Canvas 
-      frameloop="demand"
-      className="chunk-canvas"
-      gl={{ antialias: true, alpha: true }}
-      dpr={[1, 2]}
-    >
+    <>
       <color attach="background" args={['#0a0a0f']} />
       <fog attach="fog" args={['#0a0a0f', cameraConfig.fogNear || 500, cameraConfig.fogFar || 2000]} />
       
@@ -255,15 +334,31 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
         position={cameraConfig.position} 
         fov={50} 
       />
-      <SmoothOrbitControls
-        minDistance={5}
-        maxDistance={cameraConfig.maxDistance || 500}
-        targetRef={controlsRef}
-      />
-      <CameraTargetSetter 
-        target={cameraConfig.target || [0, 0, 0]} 
-        controlsRef={controlsRef}
-      />
+      
+      {/* Dynamic FOV for walk mode */}
+      <DynamicFOV fov={walkFov} enabled={cameraMode === 'walk'} />
+      
+      {/* Camera controls based on mode */}
+      {cameraMode === 'freecam' ? (
+        <>
+          <SmoothOrbitControls
+            minDistance={5}
+            maxDistance={cameraConfig.maxDistance || 500}
+            targetRef={controlsRef}
+          />
+          <CameraTargetSetter 
+            target={cameraConfig.target || [0, 0, 0]} 
+            controlsRef={controlsRef}
+            skipIfAlreadySet={cameFromWalk}
+          />
+        </>
+      ) : (
+        <FirstPersonControls 
+          collisionWorld={collisionWorld}
+          regionCenter={effectiveRegionCenter}
+          onPositionChange={onPlayerPosition}
+        />
+      )}
       
       {/* Lighting */}
       <ambientLight intensity={0.4} />
@@ -278,8 +373,9 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
           regionChunkData={regionChunkData}
           minY={minY} 
           maxY={maxY} 
-          autoRotate={autoRotate}
+          autoRotate={autoRotate && cameraMode === 'freecam'}
           onProgress={onBuildProgress}
+          regionCenter={effectiveRegionCenter}
         />
       ) : isMultiChunk && chunkViewData ? (
         <RegionContainer 
@@ -287,8 +383,9 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
           regionChunkData={chunkViewData}
           minY={minY} 
           maxY={maxY} 
-          autoRotate={autoRotate}
+          autoRotate={autoRotate && cameraMode === 'freecam'}
           onProgress={onBuildProgress}
+          regionCenter={effectiveRegionCenter}
         />
       ) : blocks && blocks.length > 0 ? (
         <ChunkContainer 
@@ -296,9 +393,50 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
           blocks={blocks} 
           minY={minY} 
           maxY={maxY} 
-          autoRotate={autoRotate}
+          autoRotate={autoRotate && cameraMode === 'freecam'}
         />
       ) : null}
+    </>
+  );
+}
+
+export default function ChunkViewer({ 
+  blocks, 
+  minY, 
+  maxY, 
+  autoRotate, 
+  isRegion, 
+  regionChunkData, 
+  chunkViewData, 
+  onBuildProgress,
+  cameraMode = 'freecam',
+  collisionWorld,
+  regionCenter,
+  onPlayerPosition,
+  walkFov = 70
+}) {
+  return (
+    <Canvas 
+      frameloop={cameraMode === 'walk' ? 'always' : 'always'}
+      className="chunk-canvas"
+      gl={{ antialias: true, alpha: true }}
+      dpr={[1, 2]}
+    >
+      <SceneContent
+        blocks={blocks}
+        minY={minY}
+        maxY={maxY}
+        autoRotate={autoRotate}
+        isRegion={isRegion}
+        regionChunkData={regionChunkData}
+        chunkViewData={chunkViewData}
+        onBuildProgress={onBuildProgress}
+        cameraMode={cameraMode}
+        collisionWorld={collisionWorld}
+        regionCenter={regionCenter}
+        onPlayerPosition={onPlayerPosition}
+        walkFov={walkFov}
+      />
     </Canvas>
   );
 }
