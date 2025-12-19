@@ -2,11 +2,11 @@ import { useMemo, useEffect, useState, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { extractBlocks } from '../utils/mcaParser';
-import { buildGreedyMeshes } from '../utils/greedyMesher';
 import { getBlockColor } from '../utils/mcaParser';
 import { 
   SubchunkManager, 
-  buildSubchunkMesh, 
+  buildSubchunkMesh,
+  buildWaterSubchunkMesh,
   getSubchunkYRange,
   SUBCHUNK_SIZE 
 } from '../utils/subchunkManager';
@@ -18,9 +18,10 @@ export default function ChunkedRegion({
   regionCenter,
   onProgress
 }) {
-  // Subchunk geometries: Map of subchunkY -> { geometry, visible }
+  // Subchunk geometries: Map of subchunkY -> { geometry, visible, ... }
   const [subchunkGeometries, setSubchunkGeometries] = useState(new Map());
-  const [waterGeometry, setWaterGeometry] = useState(null);
+  // Water subchunk geometries: Map of subchunkY -> { geometry, visible, ... }
+  const [waterSubchunkGeometries, setWaterSubchunkGeometries] = useState(new Map());
   const [subchunkManager, setSubchunkManager] = useState(null);
   const [isBuilt, setIsBuilt] = useState(false);
   const [lastRange, setLastRange] = useState({ minY: -64, maxY: 320 });
@@ -56,7 +57,7 @@ export default function ChunkedRegion({
     if (!chunkRefs || chunkRefs.length === 0) {
       setSubchunkManager(null);
       setSubchunkGeometries(new Map());
-      setWaterGeometry(null);
+      setWaterSubchunkGeometries(new Map());
       setIsBuilt(false);
       onProgress?.(0, 0, false, '');
       return;
@@ -163,26 +164,51 @@ export default function ChunkedRegion({
         return;
       }
       
-      // Build water mesh (single mesh, unchanged logic)
-      onProgress?.(0, 1, true, 'Building water mesh...');
-      await new Promise(resolve => setTimeout(resolve, 0));
+      // Build water subchunk meshes
+      const waterYIndices = manager.getWaterSubchunkYIndices();
+      const newWaterGeometries = new Map();
       
-      let water = null;
-      if (manager.waterBlockCount > 0) {
-        const { waterGeometry: waterGeo } = await buildGreedyMeshes(
-          [...manager.waterBlocks], // Only water blocks
-          getBlockColor,
-          { x: regionCenter.x, y: 0, z: regionCenter.z },
-          null // No progress for water mesh
-        );
-        water = waterGeo;
+      if (waterYIndices.length > 0) {
+        onProgress?.(0, waterYIndices.length, true, 'Building water subchunks...');
+        
+        for (let i = 0; i < waterYIndices.length; i++) {
+          if (cancelled || currentBuildId !== buildIdRef.current) return;
+          
+          const subchunkY = waterYIndices[i];
+          const waterBlocks = manager.getWaterSubchunkBlocks(subchunkY);
+          const neighborBlocks = manager.getWaterNeighborBlocks(subchunkY);
+          
+          const geometry = buildWaterSubchunkMesh(
+            waterBlocks,
+            neighborBlocks,
+            getBlockColor,
+            { x: regionCenter.x, y: 0, z: regionCenter.z }
+          );
+          
+          if (geometry) {
+            const range = getSubchunkYRange(subchunkY);
+            newWaterGeometries.set(subchunkY, {
+              geometry,
+              range,
+              visible: true
+            });
+          }
+          
+          onProgress?.(i + 1, waterYIndices.length, true, 'Building water subchunks...');
+          
+          if (i % 4 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
       }
       
       if (cancelled || currentBuildId !== buildIdRef.current) {
         for (const data of newGeometries.values()) {
           data.geometry?.dispose();
         }
-        water?.dispose();
+        for (const data of newWaterGeometries.values()) {
+          data.geometry?.dispose();
+        }
         return;
       }
       
@@ -193,16 +219,19 @@ export default function ChunkedRegion({
       for (const data of newGeometries.values()) {
         totalTris += data.geometry.index.count / 3;
       }
-      const waterTris = water ? water.index.count / 3 : 0;
+      let waterTris = 0;
+      for (const data of newWaterGeometries.values()) {
+        waterTris += data.geometry.index.count / 3;
+      }
       
       console.log(
-        `Region mesh: ${manager.subchunkCount} subchunks → ` +
+        `Region mesh: ${manager.subchunkCount} solid + ${waterYIndices.length} water subchunks → ` +
         `${totalTris.toLocaleString()} solid + ${waterTris.toLocaleString()} water tris ` +
         `(${meshTime.toFixed(0)}ms mesh, ${totalTime.toFixed(0)}ms total)`
       );
       
       setSubchunkGeometries(newGeometries);
-      setWaterGeometry(water);
+      setWaterSubchunkGeometries(newWaterGeometries);
       setIsBuilt(true);
       setLastRange({ minY, maxY });
       onProgress?.(1, 1, false, '');
@@ -341,33 +370,87 @@ export default function ChunkedRegion({
     }
     
     if (visibilityChanges > 0 || remeshCount > 0) {
-      console.log(`Updated ${visibilityChanges} visibility, remeshed ${remeshCount} subchunks`);
+      console.log(`Updated ${visibilityChanges} visibility, remeshed ${remeshCount} solid subchunks`);
       setSubchunkGeometries(updatedGeometries);
     }
     
-    // Rebuild water mesh with filtered blocks
-    if (subchunkManager.waterBlockCount > 0) {
-      // Filter water blocks by Y range
-      const filteredWaterBlocks = subchunkManager.waterBlocks.filter(
-        b => b.y >= newMinY && b.y <= newMaxY
+    // Handle water subchunks similarly
+    const updatedWaterGeometries = new Map(waterSubchunkGeometries);
+    let waterVisibilityChanges = 0;
+    let waterRemeshCount = 0;
+    const waterSubchunksToRemesh = [];
+    
+    for (const [subchunkY, data] of updatedWaterGeometries) {
+      const isInRange = subchunkManager.isSubchunkInRange(subchunkY, newMinY, newMaxY);
+      const wasClipped = data.clippedMinY !== undefined || data.clippedMaxY !== undefined;
+      const isNowClipped = subchunkManager.isSubchunkClipped(subchunkY, newMinY, newMaxY);
+      const isFullyInRange = subchunkManager.isSubchunkFullyInRange(subchunkY, newMinY, newMaxY);
+      
+      const subchunkRange = getSubchunkYRange(subchunkY);
+      const wasAtTopBoundary = data.atTopBoundary;
+      const wasAtBottomBoundary = data.atBottomBoundary;
+      const isAtTopBoundary = subchunkRange.maxY >= newMaxY && isInRange;
+      const isAtBottomBoundary = subchunkRange.minY <= newMinY && isInRange;
+      
+      if (data.visible !== isInRange) {
+        data.visible = isInRange;
+        waterVisibilityChanges++;
+      }
+      
+      if (!isInRange) continue;
+      
+      const needsRemesh = 
+        (wasClipped && isFullyInRange) ||
+        (isNowClipped && (data.clippedMinY !== newMinY || data.clippedMaxY !== newMaxY)) ||
+        (isAtTopBoundary && (!wasAtTopBoundary || lastRange.maxY !== newMaxY)) ||
+        (isAtBottomBoundary && (!wasAtBottomBoundary || lastRange.minY !== newMinY));
+      
+      if (needsRemesh) {
+        waterSubchunksToRemesh.push({
+          subchunkY,
+          isClipped: isNowClipped,
+          clipMinY: isNowClipped ? newMinY : undefined,
+          clipMaxY: isNowClipped ? newMaxY : undefined,
+          isAtTopBoundary,
+          isAtBottomBoundary
+        });
+      }
+    }
+    
+    // Remesh water subchunks
+    for (const { subchunkY, isClipped, clipMinY, clipMaxY, isAtTopBoundary, isAtBottomBoundary } of waterSubchunksToRemesh) {
+      const data = updatedWaterGeometries.get(subchunkY);
+      data.geometry?.dispose();
+      
+      let waterBlocks;
+      if (isClipped) {
+        waterBlocks = subchunkManager.getWaterSubchunkBlocksInRange(subchunkY, clipMinY, clipMaxY);
+      } else {
+        waterBlocks = subchunkManager.getWaterSubchunkBlocks(subchunkY);
+      }
+      
+      const neighborBlocks = subchunkManager.getWaterNeighborBlocks(subchunkY)
+        .filter(b => b.y >= newMinY && b.y <= newMaxY);
+      
+      const newGeometry = buildWaterSubchunkMesh(
+        waterBlocks,
+        neighborBlocks,
+        getBlockColor,
+        { x: regionCenter.x, y: 0, z: regionCenter.z }
       );
       
-      console.log(`Rebuilding water mesh: ${filteredWaterBlocks.length}/${subchunkManager.waterBlockCount} water blocks in range`);
+      data.geometry = newGeometry;
+      data.clippedMinY = isClipped ? clipMinY : undefined;
+      data.clippedMaxY = isClipped ? clipMaxY : undefined;
+      data.atTopBoundary = isAtTopBoundary;
+      data.atBottomBoundary = isAtBottomBoundary;
       
-      // Dispose old water geometry
-      waterGeometry?.dispose();
-      
-      if (filteredWaterBlocks.length > 0) {
-        const { waterGeometry: newWaterGeo } = await buildGreedyMeshes(
-          filteredWaterBlocks,
-          getBlockColor,
-          { x: regionCenter.x, y: 0, z: regionCenter.z },
-          null
-        );
-        setWaterGeometry(newWaterGeo);
-      } else {
-        setWaterGeometry(null);
-      }
+      waterRemeshCount++;
+    }
+    
+    if (waterVisibilityChanges > 0 || waterRemeshCount > 0) {
+      console.log(`Updated ${waterVisibilityChanges} water visibility, remeshed ${waterRemeshCount} water subchunks`);
+      setWaterSubchunkGeometries(updatedWaterGeometries);
     }
     
     setLastRange({ minY: newMinY, maxY: newMaxY });
@@ -379,11 +462,13 @@ export default function ChunkedRegion({
       for (const data of subchunkGeometries.values()) {
         data.geometry?.dispose();
       }
-      waterGeometry?.dispose();
+      for (const data of waterSubchunkGeometries.values()) {
+        data.geometry?.dispose();
+      }
     };
-  }, [subchunkGeometries, waterGeometry]);
+  }, [subchunkGeometries, waterSubchunkGeometries]);
   
-  // Render subchunk meshes
+  // Render solid subchunk meshes
   const subchunkMeshes = useMemo(() => {
     const meshes = [];
     for (const [subchunkY, data] of subchunkGeometries) {
@@ -401,17 +486,29 @@ export default function ChunkedRegion({
     return meshes;
   }, [subchunkGeometries, solidMaterial]);
   
+  // Render water subchunk meshes
+  const waterMeshes = useMemo(() => {
+    const meshes = [];
+    for (const [subchunkY, data] of waterSubchunkGeometries) {
+      if (data.visible && data.geometry) {
+        meshes.push(
+          <mesh 
+            key={`water-subchunk-${subchunkY}`}
+            geometry={data.geometry} 
+            material={waterMaterial}
+            frustumCulled={true}
+            renderOrder={1}
+          />
+        );
+      }
+    }
+    return meshes;
+  }, [waterSubchunkGeometries, waterMaterial]);
+  
   return (
     <group ref={groupRef} position={[0, -regionCenter.y, 0]}>
       {subchunkMeshes}
-      {waterGeometry && (
-        <mesh 
-          geometry={waterGeometry} 
-          material={waterMaterial}
-          frustumCulled={true}
-          renderOrder={1}
-        />
-      )}
+      {waterMeshes}
     </group>
   );
 }

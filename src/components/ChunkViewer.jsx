@@ -1,9 +1,123 @@
-import { useMemo, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { useMemo, useRef, useEffect, useCallback } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import * as THREE from 'three';
 import { getBlockColor } from '../utils/mcaParser';
 import CulledMesh from './CulledMesh';
 import ChunkedRegion from './ChunkedRegion';
+
+// Helper to set initial camera target
+function CameraTargetSetter({ target, controlsRef }) {
+  const hasSet = useRef(false);
+  
+  useFrame(() => {
+    if (!hasSet.current && controlsRef.current) {
+      controlsRef.current.target.set(...target);
+      controlsRef.current.update();
+      hasSet.current = true;
+    }
+  });
+  
+  // Reset when target changes
+  useEffect(() => {
+    hasSet.current = false;
+  }, [target[0], target[1], target[2]]);
+  
+  return null;
+}
+
+// Custom zoom-to-cursor controls
+function ZoomToPointerControls({ minDistance = 5, maxDistance = 500, targetRef }) {
+  const { camera, gl, raycaster, scene } = useThree();
+  const controlsRef = useRef();
+  const pointer = useRef(new THREE.Vector2());
+  
+  const handleWheel = useCallback((event) => {
+    event.preventDefault();
+    
+    const controls = controlsRef.current;
+    if (!controls) return;
+    
+    // Get normalized mouse position (-1 to 1)
+    const rect = gl.domElement.getBoundingClientRect();
+    pointer.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    // Zoom parameters
+    const zoomSpeed = 0.1;
+    const zoomingIn = event.deltaY < 0;
+    const scaleFactor = zoomingIn ? (1 - zoomSpeed) : (1 + zoomSpeed);
+    
+    // Current state
+    const currentTarget = controls.target.clone();
+    const currentDistance = camera.position.distanceTo(currentTarget);
+    const newDistance = Math.max(minDistance, Math.min(maxDistance, currentDistance * scaleFactor));
+    
+    // If we hit the distance limits, do normal zoom
+    if (Math.abs(newDistance - currentDistance) < 0.01) return;
+    
+    // Set up raycaster from mouse position
+    raycaster.setFromCamera(pointer.current, camera);
+    
+    // Try to find what we're pointing at - ONLY use actual scene objects
+    const intersects = raycaster.intersectObjects(scene.children, true);
+    
+    if (intersects.length > 0) {
+      // We hit something! Zoom towards/away from this point
+      const hitPoint = intersects[0].point.clone();
+      
+      // How much to shift (proportion of zoom)
+      const zoomRatio = zoomingIn ? zoomSpeed : -zoomSpeed;
+      
+      // Move the target towards the hit point (when zooming in) or away (when zooming out)
+      const targetToHit = hitPoint.clone().sub(currentTarget);
+      const newTarget = currentTarget.clone().add(targetToHit.multiplyScalar(zoomRatio));
+      
+      // Move camera towards/away from hit point, maintaining the new distance from target
+      const cameraToHit = hitPoint.clone().sub(camera.position);
+      const newCameraPos = camera.position.clone().add(cameraToHit.multiplyScalar(zoomRatio));
+      
+      // Now adjust camera position to maintain proper distance from new target
+      const direction = newCameraPos.clone().sub(newTarget).normalize();
+      const finalCameraPos = newTarget.clone().add(direction.multiplyScalar(newDistance));
+      
+      // Apply changes
+      camera.position.copy(finalCameraPos);
+      controls.target.copy(newTarget);
+      controls.update();
+    } else {
+      // No hit - just do standard zoom towards the current target
+      const direction = camera.position.clone().sub(currentTarget).normalize();
+      const newCameraPos = currentTarget.clone().add(direction.multiplyScalar(newDistance));
+      camera.position.copy(newCameraPos);
+      controls.update();
+    }
+  }, [camera, gl, raycaster, scene, minDistance, maxDistance]);
+  
+  useEffect(() => {
+    const domElement = gl.domElement;
+    domElement.addEventListener('wheel', handleWheel, { passive: false });
+    return () => domElement.removeEventListener('wheel', handleWheel);
+  }, [gl, handleWheel]);
+  
+  // Store ref for external access
+  useEffect(() => {
+    if (controlsRef.current && targetRef) {
+      targetRef.current = controlsRef.current;
+    }
+  }, [targetRef]);
+  
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      enableDamping
+      dampingFactor={0.05}
+      minDistance={minDistance}
+      maxDistance={maxDistance}
+      enableZoom={false}  // Disable built-in zoom, we handle it
+    />
+  );
+}
 
 // Container for single chunk with optional rotation
 function ChunkContainer({ blocks, minY, maxY, autoRotate }) {
@@ -57,6 +171,7 @@ function RegionContainer({ regionChunkData, minY, maxY, autoRotate, onProgress }
 export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, regionChunkData, chunkViewData, onBuildProgress }) {
   // Determine if we're in multi-chunk mode
   const isMultiChunk = !isRegion && chunkViewData && chunkViewData.chunkRefs?.length > 1;
+  const controlsRef = useRef();
   
   // Calculate camera distance and orbit target based on content size
   const cameraConfig = useMemo(() => {
@@ -155,12 +270,14 @@ export default function ChunkViewer({ blocks, minY, maxY, autoRotate, isRegion, 
         position={cameraConfig.position} 
         fov={50} 
       />
-      <OrbitControls 
-        enableDamping 
-        dampingFactor={0.05}
+      <ZoomToPointerControls
         minDistance={5}
         maxDistance={cameraConfig.maxDistance || 500}
-        target={cameraConfig.target || [0, 0, 0]}
+        targetRef={controlsRef}
+      />
+      <CameraTargetSetter 
+        target={cameraConfig.target || [0, 0, 0]} 
+        controlsRef={controlsRef}
       />
       
       {/* Lighting */}

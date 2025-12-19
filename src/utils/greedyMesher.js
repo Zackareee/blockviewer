@@ -642,3 +642,207 @@ export function buildSubchunkMesh(solidBlocks, neighborBlocks, getBlockColor, of
 
   return geometry;
 }
+
+/**
+ * Build a greedy mesh for a single 16x16x16 subchunk of WATER blocks.
+ * Water culls against both water AND solid blocks to only show outer surfaces.
+ * 
+ * @param {Array} waterBlocks - Water blocks within this subchunk
+ * @param {Array} neighborBlocks - Blocks (water + solid) from neighboring subchunks for correct culling
+ * @param {Function} getBlockColor - Color lookup function
+ * @param {Object} offset - World offset for positioning {x, y, z}
+ * @returns {THREE.BufferGeometry|null} - The subchunk geometry or null if empty
+ */
+export function buildWaterSubchunkMesh(waterBlocks, neighborBlocks, getBlockColor, offset = { x: 0, y: 0, z: 0 }) {
+  if (waterBlocks.length === 0) return null;
+
+  // Combine for bounds and culling
+  const allBlocks = [...waterBlocks, ...neighborBlocks];
+
+  // Find bounds of all blocks
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+
+  for (let i = 0; i < allBlocks.length; i++) {
+    const b = allBlocks[i];
+    if (b.x < minX) minX = b.x;
+    if (b.x > maxX) maxX = b.x;
+    if (b.y < minY) minY = b.y;
+    if (b.y > maxY) maxY = b.y;
+    if (b.z < minZ) minZ = b.z;
+    if (b.z > maxZ) maxZ = b.z;
+  }
+
+  const sizeX = maxX - minX + 1;
+  const sizeY = maxY - minY + 1;
+  const sizeZ = maxZ - minZ + 1;
+  const sizes = [sizeX, sizeY, sizeZ];
+  const mins = [minX, minY, minZ];
+
+  const blockPalette = new Map();
+  const paletteList = [null];
+  
+  const totalCells = sizeX * sizeY * sizeZ;
+  const grid = new Uint16Array(totalCells);
+  const typeGrid = new Uint8Array(totalCells); // 0=air, 1=solid, 2=water
+  
+  const getIdx = (x, y, z) => (x - minX) + (y - minY) * sizeX + (z - minZ) * sizeX * sizeY;
+
+  // Fill grid with water blocks from this subchunk
+  for (let i = 0; i < waterBlocks.length; i++) {
+    const b = waterBlocks[i];
+    let paletteIdx = blockPalette.get(b.block);
+    if (paletteIdx === undefined) {
+      paletteIdx = paletteList.length;
+      blockPalette.set(b.block, paletteIdx);
+      paletteList.push(b.block);
+    }
+    const idx = getIdx(b.x, b.y, b.z);
+    grid[idx] = paletteIdx;
+    typeGrid[idx] = 2; // Water
+  }
+
+  // Fill type grid with neighbor blocks (for boundary culling)
+  for (let i = 0; i < neighborBlocks.length; i++) {
+    const b = neighborBlocks[i];
+    const idx = getIdx(b.x, b.y, b.z);
+    typeGrid[idx] = isWaterBlock(b.block) ? 2 : 1;
+  }
+
+  const getPaletteIdx = (x, y, z) => {
+    if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) return 0;
+    return grid[getIdx(x, y, z)];
+  };
+  
+  const getBlockType = (x, y, z) => {
+    if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) return 0;
+    return typeGrid[getIdx(x, y, z)];
+  };
+
+  // Water culls against both water AND solid (only show outer surfaces)
+  const shouldCull = (x, y, z) => {
+    const type = getBlockType(x, y, z);
+    return type === 1 || type === 2; // Cull if solid or water
+  };
+
+  // Pre-compute colors
+  const paletteColors = paletteList.map(name => {
+    if (!name) return null;
+    const color = new THREE.Color(getBlockColor(name));
+    return { r: color.r, g: color.g, b: color.b };
+  });
+
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const indices = [];
+
+  let vertexCount = 0;
+
+  // Process each face direction
+  for (const face of FACE_INFO) {
+    const { axis, dir, u, v, getCorners } = face;
+    const w = axis;
+
+    const dimU = sizes[u];
+    const dimV = sizes[v];
+    const dimW = sizes[w];
+
+    for (let d = 0; d < dimW; d++) {
+      const mask = new Uint16Array(dimU * dimV);
+
+      for (let j = 0; j < dimV; j++) {
+        for (let i = 0; i < dimU; i++) {
+          const coords = [0, 0, 0];
+          coords[u] = mins[u] + i;
+          coords[v] = mins[v] + j;
+          coords[w] = mins[w] + d;
+
+          const [x, y, z] = coords;
+          const paletteIdx = getPaletteIdx(x, y, z);
+
+          if (paletteIdx === 0) continue;
+
+          const neighborCoords = [...coords];
+          neighborCoords[w] += dir;
+          const [nx, ny, nz] = neighborCoords;
+
+          if (!shouldCull(nx, ny, nz)) {
+            mask[i + j * dimU] = paletteIdx;
+          }
+        }
+      }
+
+      const visited = new Uint8Array(dimU * dimV);
+
+      for (let j = 0; j < dimV; j++) {
+        for (let i = 0; i < dimU; i++) {
+          const maskIdx = i + j * dimU;
+          if (visited[maskIdx] || mask[maskIdx] === 0) continue;
+
+          const paletteIdx = mask[maskIdx];
+
+          let width = 1;
+          while (i + width < dimU) {
+            const nextIdx = (i + width) + j * dimU;
+            if (visited[nextIdx] || mask[nextIdx] !== paletteIdx) break;
+            width++;
+          }
+
+          let height = 1;
+          let canExpand = true;
+          while (j + height < dimV && canExpand) {
+            for (let k = 0; k < width; k++) {
+              const checkIdx = (i + k) + (j + height) * dimU;
+              if (visited[checkIdx] || mask[checkIdx] !== paletteIdx) {
+                canExpand = false;
+                break;
+              }
+            }
+            if (canExpand) height++;
+          }
+
+          for (let dj = 0; dj < height; dj++) {
+            for (let di = 0; di < width; di++) {
+              visited[(i + di) + (j + dj) * dimU] = 1;
+            }
+          }
+
+          const baseCoords = [0, 0, 0];
+          baseCoords[u] = mins[u] + i;
+          baseCoords[v] = mins[v] + j;
+          baseCoords[w] = mins[w] + d;
+
+          const [baseX, baseY, baseZ] = baseCoords;
+          const corners = getCorners(baseX, baseY, baseZ, width, height);
+          const color = paletteColors[paletteIdx];
+          const startVertex = vertexCount;
+
+          for (const [cx, cy, cz] of corners) {
+            positions.push(cx - offset.x, cy - offset.y, cz - offset.z);
+            normals.push(axis === 0 ? dir : 0, axis === 1 ? dir : 0, axis === 2 ? dir : 0);
+            colors.push(color.r, color.g, color.b);
+            vertexCount++;
+          }
+
+          indices.push(
+            startVertex, startVertex + 1, startVertex + 2,
+            startVertex, startVertex + 2, startVertex + 3
+          );
+        }
+      }
+    }
+  }
+
+  if (vertexCount === 0) return null;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}

@@ -622,7 +622,7 @@ function App() {
       <div className="control-panel">
         <div className="panel-header">
           <h1>Block Viewer</h1>
-          <span className="version">v1.2</span>
+          <span className="version">v1.3</span>
         </div>
 
         {/* File Upload */}

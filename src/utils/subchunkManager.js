@@ -1,4 +1,4 @@
-import { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh } from './greedyMesher';
+import { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh, buildWaterSubchunkMesh } from './greedyMesher';
 
 /**
  * SubchunkManager - Organizes blocks into 16x16x16 subchunks for efficient rendering
@@ -10,13 +10,18 @@ export class SubchunkManager {
   constructor() {
     // Map of subchunkY -> array of solid blocks in that subchunk
     this.subchunks = new Map();
-    // All water blocks (kept as single collection for water mesh)
+    // Map of subchunkY -> array of water blocks in that subchunk
+    this.waterSubchunks = new Map();
+    // All water blocks (for reference)
     this.waterBlocks = [];
     // All solid blocks (for reference)
     this.allSolidBlocks = [];
     // Track min/max subchunk Y for iteration
     this.minSubchunkY = Infinity;
     this.maxSubchunkY = -Infinity;
+    // Track water subchunk bounds separately
+    this.minWaterSubchunkY = Infinity;
+    this.maxWaterSubchunkY = -Infinity;
   }
 
   /**
@@ -24,10 +29,13 @@ export class SubchunkManager {
    */
   clear() {
     this.subchunks.clear();
+    this.waterSubchunks.clear();
     this.waterBlocks = [];
     this.allSolidBlocks = [];
     this.minSubchunkY = Infinity;
     this.maxSubchunkY = -Infinity;
+    this.minWaterSubchunkY = Infinity;
+    this.maxWaterSubchunkY = -Infinity;
   }
 
   /**
@@ -37,14 +45,22 @@ export class SubchunkManager {
   addBlocks(blocks) {
     for (let i = 0; i < blocks.length; i++) {
       const block = blocks[i];
+      const subchunkY = getSubchunkY(block.y);
       
       if (isWaterBlock(block.block)) {
         this.waterBlocks.push(block);
+        
+        // Update water bounds
+        if (subchunkY < this.minWaterSubchunkY) this.minWaterSubchunkY = subchunkY;
+        if (subchunkY > this.maxWaterSubchunkY) this.maxWaterSubchunkY = subchunkY;
+        
+        // Add to water subchunk
+        if (!this.waterSubchunks.has(subchunkY)) {
+          this.waterSubchunks.set(subchunkY, []);
+        }
+        this.waterSubchunks.get(subchunkY).push(block);
       } else {
         this.allSolidBlocks.push(block);
-        
-        // Determine which subchunk this block belongs to
-        const subchunkY = getSubchunkY(block.y);
         
         // Update bounds
         if (subchunkY < this.minSubchunkY) this.minSubchunkY = subchunkY;
@@ -60,11 +76,19 @@ export class SubchunkManager {
   }
 
   /**
-   * Get all subchunk Y indices that have blocks
+   * Get all subchunk Y indices that have solid blocks
    * @returns {Array<number>} Sorted array of subchunk Y indices
    */
   getSubchunkYIndices() {
     return Array.from(this.subchunks.keys()).sort((a, b) => a - b);
+  }
+
+  /**
+   * Get all subchunk Y indices that have water blocks
+   * @returns {Array<number>} Sorted array of water subchunk Y indices
+   */
+  getWaterSubchunkYIndices() {
+    return Array.from(this.waterSubchunks.keys()).sort((a, b) => a - b);
   }
 
   /**
@@ -77,7 +101,16 @@ export class SubchunkManager {
   }
 
   /**
-   * Get neighbor blocks for boundary culling (blocks in adjacent subchunks that touch the boundary)
+   * Get water blocks for a specific subchunk
+   * @param {number} subchunkY - The subchunk Y index
+   * @returns {Array} Array of water blocks in that subchunk
+   */
+  getWaterSubchunkBlocks(subchunkY) {
+    return this.waterSubchunks.get(subchunkY) || [];
+  }
+
+  /**
+   * Get neighbor blocks for solid subchunk boundary culling
    * @param {number} subchunkY - The subchunk Y index
    * @returns {Array} Array of blocks from neighboring subchunks near the boundary
    */
@@ -85,7 +118,7 @@ export class SubchunkManager {
     const neighbors = [];
     const { minY, maxY } = getSubchunkYRange(subchunkY);
     
-    // Get blocks from subchunk below (only those at maxY of that subchunk)
+    // Get solid blocks from subchunk below (only those at maxY of that subchunk)
     const belowBlocks = this.subchunks.get(subchunkY - 1);
     if (belowBlocks) {
       const boundaryY = minY - 1;
@@ -96,7 +129,7 @@ export class SubchunkManager {
       }
     }
     
-    // Get blocks from subchunk above (only those at minY of that subchunk)
+    // Get solid blocks from subchunk above (only those at minY of that subchunk)
     const aboveBlocks = this.subchunks.get(subchunkY + 1);
     if (aboveBlocks) {
       const boundaryY = maxY + 1;
@@ -108,9 +141,80 @@ export class SubchunkManager {
     }
     
     // Also include water blocks near boundaries for correct culling
-    for (const block of this.waterBlocks) {
-      if (block.y === minY - 1 || block.y === maxY + 1) {
-        neighbors.push(block);
+    const belowWater = this.waterSubchunks.get(subchunkY - 1);
+    if (belowWater) {
+      const boundaryY = minY - 1;
+      for (const block of belowWater) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    const aboveWater = this.waterSubchunks.get(subchunkY + 1);
+    if (aboveWater) {
+      const boundaryY = maxY + 1;
+      for (const block of aboveWater) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    return neighbors;
+  }
+
+  /**
+   * Get neighbor blocks for water subchunk boundary culling
+   * Includes both water AND solid blocks since water culls against both
+   * @param {number} subchunkY - The subchunk Y index
+   * @returns {Array} Array of blocks from neighboring subchunks near the boundary
+   */
+  getWaterNeighborBlocks(subchunkY) {
+    const neighbors = [];
+    const { minY, maxY } = getSubchunkYRange(subchunkY);
+    
+    // Get water blocks from subchunk below
+    const belowWater = this.waterSubchunks.get(subchunkY - 1);
+    if (belowWater) {
+      const boundaryY = minY - 1;
+      for (const block of belowWater) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    // Get water blocks from subchunk above
+    const aboveWater = this.waterSubchunks.get(subchunkY + 1);
+    if (aboveWater) {
+      const boundaryY = maxY + 1;
+      for (const block of aboveWater) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    // Get solid blocks from subchunk below
+    const belowSolid = this.subchunks.get(subchunkY - 1);
+    if (belowSolid) {
+      const boundaryY = minY - 1;
+      for (const block of belowSolid) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    // Get solid blocks from subchunk above
+    const aboveSolid = this.subchunks.get(subchunkY + 1);
+    if (aboveSolid) {
+      const boundaryY = maxY + 1;
+      for (const block of aboveSolid) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
       }
     }
     
@@ -157,7 +261,7 @@ export class SubchunkManager {
   }
 
   /**
-   * Get blocks for a subchunk filtered by Y range
+   * Get solid blocks for a subchunk filtered by Y range
    * @param {number} subchunkY - The subchunk Y index
    * @param {number} minY - Minimum Y to include
    * @param {number} maxY - Maximum Y to include
@@ -165,6 +269,18 @@ export class SubchunkManager {
    */
   getSubchunkBlocksInRange(subchunkY, minY, maxY) {
     const blocks = this.subchunks.get(subchunkY) || [];
+    return blocks.filter(b => b.y >= minY && b.y <= maxY);
+  }
+
+  /**
+   * Get water blocks for a subchunk filtered by Y range
+   * @param {number} subchunkY - The subchunk Y index
+   * @param {number} minY - Minimum Y to include
+   * @param {number} maxY - Maximum Y to include
+   * @returns {Array} Filtered array of water blocks
+   */
+  getWaterSubchunkBlocksInRange(subchunkY, minY, maxY) {
+    const blocks = this.waterSubchunks.get(subchunkY) || [];
     return blocks.filter(b => b.y >= minY && b.y <= maxY);
   }
 
@@ -199,5 +315,5 @@ function isWaterBlock(blockName) {
   return name.includes('water') || name.includes('flowing_water');
 }
 
-export { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh };
+export { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh, buildWaterSubchunkMesh };
 
