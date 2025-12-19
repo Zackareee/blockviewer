@@ -51,6 +51,10 @@ function App() {
   const [dragMode, setDragMode] = useState(null); // 'add' or 'remove'
   const dragSelectionRef = useRef(new Set());
   
+  // Y-slider drag state
+  const [ySliderDragging, setYSliderDragging] = useState(null); // 'min' | 'max' | null
+  const ySliderTrackRef = useRef(null);
+  
   const handleBuildProgress = useCallback((current, total, isBuilding, message = '') => {
     setBuildProgress({ current, total, isBuilding, message });
   }, []);
@@ -371,6 +375,52 @@ function App() {
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, [isDragging, handleDragEnd]);
 
+  // Y-slider handlers
+  const handleYSliderMouseDown = useCallback((handle, e) => {
+    e.preventDefault();
+    setYSliderDragging(handle);
+  }, []);
+
+  const handleYSliderMouseMove = useCallback((e) => {
+    if (!ySliderDragging || !ySliderTrackRef.current) return;
+    
+    const track = ySliderTrackRef.current;
+    const rect = track.getBoundingClientRect();
+    const trackHeight = rect.height;
+    
+    // Calculate position from bottom (0) to top (1) - inverted because Y increases upward
+    const relativeY = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / trackHeight));
+    
+    // Map to Y range (-64 to 320)
+    const yValue = Math.round(-64 + relativeY * 384);
+    
+    if (ySliderDragging === 'max') {
+      setMaxY(Math.max(yValue, minY + 1));
+    } else {
+      setMinY(Math.min(yValue, maxY - 1));
+    }
+  }, [ySliderDragging, minY, maxY]);
+
+  const handleYSliderMouseUp = useCallback(() => {
+    setYSliderDragging(null);
+  }, []);
+
+  // Global listeners for Y-slider dragging
+  useEffect(() => {
+    if (ySliderDragging) {
+      window.addEventListener('mousemove', handleYSliderMouseMove);
+      window.addEventListener('mouseup', handleYSliderMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleYSliderMouseMove);
+        window.removeEventListener('mouseup', handleYSliderMouseUp);
+      };
+    }
+  }, [ySliderDragging, handleYSliderMouseMove, handleYSliderMouseUp]);
+
+  // Calculate handle positions as percentages (from bottom)
+  const maxYPercent = ((maxY + 64) / 384) * 100;
+  const minYPercent = ((minY + 64) / 384) * 100;
+
   const handleViewModeChange = useCallback((mode) => {
     if (mode === viewMode) return;
     
@@ -482,11 +532,97 @@ function App() {
         )}
       </div>
 
+      {/* Y-Layer Vertical Slider */}
+      {(blocks.length > 0 || regionChunkData || chunkViewData) && (
+        <div className="y-slider-container">
+          <span className="y-slider-label">Y Layer</span>
+          <div className="y-slider-track-container">
+            <div 
+              className="y-slider-track" 
+              ref={ySliderTrackRef}
+              onClick={(e) => {
+                if (!ySliderTrackRef.current) return;
+                const rect = ySliderTrackRef.current.getBoundingClientRect();
+                const relativeY = 1 - (e.clientY - rect.top) / rect.height;
+                const yValue = Math.round(-64 + relativeY * 384);
+                // Set whichever handle is closer
+                const distToMax = Math.abs(yValue - maxY);
+                const distToMin = Math.abs(yValue - minY);
+                if (distToMax < distToMin) {
+                  setMaxY(Math.max(yValue, minY + 1));
+                } else {
+                  setMinY(Math.min(yValue, maxY - 1));
+                }
+              }}
+            >
+              {/* Range highlight */}
+              <div 
+                className="y-slider-range"
+                style={{
+                  bottom: `${minYPercent}%`,
+                  top: `${100 - maxYPercent}%`
+                }}
+              />
+              {/* Max handle (top) */}
+              <div 
+                className={`y-slider-handle max-handle ${ySliderDragging === 'max' ? 'dragging' : ''}`}
+                style={{ bottom: `calc(${maxYPercent}% - 10px)` }}
+                onMouseDown={(e) => handleYSliderMouseDown('max', e)}
+              >
+                <span className="y-slider-value">{maxY}</span>
+              </div>
+              {/* Min handle (bottom) */}
+              <div 
+                className={`y-slider-handle min-handle ${ySliderDragging === 'min' ? 'dragging' : ''}`}
+                style={{ bottom: `calc(${minYPercent}% - 10px)` }}
+                onMouseDown={(e) => handleYSliderMouseDown('min', e)}
+              >
+                <span className="y-slider-value">{minY}</span>
+              </div>
+            </div>
+            {/* Tick marks */}
+            <div className="y-slider-ticks">
+              <span className="y-slider-tick">320</span>
+              <span className="y-slider-tick">192</span>
+              <span className="y-slider-tick">64</span>
+              <span className="y-slider-tick">-64</span>
+            </div>
+          </div>
+          <div className="y-slider-quick-buttons">
+            <button 
+              className="y-slider-quick-btn"
+              onClick={() => { setMinY(yRange.min); setMaxY(yRange.max); }}
+              title="Reset to full range"
+            >
+              Full
+            </button>
+            <button 
+              className="y-slider-quick-btn"
+              onClick={() => {
+                const mid = Math.floor((yRange.min + yRange.max) / 2);
+                setMinY(mid - 8);
+                setMaxY(mid + 8);
+              }}
+              title="Show middle 16 layers"
+            >
+              Mid
+            </button>
+            <button 
+              className="y-slider-quick-btn"
+              onClick={() => { setMinY(yRange.max - 16); setMaxY(yRange.max); }}
+              title="Show top 16 layers"
+            >
+              Top
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Control Panel */}
       <div className="control-panel">
         <div className="panel-header">
           <h1>Block Viewer</h1>
-          <span className="version">v1.1</span>
+          <span className="version">v1.2</span>
         </div>
 
         {/* File Upload */}
@@ -635,66 +771,6 @@ function App() {
           );
         })()}
 
-        {/* Layer Controls */}
-        {(blocks.length > 0 || regionChunkData || chunkViewData) && (
-          <section className="panel-section">
-            <h3>Layer Slice</h3>
-            <div className="slider-group">
-              <div className="slider-row">
-                <label>Min Y: {minY}</label>
-                <input
-                  type="range"
-                  min={-64}
-                  max={320}
-                  value={minY}
-                  onChange={(e) => setMinY(Math.min(Number(e.target.value), maxY))}
-                  className="slider"
-                />
-              </div>
-              <div className="slider-row">
-                <label>Max Y: {maxY}</label>
-                <input
-                  type="range"
-                  min={-64}
-                  max={320}
-                  value={maxY}
-                  onChange={(e) => setMaxY(Math.max(Number(e.target.value), minY))}
-                  className="slider"
-                />
-              </div>
-            </div>
-            <div className="quick-actions">
-              <button 
-                className="action-btn"
-                onClick={() => {
-                  setMinY(yRange.min);
-                  setMaxY(yRange.max);
-                }}
-              >
-                Reset
-              </button>
-              <button 
-                className="action-btn"
-                onClick={() => {
-                  const mid = Math.floor((yRange.min + yRange.max) / 2);
-                  setMinY(mid - 8);
-                  setMaxY(mid + 8);
-                }}
-              >
-                Middle 16
-              </button>
-              <button 
-                className="action-btn"
-                onClick={() => {
-                  setMinY(yRange.max - 16);
-                  setMaxY(yRange.max);
-                }}
-              >
-                Top 16
-              </button>
-            </div>
-          </section>
-        )}
 
         {/* View Options */}
         {(blocks.length > 0 || regionChunkData) && (

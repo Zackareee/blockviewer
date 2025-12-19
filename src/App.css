@@ -606,6 +606,158 @@ body {
   box-shadow: 0 0 8px var(--accent-glow);
 }
 
+/* Vertical Y-Layer Slider */
+.y-slider-container {
+  width: 48px;
+  height: 100%;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem 0;
+  position: relative;
+  user-select: none;
+}
+
+.y-slider-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  margin-bottom: 0.75rem;
+}
+
+.y-slider-track-container {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  padding: 12px 0;
+}
+
+.y-slider-track {
+  width: 6px;
+  height: 100%;
+  background: var(--bg-secondary);
+  border-radius: 3px;
+  position: relative;
+  cursor: pointer;
+}
+
+.y-slider-range {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: linear-gradient(180deg, var(--accent-primary) 0%, var(--diamond) 100%);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.y-slider-handle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 20px;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-primary);
+  border-radius: 50%;
+  cursor: ns-resize;
+  box-shadow: 0 0 10px var(--accent-glow), var(--shadow-md);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  z-index: 10;
+}
+
+.y-slider-handle:hover {
+  transform: translateX(-50%) scale(1.15);
+  box-shadow: 0 0 15px var(--accent-glow), var(--shadow-md);
+}
+
+.y-slider-handle.dragging {
+  transform: translateX(-50%) scale(1.2);
+  box-shadow: 0 0 20px var(--accent-glow), var(--shadow-lg);
+}
+
+.y-slider-handle.max-handle {
+  background: var(--diamond);
+}
+
+.y-slider-handle.min-handle {
+  background: var(--emerald);
+}
+
+.y-slider-value {
+  position: absolute;
+  left: 28px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  padding: 2px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.y-slider-handle:hover .y-slider-value,
+.y-slider-handle.dragging .y-slider-value {
+  opacity: 1;
+}
+
+.y-slider-ticks {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.y-slider-tick {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.5rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.y-slider-quick-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 0.75rem;
+  width: 100%;
+  padding: 0 4px;
+}
+
+.y-slider-quick-btn {
+  width: 100%;
+  padding: 4px 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 0.55rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.y-slider-quick-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+
 /* Quick Actions */
 .quick-actions {
   display: flex;

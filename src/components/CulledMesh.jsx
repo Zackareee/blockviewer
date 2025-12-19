@@ -20,10 +20,13 @@ export default function CulledMesh({ blocks, minY, maxY, getBlockColor, maxBlock
   const waterMaterial = useMemo(() => {
     return new THREE.MeshLambertMaterial({ 
       vertexColors: true, 
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide, // Use FrontSide to prevent internal z-fighting
       transparent: true,
       opacity: 0.6,
-      depthWrite: false
+      depthWrite: true, // Enable depth write to prevent self z-fighting
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 2
     });
   }, []);
 
