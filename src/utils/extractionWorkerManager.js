@@ -200,6 +200,7 @@ class ExtractionWorkerManager {
     const allY = [];
     const allZ = [];
     const allBlockType = [];
+    const allLevel = [];
     let totalBlocks = 0;
     
     const startTime = performance.now();
@@ -265,6 +266,7 @@ class ExtractionWorkerManager {
         allY.push(result.y);
         allZ.push(result.z);
         allBlockType.push(result.blockType);
+        allLevel.push(result.level);
         totalBlocks += result.count;
       }
     }
@@ -275,6 +277,7 @@ class ExtractionWorkerManager {
     const mergedY = new Int16Array(totalBlocks);
     const mergedZ = new Int32Array(totalBlocks);
     const mergedBlockType = new Uint16Array(totalBlocks);
+    const mergedLevel = new Int8Array(totalBlocks);
     
     let offset = 0;
     for (let i = 0; i < allX.length; i++) {
@@ -282,6 +285,7 @@ class ExtractionWorkerManager {
       mergedY.set(allY[i], offset);
       mergedZ.set(allZ[i], offset);
       mergedBlockType.set(allBlockType[i], offset);
+      mergedLevel.set(allLevel[i], offset);
       offset += allX[i].length;
     }
     
@@ -293,6 +297,7 @@ class ExtractionWorkerManager {
         y: mergedY,
         z: mergedZ,
         blockType: mergedBlockType,
+        level: mergedLevel,
         count: totalBlocks
       },
       palette: this.globalPalette,

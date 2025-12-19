@@ -30,6 +30,19 @@ export default function CulledMesh({ blocks, minY, maxY, getBlockColor, maxBlock
     });
   }, []);
 
+  const lavaMaterial = useMemo(() => {
+    return new THREE.MeshLambertMaterial({ 
+      vertexColors: true, 
+      side: THREE.FrontSide,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: true,
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 2
+    });
+  }, []);
+
   useEffect(() => {
     if (blocks.length === 0) {
       setResult(null);
@@ -76,7 +89,7 @@ export default function CulledMesh({ blocks, minY, maxY, getBlockColor, maxBlock
       const centerZ = (bMinZ + bMaxZ) / 2;
       
       // Build greedy meshes (async)
-      const { solidGeometry, waterGeometry, stats } = await buildGreedyMeshes(
+      const { solidGeometry, waterGeometry, lavaGeometry, stats } = await buildGreedyMeshes(
         filteredBlocks,
         getBlockColor,
         { x: centerX, y: centerY, z: centerZ }
@@ -86,14 +99,15 @@ export default function CulledMesh({ blocks, minY, maxY, getBlockColor, maxBlock
       if (currentBuildId !== buildIdRef.current) {
         solidGeometry?.dispose();
         waterGeometry?.dispose();
+        lavaGeometry?.dispose();
         return;
       }
       
       const totalTime = performance.now() - startTime;
       
       console.log(
-        `Greedy mesh: ${stats.solidBlocks.toLocaleString()} solid + ${stats.waterBlocks.toLocaleString()} water blocks → ` +
-        `${stats.solidTriangles.toLocaleString()} + ${stats.waterTriangles.toLocaleString()} triangles ` +
+        `Greedy mesh: ${stats.solidBlocks.toLocaleString()} solid + ${stats.waterBlocks.toLocaleString()} water + ${stats.lavaBlocks.toLocaleString()} lava blocks → ` +
+        `${stats.solidTriangles.toLocaleString()} + ${stats.waterTriangles.toLocaleString()} + ${stats.lavaTriangles.toLocaleString()} triangles ` +
         `in ${totalTime.toFixed(0)}ms`
       );
       
@@ -101,7 +115,8 @@ export default function CulledMesh({ blocks, minY, maxY, getBlockColor, maxBlock
       setResult(prev => {
         prev?.solidGeometry?.dispose();
         prev?.waterGeometry?.dispose();
-        return { solidGeometry, waterGeometry, centerY };
+        prev?.lavaGeometry?.dispose();
+        return { solidGeometry, waterGeometry, lavaGeometry, centerY };
       });
     };
     
@@ -117,8 +132,10 @@ export default function CulledMesh({ blocks, minY, maxY, getBlockColor, maxBlock
     return () => {
       result?.solidGeometry?.dispose();
       result?.waterGeometry?.dispose();
+      result?.lavaGeometry?.dispose();
       solidMaterial.dispose();
       waterMaterial.dispose();
+      lavaMaterial.dispose();
     };
   }, []);
   
@@ -133,6 +150,9 @@ export default function CulledMesh({ blocks, minY, maxY, getBlockColor, maxBlock
       )}
       {result.waterGeometry && (
         <mesh geometry={result.waterGeometry} material={waterMaterial} frustumCulled={false} renderOrder={1} />
+      )}
+      {result.lavaGeometry && (
+        <mesh geometry={result.lavaGeometry} material={lavaMaterial} frustumCulled={false} renderOrder={2} />
       )}
     </group>
   );

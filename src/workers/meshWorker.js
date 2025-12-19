@@ -334,6 +334,12 @@ function isWaterBlock(blockName) {
   return name.includes('water') || name.includes('flowing_water');
 }
 
+function isLavaBlock(blockName) {
+  if (!blockName) return false;
+  const name = blockName.toLowerCase();
+  return name.includes('lava') || name.includes('flowing_lava');
+}
+
 /**
  * Build greedy mesh and return raw arrays (no THREE.js dependency)
  */
@@ -395,7 +401,7 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
     // Fill type map with other blocks
     for (let i = 0; i < otherBlocks.length; i++) {
       const b = otherBlocks[i];
-      typeMap.set(key(b.x, b.y, b.z), isWaterBlock(b.block) ? 2 : 1);
+      typeMap.set(key(b.x, b.y, b.z), isWaterBlock(b.block) ? 2 : (isLavaBlock(b.block) ? 3 : 1));
     }
     
     getPaletteIdx = (x, y, z) => blockMap.get(key(x, y, z)) || 0;
@@ -424,7 +430,7 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
     for (let i = 0; i < otherBlocks.length; i++) {
       const b = otherBlocks[i];
       const idx = getIdx(b.x, b.y, b.z);
-      typeGrid[idx] = isWaterBlock(b.block) ? 2 : 1;
+      typeGrid[idx] = isWaterBlock(b.block) ? 2 : (isLavaBlock(b.block) ? 3 : 1);
     }
     
     getPaletteIdx = (x, y, z) => {
@@ -437,7 +443,18 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
     };
   }
 
-  const cullTypes = targetType === 1 ? [1] : [1, 2];
+  // Determine culling behavior
+  // Solid (1): cull against solid only
+  // Water (2): cull against solid and water
+  // Lava (3): cull against solid and lava
+  let cullTypes;
+  if (targetType === 1) {
+    cullTypes = [1];
+  } else if (targetType === 2) {
+    cullTypes = [1, 2];
+  } else {
+    cullTypes = [1, 3];
+  }
 
   const shouldCull = (x, y, z) => {
     const type = getBlockType(x, y, z);
@@ -584,16 +601,17 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
 
 /**
  * Convert typed array blocks to object format for mesh building
- * @param {Object} typedBlocks - { x, y, z, blockType, count }
+ * @param {Object} typedBlocks - { x, y, z, blockType, level, count }
  * @param {string[]} palette - Block name palette
  * @param {number} minY - Min Y filter
  * @param {number} maxY - Max Y filter
- * @returns {{ solidBlocks: Array, waterBlocks: Array }}
+ * @returns {{ solidBlocks: Array, waterBlocks: Array, lavaBlocks: Array }}
  */
 function typedBlocksToSeparated(typedBlocks, palette, minY, maxY) {
-  const { x, y, z, blockType, count } = typedBlocks;
+  const { x, y, z, blockType, level, count } = typedBlocks;
   const solidBlocks = [];
   const waterBlocks = [];
+  const lavaBlocks = [];
   
   for (let i = 0; i < count; i++) {
     const blockY = y[i];
@@ -602,14 +620,21 @@ function typedBlocksToSeparated(typedBlocks, palette, minY, maxY) {
     const blockName = palette[blockType[i]] || 'minecraft:air';
     const block = { x: x[i], y: blockY, z: z[i], block: blockName };
     
+    // Add level property for fluids (level >= 0 means it's a fluid)
+    if (level && level[i] >= 0) {
+      block.level = level[i];
+    }
+    
     if (isWaterBlock(blockName)) {
       waterBlocks.push(block);
+    } else if (isLavaBlock(blockName)) {
+      lavaBlocks.push(block);
     } else {
       solidBlocks.push(block);
     }
   }
   
-  return { solidBlocks, waterBlocks };
+  return { solidBlocks, waterBlocks, lavaBlocks };
 }
 
 /**
@@ -827,6 +852,57 @@ self.onmessage = function(e) {
         geometry: null,
         stats: {
           blockCount: waterBlocks?.length || 0,
+          triangleCount: 0,
+          timeMs: 0,
+          error: error.message
+        }
+      });
+    }
+  }
+  
+  // Lava subchunk mesh building
+  // Lava culls against both solid and lava blocks
+  if (type === 'buildLavaSubchunkMesh') {
+    const { lavaBlocks, neighborBlocks, offset, subchunkY } = data;
+    
+    try {
+      const startTime = performance.now();
+      
+      // Build lava mesh - targetType=3 means lava, which culls against solid+lava
+      const result = buildGreedyMeshArrays(lavaBlocks, neighborBlocks, offset, 3);
+      
+      const elapsed = performance.now() - startTime;
+      
+      const transferables = [];
+      if (result) {
+        transferables.push(
+          result.positions.buffer,
+          result.normals.buffer,
+          result.colors.buffer,
+          result.indices.buffer
+        );
+      }
+      
+      self.postMessage({
+        type: 'lavaSubchunkMeshResult',
+        id,
+        subchunkY,
+        geometry: result,
+        stats: {
+          blockCount: lavaBlocks.length,
+          triangleCount: result?.triangleCount || 0,
+          timeMs: elapsed,
+        }
+      }, transferables);
+    } catch (error) {
+      console.error(`Worker error building lava subchunk ${subchunkY}:`, error);
+      self.postMessage({
+        type: 'lavaSubchunkMeshResult',
+        id,
+        subchunkY,
+        geometry: null,
+        stats: {
+          blockCount: lavaBlocks?.length || 0,
           triangleCount: 0,
           timeMs: 0,
           error: error.message

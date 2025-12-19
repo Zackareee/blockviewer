@@ -65,7 +65,7 @@ class MeshWorkerManager {
     }
     
     // Handle subchunk mesh results
-    if (type === 'subchunkMeshResult' || type === 'waterSubchunkMeshResult') {
+    if (type === 'subchunkMeshResult' || type === 'waterSubchunkMeshResult' || type === 'lavaSubchunkMeshResult') {
       const job = this.pendingJobs.get(id);
       if (job) {
         this.pendingJobs.delete(id);
@@ -77,7 +77,8 @@ class MeshWorkerManager {
           geometry: resultGeometry, 
           subchunkY, 
           stats,
-          isWater: type === 'waterSubchunkMeshResult'
+          isWater: type === 'waterSubchunkMeshResult',
+          isLava: type === 'lavaSubchunkMeshResult'
         });
       }
       
@@ -226,6 +227,32 @@ class MeshWorkerManager {
   }
   
   /**
+   * Build a single lava subchunk mesh
+   * @param {Array} lavaBlocks - Lava blocks in the subchunk
+   * @param {Array} neighborBlocks - Boundary blocks for culling (solid + lava)
+   * @param {Object} offset - World offset {x, y, z}
+   * @param {number} subchunkY - Subchunk Y index (for identification)
+   * @returns {Promise<{geometry, subchunkY, stats, isLava: true}>}
+   */
+  buildLavaSubchunkMesh(lavaBlocks, neighborBlocks, offset, subchunkY) {
+    this.init();
+    
+    return new Promise((resolve, reject) => {
+      const id = this.nextJobId++;
+      
+      this.jobQueue.push({
+        id,
+        messageType: 'buildLavaSubchunkMesh',
+        data: { lavaBlocks, neighborBlocks, offset, subchunkY },
+        resolve,
+        reject,
+      });
+      
+      this.processQueue();
+    });
+  }
+  
+  /**
    * Build multiple solid subchunk meshes with controlled concurrency
    * @param {Array} jobs - Array of {solidBlocks, neighborBlocks, offset, subchunkY}
    * @param {Function} onProgress - Optional callback (completed, total)
@@ -300,6 +327,49 @@ class MeshWorkerManager {
       const batchPromises = batch.map(job => {
         return this.buildWaterSubchunkMesh(
           job.waterBlocks, 
+          job.neighborBlocks, 
+          job.offset, 
+          job.subchunkY
+        ).then(result => {
+          completed++;
+          onProgress?.(completed, total);
+          return result;
+        });
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+    }
+    
+    return results;
+  }
+  
+  /**
+   * Build multiple lava subchunk meshes with controlled concurrency
+   * @param {Array} jobs - Array of {lavaBlocks, neighborBlocks, offset, subchunkY}
+   * @param {Function} onProgress - Optional callback (completed, total)
+   * @returns {Promise<Array<{geometry, subchunkY, stats, isLava: true}>>}
+   */
+  async buildLavaSubchunkMeshes(jobs, onProgress = null) {
+    if (jobs.length === 0) return [];
+    
+    this.init();
+    
+    console.log(`MeshWorkerManager: Building ${jobs.length} lava subchunks`);
+    
+    let completed = 0;
+    const total = jobs.length;
+    const results = [];
+    
+    // Process in batches to avoid memory exhaustion
+    const batchSize = this.poolSize;
+    
+    for (let i = 0; i < jobs.length; i += batchSize) {
+      const batch = jobs.slice(i, i + batchSize);
+      
+      const batchPromises = batch.map(job => {
+        return this.buildLavaSubchunkMesh(
+          job.lavaBlocks, 
           job.neighborBlocks, 
           job.offset, 
           job.subchunkY

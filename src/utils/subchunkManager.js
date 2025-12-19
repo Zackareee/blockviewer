@@ -1,4 +1,4 @@
-import { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh, buildWaterSubchunkMesh } from './greedyMesher';
+import { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh, buildWaterSubchunkMesh, buildLavaSubchunkMesh } from './greedyMesher';
 
 /**
  * SubchunkManager - Organizes blocks into 16x16x16 subchunks for efficient rendering
@@ -14,8 +14,12 @@ export class SubchunkManager {
     this.subchunks = new Map();
     // Map of subchunkY -> array of water blocks in that subchunk
     this.waterSubchunks = new Map();
+    // Map of subchunkY -> array of lava blocks in that subchunk
+    this.lavaSubchunks = new Map();
     // All water blocks (for reference)
     this.waterBlocks = [];
+    // All lava blocks (for reference)
+    this.lavaBlocks = [];
     // All solid blocks (for reference)
     this.allSolidBlocks = [];
     // Track min/max subchunk Y for iteration
@@ -24,6 +28,9 @@ export class SubchunkManager {
     // Track water subchunk bounds separately
     this.minWaterSubchunkY = Infinity;
     this.maxWaterSubchunkY = -Infinity;
+    // Track lava subchunk bounds separately
+    this.minLavaSubchunkY = Infinity;
+    this.maxLavaSubchunkY = -Infinity;
     
     // Palette for typed array blocks (shared across all chunks)
     this.palette = null;
@@ -35,12 +42,16 @@ export class SubchunkManager {
   clear() {
     this.subchunks.clear();
     this.waterSubchunks.clear();
+    this.lavaSubchunks.clear();
     this.waterBlocks = [];
+    this.lavaBlocks = [];
     this.allSolidBlocks = [];
     this.minSubchunkY = Infinity;
     this.maxSubchunkY = -Infinity;
     this.minWaterSubchunkY = Infinity;
     this.maxWaterSubchunkY = -Infinity;
+    this.minLavaSubchunkY = Infinity;
+    this.maxLavaSubchunkY = -Infinity;
     this.palette = null;
   }
 
@@ -54,11 +65,11 @@ export class SubchunkManager {
 
   /**
    * Add blocks from typed arrays (high-performance path)
-   * @param {Object} typedBlocks - { x: Uint8Array, y: Int16Array, z: Uint8Array, blockType: Uint16Array, count: number }
+   * @param {Object} typedBlocks - { x: Uint8Array, y: Int16Array, z: Uint8Array, blockType: Uint16Array, level: Int8Array, count: number }
    * @param {string[]} palette - Block name palette
    */
   addTypedBlocks(typedBlocks, palette) {
-    const { x, y, z, blockType, count } = typedBlocks;
+    const { x, y, z, blockType, level, count } = typedBlocks;
     
     // Store palette for later use
     if (!this.palette) {
@@ -74,6 +85,11 @@ export class SubchunkManager {
       
       const block = { x: blockX, y: blockY, z: blockZ, block: blockName };
       
+      // Add level property for fluids (level >= 0 means it's a fluid)
+      if (level && level[i] >= 0) {
+        block.level = level[i];
+      }
+      
       if (isWaterBlock(blockName)) {
         this.waterBlocks.push(block);
         
@@ -84,6 +100,16 @@ export class SubchunkManager {
           this.waterSubchunks.set(subchunkY, []);
         }
         this.waterSubchunks.get(subchunkY).push(block);
+      } else if (isLavaBlock(blockName)) {
+        this.lavaBlocks.push(block);
+        
+        if (subchunkY < this.minLavaSubchunkY) this.minLavaSubchunkY = subchunkY;
+        if (subchunkY > this.maxLavaSubchunkY) this.maxLavaSubchunkY = subchunkY;
+        
+        if (!this.lavaSubchunks.has(subchunkY)) {
+          this.lavaSubchunks.set(subchunkY, []);
+        }
+        this.lavaSubchunks.get(subchunkY).push(block);
       } else {
         this.allSolidBlocks.push(block);
         
@@ -119,6 +145,18 @@ export class SubchunkManager {
           this.waterSubchunks.set(subchunkY, []);
         }
         this.waterSubchunks.get(subchunkY).push(block);
+      } else if (isLavaBlock(block.block)) {
+        this.lavaBlocks.push(block);
+        
+        // Update lava bounds
+        if (subchunkY < this.minLavaSubchunkY) this.minLavaSubchunkY = subchunkY;
+        if (subchunkY > this.maxLavaSubchunkY) this.maxLavaSubchunkY = subchunkY;
+        
+        // Add to lava subchunk
+        if (!this.lavaSubchunks.has(subchunkY)) {
+          this.lavaSubchunks.set(subchunkY, []);
+        }
+        this.lavaSubchunks.get(subchunkY).push(block);
       } else {
         this.allSolidBlocks.push(block);
         
@@ -152,6 +190,14 @@ export class SubchunkManager {
   }
 
   /**
+   * Get all subchunk Y indices that have lava blocks
+   * @returns {Array<number>} Sorted array of lava subchunk Y indices
+   */
+  getLavaSubchunkYIndices() {
+    return Array.from(this.lavaSubchunks.keys()).sort((a, b) => a - b);
+  }
+
+  /**
    * Get solid blocks for a specific subchunk
    * @param {number} subchunkY - The subchunk Y index
    * @returns {Array} Array of blocks in that subchunk
@@ -167,6 +213,15 @@ export class SubchunkManager {
    */
   getWaterSubchunkBlocks(subchunkY) {
     return this.waterSubchunks.get(subchunkY) || [];
+  }
+
+  /**
+   * Get lava blocks for a specific subchunk
+   * @param {number} subchunkY - The subchunk Y index
+   * @returns {Array} Array of lava blocks in that subchunk
+   */
+  getLavaSubchunkBlocks(subchunkY) {
+    return this.lavaSubchunks.get(subchunkY) || [];
   }
 
   /**
@@ -282,6 +337,63 @@ export class SubchunkManager {
   }
 
   /**
+   * Get neighbor blocks for lava subchunk boundary culling
+   * Includes both lava AND solid blocks since lava culls against both
+   * @param {number} subchunkY - The subchunk Y index
+   * @returns {Array} Array of blocks from neighboring subchunks near the boundary
+   */
+  getLavaNeighborBlocks(subchunkY) {
+    const neighbors = [];
+    const { minY, maxY } = getSubchunkYRange(subchunkY);
+    
+    // Get lava blocks from subchunk below
+    const belowLava = this.lavaSubchunks.get(subchunkY - 1);
+    if (belowLava) {
+      const boundaryY = minY - 1;
+      for (const block of belowLava) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    // Get lava blocks from subchunk above
+    const aboveLava = this.lavaSubchunks.get(subchunkY + 1);
+    if (aboveLava) {
+      const boundaryY = maxY + 1;
+      for (const block of aboveLava) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    // Get solid blocks from subchunk below
+    const belowSolid = this.subchunks.get(subchunkY - 1);
+    if (belowSolid) {
+      const boundaryY = minY - 1;
+      for (const block of belowSolid) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    // Get solid blocks from subchunk above
+    const aboveSolid = this.subchunks.get(subchunkY + 1);
+    if (aboveSolid) {
+      const boundaryY = maxY + 1;
+      for (const block of aboveSolid) {
+        if (block.y === boundaryY) {
+          neighbors.push(block);
+        }
+      }
+    }
+    
+    return neighbors;
+  }
+
+  /**
    * Check if a subchunk is fully within a Y range
    * @param {number} subchunkY - The subchunk Y index
    * @param {number} minY - Minimum Y to check
@@ -345,6 +457,18 @@ export class SubchunkManager {
   }
 
   /**
+   * Get lava blocks for a subchunk filtered by Y range
+   * @param {number} subchunkY - The subchunk Y index
+   * @param {number} minY - Minimum Y to include
+   * @param {number} maxY - Maximum Y to include
+   * @returns {Array} Filtered array of lava blocks
+   */
+  getLavaSubchunkBlocksInRange(subchunkY, minY, maxY) {
+    const blocks = this.lavaSubchunks.get(subchunkY) || [];
+    return blocks.filter(b => b.y >= minY && b.y <= maxY);
+  }
+
+  /**
    * Get the total number of subchunks
    */
   get subchunkCount() {
@@ -364,6 +488,13 @@ export class SubchunkManager {
   get waterBlockCount() {
     return this.waterBlocks.length;
   }
+
+  /**
+   * Get the total number of lava blocks
+   */
+  get lavaBlockCount() {
+    return this.lavaBlocks.length;
+  }
 }
 
 /**
@@ -375,5 +506,14 @@ function isWaterBlock(blockName) {
   return name.includes('water') || name.includes('flowing_water');
 }
 
-export { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh, buildWaterSubchunkMesh };
+/**
+ * Helper to check if a block is lava
+ */
+function isLavaBlock(blockName) {
+  if (!blockName) return false;
+  const name = blockName.toLowerCase();
+  return name.includes('lava') || name.includes('flowing_lava');
+}
+
+export { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh, buildWaterSubchunkMesh, buildLavaSubchunkMesh };
 

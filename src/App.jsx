@@ -526,7 +526,7 @@ function App() {
         ) : !loading && (
           <div className="empty-state">
             <div className="empty-icon">⛏️</div>
-            <h2>Minecraft Chunk Viewer</h2>
+            <h2>Chunk Viewer</h2>
             <p>Upload an MCA region file to visualize chunks in 3D</p>
           </div>
         )}
@@ -622,7 +622,7 @@ function App() {
       <div className="control-panel">
         <div className="panel-header">
           <h1>Block Viewer</h1>
-          <span className="version">v1.4</span>
+          <span className="version">v1.5</span>
         </div>
 
         {/* File Upload */}

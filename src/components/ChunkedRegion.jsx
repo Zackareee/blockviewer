@@ -8,6 +8,7 @@ import {
   SubchunkManager, 
   buildSubchunkMesh,
   buildWaterSubchunkMesh,
+  buildLavaSubchunkMesh,
   getSubchunkYRange,
   SUBCHUNK_SIZE 
 } from '../utils/subchunkManager';
@@ -23,6 +24,8 @@ export default function ChunkedRegion({
   const [subchunkGeometries, setSubchunkGeometries] = useState(new Map());
   // Water subchunk geometries: Map of subchunkY -> { geometry, visible, ... }
   const [waterSubchunkGeometries, setWaterSubchunkGeometries] = useState(new Map());
+  // Lava subchunk geometries: Map of subchunkY -> { geometry, visible, ... }
+  const [lavaSubchunkGeometries, setLavaSubchunkGeometries] = useState(new Map());
   const [subchunkManager, setSubchunkManager] = useState(null);
   const [isBuilt, setIsBuilt] = useState(false);
   const [lastRange, setLastRange] = useState({ minY: -64, maxY: 320 });
@@ -53,12 +56,26 @@ export default function ChunkedRegion({
     });
   }, []);
   
+  const lavaMaterial = useMemo(() => {
+    return new THREE.MeshLambertMaterial({ 
+      vertexColors: true, 
+      side: THREE.FrontSide,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: true,
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 2
+    });
+  }, []);
+  
   // Extract blocks and build subchunk meshes
   useEffect(() => {
     if (!chunkRefs || chunkRefs.length === 0) {
       setSubchunkManager(null);
       setSubchunkGeometries(new Map());
       setWaterSubchunkGeometries(new Map());
+      setLavaSubchunkGeometries(new Map());
       setIsBuilt(false);
       onProgress?.(0, 0, false, '');
       return;
@@ -104,7 +121,7 @@ export default function ChunkedRegion({
           // Filter by Y range and add to manager
           onProgress?.(0, 1, true, 'Processing blocks...');
           
-          const { x, y, z, blockType, count } = typedBlocks;
+          const { x, y, z, blockType, level, count } = typedBlocks;
           
           // Create filtered typed arrays
           let filteredCount = 0;
@@ -116,6 +133,7 @@ export default function ChunkedRegion({
           const filteredY = new Int16Array(filteredCount);
           const filteredZ = new Int32Array(filteredCount);
           const filteredBlockType = new Uint16Array(filteredCount);
+          const filteredLevel = new Int8Array(filteredCount);
           
           let j = 0;
           for (let i = 0; i < count; i++) {
@@ -124,12 +142,13 @@ export default function ChunkedRegion({
               filteredY[j] = y[i];
               filteredZ[j] = z[i];
               filteredBlockType[j] = blockType[i];
+              filteredLevel[j] = level[i];
               j++;
             }
           }
           
           manager.addTypedBlocks(
-            { x: filteredX, y: filteredY, z: filteredZ, blockType: filteredBlockType, count: filteredCount },
+            { x: filteredX, y: filteredY, z: filteredZ, blockType: filteredBlockType, level: filteredLevel, count: filteredCount },
             palette
           );
           
@@ -149,7 +168,7 @@ export default function ChunkedRegion({
       if (cancelled || currentBuildId !== buildIdRef.current) return;
       
       const extractTime = performance.now() - startTime;
-      console.log(`Extracted ${manager.solidBlockCount.toLocaleString()} solid + ${manager.waterBlockCount.toLocaleString()} water blocks in ${extractTime.toFixed(0)}ms`);
+      console.log(`Extracted ${manager.solidBlockCount.toLocaleString()} solid + ${manager.waterBlockCount.toLocaleString()} water + ${manager.lavaBlockCount.toLocaleString()} lava blocks in ${extractTime.toFixed(0)}ms`);
       console.log(`Organized into ${manager.subchunkCount} subchunks`);
       
       setSubchunkManager(manager);
@@ -161,7 +180,7 @@ export default function ChunkedRegion({
       
       // For large regions (>500k blocks), use main-thread sequential meshing
       // to avoid memory exhaustion from structured cloning to workers
-      const totalBlocks = manager.solidBlockCount + manager.waterBlockCount;
+      const totalBlocks = manager.solidBlockCount + manager.waterBlockCount + manager.lavaBlockCount;
       const useMainThread = totalBlocks > 500000;
       
       if (useMainThread) {
@@ -338,11 +357,101 @@ export default function ChunkedRegion({
         await new Promise(resolve => setTimeout(resolve, 50)); // Brief pause to show 100%
       }
       
+      // Build lava subchunk meshes
+      const lavaYIndices = manager.getLavaSubchunkYIndices();
+      const newLavaGeometries = new Map();
+      
+      if (lavaYIndices.length > 0) {
+        onProgress?.(0, lavaYIndices.length, true, 'Building lava meshes...');
+        await new Promise(resolve => setTimeout(resolve, 0)); // Yield to show UI update
+        
+        if (useMainThread) {
+          // Main-thread sequential meshing for large regions
+          for (let i = 0; i < lavaYIndices.length; i++) {
+            if (cancelled || currentBuildId !== buildIdRef.current) return;
+            
+            const subchunkY = lavaYIndices[i];
+            const lavaBlocks = manager.getLavaSubchunkBlocks(subchunkY);
+            const neighborBlocks = manager.getLavaNeighborBlocks(subchunkY);
+            
+            const geometry = buildLavaSubchunkMesh(
+              lavaBlocks,
+              neighborBlocks,
+              getBlockColor,
+              { x: regionCenter.x, y: 0, z: regionCenter.z }
+            );
+            
+            if (geometry) {
+              const range = getSubchunkYRange(subchunkY);
+              newLavaGeometries.set(subchunkY, {
+                geometry,
+                range,
+                visible: true
+              });
+            }
+            
+            onProgress?.(i + 1, lavaYIndices.length, true, 'Building lava meshes...');
+            
+            if (i % 4 === 0) {
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
+          }
+        } else {
+          // Worker pool parallel meshing for smaller regions
+          const lavaJobs = lavaYIndices.map(subchunkY => ({
+            lavaBlocks: manager.getLavaSubchunkBlocks(subchunkY),
+            neighborBlocks: manager.getLavaNeighborBlocks(subchunkY),
+            offset: { x: regionCenter.x, y: 0, z: regionCenter.z },
+            subchunkY
+          }));
+          
+          const lavaResults = await meshWorkerManager.buildLavaSubchunkMeshes(
+            lavaJobs,
+            (completed, total) => {
+              if (!cancelled && currentBuildId === buildIdRef.current) {
+                onProgress?.(completed, total, true, 'Building lava meshes...');
+              }
+            }
+          );
+          
+          if (cancelled || currentBuildId !== buildIdRef.current) {
+            for (const result of lavaResults) {
+              result.geometry?.dispose();
+            }
+            for (const data of newGeometries.values()) {
+              data.geometry?.dispose();
+            }
+            for (const data of newWaterGeometries.values()) {
+              data.geometry?.dispose();
+            }
+            return;
+          }
+          
+          for (const result of lavaResults) {
+            if (result.geometry) {
+              const range = getSubchunkYRange(result.subchunkY);
+              newLavaGeometries.set(result.subchunkY, {
+                geometry: result.geometry,
+                range,
+                visible: true
+              });
+            }
+          }
+        }
+        
+        // Show 100% completion for lava meshes
+        onProgress?.(lavaYIndices.length, lavaYIndices.length, true, 'Building lava meshes...');
+        await new Promise(resolve => setTimeout(resolve, 50)); // Brief pause to show 100%
+      }
+      
       if (cancelled || currentBuildId !== buildIdRef.current) {
         for (const data of newGeometries.values()) {
           data.geometry?.dispose();
         }
         for (const data of newWaterGeometries.values()) {
+          data.geometry?.dispose();
+        }
+        for (const data of newLavaGeometries.values()) {
           data.geometry?.dispose();
         }
         return;
@@ -363,15 +472,20 @@ export default function ChunkedRegion({
       for (const data of newWaterGeometries.values()) {
         waterTris += data.geometry.index.count / 3;
       }
+      let lavaTris = 0;
+      for (const data of newLavaGeometries.values()) {
+        lavaTris += data.geometry.index.count / 3;
+      }
       
       console.log(
-        `Region mesh: ${manager.subchunkCount} solid + ${waterYIndices.length} water subchunks → ` +
-        `${totalTris.toLocaleString()} solid + ${waterTris.toLocaleString()} water tris ` +
+        `Region mesh: ${manager.subchunkCount} solid + ${waterYIndices.length} water + ${lavaYIndices.length} lava subchunks → ` +
+        `${totalTris.toLocaleString()} solid + ${waterTris.toLocaleString()} water + ${lavaTris.toLocaleString()} lava tris ` +
         `(${meshTime.toFixed(0)}ms mesh, ${totalTime.toFixed(0)}ms total)`
       );
       
       setSubchunkGeometries(newGeometries);
       setWaterSubchunkGeometries(newWaterGeometries);
+      setLavaSubchunkGeometries(newLavaGeometries);
       setIsBuilt(true);
       setLastRange({ minY, maxY });
       onProgress?.(1, 1, false, '');
@@ -593,6 +707,85 @@ export default function ChunkedRegion({
       setWaterSubchunkGeometries(updatedWaterGeometries);
     }
     
+    // Handle lava subchunks similarly
+    const updatedLavaGeometries = new Map(lavaSubchunkGeometries);
+    let lavaVisibilityChanges = 0;
+    let lavaRemeshCount = 0;
+    const lavaSubchunksToRemesh = [];
+    
+    for (const [subchunkY, data] of updatedLavaGeometries) {
+      const isInRange = subchunkManager.isSubchunkInRange(subchunkY, newMinY, newMaxY);
+      const wasClipped = data.clippedMinY !== undefined || data.clippedMaxY !== undefined;
+      const isNowClipped = subchunkManager.isSubchunkClipped(subchunkY, newMinY, newMaxY);
+      const isFullyInRange = subchunkManager.isSubchunkFullyInRange(subchunkY, newMinY, newMaxY);
+      
+      const subchunkRange = getSubchunkYRange(subchunkY);
+      const wasAtTopBoundary = data.atTopBoundary;
+      const wasAtBottomBoundary = data.atBottomBoundary;
+      const isAtTopBoundary = subchunkRange.maxY >= newMaxY && isInRange;
+      const isAtBottomBoundary = subchunkRange.minY <= newMinY && isInRange;
+      
+      if (data.visible !== isInRange) {
+        data.visible = isInRange;
+        lavaVisibilityChanges++;
+      }
+      
+      if (!isInRange) continue;
+      
+      const needsRemesh = 
+        (wasClipped && isFullyInRange) ||
+        (isNowClipped && (data.clippedMinY !== newMinY || data.clippedMaxY !== newMaxY)) ||
+        (isAtTopBoundary && (!wasAtTopBoundary || lastRange.maxY !== newMaxY)) ||
+        (isAtBottomBoundary && (!wasAtBottomBoundary || lastRange.minY !== newMinY));
+      
+      if (needsRemesh) {
+        lavaSubchunksToRemesh.push({
+          subchunkY,
+          isClipped: isNowClipped,
+          clipMinY: isNowClipped ? newMinY : undefined,
+          clipMaxY: isNowClipped ? newMaxY : undefined,
+          isAtTopBoundary,
+          isAtBottomBoundary
+        });
+      }
+    }
+    
+    // Remesh lava subchunks
+    for (const { subchunkY, isClipped, clipMinY, clipMaxY, isAtTopBoundary, isAtBottomBoundary } of lavaSubchunksToRemesh) {
+      const data = updatedLavaGeometries.get(subchunkY);
+      data.geometry?.dispose();
+      
+      let lavaBlocks;
+      if (isClipped) {
+        lavaBlocks = subchunkManager.getLavaSubchunkBlocksInRange(subchunkY, clipMinY, clipMaxY);
+      } else {
+        lavaBlocks = subchunkManager.getLavaSubchunkBlocks(subchunkY);
+      }
+      
+      const neighborBlocks = subchunkManager.getLavaNeighborBlocks(subchunkY)
+        .filter(b => b.y >= newMinY && b.y <= newMaxY);
+      
+      const newGeometry = buildLavaSubchunkMesh(
+        lavaBlocks,
+        neighborBlocks,
+        getBlockColor,
+        { x: regionCenter.x, y: 0, z: regionCenter.z }
+      );
+      
+      data.geometry = newGeometry;
+      data.clippedMinY = isClipped ? clipMinY : undefined;
+      data.clippedMaxY = isClipped ? clipMaxY : undefined;
+      data.atTopBoundary = isAtTopBoundary;
+      data.atBottomBoundary = isAtBottomBoundary;
+      
+      lavaRemeshCount++;
+    }
+    
+    if (lavaVisibilityChanges > 0 || lavaRemeshCount > 0) {
+      console.log(`Updated ${lavaVisibilityChanges} lava visibility, remeshed ${lavaRemeshCount} lava subchunks`);
+      setLavaSubchunkGeometries(updatedLavaGeometries);
+    }
+    
     setLastRange({ minY: newMinY, maxY: newMaxY });
   };
   
@@ -605,8 +798,11 @@ export default function ChunkedRegion({
       for (const data of waterSubchunkGeometries.values()) {
         data.geometry?.dispose();
       }
+      for (const data of lavaSubchunkGeometries.values()) {
+        data.geometry?.dispose();
+      }
     };
-  }, [subchunkGeometries, waterSubchunkGeometries]);
+  }, [subchunkGeometries, waterSubchunkGeometries, lavaSubchunkGeometries]);
   
   // Render solid subchunk meshes
   const subchunkMeshes = useMemo(() => {
@@ -645,10 +841,30 @@ export default function ChunkedRegion({
     return meshes;
   }, [waterSubchunkGeometries, waterMaterial]);
   
+  // Render lava subchunk meshes
+  const lavaMeshes = useMemo(() => {
+    const meshes = [];
+    for (const [subchunkY, data] of lavaSubchunkGeometries) {
+      if (data.visible && data.geometry) {
+        meshes.push(
+          <mesh 
+            key={`lava-subchunk-${subchunkY}`}
+            geometry={data.geometry} 
+            material={lavaMaterial}
+            frustumCulled={true}
+            renderOrder={2}
+          />
+        );
+      }
+    }
+    return meshes;
+  }, [lavaSubchunkGeometries, lavaMaterial]);
+  
   return (
     <group ref={groupRef} position={[0, -regionCenter.y, 0]}>
       {subchunkMeshes}
       {waterMeshes}
+      {lavaMeshes}
     </group>
   );
 }

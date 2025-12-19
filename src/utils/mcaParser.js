@@ -103,21 +103,45 @@ function isAirBlockFast(name) {
   return AIR_BLOCKS.has(name) || name.endsWith(':air');
 }
 
-// Pre-process palette to extract block names and identify air blocks
-// Returns: { names: string[], airMask: Uint8Array }
+// Pre-process palette to extract block names, air mask, and fluid levels
+// Returns: { names: string[], airMask: Uint8Array, levels: Int8Array }
+// Level: -1 = not a fluid, 0-15 = fluid level (0=source, 1-7=flowing, 8-15=falling)
 function preprocessPalette(palette) {
   const len = palette.length;
   const names = new Array(len);
   const airMask = new Uint8Array(len); // 1 = air, 0 = solid
+  const levels = new Int8Array(len); // -1 = not fluid, 0-15 = fluid level
   
   for (let i = 0; i < len; i++) {
     const entry = palette[i];
     const name = typeof entry === 'string' ? entry : (entry.Name || 'minecraft:air');
     names[i] = name;
     airMask[i] = isAirBlockFast(name) ? 1 : 0;
+    
+    // Extract fluid level for water/lava
+    levels[i] = -1; // Default: not a fluid
+    const isWater = name.includes('water');
+    const isLava = name.includes('lava');
+    
+    if (typeof entry === 'object' && entry.Properties) {
+      const props = entry.Properties;
+      if (props.level !== undefined) {
+        // Parse level (it's stored as a string in NBT)
+        const levelVal = parseInt(props.level, 10);
+        if (!isNaN(levelVal)) {
+          levels[i] = levelVal;
+        }
+      } else if (isWater || isLava) {
+        // Water/lava without level property = source block (level 0)
+        levels[i] = 0;
+      }
+    } else if (isWater || isLava) {
+      // Water/lava with no Properties = source block (level 0)
+      levels[i] = 0;
+    }
   }
   
-  return { names, airMask };
+  return { names, airMask, levels };
 }
 
 // Extract block data from a chunk based on Minecraft version format
@@ -150,19 +174,22 @@ export function extractBlocks(chunk) {
       const blockData = blockStates.data;
       
       // Pre-process palette once per section
-      const { names, airMask } = preprocessPalette(palette);
+      const { names, airMask, levels } = preprocessPalette(palette);
       
       // If there's only one block type in the section (no data array needed)
       if (palette.length === 1 || !blockData || blockData.length === 0) {
         if (airMask[0]) continue; // Skip all-air sections
         
         const blockName = names[0];
+        const level = levels[0];
         // Fill entire section with this block
         for (let ly = 0; ly < 16; ly++) {
           const worldY = baseY + ly;
           for (let lz = 0; lz < 16; lz++) {
             for (let lx = 0; lx < 16; lx++) {
-              blocks.push({ x: lx, y: worldY, z: lz, block: blockName });
+              const block = { x: lx, y: worldY, z: lz, block: blockName };
+              if (level >= 0) block.level = level;
+              blocks.push(block);
             }
           }
         }
@@ -185,7 +212,10 @@ export function extractBlocks(chunk) {
             
             // Skip air blocks (use pre-computed mask)
             if (paletteIndex < palette.length && !airMask[paletteIndex]) {
-              blocks.push({ x: lx, y: worldY, z: lz, block: names[paletteIndex] });
+              const block = { x: lx, y: worldY, z: lz, block: names[paletteIndex] };
+              const level = levels[paletteIndex];
+              if (level >= 0) block.level = level;
+              blocks.push(block);
             }
           }
         }
@@ -199,18 +229,21 @@ export function extractBlocks(chunk) {
       if (palette.length === 0) continue;
       
       // Pre-process palette
-      const { names, airMask } = preprocessPalette(palette);
+      const { names, airMask, levels } = preprocessPalette(palette);
       
       // Single block type in section
       if (palette.length === 1) {
         if (airMask[0]) continue;
         
         const blockName = names[0];
+        const level = levels[0];
         for (let ly = 0; ly < 16; ly++) {
           const worldY = baseY + ly;
           for (let lz = 0; lz < 16; lz++) {
             for (let lx = 0; lx < 16; lx++) {
-              blocks.push({ x: lx, y: worldY, z: lz, block: blockName });
+              const block = { x: lx, y: worldY, z: lz, block: blockName };
+              if (level >= 0) block.level = level;
+              blocks.push(block);
             }
           }
         }
@@ -228,7 +261,10 @@ export function extractBlocks(chunk) {
             const paletteIndex = indices[blockIndex++];
             
             if (paletteIndex < palette.length && !airMask[paletteIndex]) {
-              blocks.push({ x: lx, y: worldY, z: lz, block: names[paletteIndex] });
+              const block = { x: lx, y: worldY, z: lz, block: names[paletteIndex] };
+              const level = levels[paletteIndex];
+              if (level >= 0) block.level = level;
+              blocks.push(block);
             }
           }
         }

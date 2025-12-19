@@ -1,9 +1,10 @@
 import { useMemo, useRef, useEffect } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { getBlockColor } from '../utils/mcaParser';
 import CulledMesh from './CulledMesh';
 import ChunkedRegion from './ChunkedRegion';
+import * as THREE from 'three';
 
 // Helper to set initial camera target
 function CameraTargetSetter({ target, controlsRef }) {
@@ -25,9 +26,10 @@ function CameraTargetSetter({ target, controlsRef }) {
   return null;
 }
 
-// Smooth orbit controls with zoom-to-cursor
-function SmoothOrbitControls({ minDistance = 5, maxDistance = 500, targetRef }) {
+// Smooth orbit controls that zooms toward cursor but keeps rotation pivot stable
+function SmoothOrbitControls({ minDistance = 5, maxDistance = 500, targetRef, fixedTarget }) {
   const controlsRef = useRef();
+  const { camera, gl } = useThree();
   
   // Store ref for external access
   useEffect(() => {
@@ -36,6 +38,56 @@ function SmoothOrbitControls({ minDistance = 5, maxDistance = 500, targetRef }) 
     }
   }, [targetRef]);
   
+  // Custom zoom-to-cursor that doesn't move the orbit target
+  useEffect(() => {
+    const canvas = gl.domElement;
+    
+    const handleWheel = (event) => {
+      if (!controlsRef.current) return;
+      
+      event.preventDefault();
+      
+      const controls = controlsRef.current;
+      const rect = canvas.getBoundingClientRect();
+      
+      // Get mouse position in NDC
+      const mouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      const mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      
+      // Create a ray from camera through mouse position
+      const mouse = new THREE.Vector2(mouseX, mouseY);
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
+      
+      // Calculate zoom factor
+      const zoomSpeed = 0.001;
+      const delta = event.deltaY * zoomSpeed;
+      const zoomFactor = 1 + delta;
+      
+      // Get current distance from camera to target
+      const currentDistance = camera.position.distanceTo(controls.target);
+      const newDistance = Math.max(minDistance, Math.min(maxDistance, currentDistance * zoomFactor));
+      
+      // Calculate the point on the ray at the current target distance (what we're zooming toward)
+      const zoomPoint = new THREE.Vector3();
+      raycaster.ray.at(currentDistance, zoomPoint);
+      
+      // Calculate how much to move camera toward that point
+      const zoomAmount = (currentDistance - newDistance) / currentDistance;
+      
+      // Move camera toward zoom point
+      const offset = new THREE.Vector3().subVectors(zoomPoint, camera.position).multiplyScalar(zoomAmount);
+      camera.position.add(offset);
+      
+      // Also move the target by the same amount to maintain the orbit relationship
+      controls.target.add(offset);
+      controls.update();
+    };
+    
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [gl, camera, minDistance, maxDistance]);
+  
   return (
     <OrbitControls
       ref={controlsRef}
@@ -43,7 +95,7 @@ function SmoothOrbitControls({ minDistance = 5, maxDistance = 500, targetRef }) 
       dampingFactor={0.1}
       minDistance={minDistance}
       maxDistance={maxDistance}
-      zoomToCursor={true}
+      enableZoom={false} // We handle zoom ourselves
       zoomSpeed={1.2}
       rotateSpeed={0.8}
       panSpeed={0.8}

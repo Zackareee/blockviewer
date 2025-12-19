@@ -37,12 +37,13 @@ function isAirBlockFast(name) {
   return AIR_BLOCKS.has(name) || name.endsWith(':air');
 }
 
-// Pre-process palette to extract block names and identify air blocks
+// Pre-process palette to extract block names, identify air blocks, and extract fluid levels
 function preprocessPalette(palette) {
   const len = palette.length;
   const names = new Array(len);
   const airMask = new Uint8Array(len);
   const globalIndices = new Uint16Array(len);
+  const levels = new Int8Array(len); // -1 = not fluid, 0-15 = fluid level
   
   for (let i = 0; i < len; i++) {
     const entry = palette[i];
@@ -50,9 +51,30 @@ function preprocessPalette(palette) {
     names[i] = name;
     airMask[i] = isAirBlockFast(name) ? 1 : 0;
     globalIndices[i] = getBlockIndex(name);
+    
+    // Extract fluid level for water/lava
+    levels[i] = -1; // Default: not a fluid
+    const isWater = name.includes('water');
+    const isLava = name.includes('lava');
+    
+    if (typeof entry === 'object' && entry.Properties) {
+      const props = entry.Properties;
+      if (props.level !== undefined) {
+        const levelVal = parseInt(props.level, 10);
+        if (!isNaN(levelVal)) {
+          levels[i] = levelVal;
+        }
+      } else if (isWater || isLava) {
+        // Water/lava without level property = source block (level 0)
+        levels[i] = 0;
+      }
+    } else if (isWater || isLava) {
+      // Water/lava with no Properties = source block (level 0)
+      levels[i] = 0;
+    }
   }
   
-  return { names, airMask, globalIndices };
+  return { names, airMask, globalIndices, levels };
 }
 
 // Optimized unpacking of block indices
@@ -85,7 +107,7 @@ function unpackBlockIndices(data, bitsPerBlock, totalBlocks) {
 
 /**
  * Extract blocks from chunk data into typed arrays
- * Returns: { x: Int32Array, y: Int16Array, z: Int32Array, blockType: Uint16Array, count: number }
+ * Returns: { x: Int32Array, y: Int16Array, z: Int32Array, blockType: Uint16Array, level: Int8Array, count: number }
  * 
  * Note: x and z use Int32Array to support world coordinates (chunk offsets can be large)
  */
@@ -97,6 +119,8 @@ function extractBlocksTyped(chunkData, chunkOffsetX = 0, chunkOffsetZ = 0) {
   const yArr = new Int16Array(maxBlocks);
   const zArr = new Int32Array(maxBlocks);  // Int32 for world coordinates
   const blockTypeArr = new Uint16Array(maxBlocks);
+  const levelArr = new Int8Array(maxBlocks);  // Fluid levels: -1 = not fluid, 0-15 = fluid level
+  levelArr.fill(-1);
   
   let count = 0;
   
@@ -121,13 +145,14 @@ function extractBlocksTyped(chunkData, chunkOffsetX = 0, chunkOffsetZ = 0) {
       if (!palette || palette.length === 0) continue;
       
       const blockData = blockStates.data;
-      const { airMask, globalIndices } = preprocessPalette(palette);
+      const { airMask, globalIndices, levels } = preprocessPalette(palette);
       
       // Single block type section
       if (palette.length === 1 || !blockData || blockData.length === 0) {
         if (airMask[0]) continue;
         
         const blockIdx = globalIndices[0];
+        const blockLevel = levels[0];
         for (let ly = 0; ly < 16; ly++) {
           const worldY = baseY + ly;
           for (let lz = 0; lz < 16; lz++) {
@@ -136,6 +161,7 @@ function extractBlocksTyped(chunkData, chunkOffsetX = 0, chunkOffsetZ = 0) {
               yArr[count] = worldY;
               zArr[count] = lz + chunkOffsetZ;
               blockTypeArr[count] = blockIdx;
+              levelArr[count] = blockLevel;
               count++;
             }
           }
@@ -158,6 +184,7 @@ function extractBlocksTyped(chunkData, chunkOffsetX = 0, chunkOffsetZ = 0) {
               yArr[count] = worldY;
               zArr[count] = lz + chunkOffsetZ;
               blockTypeArr[count] = globalIndices[paletteIndex];
+              levelArr[count] = levels[paletteIndex];
               count++;
             }
           }
@@ -171,12 +198,13 @@ function extractBlocksTyped(chunkData, chunkOffsetX = 0, chunkOffsetZ = 0) {
       
       if (palette.length === 0) continue;
       
-      const { airMask, globalIndices } = preprocessPalette(palette);
+      const { airMask, globalIndices, levels } = preprocessPalette(palette);
       
       if (palette.length === 1) {
         if (airMask[0]) continue;
         
         const blockIdx = globalIndices[0];
+        const blockLevel = levels[0];
         for (let ly = 0; ly < 16; ly++) {
           const worldY = baseY + ly;
           for (let lz = 0; lz < 16; lz++) {
@@ -185,6 +213,7 @@ function extractBlocksTyped(chunkData, chunkOffsetX = 0, chunkOffsetZ = 0) {
               yArr[count] = worldY;
               zArr[count] = lz + chunkOffsetZ;
               blockTypeArr[count] = blockIdx;
+              levelArr[count] = blockLevel;
               count++;
             }
           }
@@ -207,6 +236,7 @@ function extractBlocksTyped(chunkData, chunkOffsetX = 0, chunkOffsetZ = 0) {
               yArr[count] = worldY;
               zArr[count] = lz + chunkOffsetZ;
               blockTypeArr[count] = globalIndices[paletteIndex];
+              levelArr[count] = levels[paletteIndex];
               count++;
             }
           }
@@ -256,6 +286,7 @@ function extractBlocksTyped(chunkData, chunkOffsetX = 0, chunkOffsetZ = 0) {
     y: yArr.slice(0, count),
     z: zArr.slice(0, count),
     blockType: blockTypeArr.slice(0, count),
+    level: levelArr.slice(0, count),
     count
   };
 }
@@ -282,6 +313,7 @@ self.onmessage = function(e) {
         y: result.y,
         z: result.z,
         blockType: result.blockType,
+        level: result.level,
         count: result.count,
         timeMs: elapsed
       },
@@ -291,7 +323,8 @@ self.onmessage = function(e) {
       result.x.buffer,
       result.y.buffer,
       result.z.buffer,
-      result.blockType.buffer
+      result.blockType.buffer,
+      result.level.buffer
     ]);
   }
   
@@ -315,7 +348,7 @@ self.onmessage = function(e) {
     // Collect all buffers for transfer
     const transferables = [];
     for (const r of results) {
-      transferables.push(r.x.buffer, r.y.buffer, r.z.buffer, r.blockType.buffer);
+      transferables.push(r.x.buffer, r.y.buffer, r.z.buffer, r.blockType.buffer, r.level.buffer);
     }
     
     self.postMessage({
