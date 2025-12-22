@@ -468,7 +468,10 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
   });
 
   // Output arrays
-  const estimatedQuads = targetBlocks.length * 3;
+  // Estimate 6 quads per block (worst case: isolated blocks with all faces visible)
+  // This is more conservative than the previous estimate of 3, which would underallocate
+  // for sparse worlds like the debug world where blocks aren't adjacent
+  const estimatedQuads = targetBlocks.length * 6;
   const positions = new Float32Array(estimatedQuads * 4 * 3);
   const normals = new Float32Array(estimatedQuads * 4 * 3);
   const colors = new Float32Array(estimatedQuads * 4 * 3);
@@ -559,6 +562,12 @@ function buildGreedyMeshArrays(targetBlocks, otherBlocks, offset, targetType) {
           const corners = getCorners(baseX, baseY, baseZ, width, height);
           const color = paletteColors[paletteIdx];
           const startVertex = vertexCount;
+
+          // Safety check: ensure we don't overflow the pre-allocated arrays
+          if (posIdx + 12 > positions.length || indexIdx + 6 > indices.length) {
+            console.warn('Mesh worker: array overflow detected, skipping remaining faces');
+            continue;
+          }
 
           for (const [cx, cy, cz] of corners) {
             positions[posIdx++] = cx - offset.x;
@@ -909,6 +918,65 @@ self.onmessage = function(e) {
         }
       });
     }
+  }
+  
+  // BATCH processing - process multiple subchunks in a single message
+  // This dramatically reduces worker communication overhead
+  if (type === 'buildSubchunkMeshBatch') {
+    const { jobs, meshType } = data; // meshType: 'solid' | 'water' | 'lava'
+    
+    const startTime = performance.now();
+    const results = [];
+    const transferables = [];
+    
+    for (const job of jobs) {
+      const { blocks, neighborBlocks, offset, subchunkY, subchunkKey } = job;
+      
+      try {
+        // Determine target type based on meshType
+        const targetType = meshType === 'water' ? 2 : (meshType === 'lava' ? 3 : 1);
+        const result = buildGreedyMeshArrays(blocks, neighborBlocks, offset, targetType);
+        
+        if (result) {
+          transferables.push(
+            result.positions.buffer,
+            result.normals.buffer,
+            result.colors.buffer,
+            result.indices.buffer
+          );
+        }
+        
+        results.push({
+          subchunkY,
+          subchunkKey,
+          geometry: result,
+          blockCount: blocks.length,
+          triangleCount: result?.triangleCount || 0,
+        });
+      } catch (error) {
+        results.push({
+          subchunkY,
+          subchunkKey,
+          geometry: null,
+          blockCount: blocks?.length || 0,
+          triangleCount: 0,
+          error: error.message,
+        });
+      }
+    }
+    
+    const elapsed = performance.now() - startTime;
+    
+    self.postMessage({
+      type: 'subchunkMeshBatchResult',
+      id,
+      meshType,
+      results,
+      stats: {
+        jobCount: jobs.length,
+        timeMs: elapsed,
+      }
+    }, transferables);
   }
 };
 

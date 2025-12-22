@@ -141,7 +141,7 @@ function ChunkContainer({ blocks, minY, maxY, autoRotate }) {
 }
 
 // Container for region with optional rotation
-function RegionContainer({ regionChunkData, minY, maxY, autoRotate, onProgress, onManagerReady, regionCenter }) {
+function RegionContainer({ regionChunkData, minY, maxY, autoRotate, onProgress, onManagerReady, regionCenter, onStreamingProgress }) {
   const groupRef = useRef();
   
   useFrame((state, delta) => {
@@ -163,21 +163,58 @@ function RegionContainer({ regionChunkData, minY, maxY, autoRotate, onProgress, 
         regionCenter={regionCenter}
         onProgress={onProgress}
         onManagerReady={onManagerReady}
+        // Streaming mode props
+        isStreaming={regionChunkData.isStreaming}
+        regionFiles={regionChunkData.regionFiles}
+        minChunkX={regionChunkData.minChunkX || 0}
+        minChunkZ={regionChunkData.minChunkZ || 0}
+        onStreamingProgress={onStreamingProgress}
       />
     </group>
   );
 }
 
-// Component to dynamically update camera FOV
+// Component to dynamically update camera FOV with smooth transitions
 function DynamicFOV({ fov, enabled }) {
   const { camera } = useThree();
+  const targetFov = useRef(fov);
+  const currentFov = useRef(fov);
   
+  // Update target when prop changes
+  useEffect(() => {
+    targetFov.current = fov;
+  }, [fov]);
+  
+  // Set initial FOV
   useEffect(() => {
     if (enabled && camera.isPerspectiveCamera) {
+      currentFov.current = fov;
       camera.fov = fov;
       camera.updateProjectionMatrix();
     }
-  }, [fov, enabled, camera]);
+  }, [enabled, camera]);
+  
+  // Smooth FOV transitions
+  useFrame((_, delta) => {
+    if (!enabled || !camera.isPerspectiveCamera) return;
+    
+    const target = targetFov.current;
+    const current = currentFov.current;
+    
+    // Lerp toward target (smooth transition)
+    if (Math.abs(target - current) > 0.1) {
+      const lerpSpeed = 8; // Higher = faster transition
+      const newFov = current + (target - current) * Math.min(1, delta * lerpSpeed);
+      currentFov.current = newFov;
+      camera.fov = newFov;
+      camera.updateProjectionMatrix();
+    } else if (current !== target) {
+      // Snap to target when close
+      currentFov.current = target;
+      camera.fov = target;
+      camera.updateProjectionMatrix();
+    }
+  });
   
   return null;
 }
@@ -196,7 +233,11 @@ function SceneContent({
   collisionWorld,
   regionCenter: regionCenterProp,
   onPlayerPosition,
-  walkFov = 70
+  onPlayerChunkChange,
+  onPlayerVelocity,
+  onPlayerSprint,
+  walkFov = 70,
+  onStreamingProgress
 }) {
   const controlsRef = useRef();
   const { camera } = useThree();
@@ -214,7 +255,6 @@ function SceneContent({
       // Fallback for single chunk view
       center = regionCenterProp || { x: 0, y: 64, z: 0 };
     }
-    console.log('SceneContent: effectiveRegionCenter =', JSON.stringify(center));
     return center;
   }, [isRegion, regionChunkData, isMultiChunk, chunkViewData, regionCenterProp]);
   
@@ -335,7 +375,7 @@ function SceneContent({
         fov={50} 
       />
       
-      {/* Dynamic FOV for walk mode */}
+      {/* DynamJic FOV for walk mode */}
       <DynamicFOV fov={walkFov} enabled={cameraMode === 'walk'} />
       
       {/* Camera controls based on mode */}
@@ -357,6 +397,9 @@ function SceneContent({
           collisionWorld={collisionWorld}
           regionCenter={effectiveRegionCenter}
           onPositionChange={onPlayerPosition}
+          onChunkChange={onPlayerChunkChange}
+          onVelocityChange={onPlayerVelocity}
+          onSprintChange={onPlayerSprint}
         />
       )}
       
@@ -376,6 +419,7 @@ function SceneContent({
           autoRotate={autoRotate && cameraMode === 'freecam'}
           onProgress={onBuildProgress}
           regionCenter={effectiveRegionCenter}
+          onStreamingProgress={onStreamingProgress}
         />
       ) : isMultiChunk && chunkViewData ? (
         <RegionContainer 
@@ -386,6 +430,7 @@ function SceneContent({
           autoRotate={autoRotate && cameraMode === 'freecam'}
           onProgress={onBuildProgress}
           regionCenter={effectiveRegionCenter}
+          onStreamingProgress={onStreamingProgress}
         />
       ) : blocks && blocks.length > 0 ? (
         <ChunkContainer 
@@ -413,7 +458,11 @@ export default function ChunkViewer({
   collisionWorld,
   regionCenter,
   onPlayerPosition,
-  walkFov = 70
+  onPlayerChunkChange,
+  onPlayerVelocity,
+  onPlayerSprint,
+  walkFov = 70,
+  onStreamingProgress
 }) {
   return (
     <Canvas 
@@ -435,7 +484,11 @@ export default function ChunkViewer({
         collisionWorld={collisionWorld}
         regionCenter={regionCenter}
         onPlayerPosition={onPlayerPosition}
+        onPlayerChunkChange={onPlayerChunkChange}
+        onPlayerVelocity={onPlayerVelocity}
+        onPlayerSprint={onPlayerSprint}
         walkFov={walkFov}
+        onStreamingProgress={onStreamingProgress}
       />
     </Canvas>
   );

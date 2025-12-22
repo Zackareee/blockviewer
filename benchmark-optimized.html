@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Optimized Meshing Benchmark</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      padding: 40px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    h1 { color: #7aa2f7; margin-bottom: 10px; }
+    .subtitle { color: #666; margin-bottom: 30px; }
+    .section {
+      background: #1a1a24;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .section h2 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #9ece6a;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    .row:last-child { border-bottom: none; }
+    .label { color: #888; }
+    .value { color: #f7768e; font-weight: bold; }
+    .value.good { color: #9ece6a; }
+    .value.warn { color: #e0af68; }
+    .bar-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 4px 0;
+    }
+    .bar {
+      height: 20px;
+      background: linear-gradient(90deg, #7aa2f7, #bb9af7);
+      border-radius: 4px;
+      min-width: 2px;
+    }
+    .bar.old { background: linear-gradient(90deg, #f7768e, #ff5555); }
+    .bar.new { background: linear-gradient(90deg, #9ece6a, #73daca); }
+    #dropzone {
+      border: 2px dashed #4a4a6a;
+      border-radius: 8px;
+      padding: 60px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 30px;
+    }
+    #dropzone:hover, #dropzone.dragover {
+      border-color: #7aa2f7;
+      background: #1a1a2f;
+    }
+    #dropzone input { display: none; }
+    #log {
+      background: #0f0f14;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 15px;
+      font-size: 12px;
+      white-space: pre-wrap;
+      max-height: 400px;
+      overflow-y: auto;
+      line-height: 1.4;
+    }
+    .progress-container {
+      margin-top: 15px;
+    }
+    .progress {
+      background: #2a2a3a;
+      border-radius: 4px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      background: linear-gradient(90deg, #7aa2f7, #9ece6a);
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.1s;
+    }
+    .phase-label {
+      font-size: 12px;
+      color: #888;
+      margin-top: 5px;
+    }
+    .speedup {
+      background: linear-gradient(135deg, #9ece6a, #73daca);
+      color: #0a0a0f;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 24px;
+      font-weight: bold;
+      display: inline-block;
+      margin-top: 10px;
+    }
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .comparison .section {
+      margin-bottom: 0;
+    }
+    .comparison h3 {
+      margin: 0 0 15px 0;
+      font-size: 14px;
+    }
+    .comparison h3.old { color: #f7768e; }
+    .comparison h3.new { color: #9ece6a; }
+    .badge {
+      background: #9ece6a;
+      color: #0a0a0f;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>⚡ Optimized Meshing Benchmark <span class="badge">NEW</span></h1>
+  <p class="subtitle">Compares old object-based meshing vs new typed array direct processing</p>
+  
+  <div id="dropzone">
+    <div>Drop a <strong>.mca</strong> region file here or click to select</div>
+    <div style="color: #666; margin-top: 10px; font-size: 14px;">
+      Tests both old and new mesh building paths for comparison
+    </div>
+    <input type="file" accept=".mca" id="fileInput">
+    <div class="progress-container" id="progressContainer" style="display: none;">
+      <div class="progress">
+        <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+      </div>
+      <div class="phase-label" id="phaseLabel">Starting...</div>
+    </div>
+  </div>
+  
+  <div id="results" style="display: none;">
+    <div class="section">
+      <h2>🏆 Mesh Building Performance</h2>
+      <div id="speedupSection" style="text-align: center; padding: 20px 0;">
+        <div style="color: #888; margin-bottom: 10px;">Speedup:</div>
+        <div class="speedup" id="speedupValue">-</div>
+      </div>
+      <div id="comparisonBars"></div>
+    </div>
+    
+    <div class="comparison">
+      <div class="section">
+        <h3 class="old">❌ Old Path (Object-based)</h3>
+        <div class="row">
+          <span class="label">Mesh Build Time</span>
+          <span class="value" id="oldMeshTime">-</span>
+        </div>
+        <div class="row">
+          <span class="label">Meshes Built</span>
+          <span class="value" id="oldMeshCount">-</span>
+        </div>
+        <div class="row">
+          <span class="label">Data Prep Time</span>
+          <span class="value" id="oldPrepTime">-</span>
+        </div>
+      </div>
+      
+      <div class="section">
+        <h3 class="new">✅ New Path (Typed Arrays)</h3>
+        <div class="row">
+          <span class="label">Mesh Build Time</span>
+          <span class="value good" id="newMeshTime">-</span>
+        </div>
+        <div class="row">
+          <span class="label">Meshes Built</span>
+          <span class="value good" id="newMeshCount">-</span>
+        </div>
+        <div class="row">
+          <span class="label">Data Prep Time</span>
+          <span class="value good" id="newPrepTime">-</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>📊 Full Pipeline Summary</h2>
+      <div class="row">
+        <span class="label">File Size</span>
+        <span class="value" id="fileSize">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Chunks</span>
+        <span class="value" id="chunkCount">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Blocks</span>
+        <span class="value" id="blockCount">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Subchunks</span>
+        <span class="value" id="subchunkCount">-</span>
+      </div>
+    </div>
+  </div>
+  
+  <div class="section">
+    <h2>📝 Log</h2>
+    <div id="log">Waiting for file...</div>
+  </div>
+
+  <script type="module">
+    import { parseMCAFile, getBlockColor } from './src/utils/mcaParser.js';
+    import { getExtractionWorkerManager } from './src/utils/extractionWorkerManager.js';
+    import { meshWorkerManager } from './src/utils/meshWorkerManager.js';
+    import { SubchunkManager, getSubchunkYRange } from './src/utils/subchunkManager.js';
+    
+    const log = document.getElementById('log');
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const results = document.getElementById('results');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const phaseLabel = document.getElementById('phaseLabel');
+    
+    // Initialize workers
+    const extractionManager = getExtractionWorkerManager();
+    await extractionManager.init();
+    meshWorkerManager.init();
+    meshWorkerManager.initOptimized();
+    
+    function logMsg(msg) {
+      log.textContent += msg + '\n';
+      log.scrollTop = log.scrollHeight;
+    }
+    
+    function formatTime(ms) {
+      if (ms < 1000) return `${ms.toFixed(0)}ms`;
+      return `${(ms / 1000).toFixed(2)}s`;
+    }
+    
+    function formatBytes(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    }
+    
+    function setProgress(percent, label) {
+      progressBar.style.width = `${percent}%`;
+      phaseLabel.textContent = label;
+    }
+    
+    async function runBenchmark(file) {
+      log.textContent = '';
+      results.style.display = 'none';
+      progressContainer.style.display = 'block';
+      setProgress(0, 'Starting...');
+      
+      let totalBlocks = 0;
+      let chunkCount = 0;
+      let subchunkCount = 0;
+      
+      try {
+        logMsg(`=== Optimized Meshing Benchmark ===`);
+        logMsg(`File: ${file.name} (${formatBytes(file.size)})`);
+        logMsg('');
+        
+        // Phase 1: Parse and extract (same for both)
+        setProgress(10, 'Parsing file...');
+        logMsg(`[1/4] Parsing file...`);
+        
+        const parseStart = performance.now();
+        const chunks = await parseMCAFile(file);
+        const parseTime = performance.now() - parseStart;
+        chunkCount = chunks.length;
+        logMsg(`     Chunks: ${chunkCount}, Time: ${formatTime(parseTime)}`);
+        
+        setProgress(30, 'Extracting blocks...');
+        logMsg(`[2/4] Extracting blocks...`);
+        
+        extractionManager.resetPalette();
+        const chunkRefs = chunks.map(c => ({
+          rawData: c.data,
+          chunkX: c.x,
+          chunkZ: c.z
+        }));
+        
+        const extractStart = performance.now();
+        const { blocks: typedBlocks, palette } = await extractionManager.extractChunksParallel(
+          chunkRefs, (c, t) => setProgress(30 + (c/t) * 20, `Extracting ${c}/${t}...`)
+        );
+        const extractTime = performance.now() - extractStart;
+        totalBlocks = typedBlocks.count;
+        logMsg(`     Blocks: ${totalBlocks.toLocaleString()}, Time: ${formatTime(extractTime)}`);
+        
+        setProgress(55, 'Organizing subchunks...');
+        logMsg(`[3/4] Organizing into subchunks...`);
+        
+        const organizeStart = performance.now();
+        const manager = new SubchunkManager();
+        manager.setPalette(palette);
+        manager.addTypedBlocks(typedBlocks, palette);
+        const organizeTime = performance.now() - organizeStart;
+        
+        const solidIndices = manager.getSubchunkYIndices();
+        const waterIndices = manager.getWaterSubchunkYIndices();
+        const lavaIndices = manager.getLavaSubchunkYIndices();
+        subchunkCount = solidIndices.length + waterIndices.length + lavaIndices.length;
+        logMsg(`     Subchunks: ${subchunkCount}, Time: ${formatTime(organizeTime)}`);
+        
+        const meshOffset = { x: 0, y: 0, z: 0 };
+        
+        // ===== OLD PATH (object-based) =====
+        setProgress(60, 'Testing OLD mesh path...');
+        logMsg('');
+        logMsg(`[4a/4] Testing OLD mesh path (object-based)...`);
+        
+        const oldPrepStart = performance.now();
+        const solidJobs = solidIndices.map(subchunkY => ({
+          solidBlocks: manager.getSubchunkBlocks(subchunkY),
+          neighborBlocks: manager.getNeighborBlocks(subchunkY),
+          offset: meshOffset,
+          subchunkY,
+          subchunkKey: subchunkY
+        }));
+        const waterJobs = waterIndices.map(subchunkY => ({
+          waterBlocks: manager.getWaterSubchunkBlocks(subchunkY),
+          neighborBlocks: manager.getWaterNeighborBlocks(subchunkY),
+          offset: meshOffset,
+          subchunkY,
+          subchunkKey: subchunkY
+        }));
+        const lavaJobs = lavaIndices.map(subchunkY => ({
+          lavaBlocks: manager.getLavaSubchunkBlocks(subchunkY),
+          neighborBlocks: manager.getLavaNeighborBlocks(subchunkY),
+          offset: meshOffset,
+          subchunkY,
+          subchunkKey: subchunkY
+        }));
+        const oldPrepTime = performance.now() - oldPrepStart;
+        logMsg(`     Prep time (object creation): ${formatTime(oldPrepTime)}`);
+        
+        const oldMeshStart = performance.now();
+        const [oldSolidResults, oldWaterResults, oldLavaResults] = await Promise.all([
+          solidJobs.length > 0 ? meshWorkerManager.buildSubchunkMeshes(solidJobs, (c, t) => {
+            setProgress(60 + (c/t) * 15, `Old path: ${c}/${t}...`);
+          }) : Promise.resolve([]),
+          waterJobs.length > 0 ? meshWorkerManager.buildWaterSubchunkMeshes(waterJobs) : Promise.resolve([]),
+          lavaJobs.length > 0 ? meshWorkerManager.buildLavaSubchunkMeshes(lavaJobs) : Promise.resolve([])
+        ]);
+        const oldMeshTime = performance.now() - oldMeshStart;
+        const oldMeshCount = oldSolidResults.filter(r => r.geometry).length + 
+                            oldWaterResults.filter(r => r.geometry).length +
+                            oldLavaResults.filter(r => r.geometry).length;
+        
+        logMsg(`     Mesh time: ${formatTime(oldMeshTime)}`);
+        logMsg(`     Meshes: ${oldMeshCount}`);
+        
+        // Dispose old geometries
+        for (const r of [...oldSolidResults, ...oldWaterResults, ...oldLavaResults]) {
+          r.geometry?.dispose();
+        }
+        
+        // ===== NEW PATH (typed arrays) =====
+        setProgress(80, 'Testing NEW mesh path...');
+        logMsg('');
+        logMsg(`[4b/4] Testing NEW mesh path (typed arrays)...`);
+        
+        const newPrepStart = performance.now();
+        const { 
+          solidJobs: newSolidJobs, 
+          waterJobs: newWaterJobs, 
+          lavaJobs: newLavaJobs, 
+          typedArrays 
+        } = manager.prepareIndexedMeshJobs(meshOffset);
+        const newPrepTime = performance.now() - newPrepStart;
+        logMsg(`     Prep time (indexed): ${formatTime(newPrepTime)}`);
+        
+        const newMeshStart = performance.now();
+        const newResult = await meshWorkerManager.buildMeshesTyped(
+          typedArrays,
+          newSolidJobs,
+          newWaterJobs,
+          newLavaJobs,
+          (c, t) => setProgress(80 + (c/t) * 15, `New path: ${c}/${t}...`)
+        );
+        const newMeshTime = performance.now() - newMeshStart;
+        const newMeshCount = newResult.solidResults.filter(r => r.geometry).length +
+                            newResult.waterResults.filter(r => r.geometry).length +
+                            newResult.lavaResults.filter(r => r.geometry).length;
+        
+        logMsg(`     Mesh time: ${formatTime(newMeshTime)}`);
+        logMsg(`     Meshes: ${newMeshCount}`);
+        
+        // Dispose new geometries
+        for (const r of [...newResult.solidResults, ...newResult.waterResults, ...newResult.lavaResults]) {
+          r.geometry?.dispose();
+        }
+        
+        setProgress(100, 'Complete!');
+        
+        // Calculate speedup
+        const oldTotalTime = oldPrepTime + oldMeshTime;
+        const newTotalTime = newPrepTime + newMeshTime;
+        const speedup = oldTotalTime / newTotalTime;
+        
+        logMsg('');
+        logMsg('='.repeat(50));
+        logMsg(`OLD TOTAL: ${formatTime(oldTotalTime)} (prep: ${formatTime(oldPrepTime)} + mesh: ${formatTime(oldMeshTime)})`);
+        logMsg(`NEW TOTAL: ${formatTime(newTotalTime)} (prep: ${formatTime(newPrepTime)} + mesh: ${formatTime(newMeshTime)})`);
+        logMsg(`SPEEDUP: ${speedup.toFixed(2)}x faster!`);
+        logMsg('='.repeat(50));
+        
+        // Display results
+        document.getElementById('fileSize').textContent = formatBytes(file.size);
+        document.getElementById('chunkCount').textContent = chunkCount;
+        document.getElementById('blockCount').textContent = totalBlocks.toLocaleString();
+        document.getElementById('subchunkCount').textContent = subchunkCount.toLocaleString();
+        
+        document.getElementById('oldMeshTime').textContent = formatTime(oldMeshTime);
+        document.getElementById('oldMeshCount').textContent = oldMeshCount;
+        document.getElementById('oldPrepTime').textContent = formatTime(oldPrepTime);
+        
+        document.getElementById('newMeshTime').textContent = formatTime(newMeshTime);
+        document.getElementById('newMeshCount').textContent = newMeshCount;
+        document.getElementById('newPrepTime').textContent = formatTime(newPrepTime);
+        
+        document.getElementById('speedupValue').textContent = `${speedup.toFixed(2)}x faster`;
+        
+        // Draw comparison bars
+        const maxTime = Math.max(oldTotalTime, newTotalTime);
+        const scale = 400 / maxTime;
+        
+        document.getElementById('comparisonBars').innerHTML = `
+          <div class="bar-container">
+            <span class="label" style="width: 100px;">Old Path</span>
+            <div class="bar old" style="width: ${oldTotalTime * scale}px;"></div>
+            <span class="value">${formatTime(oldTotalTime)}</span>
+          </div>
+          <div class="bar-container">
+            <span class="label" style="width: 100px;">New Path</span>
+            <div class="bar new" style="width: ${newTotalTime * scale}px;"></div>
+            <span class="value good">${formatTime(newTotalTime)}</span>
+          </div>
+        `;
+        
+        results.style.display = 'block';
+        
+      } catch (e) {
+        logMsg(`Error: ${e.message}`);
+        logMsg(e.stack);
+        console.error(e);
+      }
+      
+      progressContainer.style.display = 'none';
+    }
+    
+    // Event handlers
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file?.name.endsWith('.mca')) runBenchmark(file);
+    });
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) runBenchmark(file);
+    });
+    
+    logMsg('Workers initialized (both old and new paths). Ready for benchmark.');
+  </script>
+</body>
+</html>
+

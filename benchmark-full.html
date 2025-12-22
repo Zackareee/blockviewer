@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Full Pipeline Benchmark (Real Code)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      padding: 40px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    h1 { color: #7aa2f7; margin-bottom: 10px; }
+    .subtitle { color: #666; margin-bottom: 30px; }
+    .section {
+      background: #1a1a24;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .section h2 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #9ece6a;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    .row:last-child { border-bottom: none; }
+    .label { color: #888; }
+    .value { color: #f7768e; font-weight: bold; }
+    .value.good { color: #9ece6a; }
+    .value.warn { color: #e0af68; }
+    .bar-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 4px 0;
+    }
+    .bar {
+      height: 20px;
+      background: linear-gradient(90deg, #7aa2f7, #bb9af7);
+      border-radius: 4px;
+      min-width: 2px;
+    }
+    .bar.extract { background: linear-gradient(90deg, #9ece6a, #73daca); }
+    .bar.mesh { background: linear-gradient(90deg, #f7768e, #ff9e64); }
+    .bar.geometry { background: linear-gradient(90deg, #e0af68, #ff9e64); }
+    #dropzone {
+      border: 2px dashed #4a4a6a;
+      border-radius: 8px;
+      padding: 60px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 30px;
+    }
+    #dropzone:hover, #dropzone.dragover {
+      border-color: #7aa2f7;
+      background: #1a1a2f;
+    }
+    #dropzone input { display: none; }
+    #log {
+      background: #0f0f14;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 15px;
+      font-size: 12px;
+      white-space: pre-wrap;
+      max-height: 400px;
+      overflow-y: auto;
+      line-height: 1.4;
+    }
+    .progress-container {
+      margin-top: 15px;
+    }
+    .progress {
+      background: #2a2a3a;
+      border-radius: 4px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      background: linear-gradient(90deg, #7aa2f7, #9ece6a);
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.1s;
+    }
+    .phase-label {
+      font-size: 12px;
+      color: #888;
+      margin-top: 5px;
+    }
+    .legend {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+    }
+    .badge {
+      background: #9ece6a;
+      color: #0a0a0f;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔬 Full Pipeline Benchmark <span class="badge">Uses Real Code</span></h1>
+  <p class="subtitle">Tests the complete region loading pipeline using the actual app modules</p>
+  
+  <div id="dropzone">
+    <div>Drop a <strong>.mca</strong> region file here or click to select</div>
+    <div style="color: #666; margin-top: 10px; font-size: 14px;">
+      Uses pipelinedLoader, extraction workers, mesh workers, and SubchunkManager
+    </div>
+    <input type="file" accept=".mca" id="fileInput">
+    <div class="progress-container" id="progressContainer" style="display: none;">
+      <div class="progress">
+        <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+      </div>
+      <div class="phase-label" id="phaseLabel">Starting...</div>
+    </div>
+  </div>
+  
+  <div id="results" style="display: none;">
+    <div class="section">
+      <h2>📊 Summary</h2>
+      <div class="row">
+        <span class="label">File Size</span>
+        <span class="value" id="fileSize">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Chunks Parsed</span>
+        <span class="value" id="chunkCount">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Total Blocks</span>
+        <span class="value" id="blockCount">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Subchunks Created</span>
+        <span class="value" id="subchunkCount">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Meshes Built</span>
+        <span class="value" id="meshCount">-</span>
+      </div>
+      <div class="row">
+        <span class="label" style="font-weight: bold; color: #fff;">TOTAL TIME</span>
+        <span class="value" id="totalTime" style="font-size: 20px;">-</span>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>⏱️ Time Breakdown</h2>
+      <div id="breakdownBars"></div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-color" style="background: #7aa2f7;"></div> Parse (NBT)</div>
+        <div class="legend-item"><div class="legend-color" style="background: #9ece6a;"></div> Extract (Workers)</div>
+        <div class="legend-item"><div class="legend-color" style="background: #bb9af7;"></div> Organize (SubchunkManager)</div>
+        <div class="legend-item"><div class="legend-color" style="background: #f7768e;"></div> Mesh Build (Workers)</div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>📈 Detailed Timings</h2>
+      <div class="row">
+        <span class="label">File Read</span>
+        <span class="value" id="t_read">-</span>
+      </div>
+      <div class="row">
+        <span class="label">NBT Parse (parseMCAFile)</span>
+        <span class="value" id="t_parse">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Block Extraction (Workers)</span>
+        <span class="value" id="t_extract">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Subchunk Organization</span>
+        <span class="value" id="t_organize">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Mesh Building (Workers)</span>
+        <span class="value" id="t_mesh">-</span>
+      </div>
+    </div>
+  </div>
+  
+  <div class="section">
+    <h2>📝 Log</h2>
+    <div id="log">Waiting for file...</div>
+  </div>
+
+  <script type="module">
+    // Import the REAL app modules
+    import { parseMCAFile, getBlockColor } from './src/utils/mcaParser.js';
+    import { getExtractionWorkerManager } from './src/utils/extractionWorkerManager.js';
+    import { meshWorkerManager } from './src/utils/meshWorkerManager.js';
+    import { SubchunkManager, getSubchunkYRange } from './src/utils/subchunkManager.js';
+    
+    const log = document.getElementById('log');
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const results = document.getElementById('results');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const phaseLabel = document.getElementById('phaseLabel');
+    
+    // Initialize workers
+    const extractionManager = getExtractionWorkerManager();
+    await extractionManager.init();
+    meshWorkerManager.init();
+    
+    function logMsg(msg) {
+      log.textContent += msg + '\n';
+      log.scrollTop = log.scrollHeight;
+    }
+    
+    function formatTime(ms) {
+      if (ms < 1000) return `${ms.toFixed(0)}ms`;
+      return `${(ms / 1000).toFixed(2)}s`;
+    }
+    
+    function formatBytes(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    }
+    
+    function setProgress(percent, label) {
+      progressBar.style.width = `${percent}%`;
+      phaseLabel.textContent = label;
+    }
+    
+    async function runBenchmark(file) {
+      log.textContent = '';
+      results.style.display = 'none';
+      progressContainer.style.display = 'block';
+      setProgress(0, 'Starting...');
+      
+      const timings = {
+        read: 0,
+        parse: 0,
+        extract: 0,
+        organize: 0,
+        mesh: 0
+      };
+      
+      let totalBlocks = 0;
+      let chunkCount = 0;
+      let subchunkCount = 0;
+      let meshCount = 0;
+      
+      try {
+        logMsg(`=== Full Pipeline Benchmark (Real Code) ===`);
+        logMsg(`File: ${file.name} (${formatBytes(file.size)})`);
+        logMsg('');
+        logMsg('Using actual app modules:');
+        logMsg('  - parseMCAFile from mcaParser.js');
+        logMsg('  - extractionWorkerManager (parallel workers)');
+        logMsg('  - SubchunkManager (chunk-based partitioning)');
+        logMsg('  - meshWorkerManager (parallel mesh building)');
+        logMsg('');
+        
+        // Phase 1: Read file
+        setProgress(5, 'Reading file...');
+        const readStart = performance.now();
+        const buffer = await file.arrayBuffer();
+        timings.read = performance.now() - readStart;
+        logMsg(`[1/5] File read: ${formatTime(timings.read)}`);
+        
+        // Phase 2: Parse MCA file using REAL parser
+        setProgress(15, 'Parsing NBT...');
+        logMsg(`[2/5] Parsing NBT (parseMCAFile)...`);
+        
+        const parseStart = performance.now();
+        const chunks = await parseMCAFile(file);
+        timings.parse = performance.now() - parseStart;
+        chunkCount = chunks.length;
+        
+        logMsg(`     Chunks: ${chunkCount}`);
+        logMsg(`     Time: ${formatTime(timings.parse)}`);
+        
+        // Phase 3: Extract blocks using REAL extraction workers
+        setProgress(30, 'Extracting blocks (workers)...');
+        logMsg(`[3/5] Extracting blocks (extraction workers)...`);
+        
+        extractionManager.resetPalette();
+        const chunkRefs = chunks.map(c => ({
+          rawData: c.data,
+          chunkX: c.x,
+          chunkZ: c.z
+        }));
+        
+        const extractStart = performance.now();
+        const { blocks: typedBlocks, palette } = await extractionManager.extractChunksParallel(
+          chunkRefs,
+          (completed, total) => {
+            setProgress(30 + (completed / total) * 25, `Extracting chunk ${completed}/${total}...`);
+          }
+        );
+        timings.extract = performance.now() - extractStart;
+        totalBlocks = typedBlocks.count;
+        
+        logMsg(`     Blocks: ${totalBlocks.toLocaleString()}`);
+        logMsg(`     Time: ${formatTime(timings.extract)}`);
+        
+        // Phase 4: Organize into subchunks using REAL SubchunkManager
+        setProgress(55, 'Organizing subchunks...');
+        logMsg(`[4/5] Organizing into subchunks (SubchunkManager)...`);
+        
+        const organizeStart = performance.now();
+        const manager = new SubchunkManager();
+        manager.setPalette(palette);
+        manager.addTypedBlocks(typedBlocks, palette);
+        timings.organize = performance.now() - organizeStart;
+        
+        const solidIndices = manager.getSubchunkYIndices();
+        const waterIndices = manager.getWaterSubchunkYIndices();
+        const lavaIndices = manager.getLavaSubchunkYIndices();
+        subchunkCount = solidIndices.length + waterIndices.length + lavaIndices.length;
+        
+        logMsg(`     Solid subchunks: ${solidIndices.length}`);
+        logMsg(`     Water subchunks: ${waterIndices.length}`);
+        logMsg(`     Lava subchunks: ${lavaIndices.length}`);
+        logMsg(`     Total subchunks: ${subchunkCount}`);
+        logMsg(`     Time: ${formatTime(timings.organize)}`);
+        
+        // Phase 5: Build meshes using REAL mesh workers
+        setProgress(60, 'Building meshes (workers)...');
+        logMsg(`[5/5] Building meshes (mesh workers)...`);
+        
+        const meshStart = performance.now();
+        const meshOffset = { x: 0, y: 0, z: 0 };
+        
+        // Prepare jobs (keys are now numeric subchunkY)
+        const solidJobs = solidIndices.map(subchunkY => ({
+          solidBlocks: manager.getSubchunkBlocks(subchunkY),
+          neighborBlocks: manager.getNeighborBlocks(subchunkY),
+          offset: meshOffset,
+          subchunkY,
+          subchunkKey: subchunkY
+        }));
+        
+        const waterJobs = waterIndices.map(subchunkY => ({
+          waterBlocks: manager.getWaterSubchunkBlocks(subchunkY),
+          neighborBlocks: manager.getWaterNeighborBlocks(subchunkY),
+          offset: meshOffset,
+          subchunkY,
+          subchunkKey: subchunkY
+        }));
+        
+        const lavaJobs = lavaIndices.map(subchunkY => ({
+          lavaBlocks: manager.getLavaSubchunkBlocks(subchunkY),
+          neighborBlocks: manager.getLavaNeighborBlocks(subchunkY),
+          offset: meshOffset,
+          subchunkY,
+          subchunkKey: subchunkY
+        }));
+        
+        logMsg(`     Solid jobs: ${solidJobs.length}`);
+        logMsg(`     Water jobs: ${waterJobs.length}`);
+        logMsg(`     Lava jobs: ${lavaJobs.length}`);
+        
+        // Build all meshes in parallel
+        let completedMeshes = 0;
+        const totalJobs = solidJobs.length + waterJobs.length + lavaJobs.length;
+        
+        const [solidResults, waterResults, lavaResults] = await Promise.all([
+          solidJobs.length > 0 ? meshWorkerManager.buildSubchunkMeshes(solidJobs, (c, t) => {
+            completedMeshes = c;
+            setProgress(60 + (completedMeshes / totalJobs) * 35, `Building mesh ${completedMeshes}/${totalJobs}...`);
+          }) : Promise.resolve([]),
+          
+          waterJobs.length > 0 ? meshWorkerManager.buildWaterSubchunkMeshes(waterJobs) : Promise.resolve([]),
+          
+          lavaJobs.length > 0 ? meshWorkerManager.buildLavaSubchunkMeshes(lavaJobs) : Promise.resolve([])
+        ]);
+        
+        timings.mesh = performance.now() - meshStart;
+        
+        meshCount = solidResults.filter(r => r.geometry).length + 
+                    waterResults.filter(r => r.geometry).length +
+                    lavaResults.filter(r => r.geometry).length;
+        
+        logMsg(`     Meshes built: ${meshCount}`);
+        logMsg(`     Time: ${formatTime(timings.mesh)}`);
+        
+        // Dispose geometries to clean up
+        for (const r of [...solidResults, ...waterResults, ...lavaResults]) {
+          r.geometry?.dispose();
+        }
+        
+        setProgress(100, 'Complete!');
+        
+        // Calculate totals
+        const totalTime = timings.read + timings.parse + timings.extract + timings.organize + timings.mesh;
+        
+        // Display results
+        document.getElementById('fileSize').textContent = formatBytes(file.size);
+        document.getElementById('chunkCount').textContent = chunkCount;
+        document.getElementById('blockCount').textContent = totalBlocks.toLocaleString();
+        document.getElementById('subchunkCount').textContent = subchunkCount.toLocaleString();
+        document.getElementById('meshCount').textContent = meshCount;
+        document.getElementById('totalTime').textContent = formatTime(totalTime);
+        
+        document.getElementById('t_read').textContent = formatTime(timings.read);
+        document.getElementById('t_parse').textContent = formatTime(timings.parse);
+        document.getElementById('t_extract').textContent = formatTime(timings.extract);
+        document.getElementById('t_organize').textContent = formatTime(timings.organize);
+        document.getElementById('t_mesh').textContent = formatTime(timings.mesh);
+        
+        // Color the total time
+        const totalEl = document.getElementById('totalTime');
+        totalEl.className = 'value';
+        if (totalTime < 2000) totalEl.classList.add('good');
+        else if (totalTime < 5000) totalEl.classList.add('warn');
+        
+        // Draw breakdown bars
+        const breakdown = document.getElementById('breakdownBars');
+        const maxTime = Math.max(timings.parse, timings.extract, timings.organize, timings.mesh);
+        const scale = 300 / maxTime;
+        
+        breakdown.innerHTML = `
+          <div class="bar-container">
+            <span class="label" style="width: 140px;">Parse</span>
+            <div class="bar" style="width: ${timings.parse * scale}px;"></div>
+            <span class="value">${formatTime(timings.parse)}</span>
+          </div>
+          <div class="bar-container">
+            <span class="label" style="width: 140px;">Extract (Workers)</span>
+            <div class="bar extract" style="width: ${timings.extract * scale}px;"></div>
+            <span class="value">${formatTime(timings.extract)}</span>
+          </div>
+          <div class="bar-container">
+            <span class="label" style="width: 140px;">Organize</span>
+            <div class="bar" style="width: ${timings.organize * scale}px; background: linear-gradient(90deg, #bb9af7, #9d7cd8);"></div>
+            <span class="value">${formatTime(timings.organize)}</span>
+          </div>
+          <div class="bar-container">
+            <span class="label" style="width: 140px;">Mesh (Workers)</span>
+            <div class="bar mesh" style="width: ${timings.mesh * scale}px;"></div>
+            <span class="value">${formatTime(timings.mesh)}</span>
+          </div>
+        `;
+        
+        results.style.display = 'block';
+        
+        logMsg('');
+        logMsg('='.repeat(50));
+        logMsg(`TOTAL: ${formatTime(totalTime)}`);
+        logMsg('='.repeat(50));
+        
+      } catch (e) {
+        logMsg(`Error: ${e.message}`);
+        logMsg(e.stack);
+        console.error(e);
+      }
+      
+      progressContainer.style.display = 'none';
+    }
+    
+    // Event handlers
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file?.name.endsWith('.mca')) runBenchmark(file);
+    });
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) runBenchmark(file);
+    });
+    
+    logMsg('Workers initialized. Ready for benchmark.');
+  </script>
+</body>
+</html>

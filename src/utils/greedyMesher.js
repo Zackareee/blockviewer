@@ -385,7 +385,7 @@ function buildGreedyMeshForType(targetBlocks, otherBlocks, getBlockColor, offset
     };
     isSolidBlockAt = (x, y, z) => typeMap.get(key(x, y, z)) === 1;
     
-    console.log(`Using Map lookup for ${totalCells.toLocaleString()} cell region`);
+    // Large region using Map-based lookup
   } else {
     // Dense array lookup for smaller regions (faster)
     grid = new Uint16Array(totalCells);
@@ -485,13 +485,6 @@ function buildGreedyMeshForType(targetBlocks, otherBlocks, getBlockColor, offset
   // For fluids, generate all faces per-block with height-adjusted vertices
   // For solids, use greedy meshing
   if (isFluid) {
-    // Debug: log level distribution
-    const levelCounts = {};
-    for (let i = 0; i < targetBlocks.length; i++) {
-      const lvl = targetBlocks[i].level;
-      levelCounts[lvl === undefined ? 'undefined' : lvl] = (levelCounts[lvl === undefined ? 'undefined' : lvl] || 0) + 1;
-    }
-    console.log('buildGreedyMeshForType fluid level distribution:', levelCounts);
     
     for (let i = 0; i < targetBlocks.length; i++) {
       const block = targetBlocks[i];
@@ -505,10 +498,6 @@ function buildGreedyMeshForType(targetBlocks, otherBlocks, getBlockColor, offset
       // Calculate corner heights for this fluid block
       const cornerHeights = calculateFluidCornerHeights(x, y, z, getFluidLevel, isSolidBlockAt);
       
-      // Debug: log first few non-zero level blocks
-      if (block.level !== undefined && block.level > 0 && i < 5) {
-        console.log(`buildGreedyMeshForType flowing fluid at (${x},${y},${z}) level=${block.level} corners=`, cornerHeights);
-      }
       
       // Heights at each corner of the block:
       const hNW = cornerHeights.nw;
@@ -1127,13 +1116,6 @@ function buildFluidSubchunkMeshWithSlopes(fluidBlocks, neighborBlocks, getBlockC
 
   let vertexCount = 0;
 
-  // Debug: log level distribution
-  const levelCounts = {};
-  for (let i = 0; i < fluidBlocks.length; i++) {
-    const lvl = fluidBlocks[i].level;
-    levelCounts[lvl === undefined ? 'undefined' : lvl] = (levelCounts[lvl === undefined ? 'undefined' : lvl] || 0) + 1;
-  }
-  console.log('Fluid level distribution:', levelCounts);
 
   // For fluids, generate all faces per-block with height-adjusted vertices
   // This is necessary because the top edge of side faces needs to match the fluid height
@@ -1149,10 +1131,6 @@ function buildFluidSubchunkMeshWithSlopes(fluidBlocks, neighborBlocks, getBlockC
     // Calculate corner heights for this fluid block
     const cornerHeights = calculateFluidCornerHeights(x, y, z, getFluidLevel, isSolidBlock);
     
-    // Debug: log first few non-zero level blocks
-    if (block.level !== undefined && block.level > 0 && i < 5) {
-      console.log(`Flowing fluid at (${x},${y},${z}) level=${block.level} corners=`, cornerHeights);
-    }
     
     // Heights at each corner of the block:
     // NW = (x, z), NE = (x+1, z), SE = (x+1, z+1), SW = (x, z+1)

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Pipeline Benchmark</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 500;
+      color: #7df9ff;
+      margin-bottom: 1rem;
+      letter-spacing: 0.05em;
+    }
+    
+    .controls {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+    
+    button {
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      border: 1px solid #7df9ff40;
+      color: #7df9ff;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.875rem;
+      cursor: pointer;
+      border-radius: 4px;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    
+    button:hover {
+      background: linear-gradient(135deg, #16213e, #1a1a2e);
+      border-color: #7df9ff;
+      box-shadow: 0 0 20px #7df9ff20;
+    }
+    
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .file-input input {
+      display: none;
+    }
+    
+    .results {
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    
+    .result-row:last-child {
+      border-bottom: none;
+    }
+    
+    .result-label {
+      color: #888;
+    }
+    
+    .result-value {
+      color: #7df9ff;
+      font-weight: 500;
+    }
+    
+    .result-value.success {
+      color: #4ade80;
+    }
+    
+    .result-value.warning {
+      color: #fbbf24;
+    }
+    
+    .result-value.error {
+      color: #f87171;
+    }
+    
+    .progress {
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .progress-bar {
+      height: 8px;
+      background: #2a2a3a;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 0.75rem;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #7df9ff, #4ade80);
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    
+    .progress-text {
+      color: #888;
+      font-size: 0.875rem;
+    }
+    
+    .log {
+      background: #0a0a0f;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 1rem;
+      height: 300px;
+      overflow-y: auto;
+      font-size: 0.8125rem;
+      line-height: 1.6;
+    }
+    
+    .log-entry {
+      color: #888;
+    }
+    
+    .log-entry.info {
+      color: #7df9ff;
+    }
+    
+    .log-entry.success {
+      color: #4ade80;
+    }
+    
+    .log-entry.error {
+      color: #f87171;
+    }
+    
+    .target-badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      background: #1a1a2e;
+      border: 1px solid #4ade8040;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      color: #4ade80;
+      margin-left: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚡ New Pipeline Benchmark <span class="target-badge">Target: &lt;3s</span></h1>
+    
+    <div class="controls">
+      <button id="loadBtn">Load Region File (.mca)</button>
+      <input type="file" id="fileInput" accept=".mca" class="file-input">
+      <button id="testBtn" disabled>Run Benchmark</button>
+    </div>
+    
+    <div class="progress">
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-text" id="progressText">Ready to load region file</div>
+    </div>
+    
+    <div class="results" id="results">
+      <div class="result-row">
+        <span class="result-label">Status</span>
+        <span class="result-value" id="status">Waiting for file...</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Total Time</span>
+        <span class="result-value" id="totalTime">-</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Decode Time</span>
+        <span class="result-value" id="decodeTime">-</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Mesh Time</span>
+        <span class="result-value" id="meshTime">-</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Chunks Processed</span>
+        <span class="result-value" id="chunks">-</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Total Blocks</span>
+        <span class="result-value" id="blocks">-</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Total Triangles</span>
+        <span class="result-value" id="triangles">-</span>
+      </div>
+    </div>
+    
+    <div class="log" id="log"></div>
+  </div>
+
+  <script type="module">
+    import { parseMCAFile } from './src/utils/mcaParser.js';
+    import { RegionMeshBuilder, getBlockRegistry } from './src/mesh/index.js';
+    
+    // DOM elements
+    const fileInput = document.getElementById('fileInput');
+    const loadBtn = document.getElementById('loadBtn');
+    const testBtn = document.getElementById('testBtn');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const logEl = document.getElementById('log');
+    
+    // State
+    let parsedChunks = null;
+    let regionFile = null;
+    
+    // Logging
+    function log(message, type = '') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    
+    function updateProgress(percent, text) {
+      progressFill.style.width = `${percent}%`;
+      progressText.textContent = text;
+    }
+    
+    function updateResult(id, value, status = '') {
+      const el = document.getElementById(id);
+      el.textContent = value;
+      el.className = `result-value ${status}`;
+    }
+    
+    // File handling
+    loadBtn.addEventListener('click', () => {
+      fileInput.click();
+    });
+    
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      regionFile = file;
+      log(`Loading file: ${file.name}`, 'info');
+      updateProgress(10, 'Parsing region file...');
+      
+      try {
+        const startParse = performance.now();
+        parsedChunks = await parseMCAFile(file);
+        const parseTime = performance.now() - startParse;
+        
+        log(`Parsed ${parsedChunks.length} chunks in ${parseTime.toFixed(0)}ms`, 'success');
+        updateProgress(100, `Ready: ${parsedChunks.length} chunks loaded`);
+        updateResult('status', `${parsedChunks.length} chunks ready`);
+        
+        testBtn.disabled = false;
+      } catch (error) {
+        log(`Parse error: ${error.message}`, 'error');
+        updateResult('status', 'Parse failed', 'error');
+      }
+    });
+    
+    // Benchmark
+    testBtn.addEventListener('click', async () => {
+      if (!parsedChunks) return;
+      
+      testBtn.disabled = true;
+      log('Starting benchmark...', 'info');
+      updateResult('status', 'Running...');
+      
+      // Reset registry for clean benchmark
+      const registry = getBlockRegistry();
+      
+      const builder = new RegionMeshBuilder({
+        workerCount: navigator.hardwareConcurrency || 4,
+        onProgress: (phase, current, total, message) => {
+          const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+          updateProgress(percent, `${phase}: ${current}/${total}`);
+        },
+      });
+      
+      try {
+        const startTime = performance.now();
+        
+        const result = await builder.buildRegion(parsedChunks, {
+          useWorkers: true,
+        });
+        
+        const totalTime = performance.now() - startTime;
+        
+        // Update results
+        const timeStatus = totalTime < 3000 ? 'success' : (totalTime < 5000 ? 'warning' : 'error');
+        updateResult('totalTime', `${(totalTime / 1000).toFixed(2)}s`, timeStatus);
+        updateResult('decodeTime', `${(result.stats.decodeTimeMs / 1000).toFixed(2)}s`);
+        updateResult('meshTime', `${(result.stats.meshTimeMs / 1000).toFixed(2)}s`);
+        updateResult('chunks', result.stats.chunksProcessed.toLocaleString());
+        updateResult('blocks', result.stats.totalBlocks.toLocaleString());
+        
+        const totalTris = (result.stats.solidTriangles || 0) + 
+                          (result.stats.waterTriangles || 0) + 
+                          (result.stats.lavaTriangles || 0);
+        updateResult('triangles', totalTris.toLocaleString());
+        
+        if (totalTime < 3000) {
+          updateResult('status', '✓ PASSED', 'success');
+          log(`Benchmark PASSED: ${(totalTime / 1000).toFixed(2)}s < 3s target`, 'success');
+        } else {
+          updateResult('status', '✗ FAILED', 'error');
+          log(`Benchmark FAILED: ${(totalTime / 1000).toFixed(2)}s > 3s target`, 'error');
+        }
+        
+        log(`Blocks: ${result.stats.totalBlocks.toLocaleString()}`, 'info');
+        log(`Triangles: ${totalTris.toLocaleString()}`, 'info');
+        log(`Decode: ${(result.stats.decodeTimeMs).toFixed(0)}ms, Mesh: ${(result.stats.meshTimeMs).toFixed(0)}ms`, 'info');
+        
+        updateProgress(100, 'Complete');
+        
+      } catch (error) {
+        log(`Benchmark error: ${error.message}`, 'error');
+        updateResult('status', 'Error', 'error');
+        console.error(error);
+      } finally {
+        builder.dispose();
+        testBtn.disabled = false;
+      }
+    });
+    
+    log('Benchmark ready. Load a .mca region file to begin.', 'info');
+  </script>
+</body>
+</html>
+

@@ -2,14 +2,37 @@ import { useRef, useEffect, useCallback } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-// Player constants
-const PLAYER_HEIGHT = 2; // 2 blocks tall
-const PLAYER_WIDTH = 0.6; // Slightly smaller than 1 block for easier navigation
+// Player constants - Minecraft accurate values
+const PLAYER_HEIGHT = 1.8; // 1.8 blocks tall (actual Minecraft hitbox)
+const PLAYER_WIDTH = 0.6; // 0.6 blocks wide (actual Minecraft hitbox)
 const EYE_HEIGHT = 1.62; // Eye level (like Minecraft)
-const MOVE_SPEED = 6; // blocks per second
-const JUMP_VELOCITY = 8; // Initial upward velocity for ~1 block jump
-const GRAVITY = -25; // Gravity acceleration
-const TERMINAL_VELOCITY = -50;
+
+// Minecraft movement speeds (blocks per second)
+const WALK_SPEED = 4.317; // Minecraft walking speed
+const SPRINT_SPEED = 5.612; // Minecraft sprinting speed (1.3x walking)
+
+// Minecraft tick-based physics constants (20 ticks per second)
+// All values are in BLOCKS PER TICK for authentic simulation
+const TICK_RATE = 20;
+
+// Jump velocity: 0.42 blocks/tick (gives ~1.25 block jump height)
+const JUMP_VELOCITY_PER_TICK = 0.42;
+
+// Gravity: 0.08 blocks/tick² (applied each tick)
+const GRAVITY_PER_TICK = 0.08;
+
+// Terminal velocity: 3.92 blocks/tick
+const TERMINAL_VELOCITY_PER_TICK = 3.92;
+
+// Drag multipliers (applied per tick AFTER movement)
+const AIR_DRAG_HORIZONTAL = 0.91;
+const AIR_DRAG_VERTICAL = 0.98;
+
+// Ground movement friction (block slipperiness, default = 0.6)
+const GROUND_FRICTION = 0.6;
+
+// Mouse sensitivity matching Minecraft default (50%)
+const MOUSE_SENSITIVITY = 0.0025;
 
 /**
  * FirstPersonControls - Walking mode controller with gravity and collision
@@ -17,21 +40,34 @@ const TERMINAL_VELOCITY = -50;
 export default function FirstPersonControls({ 
   collisionWorld, 
   regionCenter = { x: 0, y: 0, z: 0 },
-  onPositionChange
+  onPositionChange,
+  onChunkChange,
+  onVelocityChange,
+  onSprintChange
 }) {
   const { camera, gl } = useThree();
   
   // Movement state
   const velocity = useRef(new THREE.Vector3(0, 0, 0));
   const isGrounded = useRef(false);
+  const isSprinting = useRef(false);
   const keys = useRef({ forward: false, backward: false, left: false, right: false, jump: false });
+  
+  // Momentum-based movement (Minecraft uses velocity with friction, not instant movement)
+  const horizontalMomentum = useRef(new THREE.Vector3(0, 0, 0));
   
   // Mouse look state
   const euler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
   const isLocked = useRef(false);
   
-  // Debug counter for logging
-  const logCountRef = useRef(0);
+  // Track current chunk for dynamic collision updates
+  const currentChunkRef = useRef({ x: 0, z: 0 });
+  
+  // Track if we've done initial spawn (to avoid respawning on collision rebuild)
+  const hasSpawnedRef = useRef(false);
+  
+  // Track last reported sprint state to avoid spam
+  const lastSprintReported = useRef(false);
   
   // Find ground at a given X,Z position (returns mesh Y of feet, or null if no ground)
   const findGroundAt = useCallback((meshX, meshZ) => {
@@ -41,8 +77,9 @@ export default function FirstPersonControls({
     const blockZ = Math.floor(meshZ + regionCenter.z);
     
     // Scan from top to bottom looking for a solid block
+    // CollisionSet uses .has(x, y, z) directly - no string conversion needed
     for (let y = 320; y >= -64; y--) {
-      if (collisionWorld.has(`${blockX},${y},${blockZ}`)) {
+      if (collisionWorld.has(blockX, y, blockZ)) {
         // Found ground at block Y=y, player stands on top at Y=y+1
         // Convert back to mesh Y: meshY = blockY - regionCenter.y
         return (y + 1) - regionCenter.y;
@@ -51,85 +88,79 @@ export default function FirstPersonControls({
     return null;
   }, [collisionWorld, regionCenter]);
 
-  // Debug: log collision world info and teleport to ground on mount
+  // Teleport to spawn on initial mount (not on collision rebuilds)
   useEffect(() => {
-    if (collisionWorld) {
-      console.log('=== FirstPersonControls Debug ===');
-      console.log('Collision world size:', collisionWorld.size);
-      console.log('Region center RECEIVED:', JSON.stringify(regionCenter));
-      console.log('regionCenter object id:', regionCenter ? `x=${regionCenter.x},y=${regionCenter.y},z=${regionCenter.z}` : 'null');
-      console.log('Camera position:', camera.position.x.toFixed(2), camera.position.y.toFixed(2), camera.position.z.toFixed(2));
-      
-      // Log a sample of collision blocks and analyze their coordinate ranges
-      let sample = 0;
-      let sampleY = [];
-      let minX = Infinity, maxX = -Infinity;
-      let minZ = Infinity, maxZ = -Infinity;
-      for (const key of collisionWorld) {
-        const [x, y, z] = key.split(',').map(Number);
-        sampleY.push(y);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (z < minZ) minZ = z;
-        if (z > maxZ) maxZ = z;
-        if (sample++ < 5) console.log('  Sample block:', key);
-        if (sample > 1000) break;
-      }
-      sampleY.sort((a, b) => b - a);
-      console.log('  Collision X range:', minX, 'to', maxX);
-      console.log('  Collision Z range:', minZ, 'to', maxZ);
-      console.log('  Top 5 Y values:', sampleY.slice(0, 5));
-      
-      // Calculate where camera SHOULD map to in collision world
-      const expectedBlockX = Math.floor(camera.position.x + regionCenter.x);
-      const expectedBlockZ = Math.floor(camera.position.z + regionCenter.z);
-      console.log('  Camera maps to block X,Z:', expectedBlockX, expectedBlockZ);
-      
-      // Check if there are blocks at center (0,0 in mesh = regionCenter in blocks)
-      const centerBlockX = Math.floor(regionCenter.x);
-      const centerBlockZ = Math.floor(regionCenter.z);
-      console.log('  Center block X,Z:', centerBlockX, centerBlockZ);
-      
-      // Find any block at center X,Z
-      let hasBlockAtCenter = false;
-      for (let y = 320; y >= -64; y--) {
-        if (collisionWorld.has(`${centerBlockX},${y},${centerBlockZ}`)) {
-          console.log('  Found block at center:', centerBlockX, y, centerBlockZ);
-          hasBlockAtCenter = true;
-          break;
-        }
-      }
-      if (!hasBlockAtCenter) {
-        console.warn('  WARNING: No blocks found at center X,Z!');
-      }
-      
-      // Try to find ground at camera position
-      const groundY = findGroundAt(camera.position.x, camera.position.z);
-      console.log('  Ground at camera X,Z:', groundY);
-      
-      // If we found ground, teleport player there
-      if (groundY !== null) {
-        const targetY = groundY + EYE_HEIGHT;
-        console.log('  Teleporting to ground: mesh Y =', targetY);
-        camera.position.y = targetY;
-        velocity.current.set(0, 0, 0); // Reset velocity
-        isGrounded.current = true;
-      } else {
-        console.log('  No ground found at camera position, trying center (0,0)');
-        const centerGroundY = findGroundAt(0, 0);
-        if (centerGroundY !== null) {
-          console.log('  Found ground at center, teleporting');
-          camera.position.x = 0;
-          camera.position.z = 0;
-          camera.position.y = centerGroundY + EYE_HEIGHT;
-          velocity.current.set(0, 0, 0); // Reset velocity
-          isGrounded.current = true;
-        }
-      }
-    } else {
-      console.log('FirstPersonControls: No collision world!');
+    if (!collisionWorld || hasSpawnedRef.current) {
+      return; // Skip if no collision or already spawned
     }
+    
+    console.log('=== FirstPersonControls Initial Spawn ===');
+    console.log('Collision world size:', collisionWorld.size);
+    console.log('Region center:', JSON.stringify(regionCenter));
+    
+    // Log collision size (CollisionSet doesn't expose raw keys for iteration)
+    console.log('  Collision blocks:', collisionWorld.size);
+    
+    // Always start at spawn point (mesh 0,0) for consistent collision coverage
+    console.log('  Spawning player at center (mesh 0, 0)');
+    camera.position.x = 0;
+    camera.position.z = 0;
+    
+    // Find ground at spawn
+    const groundY = findGroundAt(0, 0);
+    console.log('  Ground at spawn:', groundY);
+    
+    if (groundY !== null) {
+      camera.position.y = groundY + EYE_HEIGHT;
+      isGrounded.current = true;
+      console.log('  Spawned at Y:', camera.position.y.toFixed(2));
+    } else {
+      // No ground found - try scanning in a small area
+      console.warn('  No ground at exact spawn, scanning nearby...');
+      let foundGround = false;
+      for (let radius = 1; radius <= 8 && !foundGround; radius++) {
+        for (let dx = -radius; dx <= radius && !foundGround; dx++) {
+          for (let dz = -radius; dz <= radius && !foundGround; dz++) {
+            if (Math.abs(dx) !== radius && Math.abs(dz) !== radius) continue; // Only check perimeter
+            const gy = findGroundAt(dx, dz);
+            if (gy !== null) {
+              camera.position.x = dx;
+              camera.position.z = dz;
+              camera.position.y = gy + EYE_HEIGHT;
+              isGrounded.current = true;
+              foundGround = true;
+              console.log('  Found ground at offset:', dx, dz, 'Y:', camera.position.y.toFixed(2));
+            }
+          }
+        }
+      }
+      if (!foundGround) {
+        console.error('  ERROR: No ground found anywhere near spawn!');
+        camera.position.y = 80;
+      }
+    }
+    
+    // Reset velocity and momentum
+    velocity.current.set(0, 0, 0);
+    horizontalMomentum.current.set(0, 0, 0);
+    verticalVelocity.current = 0;
+    
+    // Initialize current chunk
+    const worldX = camera.position.x + regionCenter.x;
+    const worldZ = camera.position.z + regionCenter.z;
+    currentChunkRef.current = { x: Math.floor(worldX / 16), z: Math.floor(worldZ / 16) };
+    console.log('  Initial chunk:', currentChunkRef.current.x, currentChunkRef.current.z);
+    
+    // Mark as spawned so we don't respawn on collision rebuilds
+    hasSpawnedRef.current = true;
   }, [collisionWorld, regionCenter, camera, findGroundAt]);
+  
+  // Reset spawn flag when component unmounts (so next walk mode entry spawns fresh)
+  useEffect(() => {
+    return () => {
+      hasSpawnedRef.current = false;
+    };
+  }, []);
 
   // Check if a block exists at position (returns true if solid)
   const hasBlockAt = useCallback((worldX, worldY, worldZ) => {
@@ -141,15 +172,8 @@ export default function FirstPersonControls({
     const blockY = Math.floor(worldY + regionCenter.y);
     const blockZ = Math.floor(worldZ + regionCenter.z);
     
-    const key = `${blockX},${blockY},${blockZ}`;
-    const has = collisionWorld.has(key);
-    
-    // Debug: log first few checks
-    if (logCountRef.current < 10 && !has) {
-      console.log(`hasBlockAt: mesh(${worldX.toFixed(1)}, ${worldY.toFixed(1)}, ${worldZ.toFixed(1)}) -> block(${blockX}, ${blockY}, ${blockZ}) = ${has}`);
-    }
-    
-    return has;
+    // CollisionSet uses .has(x, y, z) directly - no string conversion needed
+    return collisionWorld.has(blockX, blockY, blockZ);
   }, [collisionWorld, regionCenter]);
   
   // Check if player can move to position
@@ -193,15 +217,6 @@ export default function FirstPersonControls({
       { dx: 0, dz: 0 },
     ];
     
-    // Log first few checks
-    if (logCountRef.current < 3) {
-      const blockX = Math.floor(x + regionCenter.x);
-      const blockY = Math.floor(y - 0.1 + regionCenter.y);
-      const blockZ = Math.floor(z + regionCenter.z);
-      console.log(`checkGrounded: mesh(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) -> block(${blockX}, ${blockY}, ${blockZ})`);
-      logCountRef.current++;
-    }
-    
     for (const point of checkPoints) {
       if (hasBlockAt(x + point.dx, y - 0.1, z + point.dz)) {
         return true;
@@ -209,11 +224,18 @@ export default function FirstPersonControls({
     }
     
     return false;
-  }, [hasBlockAt, regionCenter]);
+  }, [hasBlockAt]);
 
   // Keyboard event handlers
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // CapsLock toggles sprint regardless of pointer lock
+      if (e.code === 'CapsLock') {
+        isSprinting.current = !isSprinting.current;
+        e.preventDefault();
+        return;
+      }
+      
       if (!isLocked.current) return;
       
       switch (e.code) {
@@ -241,6 +263,12 @@ export default function FirstPersonControls({
     };
     
     const handleKeyUp = (e) => {
+      // Don't reset sprint on CapsLock release - it's a toggle
+      if (e.code === 'CapsLock') {
+        e.preventDefault();
+        return;
+      }
+      
       switch (e.code) {
         case 'KeyW':
         case 'ArrowUp':
@@ -288,11 +316,10 @@ export default function FirstPersonControls({
     const handleMouseMove = (e) => {
       if (!isLocked.current) return;
       
-      const sensitivity = 0.002;
-      euler.current.y -= e.movementX * sensitivity;
-      euler.current.x -= e.movementY * sensitivity;
+      euler.current.y -= e.movementX * MOUSE_SENSITIVITY;
+      euler.current.x -= e.movementY * MOUSE_SENSITIVITY;
       
-      // Clamp vertical look
+      // Clamp vertical look (Minecraft limits to ±90 degrees)
       euler.current.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, euler.current.x));
       
       camera.quaternion.setFromEuler(euler.current);
@@ -319,19 +346,25 @@ export default function FirstPersonControls({
     euler.current.setFromQuaternion(camera.quaternion, 'YXZ');
   }, [camera]);
   
-  // Main update loop
+  // Vertical velocity in blocks/tick (Minecraft's native unit)
+  const verticalVelocity = useRef(0);
+  
+  // Main update loop - Minecraft-accurate physics with smooth rendering
   useFrame((state, delta) => {
     // Clamp delta to prevent physics explosions on tab switch
     const dt = Math.min(delta, 0.1);
     
-    // Get camera position (feet position is camera.y - EYE_HEIGHT)
+    // Scale factor: how many "ticks worth" of time this frame represents
+    const tickScale = dt * TICK_RATE;
+    
+    // Get current feet position
     const feetY = camera.position.y - EYE_HEIGHT;
     
     // Check if grounded
     isGrounded.current = checkGrounded(camera.position.x, feetY, camera.position.z);
     
-    // Calculate movement direction
-    const moveDirection = new THREE.Vector3();
+    // Calculate movement direction from input
+    const inputDirection = new THREE.Vector3();
     const forward = new THREE.Vector3();
     const right = new THREE.Vector3();
     
@@ -342,69 +375,137 @@ export default function FirstPersonControls({
     
     right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
     
-    if (keys.current.forward) moveDirection.add(forward);
-    if (keys.current.backward) moveDirection.sub(forward);
-    if (keys.current.left) moveDirection.sub(right);
-    if (keys.current.right) moveDirection.add(right);
+    if (keys.current.forward) inputDirection.add(forward);
+    if (keys.current.backward) inputDirection.sub(forward);
+    if (keys.current.left) inputDirection.sub(right);
+    if (keys.current.right) inputDirection.add(right);
     
-    if (moveDirection.length() > 0) {
-      moveDirection.normalize();
+    // Normalize diagonal movement (Minecraft does this)
+    if (inputDirection.length() > 0) {
+      inputDirection.normalize();
     }
     
-    // Apply horizontal movement
-    velocity.current.x = moveDirection.x * MOVE_SPEED;
-    velocity.current.z = moveDirection.z * MOVE_SPEED;
+    // Determine current movement speed based on sprint state
+    const canSprint = isSprinting.current && keys.current.forward && !keys.current.backward;
+    const currentSpeed = canSprint ? SPRINT_SPEED : WALK_SPEED;
     
-    // Apply gravity
-    if (!isGrounded.current) {
-      velocity.current.y += GRAVITY * dt;
-      velocity.current.y = Math.max(velocity.current.y, TERMINAL_VELOCITY);
-    } else {
-      // On ground
-      if (velocity.current.y < 0) {
-        velocity.current.y = 0;
+    // Report sprint state changes for FOV effect
+    const isActivelySprinting = canSprint && inputDirection.length() > 0;
+    if (isActivelySprinting !== lastSprintReported.current) {
+      lastSprintReported.current = isActivelySprinting;
+      onSprintChange?.(isActivelySprinting);
+    }
+    
+    // ===== PHYSICS UPDATE =====
+    
+    if (isGrounded.current) {
+      // ===== GROUND PHYSICS =====
+      
+      // Apply friction (scaled for frame time)
+      // Minecraft: velocity *= (slipperiness * 0.91) per tick
+      // For continuous: use exponential decay
+      const slipperiness = GROUND_FRICTION;
+      const frictionPerTick = slipperiness * 0.91;
+      const frictionFactor = Math.pow(frictionPerTick, tickScale);
+      
+      horizontalMomentum.current.x *= frictionFactor;
+      horizontalMomentum.current.z *= frictionFactor;
+      
+      // Apply input acceleration (scaled for frame time)
+      // Minecraft: accel = 0.1 * (0.16277136 / slipperiness³)
+      // Adjusted by 1.3x to reach actual target velocities (4.317 walk, 5.612 sprint)
+      const movementFactor = 0.1 * (0.16277136 / Math.pow(slipperiness, 3)) * 1.3;
+      
+      if (inputDirection.length() > 0) {
+        const speedFactor = currentSpeed / WALK_SPEED;
+        const accelScale = tickScale; // Scale acceleration by time
+        horizontalMomentum.current.x += inputDirection.x * movementFactor * speedFactor * accelScale;
+        horizontalMomentum.current.z += inputDirection.z * movementFactor * speedFactor * accelScale;
       }
       
-      // Jump
-      if (keys.current.jump) {
-        velocity.current.y = JUMP_VELOCITY;
+      // Handle jumping
+      if (keys.current.jump && verticalVelocity.current <= 0) {
+        verticalVelocity.current = JUMP_VELOCITY_PER_TICK;
         isGrounded.current = false;
+        
+        // Sprint jump boost
+        if (canSprint && inputDirection.length() > 0) {
+          const jumpBoost = 0.2;
+          horizontalMomentum.current.x += inputDirection.x * jumpBoost;
+          horizontalMomentum.current.z += inputDirection.z * jumpBoost;
+        }
+      } else if (verticalVelocity.current < 0) {
+        verticalVelocity.current = 0;
+      }
+      
+    } else {
+      // ===== AIR PHYSICS =====
+      
+      // Air control (scaled for frame time)
+      // Slightly increased for responsive strafing
+      const airAcceleration = 0.026;
+      if (inputDirection.length() > 0) {
+        horizontalMomentum.current.x += inputDirection.x * airAcceleration * tickScale;
+        horizontalMomentum.current.z += inputDirection.z * airAcceleration * tickScale;
+      }
+      
+      // Apply horizontal air drag (exponential for smooth interpolation)
+      const hDragFactor = Math.pow(AIR_DRAG_HORIZONTAL, tickScale);
+      horizontalMomentum.current.x *= hDragFactor;
+      horizontalMomentum.current.z *= hDragFactor;
+      
+      // Apply gravity (scaled for frame time)
+      // Minecraft: velocity -= 0.08 per tick
+      verticalVelocity.current -= GRAVITY_PER_TICK * tickScale;
+      
+      // Apply vertical drag (exponential for smooth interpolation)
+      const vDragFactor = Math.pow(AIR_DRAG_VERTICAL, tickScale);
+      verticalVelocity.current *= vDragFactor;
+      
+      // Terminal velocity clamp
+      if (verticalVelocity.current < -TERMINAL_VELOCITY_PER_TICK) {
+        verticalVelocity.current = -TERMINAL_VELOCITY_PER_TICK;
       }
     }
     
-    // Calculate new position
-    let newX = camera.position.x + velocity.current.x * dt;
-    let newFeetY = feetY + velocity.current.y * dt;
-    let newZ = camera.position.z + velocity.current.z * dt;
+    // ===== POSITION UPDATE =====
+    // Convert blocks/tick to blocks/frame
+    const moveX = horizontalMomentum.current.x * tickScale;
+    const moveZ = horizontalMomentum.current.z * tickScale;
+    const moveY = verticalVelocity.current * tickScale;
+    
+    let newX = camera.position.x + moveX;
+    let newZ = camera.position.z + moveZ;
+    let newFeetY = feetY + moveY;
     
     // Collision detection - X axis
-    if (velocity.current.x !== 0) {
+    if (moveX !== 0) {
       if (checkCollision(newX, feetY, camera.position.z)) {
         newX = camera.position.x;
-        velocity.current.x = 0;
+        horizontalMomentum.current.x = 0;
       }
     }
     
     // Collision detection - Z axis
-    if (velocity.current.z !== 0) {
+    if (moveZ !== 0) {
       if (checkCollision(newX, feetY, newZ)) {
         newZ = camera.position.z;
-        velocity.current.z = 0;
+        horizontalMomentum.current.z = 0;
       }
     }
     
     // Collision detection - Y axis
-    if (velocity.current.y !== 0) {
+    if (moveY !== 0) {
       if (checkCollision(newX, newFeetY, newZ)) {
-        if (velocity.current.y < 0) {
+        if (verticalVelocity.current < 0) {
           // Falling - snap to top of block
           newFeetY = Math.ceil(newFeetY);
           isGrounded.current = true;
         } else {
-          // Jumping up - hit ceiling
+          // Hit ceiling
           newFeetY = feetY;
         }
-        velocity.current.y = 0;
+        verticalVelocity.current = 0;
       }
     }
     
@@ -413,11 +514,38 @@ export default function FirstPersonControls({
     camera.position.y = newFeetY + EYE_HEIGHT;
     camera.position.z = newZ;
     
+    // Sync velocity ref for external use (convert to blocks/second)
+    velocity.current.x = horizontalMomentum.current.x * TICK_RATE;
+    velocity.current.y = verticalVelocity.current * TICK_RATE;
+    velocity.current.z = horizontalMomentum.current.z * TICK_RATE;
+    
+    // Report velocity for prefetching (throttled to avoid spam)
+    if (Math.abs(velocity.current.x) > 0.5 || Math.abs(velocity.current.z) > 0.5) {
+      onVelocityChange?.(velocity.current.x, velocity.current.z);
+    }
+    
+    // Calculate world position
+    const worldX = camera.position.x + regionCenter.x;
+    const worldY = camera.position.y - EYE_HEIGHT + regionCenter.y;
+    const worldZ = camera.position.z + regionCenter.z;
+    
+    // Check if player crossed chunk boundary
+    const currentChunkX = Math.floor(worldX / 16);
+    const currentChunkZ = Math.floor(worldZ / 16);
+    
+    if (currentChunkX !== currentChunkRef.current.x || currentChunkZ !== currentChunkRef.current.z) {
+      console.log(`Chunk changed: (${currentChunkRef.current.x}, ${currentChunkRef.current.z}) -> (${currentChunkX}, ${currentChunkZ})`);
+      currentChunkRef.current = { x: currentChunkX, z: currentChunkZ };
+      
+      // Notify parent to rebuild collision around new position
+      onChunkChange?.(currentChunkX, currentChunkZ, camera.position.x, camera.position.z);
+    }
+    
     // Notify of position change
     onPositionChange?.({
-      x: camera.position.x + regionCenter.x,
-      y: camera.position.y - EYE_HEIGHT + regionCenter.y,
-      z: camera.position.z + regionCenter.z
+      x: worldX,
+      y: worldY,
+      z: worldZ
     });
   });
   

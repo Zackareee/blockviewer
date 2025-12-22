@@ -214,6 +214,31 @@ body {
   box-shadow: inset 0 0 20px var(--accent-glow);
 }
 
+.file-upload-group {
+  display: flex;
+  gap: 8px;
+}
+
+.file-upload-group .file-upload {
+  flex: 1;
+}
+
+.file-upload-add {
+  flex: 0 0 auto !important;
+}
+
+.upload-button-secondary {
+  padding: 10px 14px;
+  font-size: 0.8rem;
+  background: var(--bg-tertiary);
+  border-color: var(--accent-secondary);
+}
+
+.upload-button-secondary:hover {
+  border-color: var(--accent-secondary);
+  background: var(--bg-hover);
+}
+
 .spinner {
   width: 14px;
   height: 14px;
@@ -312,6 +337,31 @@ body {
   text-align: center;
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+/* Streaming Region Progress Header */
+.streaming-region-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.streaming-region-header span:first-child {
+  font-size: 0.85rem;
+  color: var(--accent-secondary);
+  font-weight: 600;
+}
+
+.streaming-region-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
 }
 
 /* View Mode Toggle */

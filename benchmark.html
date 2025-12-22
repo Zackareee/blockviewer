@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Region Loading Benchmark</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      padding: 40px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 { color: #7aa2f7; margin-bottom: 30px; }
+    .section {
+      background: #1a1a24;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .section h2 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #9ece6a;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    .row:last-child { border-bottom: none; }
+    .label { color: #888; }
+    .value { color: #f7768e; font-weight: bold; }
+    .value.good { color: #9ece6a; }
+    .value.warn { color: #e0af68; }
+    #dropzone {
+      border: 2px dashed #4a4a6a;
+      border-radius: 8px;
+      padding: 60px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 30px;
+    }
+    #dropzone:hover, #dropzone.dragover {
+      border-color: #7aa2f7;
+      background: #1a1a2f;
+    }
+    #dropzone input { display: none; }
+    #log {
+      background: #0f0f14;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 15px;
+      font-size: 13px;
+      white-space: pre-wrap;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .progress {
+      background: #2a2a3a;
+      border-radius: 4px;
+      height: 8px;
+      margin-top: 10px;
+    }
+    .progress-bar {
+      background: linear-gradient(90deg, #7aa2f7, #9ece6a);
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.1s;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔬 Region Loading Benchmark</h1>
+  
+  <div id="dropzone">
+    <div>Drop a <strong>.mca</strong> region file here or click to select</div>
+    <div style="color: #666; margin-top: 10px; font-size: 14px;">
+      (e.g., r.0.0.mca from your world/region folder)
+    </div>
+    <input type="file" accept=".mca" id="fileInput">
+    <div class="progress" style="display: none;" id="progressContainer">
+      <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+    </div>
+  </div>
+  
+  <div id="results" style="display: none;">
+    <div class="section">
+      <h2>📊 Results</h2>
+      <div class="row">
+        <span class="label">File Size</span>
+        <span class="value" id="fileSize">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Chunks Parsed</span>
+        <span class="value" id="chunkCount">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Total Blocks</span>
+        <span class="value" id="blockCount">-</span>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>⏱️ Timing Breakdown</h2>
+      <div class="row">
+        <span class="label">File Read</span>
+        <span class="value" id="readTime">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Decompression</span>
+        <span class="value" id="decompressTime">-</span>
+      </div>
+      <div class="row">
+        <span class="label">NBT Parse</span>
+        <span class="value" id="parseTime">-</span>
+      </div>
+      <div class="row">
+        <span class="label">Block Extraction</span>
+        <span class="value" id="extractTime">-</span>
+      </div>
+      <div class="row">
+        <span class="label" style="font-weight: bold; color: #e0e0e0;">Total Time</span>
+        <span class="value" id="totalTime" style="font-size: 18px;">-</span>
+      </div>
+    </div>
+  </div>
+  
+  <div class="section">
+    <h2>📝 Log</h2>
+    <div id="log">Waiting for file...</div>
+  </div>
+
+  <script type="module">
+    // Import pako from CDN
+    import pako from 'https://cdn.jsdelivr.net/npm/pako@2.1.0/+esm';
+    
+    const log = document.getElementById('log');
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const results = document.getElementById('results');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    
+    function logMsg(msg) {
+      const time = new Date().toLocaleTimeString();
+      log.textContent += `[${time}] ${msg}\n`;
+      log.scrollTop = log.scrollHeight;
+    }
+    
+    function formatTime(ms) {
+      if (ms < 1000) return `${ms.toFixed(1)}ms`;
+      return `${(ms / 1000).toFixed(2)}s`;
+    }
+    
+    function formatBytes(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    }
+    
+    // Simple NBT parser
+    function parseNBT(buffer) {
+      const view = new DataView(buffer);
+      let pos = 0;
+      
+      function readString() {
+        const length = view.getUint16(pos, false);
+        pos += 2;
+        const bytes = new Uint8Array(buffer, pos, length);
+        pos += length;
+        return new TextDecoder().decode(bytes);
+      }
+      
+      function readTag(tagType) {
+        switch (tagType) {
+          case 0: return null;
+          case 1: return view.getInt8(pos++);
+          case 2: { const v = view.getInt16(pos, false); pos += 2; return v; }
+          case 3: { const v = view.getInt32(pos, false); pos += 4; return v; }
+          case 4: { 
+            const high = view.getInt32(pos, false);
+            const low = view.getUint32(pos + 4, false);
+            pos += 8;
+            return BigInt(high) << 32n | BigInt(low);
+          }
+          case 5: { const v = view.getFloat32(pos, false); pos += 4; return v; }
+          case 6: { const v = view.getFloat64(pos, false); pos += 8; return v; }
+          case 7: {
+            const length = view.getInt32(pos, false); pos += 4;
+            const arr = new Int8Array(buffer, pos, length);
+            pos += length;
+            return arr;
+          }
+          case 8: return readString();
+          case 9: {
+            const listType = view.getInt8(pos++);
+            const length = view.getInt32(pos, false); pos += 4;
+            const items = [];
+            for (let i = 0; i < length; i++) items.push(readTag(listType));
+            return items;
+          }
+          case 10: {
+            const result = {};
+            while (true) {
+              const childType = view.getInt8(pos++);
+              if (childType === 0) break;
+              const name = readString();
+              result[name] = readTag(childType);
+            }
+            return result;
+          }
+          case 11: {
+            const length = view.getInt32(pos, false); pos += 4;
+            const arr = new Int32Array(length);
+            for (let i = 0; i < length; i++) {
+              arr[i] = view.getInt32(pos, false); pos += 4;
+            }
+            return arr;
+          }
+          case 12: {
+            const length = view.getInt32(pos, false); pos += 4;
+            const arr = [];
+            for (let i = 0; i < length; i++) {
+              const high = view.getInt32(pos, false);
+              const low = view.getUint32(pos + 4, false);
+              pos += 8;
+              arr.push(BigInt(high) << 32n | BigInt(low));
+            }
+            return arr;
+          }
+          default: throw new Error(`Unknown tag: ${tagType}`);
+        }
+      }
+      
+      const rootType = view.getInt8(pos++);
+      if (rootType !== 10) throw new Error('Expected compound root');
+      readString(); // root name
+      return readTag(10);
+    }
+    
+    // Extract blocks from chunk
+    function extractBlocks(chunkData) {
+      const blocks = [];
+      const sections = chunkData?.sections || [];
+      
+      for (const section of sections) {
+        const y = section?.Y ?? section?.y;
+        if (y === undefined) continue;
+        
+        const blockStates = section?.block_states;
+        if (!blockStates) continue;
+        
+        const palette = blockStates.palette || [];
+        const data = blockStates.data;
+        
+        // Skip air-only sections
+        if (palette.length === 1) {
+          const name = palette[0]?.Name || '';
+          if (name.includes('air')) continue;
+        }
+        
+        // Count non-air blocks in palette
+        for (const entry of palette) {
+          const name = entry?.Name || '';
+          if (!name.includes('air')) {
+            blocks.push({ y: y * 16, block: name });
+          }
+        }
+      }
+      
+      return blocks;
+    }
+    
+    async function runBenchmark(file) {
+      log.textContent = '';
+      results.style.display = 'none';
+      progressContainer.style.display = 'block';
+      progressBar.style.width = '0%';
+      
+      const timings = {
+        read: 0,
+        decompress: 0,
+        parse: 0,
+        extract: 0
+      };
+      
+      let totalBlocks = 0;
+      let chunkCount = 0;
+      
+      try {
+        logMsg(`Loading ${file.name} (${formatBytes(file.size)})`);
+        
+        // Read file
+        const readStart = performance.now();
+        const buffer = await file.arrayBuffer();
+        timings.read = performance.now() - readStart;
+        logMsg(`File read: ${formatTime(timings.read)}`);
+        progressBar.style.width = '10%';
+        
+        const view = new DataView(buffer);
+        const SECTOR_SIZE = 4096;
+        const chunks = [];
+        
+        // Parse all chunks
+        logMsg('Parsing chunks...');
+        const parseStart = performance.now();
+        
+        for (let z = 0; z < 32; z++) {
+          for (let x = 0; x < 32; x++) {
+            const index = x + z * 32;
+            const locationData = view.getUint32(index * 4, false);
+            const offset = (locationData >> 8) * SECTOR_SIZE;
+            const sectorCount = locationData & 0xFF;
+            
+            if (offset === 0 || sectorCount === 0) continue;
+            
+            try {
+              const length = view.getUint32(offset, false);
+              const compressionType = view.getUint8(offset + 4);
+              const compressedData = new Uint8Array(buffer, offset + 5, length - 1);
+              
+              // Decompress
+              const decompStart = performance.now();
+              let decompressed;
+              if (compressionType === 1) {
+                decompressed = pako.ungzip(compressedData);
+              } else if (compressionType === 2) {
+                decompressed = pako.inflate(compressedData);
+              } else {
+                continue;
+              }
+              timings.decompress += performance.now() - decompStart;
+              
+              // Parse NBT
+              const nbtStart = performance.now();
+              const nbt = parseNBT(decompressed.buffer);
+              timings.parse += performance.now() - nbtStart;
+              
+              chunks.push({ x, z, data: nbt });
+              chunkCount++;
+              
+              // Update progress
+              const progress = 10 + (index / 1024) * 60;
+              progressBar.style.width = `${progress}%`;
+            } catch (e) {
+              // Skip failed chunks
+            }
+          }
+        }
+        
+        logMsg(`Parsed ${chunkCount} chunks`);
+        logMsg(`  Decompression: ${formatTime(timings.decompress)}`);
+        logMsg(`  NBT parsing: ${formatTime(timings.parse)}`);
+        progressBar.style.width = '70%';
+        
+        // Extract blocks
+        logMsg('Extracting blocks...');
+        const extractStart = performance.now();
+        
+        for (const chunk of chunks) {
+          const blocks = extractBlocks(chunk.data);
+          totalBlocks += blocks.length;
+        }
+        
+        timings.extract = performance.now() - extractStart;
+        logMsg(`Extracted ${totalBlocks.toLocaleString()} block types in ${formatTime(timings.extract)}`);
+        progressBar.style.width = '100%';
+        
+        // Display results
+        const totalTime = timings.read + timings.decompress + timings.parse + timings.extract;
+        
+        document.getElementById('fileSize').textContent = formatBytes(file.size);
+        document.getElementById('chunkCount').textContent = chunkCount;
+        document.getElementById('blockCount').textContent = totalBlocks.toLocaleString();
+        document.getElementById('readTime').textContent = formatTime(timings.read);
+        document.getElementById('decompressTime').textContent = formatTime(timings.decompress);
+        document.getElementById('parseTime').textContent = formatTime(timings.parse);
+        document.getElementById('extractTime').textContent = formatTime(timings.extract);
+        document.getElementById('totalTime').textContent = formatTime(totalTime);
+        
+        // Color code total time
+        const totalTimeEl = document.getElementById('totalTime');
+        if (totalTime < 1000) totalTimeEl.classList.add('good');
+        else if (totalTime < 3000) totalTimeEl.classList.add('warn');
+        
+        results.style.display = 'block';
+        
+        logMsg('');
+        logMsg('='.repeat(40));
+        logMsg(`Total benchmark time: ${formatTime(totalTime)}`);
+        logMsg('='.repeat(40));
+        
+      } catch (e) {
+        logMsg(`Error: ${e.message}`);
+        console.error(e);
+      }
+      
+      progressContainer.style.display = 'none';
+    }
+    
+    // Event handlers
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('dragover');
+    });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file?.name.endsWith('.mca')) runBenchmark(file);
+    });
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) runBenchmark(file);
+    });
+  </script>
+</body>
+</html>
+

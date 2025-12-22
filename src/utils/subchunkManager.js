@@ -1,51 +1,84 @@
 import { SUBCHUNK_SIZE, getSubchunkY, getSubchunkYRange, buildSubchunkMesh, buildWaterSubchunkMesh, buildLavaSubchunkMesh } from './greedyMesher';
 
 /**
- * SubchunkManager - Organizes blocks into 16x16x16 subchunks for efficient rendering
+ * SubchunkManager - Organizes blocks into 16-block-tall Y-level subchunks
  * 
- * Each subchunk is identified by its Y-level index (subchunkY).
- * For Minecraft's Y range of -64 to 320, this gives 24 subchunk layers.
- * 
- * Supports both object-based blocks and typed array blocks for performance.
+ * OPTIMIZED: Uses Y-level only partitioning for fewer subchunks (faster loading).
+ * Key format: subchunkY (number) -> indices array
  */
 export class SubchunkManager {
   constructor() {
-    // Map of subchunkY -> array of solid blocks in that subchunk
+    // Map of subchunkY -> indices array for solid blocks
+    this.subchunkIndices = new Map();
+    // Map of subchunkY -> indices array for water blocks
+    this.waterSubchunkIndices = new Map();
+    // Map of subchunkY -> indices array for lava blocks
+    this.lavaSubchunkIndices = new Map();
+    
+    // Typed arrays for all blocks (stored contiguously for performance)
+    this.typedX = null;
+    this.typedY = null;
+    this.typedZ = null;
+    this.typedBlockType = null;
+    this.typedLevel = null;
+    this.blockCount = 0;
+    
+    // Legacy object arrays (created lazily on demand)
     this.subchunks = new Map();
-    // Map of subchunkY -> array of water blocks in that subchunk
     this.waterSubchunks = new Map();
-    // Map of subchunkY -> array of lava blocks in that subchunk
     this.lavaSubchunks = new Map();
-    // All water blocks (for reference)
-    this.waterBlocks = [];
-    // All lava blocks (for reference)
-    this.lavaBlocks = [];
-    // All solid blocks (for reference)
-    this.allSolidBlocks = [];
+    this.waterBlocks = null;
+    this.lavaBlocks = null;
+    this.allSolidBlocks = null;
+    this._objectsCached = false;
+    
     // Track min/max subchunk Y for iteration
     this.minSubchunkY = Infinity;
     this.maxSubchunkY = -Infinity;
-    // Track water subchunk bounds separately
     this.minWaterSubchunkY = Infinity;
     this.maxWaterSubchunkY = -Infinity;
-    // Track lava subchunk bounds separately
     this.minLavaSubchunkY = Infinity;
     this.maxLavaSubchunkY = -Infinity;
     
     // Palette for typed array blocks (shared across all chunks)
     this.palette = null;
   }
+  
+  /**
+   * Parse key - format is "chunkX,chunkZ,subchunkY"
+   */
+  _parseKey(key) {
+    if (typeof key !== 'string') {
+      return { chunkX: 0, chunkZ: 0, subchunkY: key };
+    }
+    const parts = key.split(',');
+    return { 
+      chunkX: parseInt(parts[0], 10), 
+      chunkZ: parseInt(parts[1], 10), 
+      subchunkY: parseInt(parts[2], 10) 
+    };
+  }
 
   /**
    * Clear all data
    */
   clear() {
+    this.subchunkIndices.clear();
+    this.waterSubchunkIndices.clear();
+    this.lavaSubchunkIndices.clear();
     this.subchunks.clear();
     this.waterSubchunks.clear();
     this.lavaSubchunks.clear();
-    this.waterBlocks = [];
-    this.lavaBlocks = [];
-    this.allSolidBlocks = [];
+    this.typedX = null;
+    this.typedY = null;
+    this.typedZ = null;
+    this.typedBlockType = null;
+    this.typedLevel = null;
+    this.blockCount = 0;
+    this.waterBlocks = null;
+    this.lavaBlocks = null;
+    this.allSolidBlocks = null;
+    this._objectsCached = false;
     this.minSubchunkY = Infinity;
     this.maxSubchunkY = -Infinity;
     this.minWaterSubchunkY = Infinity;
@@ -64,8 +97,17 @@ export class SubchunkManager {
   }
 
   /**
+   * Create a subchunk key from chunk and Y coordinates
+   * @private
+   */
+  _makeKey(chunkX, chunkZ, subchunkY) {
+    return `${chunkX},${chunkZ},${subchunkY}`;
+  }
+
+  /**
    * Add blocks from typed arrays (high-performance path)
-   * @param {Object} typedBlocks - { x: Uint8Array, y: Int16Array, z: Uint8Array, blockType: Uint16Array, level: Int8Array, count: number }
+   * FIXED: Uses chunk-based partitioning (16x16x16 subchunks) for proper memory management
+   * @param {Object} typedBlocks - { x: Int32Array, y: Int16Array, z: Int32Array, blockType: Uint16Array, level: Int8Array, count: number }
    * @param {string[]} palette - Block name palette
    */
   addTypedBlocks(typedBlocks, palette) {
@@ -74,54 +116,157 @@ export class SubchunkManager {
     // Store palette for later use
     if (!this.palette) {
       this.palette = palette;
+    } else {
+      // Merge palettes if needed (for incremental loading)
+      if (palette !== this.palette) {
+        // Just use the new palette - it should be a superset
+        this.palette = palette;
+      }
     }
     
+    // Build water/lava type lookup once (using Set for O(1) lookup)
+    const waterTypeIndices = new Set();
+    const lavaTypeIndices = new Set();
+    for (let i = 0; i < palette.length; i++) {
+      const name = palette[i];
+      if (name && isWaterBlock(name)) waterTypeIndices.add(i);
+      else if (name && isLavaBlock(name)) lavaTypeIndices.add(i);
+    }
+    
+    // If we already have data, we need to merge (copy and extend arrays)
+    const baseOffset = this.blockCount;
+    if (baseOffset > 0) {
+      // Extend existing arrays
+      const newX = new Int32Array(baseOffset + count);
+      const newY = new Int16Array(baseOffset + count);
+      const newZ = new Int32Array(baseOffset + count);
+      const newBlockType = new Uint16Array(baseOffset + count);
+      const newLevel = new Int8Array(baseOffset + count);
+      
+      newX.set(this.typedX);
+      newY.set(this.typedY);
+      newZ.set(this.typedZ);
+      newBlockType.set(this.typedBlockType);
+      if (this.typedLevel) newLevel.set(this.typedLevel);
+      
+      newX.set(x, baseOffset);
+      newY.set(y, baseOffset);
+      newZ.set(z, baseOffset);
+      newBlockType.set(blockType, baseOffset);
+      if (level) newLevel.set(level, baseOffset);
+      
+      this.typedX = newX;
+      this.typedY = newY;
+      this.typedZ = newZ;
+      this.typedBlockType = newBlockType;
+      this.typedLevel = newLevel;
+    } else {
+      // First batch - just reference the arrays (they're already copies from worker)
+      this.typedX = x;
+      this.typedY = y;
+      this.typedZ = z;
+      this.typedBlockType = blockType;
+      this.typedLevel = level || new Int8Array(count);
+    }
+    
+    this.blockCount = baseOffset + count;
+    this._objectsCached = false; // Invalidate any cached objects
+    
+    // Build subchunk index maps using CHUNK-BASED partitioning (16x16x16 subchunks)
+    // This keeps each subchunk at a reasonable size (~4096 blocks max)
     for (let i = 0; i < count; i++) {
+      const globalIdx = baseOffset + i;
       const blockX = x[i];
       const blockY = y[i];
       const blockZ = z[i];
-      const blockName = palette[blockType[i]] || 'minecraft:air';
+      const type = blockType[i];
+      
+      // Calculate chunk coordinates and subchunk Y
+      const chunkX = Math.floor(blockX / 16);
+      const chunkZ = Math.floor(blockZ / 16);
       const subchunkY = getSubchunkY(blockY);
+      const key = this._makeKey(chunkX, chunkZ, subchunkY);
       
-      const block = { x: blockX, y: blockY, z: blockZ, block: blockName };
-      
-      // Add level property for fluids (level >= 0 means it's a fluid)
-      if (level && level[i] >= 0) {
-        block.level = level[i];
-      }
-      
-      if (isWaterBlock(blockName)) {
-        this.waterBlocks.push(block);
-        
+      if (waterTypeIndices.has(type)) {
+        // Water block
         if (subchunkY < this.minWaterSubchunkY) this.minWaterSubchunkY = subchunkY;
         if (subchunkY > this.maxWaterSubchunkY) this.maxWaterSubchunkY = subchunkY;
         
-        if (!this.waterSubchunks.has(subchunkY)) {
-          this.waterSubchunks.set(subchunkY, []);
+        let indices = this.waterSubchunkIndices.get(key);
+        if (!indices) {
+          indices = [];
+          this.waterSubchunkIndices.set(key, indices);
         }
-        this.waterSubchunks.get(subchunkY).push(block);
-      } else if (isLavaBlock(blockName)) {
-        this.lavaBlocks.push(block);
-        
+        indices.push(globalIdx);
+      } else if (lavaTypeIndices.has(type)) {
+        // Lava block
         if (subchunkY < this.minLavaSubchunkY) this.minLavaSubchunkY = subchunkY;
         if (subchunkY > this.maxLavaSubchunkY) this.maxLavaSubchunkY = subchunkY;
         
-        if (!this.lavaSubchunks.has(subchunkY)) {
-          this.lavaSubchunks.set(subchunkY, []);
+        let indices = this.lavaSubchunkIndices.get(key);
+        if (!indices) {
+          indices = [];
+          this.lavaSubchunkIndices.set(key, indices);
         }
-        this.lavaSubchunks.get(subchunkY).push(block);
+        indices.push(globalIdx);
       } else {
-        this.allSolidBlocks.push(block);
-        
+        // Solid block
         if (subchunkY < this.minSubchunkY) this.minSubchunkY = subchunkY;
         if (subchunkY > this.maxSubchunkY) this.maxSubchunkY = subchunkY;
         
-        if (!this.subchunks.has(subchunkY)) {
-          this.subchunks.set(subchunkY, []);
+        let indices = this.subchunkIndices.get(key);
+        if (!indices) {
+          indices = [];
+          this.subchunkIndices.set(key, indices);
         }
-        this.subchunks.get(subchunkY).push(block);
+        indices.push(globalIdx);
       }
     }
+  }
+  
+  /**
+   * Convert index to block object (lazy creation)
+   * @private
+   */
+  _indexToBlock(idx) {
+    return {
+      x: this.typedX[idx],
+      y: this.typedY[idx],
+      z: this.typedZ[idx],
+      block: this.palette[this.typedBlockType[idx]] || 'minecraft:air',
+      level: this.typedLevel ? this.typedLevel[idx] : undefined
+    };
+  }
+  
+  /**
+   * Build object cache for legacy API (called lazily)
+   * @private
+   */
+  _buildObjectCache() {
+    if (this._objectsCached) return;
+    
+    // Build solid subchunks
+    this.subchunks.clear();
+    for (const [key, indices] of this.subchunkIndices) {
+      const blocks = indices.map(idx => this._indexToBlock(idx));
+      this.subchunks.set(key, blocks);
+    }
+    
+    // Build water subchunks
+    this.waterSubchunks.clear();
+    for (const [key, indices] of this.waterSubchunkIndices) {
+      const blocks = indices.map(idx => this._indexToBlock(idx));
+      this.waterSubchunks.set(key, blocks);
+    }
+    
+    // Build lava subchunks
+    this.lavaSubchunks.clear();
+    for (const [key, indices] of this.lavaSubchunkIndices) {
+      const blocks = indices.map(idx => this._indexToBlock(idx));
+      this.lavaSubchunks.set(key, blocks);
+    }
+    
+    this._objectsCached = true;
   }
 
   /**
@@ -174,259 +319,184 @@ export class SubchunkManager {
   }
 
   /**
-   * Get all subchunk Y indices that have solid blocks
-   * @returns {Array<number>} Sorted array of subchunk Y indices
+   * Get all subchunk keys that have solid blocks
+   * @returns {Array<string>} Array of "chunkX,chunkZ,subchunkY" keys
    */
   getSubchunkYIndices() {
-    return Array.from(this.subchunks.keys()).sort((a, b) => a - b);
+    return Array.from(this.subchunkIndices.keys());
   }
 
   /**
-   * Get all subchunk Y indices that have water blocks
-   * @returns {Array<number>} Sorted array of water subchunk Y indices
+   * Get all subchunk keys that have water blocks
+   * @returns {Array<string>} Array of subchunk keys
    */
   getWaterSubchunkYIndices() {
-    return Array.from(this.waterSubchunks.keys()).sort((a, b) => a - b);
+    return Array.from(this.waterSubchunkIndices.keys());
   }
 
   /**
-   * Get all subchunk Y indices that have lava blocks
-   * @returns {Array<number>} Sorted array of lava subchunk Y indices
+   * Get all subchunk keys that have lava blocks
+   * @returns {Array<string>} Array of subchunk keys
    */
   getLavaSubchunkYIndices() {
-    return Array.from(this.lavaSubchunks.keys()).sort((a, b) => a - b);
+    return Array.from(this.lavaSubchunkIndices.keys());
   }
 
   /**
    * Get solid blocks for a specific subchunk
-   * @param {number} subchunkY - The subchunk Y index
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
    * @returns {Array} Array of blocks in that subchunk
    */
-  getSubchunkBlocks(subchunkY) {
-    return this.subchunks.get(subchunkY) || [];
+  getSubchunkBlocks(key) {
+    const indices = this.subchunkIndices.get(key);
+    if (!indices || indices.length === 0) return [];
+    return indices.map(idx => this._indexToBlock(idx));
   }
 
   /**
    * Get water blocks for a specific subchunk
-   * @param {number} subchunkY - The subchunk Y index
+   * @param {string} key - The subchunk key
    * @returns {Array} Array of water blocks in that subchunk
    */
-  getWaterSubchunkBlocks(subchunkY) {
-    return this.waterSubchunks.get(subchunkY) || [];
+  getWaterSubchunkBlocks(key) {
+    const indices = this.waterSubchunkIndices.get(key);
+    if (!indices || indices.length === 0) return [];
+    return indices.map(idx => this._indexToBlock(idx));
   }
 
   /**
    * Get lava blocks for a specific subchunk
-   * @param {number} subchunkY - The subchunk Y index
+   * @param {string} key - The subchunk key
    * @returns {Array} Array of lava blocks in that subchunk
    */
-  getLavaSubchunkBlocks(subchunkY) {
-    return this.lavaSubchunks.get(subchunkY) || [];
+  getLavaSubchunkBlocks(key) {
+    const indices = this.lavaSubchunkIndices.get(key);
+    if (!indices || indices.length === 0) return [];
+    return indices.map(idx => this._indexToBlock(idx));
   }
 
   /**
    * Get neighbor blocks for solid subchunk boundary culling
-   * @param {number} subchunkY - The subchunk Y index
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
    * @returns {Array} Array of blocks from neighboring subchunks near the boundary
    */
-  getNeighborBlocks(subchunkY) {
-    const neighbors = [];
+  getNeighborBlocks(key) {
+    const { chunkX, chunkZ, subchunkY } = this._parseKey(key);
     const { minY, maxY } = getSubchunkYRange(subchunkY);
+    const boundaryYBelow = minY - 1;
+    const boundaryYAbove = maxY + 1;
+    const neighbors = [];
     
-    // Get solid blocks from subchunk below (only those at maxY of that subchunk)
-    const belowBlocks = this.subchunks.get(subchunkY - 1);
-    if (belowBlocks) {
-      const boundaryY = minY - 1;
-      for (const block of belowBlocks) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
+    // Helper to add blocks at boundary Y from an index array
+    const addBoundaryBlocks = (indices, boundaryY) => {
+      if (!indices) return;
+      for (const idx of indices) {
+        if (this.typedY[idx] === boundaryY) {
+          neighbors.push(this._indexToBlock(idx));
         }
       }
-    }
+    };
     
-    // Get solid blocks from subchunk above (only those at minY of that subchunk)
-    const aboveBlocks = this.subchunks.get(subchunkY + 1);
-    if (aboveBlocks) {
-      const boundaryY = maxY + 1;
-      for (const block of aboveBlocks) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
+    // Get blocks from subchunks above and below (same chunk)
+    const keyBelow = this._makeKey(chunkX, chunkZ, subchunkY - 1);
+    const keyAbove = this._makeKey(chunkX, chunkZ, subchunkY + 1);
     
-    // Also include water blocks near boundaries for correct culling
-    const belowWater = this.waterSubchunks.get(subchunkY - 1);
-    if (belowWater) {
-      const boundaryY = minY - 1;
-      for (const block of belowWater) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
-    
-    const aboveWater = this.waterSubchunks.get(subchunkY + 1);
-    if (aboveWater) {
-      const boundaryY = maxY + 1;
-      for (const block of aboveWater) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
+    addBoundaryBlocks(this.subchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryBlocks(this.subchunkIndices.get(keyAbove), boundaryYAbove);
+    addBoundaryBlocks(this.waterSubchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryBlocks(this.waterSubchunkIndices.get(keyAbove), boundaryYAbove);
     
     return neighbors;
   }
 
   /**
    * Get neighbor blocks for water subchunk boundary culling
-   * Includes both water AND solid blocks since water culls against both
-   * @param {number} subchunkY - The subchunk Y index
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
    * @returns {Array} Array of blocks from neighboring subchunks near the boundary
    */
-  getWaterNeighborBlocks(subchunkY) {
-    const neighbors = [];
+  getWaterNeighborBlocks(key) {
+    const { chunkX, chunkZ, subchunkY } = this._parseKey(key);
     const { minY, maxY } = getSubchunkYRange(subchunkY);
+    const boundaryYBelow = minY - 1;
+    const boundaryYAbove = maxY + 1;
+    const neighbors = [];
     
-    // Get water blocks from subchunk below
-    const belowWater = this.waterSubchunks.get(subchunkY - 1);
-    if (belowWater) {
-      const boundaryY = minY - 1;
-      for (const block of belowWater) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
+    const addBoundaryBlocks = (indices, boundaryY) => {
+      if (!indices) return;
+      for (const idx of indices) {
+        if (this.typedY[idx] === boundaryY) {
+          neighbors.push(this._indexToBlock(idx));
         }
       }
-    }
+    };
     
-    // Get water blocks from subchunk above
-    const aboveWater = this.waterSubchunks.get(subchunkY + 1);
-    if (aboveWater) {
-      const boundaryY = maxY + 1;
-      for (const block of aboveWater) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
+    const keyBelow = this._makeKey(chunkX, chunkZ, subchunkY - 1);
+    const keyAbove = this._makeKey(chunkX, chunkZ, subchunkY + 1);
     
-    // Get solid blocks from subchunk below
-    const belowSolid = this.subchunks.get(subchunkY - 1);
-    if (belowSolid) {
-      const boundaryY = minY - 1;
-      for (const block of belowSolid) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
-    
-    // Get solid blocks from subchunk above
-    const aboveSolid = this.subchunks.get(subchunkY + 1);
-    if (aboveSolid) {
-      const boundaryY = maxY + 1;
-      for (const block of aboveSolid) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
+    addBoundaryBlocks(this.waterSubchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryBlocks(this.waterSubchunkIndices.get(keyAbove), boundaryYAbove);
+    addBoundaryBlocks(this.subchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryBlocks(this.subchunkIndices.get(keyAbove), boundaryYAbove);
     
     return neighbors;
   }
 
   /**
    * Get neighbor blocks for lava subchunk boundary culling
-   * Includes both lava AND solid blocks since lava culls against both
-   * @param {number} subchunkY - The subchunk Y index
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
    * @returns {Array} Array of blocks from neighboring subchunks near the boundary
    */
-  getLavaNeighborBlocks(subchunkY) {
-    const neighbors = [];
+  getLavaNeighborBlocks(key) {
+    const { chunkX, chunkZ, subchunkY } = this._parseKey(key);
     const { minY, maxY } = getSubchunkYRange(subchunkY);
+    const boundaryYBelow = minY - 1;
+    const boundaryYAbove = maxY + 1;
+    const neighbors = [];
     
-    // Get lava blocks from subchunk below
-    const belowLava = this.lavaSubchunks.get(subchunkY - 1);
-    if (belowLava) {
-      const boundaryY = minY - 1;
-      for (const block of belowLava) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
+    const addBoundaryBlocks = (indices, boundaryY) => {
+      if (!indices) return;
+      for (const idx of indices) {
+        if (this.typedY[idx] === boundaryY) {
+          neighbors.push(this._indexToBlock(idx));
         }
       }
-    }
+    };
     
-    // Get lava blocks from subchunk above
-    const aboveLava = this.lavaSubchunks.get(subchunkY + 1);
-    if (aboveLava) {
-      const boundaryY = maxY + 1;
-      for (const block of aboveLava) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
+    const keyBelow = this._makeKey(chunkX, chunkZ, subchunkY - 1);
+    const keyAbove = this._makeKey(chunkX, chunkZ, subchunkY + 1);
     
-    // Get solid blocks from subchunk below
-    const belowSolid = this.subchunks.get(subchunkY - 1);
-    if (belowSolid) {
-      const boundaryY = minY - 1;
-      for (const block of belowSolid) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
-    
-    // Get solid blocks from subchunk above
-    const aboveSolid = this.subchunks.get(subchunkY + 1);
-    if (aboveSolid) {
-      const boundaryY = maxY + 1;
-      for (const block of aboveSolid) {
-        if (block.y === boundaryY) {
-          neighbors.push(block);
-        }
-      }
-    }
+    addBoundaryBlocks(this.lavaSubchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryBlocks(this.lavaSubchunkIndices.get(keyAbove), boundaryYAbove);
+    addBoundaryBlocks(this.subchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryBlocks(this.subchunkIndices.get(keyAbove), boundaryYAbove);
     
     return neighbors;
   }
 
   /**
-   * Check if a subchunk is fully within a Y range
-   * @param {number} subchunkY - The subchunk Y index
-   * @param {number} minY - Minimum Y to check
-   * @param {number} maxY - Maximum Y to check
-   * @returns {boolean} True if subchunk is fully within range
+   * Extract subchunkY from a key and check if fully within Y range
    */
-  isSubchunkFullyInRange(subchunkY, minY, maxY) {
+  isSubchunkFullyInRange(key, minY, maxY) {
+    const { subchunkY } = typeof key === 'string' ? this._parseKey(key) : { subchunkY: key };
     const range = getSubchunkYRange(subchunkY);
     return range.minY >= minY && range.maxY <= maxY;
   }
 
   /**
    * Check if a subchunk intersects a Y range
-   * @param {number} subchunkY - The subchunk Y index
-   * @param {number} minY - Minimum Y to check
-   * @param {number} maxY - Maximum Y to check
-   * @returns {boolean} True if subchunk intersects range
    */
-  isSubchunkInRange(subchunkY, minY, maxY) {
+  isSubchunkInRange(key, minY, maxY) {
+    const { subchunkY } = typeof key === 'string' ? this._parseKey(key) : { subchunkY: key };
     const range = getSubchunkYRange(subchunkY);
     return range.maxY >= minY && range.minY <= maxY;
   }
 
   /**
-   * Check if a subchunk is partially clipped by a Y range (needs remeshing)
-   * @param {number} subchunkY - The subchunk Y index
-   * @param {number} minY - Minimum Y of visible range
-   * @param {number} maxY - Maximum Y of visible range
-   * @returns {boolean} True if subchunk is clipped at boundaries
+   * Check if a subchunk is partially clipped by a Y range
    */
-  isSubchunkClipped(subchunkY, minY, maxY) {
+  isSubchunkClipped(key, minY, maxY) {
+    const { subchunkY } = typeof key === 'string' ? this._parseKey(key) : { subchunkY: key };
     const range = getSubchunkYRange(subchunkY);
-    // Clipped if the Y range cuts through this subchunk
     const clippedAtBottom = minY > range.minY && minY <= range.maxY;
     const clippedAtTop = maxY >= range.minY && maxY < range.maxY;
     return clippedAtBottom || clippedAtTop;
@@ -434,66 +504,287 @@ export class SubchunkManager {
 
   /**
    * Get solid blocks for a subchunk filtered by Y range
-   * @param {number} subchunkY - The subchunk Y index
-   * @param {number} minY - Minimum Y to include
-   * @param {number} maxY - Maximum Y to include
-   * @returns {Array} Filtered array of blocks
    */
-  getSubchunkBlocksInRange(subchunkY, minY, maxY) {
-    const blocks = this.subchunks.get(subchunkY) || [];
-    return blocks.filter(b => b.y >= minY && b.y <= maxY);
+  getSubchunkBlocksInRange(key, minY, maxY) {
+    const indices = this.subchunkIndices.get(key);
+    if (!indices) return [];
+    const result = [];
+    for (const idx of indices) {
+      const y = this.typedY[idx];
+      if (y >= minY && y <= maxY) {
+        result.push(this._indexToBlock(idx));
+      }
+    }
+    return result;
   }
 
   /**
    * Get water blocks for a subchunk filtered by Y range
-   * @param {number} subchunkY - The subchunk Y index
-   * @param {number} minY - Minimum Y to include
-   * @param {number} maxY - Maximum Y to include
-   * @returns {Array} Filtered array of water blocks
    */
-  getWaterSubchunkBlocksInRange(subchunkY, minY, maxY) {
-    const blocks = this.waterSubchunks.get(subchunkY) || [];
-    return blocks.filter(b => b.y >= minY && b.y <= maxY);
+  getWaterSubchunkBlocksInRange(key, minY, maxY) {
+    const indices = this.waterSubchunkIndices.get(key);
+    if (!indices) return [];
+    const result = [];
+    for (const idx of indices) {
+      const y = this.typedY[idx];
+      if (y >= minY && y <= maxY) {
+        result.push(this._indexToBlock(idx));
+      }
+    }
+    return result;
   }
 
   /**
    * Get lava blocks for a subchunk filtered by Y range
-   * @param {number} subchunkY - The subchunk Y index
-   * @param {number} minY - Minimum Y to include
-   * @param {number} maxY - Maximum Y to include
-   * @returns {Array} Filtered array of lava blocks
    */
-  getLavaSubchunkBlocksInRange(subchunkY, minY, maxY) {
-    const blocks = this.lavaSubchunks.get(subchunkY) || [];
-    return blocks.filter(b => b.y >= minY && b.y <= maxY);
+  getLavaSubchunkBlocksInRange(key, minY, maxY) {
+    const indices = this.lavaSubchunkIndices.get(key);
+    if (!indices) return [];
+    const result = [];
+    for (const idx of indices) {
+      const y = this.typedY[idx];
+      if (y >= minY && y <= maxY) {
+        result.push(this._indexToBlock(idx));
+      }
+    }
+    return result;
+  }
+
+  // ============================================================
+  // HIGH-PERFORMANCE INDEXED ACCESS (no object conversion)
+  // ============================================================
+
+  /**
+   * Get raw typed arrays for direct worker access
+   * @returns {Object} { x: Int32Array, y: Int16Array, z: Int32Array, blockType: Uint16Array, level: Int8Array, count: number }
+   */
+  getTypedArrays() {
+    return {
+      x: this.typedX,
+      y: this.typedY,
+      z: this.typedZ,
+      blockType: this.typedBlockType,
+      level: this.typedLevel,
+      count: this.blockCount,
+      palette: this.palette,
+    };
+  }
+
+  /**
+   * Get solid block indices for a subchunk as Uint32Array (no object conversion)
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
+   * @returns {Uint32Array} Indices into the typed arrays
+   */
+  getSolidIndices(key) {
+    const indices = this.subchunkIndices.get(key);
+    if (!indices || indices.length === 0) return new Uint32Array(0);
+    return new Uint32Array(indices);
+  }
+
+  /**
+   * Get water block indices for a subchunk as Uint32Array
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
+   */
+  getWaterIndices(key) {
+    const indices = this.waterSubchunkIndices.get(key);
+    if (!indices || indices.length === 0) return new Uint32Array(0);
+    return new Uint32Array(indices);
+  }
+
+  /**
+   * Get lava block indices for a subchunk as Uint32Array
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
+   */
+  getLavaIndices(key) {
+    const indices = this.lavaSubchunkIndices.get(key);
+    if (!indices || indices.length === 0) return new Uint32Array(0);
+    return new Uint32Array(indices);
+  }
+
+  /**
+   * Get neighbor block indices for solid subchunk boundary culling
+   * Returns indices of blocks in adjacent Y layers
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
+   * @returns {Uint32Array} Indices into typed arrays
+   */
+  getNeighborIndices(key) {
+    const { chunkX, chunkZ, subchunkY } = this._parseKey(key);
+    const { minY, maxY } = getSubchunkYRange(subchunkY);
+    const boundaryYBelow = minY - 1;
+    const boundaryYAbove = maxY + 1;
+    const neighborList = [];
+    
+    const addBoundaryIndices = (indices, boundaryY) => {
+      if (!indices) return;
+      for (const idx of indices) {
+        if (this.typedY[idx] === boundaryY) {
+          neighborList.push(idx);
+        }
+      }
+    };
+    
+    const keyBelow = this._makeKey(chunkX, chunkZ, subchunkY - 1);
+    const keyAbove = this._makeKey(chunkX, chunkZ, subchunkY + 1);
+    
+    addBoundaryIndices(this.subchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryIndices(this.subchunkIndices.get(keyAbove), boundaryYAbove);
+    addBoundaryIndices(this.waterSubchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryIndices(this.waterSubchunkIndices.get(keyAbove), boundaryYAbove);
+    
+    return new Uint32Array(neighborList);
+  }
+
+  /**
+   * Get neighbor indices for water subchunk
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
+   */
+  getWaterNeighborIndices(key) {
+    const { chunkX, chunkZ, subchunkY } = this._parseKey(key);
+    const { minY, maxY } = getSubchunkYRange(subchunkY);
+    const boundaryYBelow = minY - 1;
+    const boundaryYAbove = maxY + 1;
+    const neighborList = [];
+    
+    const addBoundaryIndices = (indices, boundaryY) => {
+      if (!indices) return;
+      for (const idx of indices) {
+        if (this.typedY[idx] === boundaryY) {
+          neighborList.push(idx);
+        }
+      }
+    };
+    
+    const keyBelow = this._makeKey(chunkX, chunkZ, subchunkY - 1);
+    const keyAbove = this._makeKey(chunkX, chunkZ, subchunkY + 1);
+    
+    addBoundaryIndices(this.waterSubchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryIndices(this.waterSubchunkIndices.get(keyAbove), boundaryYAbove);
+    addBoundaryIndices(this.subchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryIndices(this.subchunkIndices.get(keyAbove), boundaryYAbove);
+    
+    return new Uint32Array(neighborList);
+  }
+
+  /**
+   * Get neighbor indices for lava subchunk
+   * @param {string} key - The subchunk key "chunkX,chunkZ,subchunkY"
+   */
+  getLavaNeighborIndices(key) {
+    const { chunkX, chunkZ, subchunkY } = this._parseKey(key);
+    const { minY, maxY } = getSubchunkYRange(subchunkY);
+    const boundaryYBelow = minY - 1;
+    const boundaryYAbove = maxY + 1;
+    const neighborList = [];
+    
+    const addBoundaryIndices = (indices, boundaryY) => {
+      if (!indices) return;
+      for (const idx of indices) {
+        if (this.typedY[idx] === boundaryY) {
+          neighborList.push(idx);
+        }
+      }
+    };
+    
+    const keyBelow = this._makeKey(chunkX, chunkZ, subchunkY - 1);
+    const keyAbove = this._makeKey(chunkX, chunkZ, subchunkY + 1);
+    
+    addBoundaryIndices(this.lavaSubchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryIndices(this.lavaSubchunkIndices.get(keyAbove), boundaryYAbove);
+    addBoundaryIndices(this.subchunkIndices.get(keyBelow), boundaryYBelow);
+    addBoundaryIndices(this.subchunkIndices.get(keyAbove), boundaryYAbove);
+    
+    return new Uint32Array(neighborList);
+  }
+
+  /**
+   * Prepare all mesh jobs for a batch using indexed data
+   * Returns jobs ready to be sent to optimized mesh workers
+   * @param {Object} offset - World offset {x, y, z}
+   * @returns {Object} { solidJobs, waterJobs, lavaJobs, typedArrays }
+   */
+  prepareIndexedMeshJobs(offset) {
+    const typedArrays = this.getTypedArrays();
+    
+    const solidJobs = [];
+    for (const key of this.subchunkIndices.keys()) {
+      const { subchunkY } = this._parseKey(key);
+      solidJobs.push({
+        targetIndices: this.getSolidIndices(key),
+        neighborIndices: this.getNeighborIndices(key),
+        offset,
+        subchunkY,
+        subchunkKey: key,
+        meshType: 'solid',
+      });
+    }
+    
+    const waterJobs = [];
+    for (const key of this.waterSubchunkIndices.keys()) {
+      const { subchunkY } = this._parseKey(key);
+      waterJobs.push({
+        targetIndices: this.getWaterIndices(key),
+        neighborIndices: this.getWaterNeighborIndices(key),
+        offset,
+        subchunkY,
+        subchunkKey: key,
+        meshType: 'water',
+      });
+    }
+    
+    const lavaJobs = [];
+    for (const key of this.lavaSubchunkIndices.keys()) {
+      const { subchunkY } = this._parseKey(key);
+      lavaJobs.push({
+        targetIndices: this.getLavaIndices(key),
+        neighborIndices: this.getLavaNeighborIndices(key),
+        offset,
+        subchunkY,
+        subchunkKey: key,
+        meshType: 'lava',
+      });
+    }
+    
+    return { solidJobs, waterJobs, lavaJobs, typedArrays };
   }
 
   /**
    * Get the total number of subchunks
    */
   get subchunkCount() {
-    return this.subchunks.size;
+    return this.subchunkIndices.size;
   }
 
   /**
    * Get the total number of solid blocks
    */
   get solidBlockCount() {
-    return this.allSolidBlocks.length;
+    let count = 0;
+    for (const indices of this.subchunkIndices.values()) {
+      count += indices.length;
+    }
+    return count;
   }
 
   /**
    * Get the total number of water blocks
    */
   get waterBlockCount() {
-    return this.waterBlocks.length;
+    let count = 0;
+    for (const indices of this.waterSubchunkIndices.values()) {
+      count += indices.length;
+    }
+    return count;
   }
 
   /**
    * Get the total number of lava blocks
    */
   get lavaBlockCount() {
-    return this.lavaBlocks.length;
+    let count = 0;
+    for (const indices of this.lavaSubchunkIndices.values()) {
+      count += indices.length;
+    }
+    return count;
   }
 }
 
