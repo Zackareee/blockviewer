@@ -112,8 +112,10 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
   // Minecraft section Y is already world-relative: section Y=-4 means world Y=-64
   const baseY = sectionY * SECTION_SIZE;
   
-  // Skip sections outside valid range
-  if (baseY < MIN_Y || baseY > 320) return 0;
+  // Skip sections outside valid range (silently - this is normal for some worlds)
+  if (baseY < MIN_Y || baseY > 320) {
+    return 0;
+  }
   
   // Convert Minecraft section Y to internal section index (0-based from MIN_Y)
   // MIN_Y=-64 / 16 = -4, so section Y=-4 becomes internal index 0
@@ -431,7 +433,7 @@ export class ChunkDecoder {
               const blockId = section[i] & 0x0FFF;
               const level = (section[i] >> 12) & 0xF;
               
-              const worldY = sectionY * 16 + localY + (-64);
+              const worldY = sectionY * 16 + localY + MIN_Y;
               finalGrid.setBlockLocal(chunkX, chunkZ, localX, worldY, localZ, blockId, level);
             }
           }

@@ -65,7 +65,8 @@ export function createWaterMaterial() {
     fragmentShader,
     side: THREE.DoubleSide,
     transparent: true,
-    depthWrite: true,
+    depthWrite: false, // Don't write to depth - allows objects behind water to render
+    depthTest: true,   // Still respect depth of opaque objects
     vertexColors: true,
   });
 }

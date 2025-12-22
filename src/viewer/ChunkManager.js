@@ -169,9 +169,8 @@ export class ChunkManager {
    * Add meshes with LOD (Level of Detail) support
    * Creates a single THREE.LOD object with multiple detail levels
    * 
-   * IMPORTANT: LOD uses a single mesh per level - we cannot split the full-detail
-   * mesh because the LOD meshes are for the entire region. If the full mesh needs
-   * splitting, we skip LOD and just use regular meshes.
+   * Meshes are kept in their original world coordinates (no translation).
+   * LOD object is positioned at mesh center for distance calculation only.
    */
   _addMeshesWithLOD(meshData, lodMeshes, material, group, meshArray) {
     // If no LOD meshes, fall back to regular mesh
@@ -180,89 +179,54 @@ export class ChunkManager {
     }
     
     // Check if full-detail mesh needs splitting - if so, we can't use LOD properly
-    // because LOD meshes are for the whole region, not split chunks
     if (meshData.indices.length > MAX_INDICES_PER_DRAW) {
       console.log('[ChunkManager] Mesh too large for LOD, using split meshes without LOD');
       return this._addMeshesToScene(meshData, material, group, meshArray);
     }
     
-    // Create single LOD object with all detail levels
+    // Create geometries WITHOUT any translation - they stay in world coords
+    const geom0 = RegionMeshBuilder.createGeometry(meshData);
+    if (!geom0) {
+      return this._addMeshesToScene(meshData, material, group, meshArray);
+    }
+    
+    // Compute center from full-detail mesh for LOD distance calculation
+    geom0.computeBoundingBox();
+    const meshCenter = new THREE.Vector3();
+    geom0.boundingBox.getCenter(meshCenter);
+    
+    // Create LOD object
     const lod = new THREE.LOD();
     
-    // Compute center of the mesh for proper LOD distance calculation
-    // THREE.LOD measures distance from its position to the camera
-    let meshCenter = null;
+    // Add full detail mesh
+    const mesh0 = new THREE.Mesh(geom0, material);
+    mesh0.frustumCulled = true;
+    // Offset mesh position so it renders at correct world position
+    // when LOD is at meshCenter
+    mesh0.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+    lod.addLevel(mesh0, 0);
     
-    // LOD 0: Full detail (closest)
-    const geom0 = RegionMeshBuilder.createGeometry(meshData);
-    if (geom0) {
-      geom0.computeBoundingBox();
-      meshCenter = new THREE.Vector3();
-      geom0.boundingBox.getCenter(meshCenter);
-      
-      // Translate geometry so it's centered at origin
-      // Then we'll position the LOD object at the original center
-      geom0.translate(-meshCenter.x, -meshCenter.y, -meshCenter.z);
-      
-      const mesh0 = new THREE.Mesh(geom0, material);
-      mesh0.frustumCulled = true;
-      lod.addLevel(mesh0, 0);
-    }
-    
-    // If we have a mesh center, translate all LOD geometries the same way
-    const translateGeom = (geom) => {
-      if (meshCenter && geom) {
-        geom.translate(-meshCenter.x, -meshCenter.y, -meshCenter.z);
-      }
-      return geom;
+    // Helper to add LOD level with proper positioning
+    const addLodLevel = (lodData, distance) => {
+      if (!lodData) return;
+      const geom = RegionMeshBuilder.createGeometry(lodData);
+      if (!geom) return;
+      const mesh = new THREE.Mesh(geom, material);
+      mesh.frustumCulled = true;
+      mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+      lod.addLevel(mesh, distance);
     };
     
-    // LOD 1: 2x sampling
-    if (lodMeshes.lod1) {
-      const geom1 = translateGeom(RegionMeshBuilder.createGeometry(lodMeshes.lod1));
-      if (geom1) {
-        const mesh1 = new THREE.Mesh(geom1, material);
-        mesh1.frustumCulled = true;
-        lod.addLevel(mesh1, LOD_DISTANCE_1);
-      }
-    }
+    addLodLevel(lodMeshes.lod1, LOD_DISTANCE_1);
+    addLodLevel(lodMeshes.lod2, LOD_DISTANCE_2);
+    addLodLevel(lodMeshes.lod3, LOD_DISTANCE_3);
+    addLodLevel(lodMeshes.lod4, LOD_DISTANCE_4);
     
-    // LOD 2: 4x sampling
-    if (lodMeshes.lod2) {
-      const geom2 = translateGeom(RegionMeshBuilder.createGeometry(lodMeshes.lod2));
-      if (geom2) {
-        const mesh2 = new THREE.Mesh(geom2, material);
-        mesh2.frustumCulled = true;
-        lod.addLevel(mesh2, LOD_DISTANCE_2);
-      }
-    }
-    
-    // LOD 3: 8x sampling
-    if (lodMeshes.lod3) {
-      const geom3 = translateGeom(RegionMeshBuilder.createGeometry(lodMeshes.lod3));
-      if (geom3) {
-        const mesh3 = new THREE.Mesh(geom3, material);
-        mesh3.frustumCulled = true;
-        lod.addLevel(mesh3, LOD_DISTANCE_3);
-      }
-    }
-    
-    // LOD 4: 16x sampling
-    if (lodMeshes.lod4) {
-      const geom4 = translateGeom(RegionMeshBuilder.createGeometry(lodMeshes.lod4));
-      if (geom4) {
-        const mesh4 = new THREE.Mesh(geom4, material);
-        mesh4.frustumCulled = true;
-        lod.addLevel(mesh4, LOD_DISTANCE_4);
-      }
-    }
-    
-    // Position LOD object at the mesh center so distance calculation works correctly
-    if (meshCenter) {
-      lod.position.copy(meshCenter);
-    }
+    // Position LOD at mesh center for distance calculation
+    lod.position.copy(meshCenter);
     
     lod.autoUpdate = true;
+    lod.frustumCulled = false; // Disable culling for LOD itself - children handle their own
     group.add(lod);
     meshArray.push(lod);
     

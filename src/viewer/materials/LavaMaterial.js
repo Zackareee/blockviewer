@@ -65,7 +65,8 @@ export function createLavaMaterial() {
     fragmentShader,
     side: THREE.DoubleSide,
     transparent: true,
-    depthWrite: true,
+    depthWrite: false, // Don't write to depth - allows objects behind lava to render
+    depthTest: true,   // Still respect depth of opaque objects
     vertexColors: true,
   });
 }

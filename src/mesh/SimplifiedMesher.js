@@ -28,7 +28,9 @@ const BLOCK_ID_MASK = 0x0FFF;
  */
 export function buildSimplifiedMesh(grid, registry, offset = { x: 0, y: 0, z: 0 }, lodLevel = 1) {
   // Build lookup tables
-  const isOpaque = new Uint8Array(4096);
+  // For LOD, we consider both opaque AND fluid blocks as "surface"
+  // This ensures water/lava areas aren't holes in the LOD mesh
+  const isSurface = new Uint8Array(4096);
   const colorR = new Float32Array(4096);
   const colorG = new Float32Array(4096);
   const colorB = new Float32Array(4096);
@@ -36,7 +38,9 @@ export function buildSimplifiedMesh(grid, registry, offset = { x: 0, y: 0, z: 0 
   for (let id = 0; id < 4096; id++) {
     const info = registry.getBlockInfo(id);
     if (info) {
-      isOpaque[id] = registry.isOpaque(id) ? 1 : 0;
+      // Consider opaque blocks AND fluids as surface (not air)
+      const isFluid = info.name && (info.name.includes('water') || info.name.includes('lava'));
+      isSurface[id] = (registry.isOpaque(id) || isFluid) ? 1 : 0;
       const col = registry.getColor(id);
       colorR[id] = col.r;
       colorG[id] = col.g;
@@ -72,7 +76,20 @@ export function buildSimplifiedMesh(grid, registry, offset = { x: 0, y: 0, z: 0 
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
           
-          if (bid !== 0 && isOpaque[bid]) {
+          if (bid !== 0) {
+            // Check if this is a surface block (opaque or fluid)
+            // We check both the pre-built lookup AND do a live check for fluids
+            // because fluid block IDs might be registered after the lookup was built
+            let isValidSurface = isSurface[bid];
+            if (!isValidSurface) {
+              // Live check for fluids
+              const info = registry.getBlockInfo(bid);
+              if (info && info.name && (info.name.includes('water') || info.name.includes('lava'))) {
+                isValidSurface = true;
+              }
+            }
+            if (!isValidSurface) continue;
+            
             const worldY = baseY + ly;
             const pointKey = `${wx},${wz}`;
             const existing = surfacePoints.get(pointKey);
@@ -198,6 +215,7 @@ export function buildSimplifiedMesh(grid, registry, offset = { x: 0, y: 0, z: 0 
 
 /**
  * Sample height at a world position by finding nearest surface point
+ * Uses expanding search radius to ensure we find something
  */
 function sampleHeightAt(surfacePoints, wx, wz, searchRadius) {
   // Try exact position first
@@ -210,19 +228,22 @@ function sampleHeightAt(surfacePoints, wx, wz, searchRadius) {
   let bestPoint = null;
   let bestDist = Infinity;
   
-  const searchDist = Math.ceil(searchRadius);
+  // Start with requested radius, expand if needed
   const cx = Math.round(wx);
   const cz = Math.round(wz);
   
-  for (let dz = -searchDist; dz <= searchDist; dz++) {
-    for (let dx = -searchDist; dx <= searchDist; dx++) {
-      const key = `${cx + dx},${cz + dz}`;
-      const point = surfacePoints.get(key);
-      if (point) {
-        const dist = dx * dx + dz * dz;
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestPoint = point;
+  // Search in multiple passes with increasing radius
+  for (let radius = Math.ceil(searchRadius); radius <= searchRadius * 4 && !bestPoint; radius += searchRadius) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const key = `${cx + dx},${cz + dz}`;
+        const point = surfacePoints.get(key);
+        if (point) {
+          const dist = dx * dx + dz * dz;
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestPoint = point;
+          }
         }
       }
     }
@@ -233,20 +254,41 @@ function sampleHeightAt(surfacePoints, wx, wz, searchRadius) {
 
 /**
  * Fill null cells by interpolating from neighbors
+ * Ensures ALL cells get filled - no holes allowed
  */
 function fillNullCells(gridData, gridSize) {
-  // Multiple passes to propagate values
-  for (let pass = 0; pass < 3; pass++) {
+  // First, find any valid cell to use as fallback
+  let fallback = null;
+  for (let gz = 0; gz <= gridSize && !fallback; gz++) {
+    for (let gx = 0; gx <= gridSize && !fallback; gx++) {
+      if (gridData[gz][gx]) fallback = gridData[gz][gx];
+    }
+  }
+  
+  if (!fallback) return; // No valid data at all
+  
+  // Multiple passes with expanding neighbor search
+  for (let pass = 0; pass < 10; pass++) {
+    let filled = 0;
+    
     for (let gz = 0; gz <= gridSize; gz++) {
       for (let gx = 0; gx <= gridSize; gx++) {
         if (gridData[gz][gx] !== null) continue;
         
-        // Collect valid neighbors
+        // Collect valid neighbors (expand search radius each pass)
         const neighbors = [];
-        if (gx > 0 && gridData[gz][gx-1]) neighbors.push(gridData[gz][gx-1]);
-        if (gx < gridSize && gridData[gz][gx+1]) neighbors.push(gridData[gz][gx+1]);
-        if (gz > 0 && gridData[gz-1][gx]) neighbors.push(gridData[gz-1][gx]);
-        if (gz < gridSize && gridData[gz+1][gx]) neighbors.push(gridData[gz+1][gx]);
+        const radius = pass + 1;
+        
+        for (let dz = -radius; dz <= radius; dz++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            if (dx === 0 && dz === 0) continue;
+            const nz = gz + dz;
+            const nx = gx + dx;
+            if (nz >= 0 && nz <= gridSize && nx >= 0 && nx <= gridSize) {
+              if (gridData[nz][nx]) neighbors.push(gridData[nz][nx]);
+            }
+          }
+        }
         
         if (neighbors.length > 0) {
           // Average neighbors
@@ -263,8 +305,22 @@ function fillNullCells(gridData, gridSize) {
             g: g / neighbors.length,
             b: b / neighbors.length
           };
+          filled++;
         }
       }
+    }
+    
+    // If nothing was filled this pass, and we've done several passes, 
+    // use fallback for remaining cells
+    if (filled === 0 && pass >= 3) {
+      for (let gz = 0; gz <= gridSize; gz++) {
+        for (let gx = 0; gx <= gridSize; gx++) {
+          if (gridData[gz][gx] === null) {
+            gridData[gz][gx] = { ...fallback };
+          }
+        }
+      }
+      break;
     }
   }
 }
