@@ -78,12 +78,17 @@ export class RegionMeshBuilder {
     
     // Use parallel mesher for large grids, with fallback on memory errors
     // Skip parallel entirely if forceSequential is set (memory conservation mode)
+    // NOTE: ParallelMesher only handles solid blocks, so we always use FastMesher for fluids
     if (USE_PARALLEL && grid.sections.size > 50 && !forceSequential) {
       try {
         const result = await buildGridMeshesParallel(grid, this.registry, offset);
         solidMesh = result.solid;
-        waterMesh = result.water;
-        lavaMesh = result.lava;
+        
+        // ParallelMesher doesn't handle fluids - use FastMesher just for water/lava
+        // This is fast since it only processes fluid blocks
+        const fluidResult = buildGridMeshes(grid, this.registry, offset);
+        waterMesh = fluidResult.water;
+        lavaMesh = fluidResult.lava;
       } catch (err) {
         // Memory allocation failed or worker error - fall back to single-threaded
         const errMsg = err?.message || String(err);

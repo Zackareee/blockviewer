@@ -8,7 +8,6 @@
  * Features:
  * - Movement regression (lower DPR while camera moves)
  * - On-demand rendering (only render when needed)
- * - GPU-based Y slicing (instant updates)
  */
 
 import { useRef, useEffect, useCallback } from 'react';
@@ -35,7 +34,6 @@ function AdaptivePerformance() {
       }}
       flipflops={5} // More tolerance before switching
       factor={0.5} // Less aggressive changes
-      // Don't use onFallback - it can cause issues
     >
       <AdaptiveDpr pixelated />
     </PerformanceMonitor>
@@ -79,9 +77,6 @@ function RegionScene({
   chunks,
   regions,
   parseRegion,
-  minY, 
-  maxY, 
-  autoRotate, 
   enableLOD,
   onProgress, 
   onComplete,
@@ -232,20 +227,10 @@ function RegionScene({
     positionCameraAt(0, 64, 0, stats.chunksLoaded || 100);
   }, [positionCameraAt]);
   
-  // Update Y range instantly via shader uniforms
-  useEffect(() => {
-    if (managerRef.current) {
-      managerRef.current.setYRange(minY, maxY);
-      invalidate();
-    }
-  }, [minY, maxY, invalidate]);
-  
   return (
     <>
       <OrbitControls 
         ref={controlsRef}
-        autoRotate={autoRotate}
-        autoRotateSpeed={1.0}
         enableDamping={true}
         dampingFactor={0.05}
         minDistance={10}
@@ -269,8 +254,6 @@ function RegionScene({
  * - chunks: Array of parsed chunk data (single region mode)
  * - regions: Array of { file, regionX, regionZ } for multi-region progressive loading
  * - parseRegion: Async function (file) => chunks[] for parsing region files
- * - minY, maxY: Y range for slicing (instant GPU update)
- * - autoRotate: Enable orbit rotation
  * - enableLOD: Enable Level of Detail for distant regions (default: true)
  * - onBuildProgress: (current, total, isBuilding, message) => void
  * - enablePerformanceMonitor: Enable adaptive DPR based on performance (default: true)
@@ -279,9 +262,6 @@ export function RegionViewer({
   chunks, 
   regions,
   parseRegion,
-  minY = -64, 
-  maxY = 320, 
-  autoRotate = false,
   enableLOD = true,
   onBuildProgress = null,
   enablePerformanceMonitor = true,
@@ -319,9 +299,6 @@ export function RegionViewer({
         chunks={chunks}
         regions={regions}
         parseRegion={parseRegion}
-        minY={minY}
-        maxY={maxY}
-        autoRotate={autoRotate}
         enableLOD={enableLOD}
         onProgress={onBuildProgress}
         onComplete={() => console.log('[RegionViewer] Load complete')}

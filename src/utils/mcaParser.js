@@ -309,9 +309,17 @@ export function extractBlocks(chunk) {
 
 // Note: isAirBlock replaced by isAirBlockFast and AIR_BLOCKS set above
 
-// Get block color based on block name
-export function getBlockColor(blockName) {
-  if (!blockName) return '#707070';
+// Get block color based on block name or block object
+export function getBlockColor(blockNameOrObj) {
+  if (!blockNameOrObj) return '#707070';
+  
+  // Handle case where a block object is passed instead of a string
+  let blockName = blockNameOrObj;
+  if (typeof blockNameOrObj === 'object') {
+    blockName = blockNameOrObj.type || blockNameOrObj.name || blockNameOrObj.blockName || '';
+  }
+  
+  if (!blockName || typeof blockName !== 'string') return '#707070';
   const name = blockName.replace('minecraft:', '');
   
   const colorMap = {

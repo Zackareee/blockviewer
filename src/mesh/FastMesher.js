@@ -49,13 +49,13 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
   let sVC = 0, sIC = 0;
   let sCapacity = INITIAL_SIZE;
   
-  // Water mesh arrays (smaller initial size)
-  let wPos = new Float32Array(INITIAL_SIZE * 0.2 * 12);
-  let wNorm = new Float32Array(INITIAL_SIZE * 0.2 * 12);
-  let wCol = new Float32Array(INITIAL_SIZE * 0.2 * 12);
-  let wIdx = new Uint32Array(INITIAL_SIZE * 0.2 * 6);
+  // Water mesh arrays - can be large for ocean regions
+  let wPos = new Float32Array(INITIAL_SIZE * 0.5 * 12);
+  let wNorm = new Float32Array(INITIAL_SIZE * 0.5 * 12);
+  let wCol = new Float32Array(INITIAL_SIZE * 0.5 * 12);
+  let wIdx = new Uint32Array(INITIAL_SIZE * 0.5 * 6);
   let wVC = 0, wIC = 0;
-  let wCapacity = Math.floor(INITIAL_SIZE * 0.2);
+  let wCapacity = Math.floor(INITIAL_SIZE * 0.5);
   
   // Lava mesh arrays (very small initial size)
   let lPos = new Float32Array(INITIAL_SIZE * 0.05 * 12);
@@ -603,54 +603,227 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
       }
     }
     
-    // Fluids - just top faces
-    for (let i = 0; i < S3; i++) {
-      const value = section[i];
-      if (value === 0) continue;
+    // Fluids - find topmost fluid in each (x,z) column, then greedy mesh
+    // This guarantees only ONE surface per body of water regardless of depth
+    
+    // For each (x,z) column in this section, track the topmost water and lava Y level
+    // Key: x + z*16, Value: { y: worldY, blockId, level, height }
+    const topWater = new Map();
+    const topLava = new Map();
+    
+    // Scan ALL Y levels in this section to find topmost fluids per column
+    for (let ly = 0; ly < S; ly++) {
+      const sliceBase = ly * S2;
+      const worldY = baseY + ly;
       
-      const bid = value & BLOCK_ID_MASK;
-      const ft = isFluid[bid];
-      if (ft === 0) continue;
+      for (let lz = 0; lz < S; lz++) {
+        for (let lx = 0; lx < S; lx++) {
+          const idx = sliceBase + lz * S + lx;
+          const value = section[idx];
+          if (value === 0) continue;
+          
+          const bid = value & BLOCK_ID_MASK;
+          const ft = isFluid[bid];
+          if (ft === 0) continue;
+          
+          const colKey = lx + lz * S;
+          const level = (value & LEVEL_MASK) >> LEVEL_SHIFT;
+          const h = level >= 8 ? 1.0 : (level > 0 ? Math.max(0.125, (14 - level * 1.5) / 16) : 0.875);
+          
+          if (ft === 1) {
+            // Water - track topmost (highest Y)
+            const existing = topWater.get(colKey);
+            if (!existing || worldY > existing.y) {
+              topWater.set(colKey, { y: worldY, ly, blockId: bid, level, height: h, lx, lz });
+            }
+          } else if (ft === 2) {
+            // Lava - track topmost
+            const existing = topLava.get(colKey);
+            if (!existing || worldY > existing.y) {
+              topLava.set(colKey, { y: worldY, ly, blockId: bid, level, height: h, lx, lz });
+            }
+          }
+        }
+      }
+    }
+    
+    // Now check if topmost fluid is covered by fluid in section above
+    // Only keep entries that are truly the top surface
+    if (secTop) {
+      for (const [colKey, data] of topWater) {
+        if (data.ly === 15) {
+          // This fluid is at top of section - check section above
+          const aboveIdx = data.lz * S + data.lx; // Y=0 of section above
+          const aboveBid = secTop[aboveIdx] & BLOCK_ID_MASK;
+          if (isFluid[aboveBid] === 1) {
+            // Covered by water above - remove from top surface
+            topWater.delete(colKey);
+          }
+        }
+      }
+      for (const [colKey, data] of topLava) {
+        if (data.ly === 15) {
+          const aboveIdx = data.lz * S + data.lx;
+          const aboveBid = secTop[aboveIdx] & BLOCK_ID_MASK;
+          if (isFluid[aboveBid] === 2) {
+            topLava.delete(colKey);
+          }
+        }
+      }
+    }
+    
+    // Build water surface mesh with greedy meshing
+    if (topWater.size > 0) {
+      // Create 2D mask for greedy merge
+      const fluidMask = new Uint16Array(S2);
+      const fluidHeights = new Float32Array(S2);
+      const fluidY = new Float32Array(S2);
       
-      const level = (value & LEVEL_MASK) >> LEVEL_SHIFT;
-      let h = level >= 8 ? 1.0 : (level > 0 ? Math.max(0.125, (14 - level * 1.5) / 16) : 0.875);
-      
-      const lx = i % S;
-      const lz = Math.floor(i / S) % S;
-      const ly = Math.floor(i / S2);
-      
-      const x = baseX + lx - ox;
-      const y = baseY + ly - oy;
-      const z = baseZ + lz - oz;
-      
-      const pos = ft === 1 ? wPos : lPos;
-      const norm = ft === 1 ? wNorm : lNorm;
-      const col = ft === 1 ? wCol : lCol;
-      const idx = ft === 1 ? wIdx : lIdx;
-      let vc = ft === 1 ? wVC : lVC;
-      let ic = ft === 1 ? wIC : lIC;
-      
-      const pi = vc * 3;
-      if (pi + 12 > pos.length) continue;
-      
-      const sv = vc;
-      pos[pi] = x; pos[pi+1] = y + h; pos[pi+2] = z + 1;
-      pos[pi+3] = x + 1; pos[pi+4] = y + h; pos[pi+5] = z + 1;
-      pos[pi+6] = x + 1; pos[pi+7] = y + h; pos[pi+8] = z;
-      pos[pi+9] = x; pos[pi+10] = y + h; pos[pi+11] = z;
-      
-      const r = colorR[bid], g = colorG[bid], b = colorB[bid];
-      for (let v = 0; v < 4; v++) {
-        norm[pi + v*3] = 0; norm[pi + v*3 + 1] = 1; norm[pi + v*3 + 2] = 0;
-        col[pi + v*3] = r; col[pi + v*3 + 1] = g; col[pi + v*3 + 2] = b;
+      for (const [colKey, data] of topWater) {
+        const heightBucket = Math.floor(data.height * 7.99);
+        fluidMask[colKey] = (heightBucket << 12) | data.blockId;
+        fluidHeights[colKey] = data.height;
+        fluidY[colKey] = data.y;
       }
       
-      idx[ic++] = sv; idx[ic++] = sv + 1; idx[ic++] = sv + 2;
-      idx[ic++] = sv; idx[ic++] = sv + 2; idx[ic++] = sv + 3;
-      vc += 4;
+      // Greedy merge water surface
+      visited.fill(0);
+      for (let jj = 0; jj < S; jj++) {
+        for (let ii = 0; ii < S; ii++) {
+          const mi = jj * S + ii;
+          if (visited[mi] || fluidMask[mi] === 0) continue;
+          
+          const bid = fluidMask[mi] & 0xFFF;
+          const h = fluidHeights[mi];
+          const y = fluidY[mi];
+          const heightBucket = (fluidMask[mi] >> 12) & 0xF;
+          
+          // Greedy expand width (X) - must have same Y and height
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && fluidMask[mi + w] !== 0) {
+            if (((fluidMask[mi + w] >> 12) & 0xF) !== heightBucket) break;
+            if (fluidY[mi + w] !== y) break; // Same Y level required
+            w++;
+          }
+          
+          // Greedy expand depth (Z)
+          let d = 1;
+          outer: while (jj + d < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + d) * S + ii + k;
+              if (visited[ci] || fluidMask[ci] === 0) break outer;
+              if (((fluidMask[ci] >> 12) & 0xF) !== heightBucket) break outer;
+              if (fluidY[ci] !== y) break outer;
+            }
+            d++;
+          }
+          
+          // Mark visited
+          for (let dj = 0; dj < d; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
+          
+          // Emit merged quad
+          if (!ensureCapacity('w', 1)) continue;
+          
+          const x = baseX + ii - ox;
+          const wy = y - oy;
+          const z = baseZ + jj - oz;
+          
+          const pi = wVC * 3;
+          const sv = wVC;
+          wPos[pi] = x; wPos[pi+1] = wy + h; wPos[pi+2] = z + d;
+          wPos[pi+3] = x + w; wPos[pi+4] = wy + h; wPos[pi+5] = z + d;
+          wPos[pi+6] = x + w; wPos[pi+7] = wy + h; wPos[pi+8] = z;
+          wPos[pi+9] = x; wPos[pi+10] = wy + h; wPos[pi+11] = z;
+          
+          const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          for (let v = 0; v < 4; v++) {
+            wNorm[pi + v*3] = 0; wNorm[pi + v*3 + 1] = 1; wNorm[pi + v*3 + 2] = 0;
+            wCol[pi + v*3] = r; wCol[pi + v*3 + 1] = g; wCol[pi + v*3 + 2] = b;
+          }
+          
+          wIdx[wIC++] = sv; wIdx[wIC++] = sv + 1; wIdx[wIC++] = sv + 2;
+          wIdx[wIC++] = sv; wIdx[wIC++] = sv + 2; wIdx[wIC++] = sv + 3;
+          wVC += 4;
+        }
+      }
+    }
+    
+    // Build lava surface mesh with greedy meshing
+    if (topLava.size > 0) {
+      const fluidMask = new Uint16Array(S2);
+      const fluidHeights = new Float32Array(S2);
+      const fluidY = new Float32Array(S2);
       
-      if (ft === 1) { wVC = vc; wIC = ic; }
-      else { lVC = vc; lIC = ic; }
+      for (const [colKey, data] of topLava) {
+        const heightBucket = Math.floor(data.height * 7.99);
+        fluidMask[colKey] = (heightBucket << 12) | data.blockId;
+        fluidHeights[colKey] = data.height;
+        fluidY[colKey] = data.y;
+      }
+      
+      visited.fill(0);
+      for (let jj = 0; jj < S; jj++) {
+        for (let ii = 0; ii < S; ii++) {
+          const mi = jj * S + ii;
+          if (visited[mi] || fluidMask[mi] === 0) continue;
+          
+          const bid = fluidMask[mi] & 0xFFF;
+          const h = fluidHeights[mi];
+          const y = fluidY[mi];
+          const heightBucket = (fluidMask[mi] >> 12) & 0xF;
+          
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && fluidMask[mi + w] !== 0) {
+            if (((fluidMask[mi + w] >> 12) & 0xF) !== heightBucket) break;
+            if (fluidY[mi + w] !== y) break;
+            w++;
+          }
+          
+          let d = 1;
+          outer: while (jj + d < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + d) * S + ii + k;
+              if (visited[ci] || fluidMask[ci] === 0) break outer;
+              if (((fluidMask[ci] >> 12) & 0xF) !== heightBucket) break outer;
+              if (fluidY[ci] !== y) break outer;
+            }
+            d++;
+          }
+          
+          for (let dj = 0; dj < d; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
+          
+          if (!ensureCapacity('l', 1)) continue;
+          
+          const x = baseX + ii - ox;
+          const wy = y - oy;
+          const z = baseZ + jj - oz;
+          
+          const pi = lVC * 3;
+          const sv = lVC;
+          lPos[pi] = x; lPos[pi+1] = wy + h; lPos[pi+2] = z + d;
+          lPos[pi+3] = x + w; lPos[pi+4] = wy + h; lPos[pi+5] = z + d;
+          lPos[pi+6] = x + w; lPos[pi+7] = wy + h; lPos[pi+8] = z;
+          lPos[pi+9] = x; lPos[pi+10] = wy + h; lPos[pi+11] = z;
+          
+          const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          for (let v = 0; v < 4; v++) {
+            lNorm[pi + v*3] = 0; lNorm[pi + v*3 + 1] = 1; lNorm[pi + v*3 + 2] = 0;
+            lCol[pi + v*3] = r; lCol[pi + v*3 + 1] = g; lCol[pi + v*3 + 2] = b;
+          }
+          
+          lIdx[lIC++] = sv; lIdx[lIC++] = sv + 1; lIdx[lIC++] = sv + 2;
+          lIdx[lIC++] = sv; lIdx[lIC++] = sv + 2; lIdx[lIC++] = sv + 3;
+          lVC += 4;
+        }
+      }
     }
   }
   

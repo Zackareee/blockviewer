@@ -31,10 +31,11 @@ const LOD_MEMORY_THRESHOLD = 30_000_000; // 30M blocks = skip LOD generation
 
 // LOD distance thresholds (blocks from camera)
 // These are calculated from LOD object position to camera
-const LOD_DISTANCE_1 = 500;   // LOD1: 2x sampling (~4x fewer tris)
-const LOD_DISTANCE_2 = 1000;  // LOD2: 4x sampling (~16x fewer tris)
-const LOD_DISTANCE_3 = 2000;  // LOD3: 8x sampling (~64x fewer tris)
-const LOD_DISTANCE_4 = 4000;  // LOD4: 16x sampling (~256x fewer tris)
+// Increased distances so full detail shows for longer
+const LOD_DISTANCE_1 = 800;   // LOD1: ~8k points
+const LOD_DISTANCE_2 = 1500;  // LOD2: ~4k points
+const LOD_DISTANCE_3 = 2500;  // LOD3: ~2k points
+const LOD_DISTANCE_4 = 4000;  // LOD4: ~1k points
 
 export class ChunkManager {
   constructor(scene, options = {}) {
@@ -207,26 +208,103 @@ export class ChunkManager {
     lod.addLevel(mesh0, 0);
     
     // Helper to add LOD level with proper positioning
-    const addLodLevel = (lodData, distance) => {
-      if (!lodData) return;
+    let lodLevelsAdded = 1; // Start at 1 for LOD0
+    const addLodLevel = (lodData, distance, levelName) => {
+      if (!lodData) {
+        console.log(`[LOD] ${levelName} skipped - no data`);
+        return;
+      }
       const geom = RegionMeshBuilder.createGeometry(lodData);
-      if (!geom) return;
+      if (!geom) {
+        console.log(`[LOD] ${levelName} skipped - no geometry`);
+        return;
+      }
       const mesh = new THREE.Mesh(geom, material);
       mesh.frustumCulled = true;
       mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
       lod.addLevel(mesh, distance);
+      lodLevelsAdded++;
+      console.log(`[LOD] ${levelName} added at distance ${distance}, ${lodData.triangleCount} tris`);
     };
     
-    addLodLevel(lodMeshes.lod1, LOD_DISTANCE_1);
-    addLodLevel(lodMeshes.lod2, LOD_DISTANCE_2);
-    addLodLevel(lodMeshes.lod3, LOD_DISTANCE_3);
-    addLodLevel(lodMeshes.lod4, LOD_DISTANCE_4);
+    addLodLevel(lodMeshes.lod1, LOD_DISTANCE_1, 'LOD1');
+    addLodLevel(lodMeshes.lod2, LOD_DISTANCE_2, 'LOD2');
+    addLodLevel(lodMeshes.lod3, LOD_DISTANCE_3, 'LOD3');
+    addLodLevel(lodMeshes.lod4, LOD_DISTANCE_4, 'LOD4');
+    
+    console.log(`[LOD] Total ${lodLevelsAdded} levels added to LOD object`);
     
     // Position LOD at mesh center for distance calculation
     lod.position.copy(meshCenter);
     
     lod.autoUpdate = true;
     lod.frustumCulled = false; // Disable culling for LOD itself - children handle their own
+    
+    // Track LOD level changes for debugging
+    lod.userData.currentLevel = -1;
+    lod.userData.levelDistances = [0, LOD_DISTANCE_1, LOD_DISTANCE_2, LOD_DISTANCE_3, LOD_DISTANCE_4];
+    const originalUpdate = lod.update.bind(lod);
+    lod.update = function(camera) {
+      const oldLevel = this.userData.currentLevel;
+      originalUpdate(camera);
+      // Find which level is now visible
+      let newLevel = -1;
+      for (let i = 0; i < this.levels.length; i++) {
+        if (this.levels[i].object.visible) {
+          newLevel = i;
+          break;
+        }
+      }
+      if (newLevel !== oldLevel) {
+        const dist = this.position.distanceTo(camera.position).toFixed(0);
+        console.log(`[LOD] Level changed: ${oldLevel} → ${newLevel} (distance: ${dist} blocks)`);
+        this.userData.currentLevel = newLevel;
+      }
+    };
+    
+    group.add(lod);
+    meshArray.push(lod);
+    
+    return 1;
+  }
+
+  /**
+   * Add fluid mesh (water/lava) with LOD that hides it at distance
+   * At close range: show full detail fluid mesh
+   * At LOD distance: hide completely (fluids are baked into LOD surface mesh)
+   */
+  _addFluidMeshWithLOD(meshData, material, group, meshArray, meshCenter) {
+    if (!meshData || meshData.vertexCount === 0) return 0;
+    
+    // Check if mesh needs splitting - if so, fall back to regular (always visible)
+    if (meshData.indices.length > MAX_INDICES_PER_DRAW) {
+      return this._addMeshesToScene(meshData, material, group, meshArray);
+    }
+    
+    const geom = RegionMeshBuilder.createGeometry(meshData);
+    if (!geom) return 0;
+    
+    // Create LOD object
+    const lod = new THREE.LOD();
+    
+    // Level 0: Full detail fluid mesh
+    const mesh = new THREE.Mesh(geom, material);
+    mesh.frustumCulled = true;
+    mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+    lod.addLevel(mesh, 0);
+    
+    // Level 1: Empty mesh (invisible) at LOD_DISTANCE_1
+    // Create minimal empty geometry to hide fluids when LOD kicks in
+    const emptyGeom = new THREE.BufferGeometry();
+    emptyGeom.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    const emptyMesh = new THREE.Mesh(emptyGeom, material);
+    lod.addLevel(emptyMesh, LOD_DISTANCE_1);
+    
+    // Position LOD at same center as solid mesh
+    lod.position.copy(meshCenter);
+    lod.autoUpdate = true;
+    lod.frustumCulled = false;
+    
     group.add(lod);
     meshArray.push(lod);
     
@@ -352,15 +430,39 @@ export class ChunkManager {
         const { solidMesh, waterMesh, lavaMesh, lodMeshes, stats } = result;
 
         let drawCalls = 0;
+        let meshCenter = null;
+        
         if (solidMesh) {
           if (shouldGenerateLOD && lodMeshes) {
+            // Compute mesh center for LOD positioning (used by fluids too)
+            const geom = RegionMeshBuilder.createGeometry(solidMesh);
+            if (geom) {
+              geom.computeBoundingBox();
+              meshCenter = new THREE.Vector3();
+              geom.boundingBox.getCenter(meshCenter);
+              geom.dispose(); // We'll recreate in _addMeshesWithLOD
+            }
             drawCalls += this._addMeshesWithLOD(solidMesh, lodMeshes, this.solidMaterial, this.solidGroup, this.solidMeshes);
           } else {
             drawCalls += this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
           }
         }
-        if (waterMesh) drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
-        if (lavaMesh) drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+        
+        // For water/lava: use LOD to hide at distance (fluids baked into LOD surface)
+        if (waterMesh) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLOD(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
+          }
+        }
+        if (lavaMesh) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLOD(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+          }
+        }
         
         // Clean up builder immediately to free memory
         meshBuilder.dispose();
@@ -517,15 +619,39 @@ export class ChunkManager {
         const { solidMesh, waterMesh, lavaMesh, lodMeshes, stats } = result;
         
         let drawCalls = 0;
+        let meshCenter = null;
+        
         if (solidMesh) {
           if (shouldGenerateLOD && lodMeshes) {
+            // Compute mesh center for LOD positioning (used by fluids too)
+            const geom = RegionMeshBuilder.createGeometry(solidMesh);
+            if (geom) {
+              geom.computeBoundingBox();
+              meshCenter = new THREE.Vector3();
+              geom.boundingBox.getCenter(meshCenter);
+              geom.dispose();
+            }
             drawCalls += this._addMeshesWithLOD(solidMesh, lodMeshes, this.solidMaterial, this.solidGroup, this.solidMeshes);
           } else {
             drawCalls += this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
           }
         }
-        if (waterMesh) drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
-        if (lavaMesh) drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+        
+        // For water/lava: use LOD to hide at distance (fluids baked into LOD surface)
+        if (waterMesh) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLOD(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
+          }
+        }
+        if (lavaMesh) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLOD(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+          }
+        }
         
         meshBuilder.dispose();
         

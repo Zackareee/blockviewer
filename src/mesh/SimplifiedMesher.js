@@ -6,11 +6,11 @@
  * into a gap-free triangulated mesh. This guarantees no holes regardless
  * of caves, overhangs, or steep terrain.
  * 
- * LOD levels control grid density:
- * LOD 1: 64x64 grid = 4096 vertices
- * LOD 2: 32x32 grid = 1024 vertices
- * LOD 3: 16x16 grid = 256 vertices
- * LOD 4: 8x8 grid = 64 vertices
+ * LOD levels control grid density (approximate vertex counts):
+ * LOD 1: 358x358 grid = ~128k vertices
+ * LOD 2: 253x253 grid = ~64k vertices
+ * LOD 3: 179x179 grid = ~32k vertices
+ * LOD 4: 127x127 grid = ~16k vertices
  */
 
 import { parseSectionKey, sectionToWorldY } from './BinaryGrid.js';
@@ -107,8 +107,9 @@ export function buildSimplifiedMesh(grid, registry, offset = { x: 0, y: 0, z: 0 
   if (surfacePoints.size === 0) return null;
   
   // Determine grid size based on LOD level
-  // LOD 1: 64x64, LOD 2: 32x32, LOD 3: 16x16, LOD 4: 8x8
-  const gridSize = Math.max(8, 64 >> (lodLevel - 1));
+  // LOD 1: 358x358 (~128k), LOD 2: 253x253 (~64k), LOD 3: 179x179 (~32k), LOD 4: 127x127 (~16k)
+  const LOD_GRID_SIZES = [358, 358, 253, 179, 127]; // Index 0 unused, 1-4 are LOD levels
+  const gridSize = LOD_GRID_SIZES[Math.min(lodLevel, 4)] || 127;
   
   const rangeX = maxX - minX + 1;
   const rangeZ = maxZ - minZ + 1;
