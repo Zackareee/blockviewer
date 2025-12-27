@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "benchmark": "node benchmark.js"
+    "benchmark": "node benchmark.js",
+    "test": "node test/mesh.test.js",
+    "test:update": "node test/mesh.test.js --update"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
