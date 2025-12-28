@@ -55,6 +55,7 @@ export class RegionMeshBuilder {
       solidTriangles: 0,
       waterTriangles: 0,
       lavaTriangles: 0,
+      glassTriangles: 0,
       modelTriangles: 0,
     };
     
@@ -96,21 +97,22 @@ export class RegionMeshBuilder {
     this.onProgress?.('meshing', 0, 100, 'Building meshes...');
     const meshStart = performance.now();
     
-    let solidMesh, waterMesh, lavaMesh;
+    let solidMesh, waterMesh, lavaMesh, glassMesh;
     
     // Use parallel mesher for large grids, with fallback on memory errors
     // Skip parallel entirely if forceSequential is set (memory conservation mode)
-    // NOTE: ParallelMesher only handles solid blocks, so we always use FastMesher for fluids
+    // NOTE: ParallelMesher only handles solid blocks, so we always use FastMesher for fluids/glass
     if (USE_PARALLEL && grid.sections.size > 50 && !forceSequential) {
       try {
         const result = await buildGridMeshesParallel(grid, this.registry, offset);
         solidMesh = result.solid;
         
-        // ParallelMesher doesn't handle fluids - use FastMesher just for water/lava
-        // This is fast since it only processes fluid blocks
+        // ParallelMesher doesn't handle fluids/glass - use FastMesher for those
+        // This is fast since it only processes fluid and glass blocks
         const fluidResult = buildGridMeshes(grid, this.registry, offset);
         waterMesh = fluidResult.water;
         lavaMesh = fluidResult.lava;
+        glassMesh = fluidResult.glass;
       } catch (err) {
         // Memory allocation failed or worker error - fall back to single-threaded
         const errMsg = err?.message || String(err);
@@ -125,6 +127,7 @@ export class RegionMeshBuilder {
           solidMesh = result.solid;
           waterMesh = result.water;
           lavaMesh = result.lava;
+          glassMesh = result.glass;
         } else {
           throw err;
         }
@@ -135,12 +138,14 @@ export class RegionMeshBuilder {
       solidMesh = result.solid;
       waterMesh = result.water;
       lavaMesh = result.lava;
+      glassMesh = result.glass;
     }
     
     stats.meshTimeMs = performance.now() - meshStart;
     stats.solidTriangles = solidMesh?.triangleCount || 0;
     stats.waterTriangles = waterMesh?.triangleCount || 0;
     stats.lavaTriangles = lavaMesh?.triangleCount || 0;
+    stats.glassTriangles = glassMesh?.triangleCount || 0;
     
     // Phase 2b: Build model meshes for non-cube blocks (if enabled)
     let modelMesh = null;
@@ -204,11 +209,12 @@ export class RegionMeshBuilder {
     
     this.onProgress?.('complete', 100, 100, 'Complete');
     
-    const totalTriangles = stats.solidTriangles + stats.waterTriangles + stats.lavaTriangles + stats.modelTriangles;
+    const totalTriangles = stats.solidTriangles + stats.waterTriangles + stats.lavaTriangles + stats.glassTriangles + stats.modelTriangles;
     console.log(
       `✅ Region built: ${stats.totalBlocks.toLocaleString()} blocks, ` +
       `${totalTriangles.toLocaleString()} triangles ` +
       `in ${(stats.totalTimeMs / 1000).toFixed(2)}s` +
+      (stats.glassTriangles > 0 ? ` (${stats.glassTriangles.toLocaleString()} glass)` : '') +
       (stats.modelTriangles > 0 ? ` (${stats.modelTriangles.toLocaleString()} model)` : '')
     );
     
@@ -216,6 +222,7 @@ export class RegionMeshBuilder {
       solidMesh,
       waterMesh,
       lavaMesh,
+      glassMesh, // Glass and transparent block geometry
       modelMesh, // Non-cube block geometry (slabs, stairs, flowers, etc.)
       lodMeshes,
       offset,
@@ -246,7 +253,7 @@ export class RegionMeshBuilder {
    * Create Three.js mesh objects from build result
    */
   static createMeshes(buildResult, materials) {
-    const meshes = { solid: null, water: null, lava: null };
+    const meshes = { solid: null, water: null, lava: null, glass: null };
     
     if (buildResult.solidMesh) {
       const geom = RegionMeshBuilder.createGeometry(buildResult.solidMesh);
@@ -271,6 +278,15 @@ export class RegionMeshBuilder {
         meshes.lava = new THREE.Mesh(geom, materials.lava);
         meshes.lava.frustumCulled = true;
         meshes.lava.renderOrder = 2;
+      }
+    }
+    
+    if (buildResult.glassMesh) {
+      const geom = RegionMeshBuilder.createGeometry(buildResult.glassMesh);
+      if (geom) {
+        meshes.glass = new THREE.Mesh(geom, materials.glass);
+        meshes.glass.frustumCulled = true;
+        meshes.glass.renderOrder = 3; // Render after lava but still transparent
       }
     }
     

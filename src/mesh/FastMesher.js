@@ -21,6 +21,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
   const colorG = new Float32Array(4096);
   const colorB = new Float32Array(4096);
   const isFluid = new Uint8Array(4096);
+  const isGlass = new Uint8Array(4096); // Glass and transparent blocks
   
   for (let id = 0; id < 4096; id++) {
     const info = registry.getBlockInfo(id);
@@ -34,6 +35,10 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
       if (info.name) {
         if (info.name.includes('water')) isFluid[id] = 1;
         else if (info.name.includes('lava')) isFluid[id] = 2;
+        // Glass and similar transparent blocks
+        else if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('tinted_glass')) {
+          isGlass[id] = 1;
+        }
       }
     }
   }
@@ -66,6 +71,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
   let lIdx = new Uint32Array(INITIAL_SIZE * 0.05 * 6);
   let lVC = 0, lIC = 0;
   let lCapacity = Math.floor(INITIAL_SIZE * 0.05);
+  
+  // Glass mesh arrays (moderate initial size - glass structures can be substantial)
+  let gPos = new Float32Array(INITIAL_SIZE * 0.2 * 12);
+  let gNorm = new Float32Array(INITIAL_SIZE * 0.2 * 12);
+  let gCol = new Float32Array(INITIAL_SIZE * 0.2 * 12);
+  let gIdx = new Uint32Array(INITIAL_SIZE * 0.2 * 6);
+  let gVC = 0, gIC = 0;
+  let gCapacity = Math.floor(INITIAL_SIZE * 0.2);
   
   // Helper to grow arrays when needed
   function growArrays(type) {
@@ -106,6 +119,18 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         newIdx.set(lIdx.subarray(0, lIC));
         lPos = newPos; lNorm = newNorm; lCol = newCol; lIdx = newIdx;
         lCapacity = newCap;
+      } else if (type === 'g') {
+        const newCap = Math.floor(gCapacity * GROWTH_FACTOR);
+        const newPos = new Float32Array(newCap * 12);
+        const newNorm = new Float32Array(newCap * 12);
+        const newCol = new Float32Array(newCap * 12);
+        const newIdx = new Uint32Array(newCap * 6);
+        newPos.set(gPos.subarray(0, gVC * 3));
+        newNorm.set(gNorm.subarray(0, gVC * 3));
+        newCol.set(gCol.subarray(0, gVC * 3));
+        newIdx.set(gIdx.subarray(0, gIC));
+        gPos = newPos; gNorm = newNorm; gCol = newCol; gIdx = newIdx;
+        gCapacity = newCap;
       }
       return true;
     } catch (e) {
@@ -119,6 +144,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
     if (type === 's' && sVC / 4 + neededQuads > sCapacity) return growArrays('s');
     if (type === 'w' && wVC / 4 + neededQuads > wCapacity) return growArrays('w');
     if (type === 'l' && lVC / 4 + neededQuads > lCapacity) return growArrays('l');
+    if (type === 'g' && gVC / 4 + neededQuads > gCapacity) return growArrays('g');
     return true;
   }
   
@@ -841,6 +867,464 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         }
       }
     }
+    
+    // ===== GLASS BLOCKS: Build all 6 faces with greedy meshing =====
+    // Glass blocks are transparent cubes that need all faces rendered
+    
+    // Helper function to check if neighbor blocks glass face (glass-to-glass faces are hidden)
+    const blocksGlassFace = (nid) => isOpaque[nid] || isGlass[nid];
+    
+    // Glass Face 0: Top (+Y)
+    for (let ly = 0; ly < S; ly++) {
+      mask.fill(0);
+      let hasFaces = false;
+      
+      const sliceBase = ly * S2;
+      for (let j = 0; j < S2; j++) {
+        const bid = section[sliceBase + j] & BLOCK_ID_MASK;
+        if (bid === 0 || !isGlass[bid]) continue;
+        
+        let nid = 0;
+        if (ly < 15) {
+          nid = section[sliceBase + S2 + j] & BLOCK_ID_MASK;
+        } else if (secTop) {
+          nid = secTop[j] & BLOCK_ID_MASK;
+        }
+        
+        if (!blocksGlassFace(nid)) {
+          mask[j] = bid;
+          hasFaces = true;
+        }
+      }
+      
+      if (!hasFaces) continue;
+      
+      visited.fill(0);
+      for (let jj = 0; jj < S; jj++) {
+        for (let ii = 0; ii < S; ii++) {
+          const mi = jj * S + ii;
+          if (visited[mi] || mask[mi] === 0) continue;
+          
+          const bid = mask[mi];
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
+          
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
+          
+          if (!ensureCapacity('g', 1)) continue;
+          
+          const x = baseX + ii - ox;
+          const y = baseY + ly + 1 - oy;
+          const z = baseZ + jj - oz;
+          const gv = gVC, pi = gVC * 3;
+          
+          gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z + h;
+          gPos[pi+3] = x + w; gPos[pi+4] = y; gPos[pi+5] = z + h;
+          gPos[pi+6] = x + w; gPos[pi+7] = y; gPos[pi+8] = z;
+          gPos[pi+9] = x; gPos[pi+10] = y; gPos[pi+11] = z;
+          
+          const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          for (let v = 0; v < 4; v++) {
+            gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 1; gNorm[pi + v*3 + 2] = 0;
+            gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+          }
+          gVC += 4;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+        }
+      }
+    }
+    
+    // Glass Face 1: Bottom (-Y)
+    for (let ly = 0; ly < S; ly++) {
+      mask.fill(0);
+      let hasFaces = false;
+      
+      const sliceBase = ly * S2;
+      for (let j = 0; j < S2; j++) {
+        const bid = section[sliceBase + j] & BLOCK_ID_MASK;
+        if (bid === 0 || !isGlass[bid]) continue;
+        
+        let nid = 0;
+        if (ly > 0) {
+          nid = section[sliceBase - S2 + j] & BLOCK_ID_MASK;
+        } else if (secBot) {
+          nid = secBot[15 * S2 + j] & BLOCK_ID_MASK;
+        }
+        
+        if (!blocksGlassFace(nid)) {
+          mask[j] = bid;
+          hasFaces = true;
+        }
+      }
+      
+      if (!hasFaces) continue;
+      
+      visited.fill(0);
+      for (let jj = 0; jj < S; jj++) {
+        for (let ii = 0; ii < S; ii++) {
+          const mi = jj * S + ii;
+          if (visited[mi] || mask[mi] === 0) continue;
+          
+          const bid = mask[mi];
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
+          
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
+          
+          if (!ensureCapacity('g', 1)) continue;
+          
+          const x = baseX + ii - ox;
+          const y = baseY + ly - oy;
+          const z = baseZ + jj - oz;
+          const gv = gVC, pi = gVC * 3;
+          
+          gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z;
+          gPos[pi+3] = x + w; gPos[pi+4] = y; gPos[pi+5] = z;
+          gPos[pi+6] = x + w; gPos[pi+7] = y; gPos[pi+8] = z + h;
+          gPos[pi+9] = x; gPos[pi+10] = y; gPos[pi+11] = z + h;
+          
+          const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          for (let v = 0; v < 4; v++) {
+            gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = -1; gNorm[pi + v*3 + 2] = 0;
+            gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+          }
+          gVC += 4;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+        }
+      }
+    }
+    
+    // Glass Face 2: Right (+X)
+    for (let lx = 0; lx < S; lx++) {
+      mask.fill(0);
+      let hasFaces = false;
+      
+      for (let ly = 0; ly < S; ly++) {
+        for (let lz = 0; lz < S; lz++) {
+          const idx = ly * S2 + lz * S + lx;
+          const bid = section[idx] & BLOCK_ID_MASK;
+          if (bid === 0 || !isGlass[bid]) continue;
+          
+          let nid = 0;
+          if (lx < 15) {
+            nid = section[idx + 1] & BLOCK_ID_MASK;
+          } else if (secRight) {
+            nid = secRight[ly * S2 + lz * S] & BLOCK_ID_MASK;
+          }
+          
+          if (!blocksGlassFace(nid)) {
+            mask[ly * S + lz] = bid;
+            hasFaces = true;
+          }
+        }
+      }
+      
+      if (!hasFaces) continue;
+      
+      visited.fill(0);
+      for (let jj = 0; jj < S; jj++) {
+        for (let ii = 0; ii < S; ii++) {
+          const mi = jj * S + ii;
+          if (visited[mi] || mask[mi] === 0) continue;
+          
+          const bid = mask[mi];
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
+          
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
+          
+          if (!ensureCapacity('g', 1)) continue;
+          
+          const x = baseX + lx + 1 - ox;
+          const y = baseY + jj - oy;
+          const z = baseZ + ii - oz;
+          const gv = gVC, pi = gVC * 3;
+          
+          gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z;
+          gPos[pi+3] = x; gPos[pi+4] = y + h; gPos[pi+5] = z;
+          gPos[pi+6] = x; gPos[pi+7] = y + h; gPos[pi+8] = z + w;
+          gPos[pi+9] = x; gPos[pi+10] = y; gPos[pi+11] = z + w;
+          
+          const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          for (let v = 0; v < 4; v++) {
+            gNorm[pi + v*3] = 1; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 0;
+            gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+          }
+          gVC += 4;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+        }
+      }
+    }
+    
+    // Glass Face 3: Left (-X)
+    for (let lx = 0; lx < S; lx++) {
+      mask.fill(0);
+      let hasFaces = false;
+      
+      for (let ly = 0; ly < S; ly++) {
+        for (let lz = 0; lz < S; lz++) {
+          const idx = ly * S2 + lz * S + lx;
+          const bid = section[idx] & BLOCK_ID_MASK;
+          if (bid === 0 || !isGlass[bid]) continue;
+          
+          let nid = 0;
+          if (lx > 0) {
+            nid = section[idx - 1] & BLOCK_ID_MASK;
+          } else if (secLeft) {
+            nid = secLeft[ly * S2 + lz * S + 15] & BLOCK_ID_MASK;
+          }
+          
+          if (!blocksGlassFace(nid)) {
+            mask[ly * S + lz] = bid;
+            hasFaces = true;
+          }
+        }
+      }
+      
+      if (!hasFaces) continue;
+      
+      visited.fill(0);
+      for (let jj = 0; jj < S; jj++) {
+        for (let ii = 0; ii < S; ii++) {
+          const mi = jj * S + ii;
+          if (visited[mi] || mask[mi] === 0) continue;
+          
+          const bid = mask[mi];
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
+          
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
+          
+          if (!ensureCapacity('g', 1)) continue;
+          
+          const x = baseX + lx - ox;
+          const y = baseY + jj - oy;
+          const z = baseZ + ii - oz;
+          const gv = gVC, pi = gVC * 3;
+          
+          gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z + w;
+          gPos[pi+3] = x; gPos[pi+4] = y + h; gPos[pi+5] = z + w;
+          gPos[pi+6] = x; gPos[pi+7] = y + h; gPos[pi+8] = z;
+          gPos[pi+9] = x; gPos[pi+10] = y; gPos[pi+11] = z;
+          
+          const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          for (let v = 0; v < 4; v++) {
+            gNorm[pi + v*3] = -1; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 0;
+            gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+          }
+          gVC += 4;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+        }
+      }
+    }
+    
+    // Glass Face 4: Front (+Z)
+    for (let lz = 0; lz < S; lz++) {
+      mask.fill(0);
+      let hasFaces = false;
+      
+      for (let ly = 0; ly < S; ly++) {
+        for (let lx = 0; lx < S; lx++) {
+          const idx = ly * S2 + lz * S + lx;
+          const bid = section[idx] & BLOCK_ID_MASK;
+          if (bid === 0 || !isGlass[bid]) continue;
+          
+          let nid = 0;
+          if (lz < 15) {
+            nid = section[idx + S] & BLOCK_ID_MASK;
+          } else if (secFront) {
+            nid = secFront[ly * S2 + lx] & BLOCK_ID_MASK;
+          }
+          
+          if (!blocksGlassFace(nid)) {
+            mask[ly * S + lx] = bid;
+            hasFaces = true;
+          }
+        }
+      }
+      
+      if (!hasFaces) continue;
+      
+      visited.fill(0);
+      for (let jj = 0; jj < S; jj++) {
+        for (let ii = 0; ii < S; ii++) {
+          const mi = jj * S + ii;
+          if (visited[mi] || mask[mi] === 0) continue;
+          
+          const bid = mask[mi];
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
+          
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
+          
+          if (!ensureCapacity('g', 1)) continue;
+          
+          const x = baseX + ii - ox;
+          const y = baseY + jj - oy;
+          const z = baseZ + lz + 1 - oz;
+          const gv = gVC, pi = gVC * 3;
+          
+          gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z;
+          gPos[pi+3] = x + w; gPos[pi+4] = y; gPos[pi+5] = z;
+          gPos[pi+6] = x + w; gPos[pi+7] = y + h; gPos[pi+8] = z;
+          gPos[pi+9] = x; gPos[pi+10] = y + h; gPos[pi+11] = z;
+          
+          const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          for (let v = 0; v < 4; v++) {
+            gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 1;
+            gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+          }
+          gVC += 4;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+        }
+      }
+    }
+    
+    // Glass Face 5: Back (-Z)
+    for (let lz = 0; lz < S; lz++) {
+      mask.fill(0);
+      let hasFaces = false;
+      
+      for (let ly = 0; ly < S; ly++) {
+        for (let lx = 0; lx < S; lx++) {
+          const idx = ly * S2 + lz * S + lx;
+          const bid = section[idx] & BLOCK_ID_MASK;
+          if (bid === 0 || !isGlass[bid]) continue;
+          
+          let nid = 0;
+          if (lz > 0) {
+            nid = section[idx - S] & BLOCK_ID_MASK;
+          } else if (secBack) {
+            nid = secBack[ly * S2 + 15 * S + lx] & BLOCK_ID_MASK;
+          }
+          
+          if (!blocksGlassFace(nid)) {
+            mask[ly * S + lx] = bid;
+            hasFaces = true;
+          }
+        }
+      }
+      
+      if (!hasFaces) continue;
+      
+      visited.fill(0);
+      for (let jj = 0; jj < S; jj++) {
+        for (let ii = 0; ii < S; ii++) {
+          const mi = jj * S + ii;
+          if (visited[mi] || mask[mi] === 0) continue;
+          
+          const bid = mask[mi];
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
+          
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
+          
+          if (!ensureCapacity('g', 1)) continue;
+          
+          const x = baseX + ii - ox;
+          const y = baseY + jj - oy;
+          const z = baseZ + lz - oz;
+          const gv = gVC, pi = gVC * 3;
+          
+          gPos[pi] = x + w; gPos[pi+1] = y; gPos[pi+2] = z;
+          gPos[pi+3] = x; gPos[pi+4] = y; gPos[pi+5] = z;
+          gPos[pi+6] = x; gPos[pi+7] = y + h; gPos[pi+8] = z;
+          gPos[pi+9] = x + w; gPos[pi+10] = y + h; gPos[pi+11] = z;
+          
+          const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          for (let v = 0; v < 4; v++) {
+            gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = -1;
+            gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+          }
+          gVC += 4;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+          gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+        }
+      }
+    }
   }
   
   // Trim and return
@@ -860,6 +1344,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
     solid: trimMesh(sPos, sNorm, sCol, sIdx, sVC, sIC),
     water: trimMesh(wPos, wNorm, wCol, wIdx, wVC, wIC),
     lava: trimMesh(lPos, lNorm, lCol, lIdx, lVC, lIC),
+    glass: trimMesh(gPos, gNorm, gCol, gIdx, gVC, gIC),
   };
 }
 

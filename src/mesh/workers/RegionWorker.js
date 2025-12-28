@@ -465,6 +465,7 @@ function buildMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
   const colorG = new Float32Array(4096);
   const colorB = new Float32Array(4096);
   const isFluid = new Uint8Array(4096);
+  const isGlass = new Uint8Array(4096);
   
   for (let id = 0; id < 4096; id++) {
     const info = registry.getInfo(id);
@@ -475,6 +476,9 @@ function buildMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
       colorB[id] = info.colorB;
       if (info.name?.includes('water')) isFluid[id] = 1;
       else if (info.name?.includes('lava')) isFluid[id] = 2;
+      else if (info.name?.includes('glass') || info.name?.includes('ice') || info.name?.includes('tinted_glass')) {
+        isGlass[id] = 1;
+      }
     }
   }
   
@@ -498,6 +502,13 @@ function buildMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
   let lIdx = new Uint32Array(5000 * 6);
   let lVC = 0, lIC = 0, lCap = 5000;
   
+  // Glass mesh arrays
+  let gPos = new Float32Array(20000 * 12);
+  let gNorm = new Float32Array(20000 * 12);
+  let gCol = new Float32Array(20000 * 12);
+  let gIdx = new Uint32Array(20000 * 6);
+  let gVC = 0, gIC = 0, gCap = 20000;
+  
   function grow(type) {
     if (type === 's') {
       const nc = Math.floor(sCap * 1.5);
@@ -513,13 +524,20 @@ function buildMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
       const nc2 = new Float32Array(nc * 12); nc2.set(wCol.subarray(0, wVC * 3)); wCol = nc2;
       const ni = new Uint32Array(nc * 6); ni.set(wIdx.subarray(0, wIC)); wIdx = ni;
       wCap = nc;
-    } else {
+    } else if (type === 'l') {
       const nc = Math.floor(lCap * 1.5);
       const np = new Float32Array(nc * 12); np.set(lPos.subarray(0, lVC * 3)); lPos = np;
       const nn = new Float32Array(nc * 12); nn.set(lNorm.subarray(0, lVC * 3)); lNorm = nn;
       const nc2 = new Float32Array(nc * 12); nc2.set(lCol.subarray(0, lVC * 3)); lCol = nc2;
       const ni = new Uint32Array(nc * 6); ni.set(lIdx.subarray(0, lIC)); lIdx = ni;
       lCap = nc;
+    } else if (type === 'g') {
+      const nc = Math.floor(gCap * 1.5);
+      const np = new Float32Array(nc * 12); np.set(gPos.subarray(0, gVC * 3)); gPos = np;
+      const nn = new Float32Array(nc * 12); nn.set(gNorm.subarray(0, gVC * 3)); gNorm = nn;
+      const nc2 = new Float32Array(nc * 12); nc2.set(gCol.subarray(0, gVC * 3)); gCol = nc2;
+      const ni = new Uint32Array(nc * 6); ni.set(gIdx.subarray(0, gIC)); gIdx = ni;
+      gCap = nc;
     }
   }
   
@@ -1126,6 +1144,7 @@ function buildMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
     solid: trim(sPos, sNorm, sCol, sIdx, sVC, sIC),
     water: trim(wPos, wNorm, wCol, wIdx, wVC, wIC),
     lava: trim(lPos, lNorm, lCol, lIdx, lVC, lIC),
+    glass: trim(gPos, gNorm, gCol, gIdx, gVC, gIC),
   };
 }
 
@@ -1479,6 +1498,23 @@ self.onmessage = async function(e) {
         );
       }
       
+      if (meshes.glass) {
+        result.glass = {
+          positions: meshes.glass.positions,
+          normals: meshes.glass.normals,
+          colors: meshes.glass.colors,
+          indices: meshes.glass.indices,
+          vertexCount: meshes.glass.vertexCount,
+          triangleCount: meshes.glass.triangleCount,
+        };
+        transferables.push(
+          meshes.glass.positions.buffer,
+          meshes.glass.normals.buffer,
+          meshes.glass.colors.buffer,
+          meshes.glass.indices.buffer
+        );
+      }
+      
       // Add LOD meshes to result
       if (lodMeshes) {
         result.lodMeshes = {};
@@ -1512,6 +1548,7 @@ self.onmessage = async function(e) {
         solidTriangles: result.solid?.triangleCount || 0,
         waterTriangles: result.water?.triangleCount || 0,
         lavaTriangles: result.lava?.triangleCount || 0,
+        glassTriangles: result.glass?.triangleCount || 0,
         lod1Triangles: lodMeshes?.lod1?.triangleCount || 0,
         lod2Triangles: lodMeshes?.lod2?.triangleCount || 0,
         lod3Triangles: lodMeshes?.lod3?.triangleCount || 0,

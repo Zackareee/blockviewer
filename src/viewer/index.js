@@ -11,4 +11,5 @@ export { ChunkManager } from './ChunkManager';
 export { createSolidMaterial } from './materials/SolidMaterial';
 export { createWaterMaterial } from './materials/WaterMaterial';
 export { createLavaMaterial } from './materials/LavaMaterial';
+export { createGlassMaterial } from './materials/GlassMaterial';
 

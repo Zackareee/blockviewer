@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { createSolidMaterial, createModelMaterial } from './materials/SolidMaterial';
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
+import { createGlassMaterial } from './materials/GlassMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
@@ -54,25 +55,30 @@ export class ChunkManager {
     this.solidGroup = new THREE.Group();
     this.waterGroup = new THREE.Group();
     this.lavaGroup = new THREE.Group();
+    this.glassGroup = new THREE.Group(); // Glass and transparent blocks
     this.modelGroup = new THREE.Group(); // Non-cube blocks (slabs, stairs, flowers, etc.)
     this.waterGroup.renderOrder = 1;
     this.lavaGroup.renderOrder = 2;
+    this.glassGroup.renderOrder = 3; // Glass renders after water/lava
     this.modelGroup.renderOrder = 0; // Same as solid
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
     scene.add(this.lavaGroup);
+    scene.add(this.glassGroup);
     scene.add(this.modelGroup);
     
     // Shared materials with Y-slice uniforms
     this.solidMaterial = createSolidMaterial();
     this.waterMaterial = createWaterMaterial();
     this.lavaMaterial = createLavaMaterial();
+    this.glassMaterial = createGlassMaterial();
     this.modelMaterial = createModelMaterial(); // For non-cube blocks with polygon offset
     
     // Current meshes (arrays to support split meshes)
     this.solidMeshes = [];
     this.waterMeshes = [];
     this.lavaMeshes = [];
+    this.glassMeshes = []; // Glass and transparent block meshes
     this.modelMeshes = []; // Non-cube block meshes
     
     // Stats
@@ -177,6 +183,8 @@ export class ChunkManager {
     this.waterMaterial.uniforms.uMaxY.value = maxY;
     this.lavaMaterial.uniforms.uMinY.value = minY;
     this.lavaMaterial.uniforms.uMaxY.value = maxY;
+    this.glassMaterial.uniforms.uMinY.value = minY;
+    this.glassMaterial.uniforms.uMaxY.value = maxY;
     this.modelMaterial.uniforms.uMinY.value = minY;
     this.modelMaterial.uniforms.uMaxY.value = maxY;
   }
@@ -413,7 +421,7 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
       });
-      const { solidMesh, waterMesh, lavaMesh, modelMesh, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, stats, _grid } = result;
       
       // Merge grid for debug lookups
       if (_grid && this.debugGrid) {
@@ -423,6 +431,7 @@ export class ChunkManager {
       if (solidMesh) this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
       if (waterMesh) this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
       if (lavaMesh) this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+      if (glassMesh) this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes);
       if (modelMesh) this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
       
       this.totalBlocks = stats.totalBlocks;
@@ -430,7 +439,7 @@ export class ChunkManager {
       this.loadedRegions = 1;
       
       const totalTime = performance.now() - startTime;
-      const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.modelMeshes.length;
+      const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.glassMeshes.length + this.modelMeshes.length;
       
       console.log(
         `[ChunkManager] Loaded ${chunks.length} chunks, ` +
@@ -529,7 +538,7 @@ export class ChunkManager {
         }
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, modelMesh, lodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, lodMeshes, stats } = result;
 
         let drawCalls = 0;
         let meshCenter = null;
@@ -550,7 +559,7 @@ export class ChunkManager {
           }
         }
         
-        // For water/lava: use LOD to hide at distance (fluids baked into LOD surface)
+        // For water/lava/glass: use LOD to hide at distance (fluids baked into LOD surface)
         if (waterMesh) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLOD(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
@@ -565,6 +574,13 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
           }
         }
+        if (glassMesh) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLOD(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes);
+          }
+        }
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         if (modelMesh) {
@@ -577,7 +593,7 @@ export class ChunkManager {
         // Update stats
         totalChunks += stats.chunksProcessed;
         totalBlocks += stats.totalBlocks;
-        const triangles = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0);
+        const triangles = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0) + (stats.glassTriangles || 0);
         totalTriangles += triangles;
         
         completedRegions++;
@@ -730,7 +746,7 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, modelMesh, lodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, lodMeshes, stats } = result;
         
         let drawCalls = 0;
         let meshCenter = null;
@@ -751,7 +767,7 @@ export class ChunkManager {
           }
         }
         
-        // For water/lava: use LOD to hide at distance (fluids baked into LOD surface)
+        // For water/lava/glass: use LOD to hide at distance (fluids baked into LOD surface)
         if (waterMesh) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLOD(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
@@ -766,6 +782,13 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
           }
         }
+        if (glassMesh) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLOD(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes);
+          }
+        }
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         if (modelMesh) {
@@ -776,7 +799,7 @@ export class ChunkManager {
         
         totalChunks += stats.chunksProcessed;
         totalBlocks += stats.totalBlocks;
-        const triangles = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0);
+        const triangles = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0) + (stats.glassTriangles || 0);
         totalTriangles += triangles;
         
         completedRegions++;
@@ -949,11 +972,18 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
           }
         }
+        if (result.glass) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes);
+          }
+        }
         
         // Update stats
         totalBlocks += stats.totalBlocks || 0;
         totalChunks += stats.chunksProcessed || 0;
-        const tris = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0);
+        const tris = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0) + (stats.glassTriangles || 0);
         totalTriangles += tris;
         completedRegions++;
         
@@ -1074,7 +1104,7 @@ export class ChunkManager {
           }
         }
         
-        // Handle water/lava with LOD (hide at distance)
+        // Handle water/lava/glass with LOD (hide at distance)
         if (result.water) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
@@ -1089,11 +1119,18 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
           }
         }
+        if (result.glass) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes);
+          }
+        }
         
         // Update stats
         addedBlocks += stats.totalBlocks || 0;
         addedChunks += stats.chunksProcessed || 0;
-        const tris = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0);
+        const tris = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0) + (stats.glassTriangles || 0);
         addedTriangles += tris;
         completedRegions++;
         
@@ -1320,6 +1357,12 @@ export class ChunkManager {
       this._disposeMeshOrLOD(mesh);
     }
     this.lavaMeshes = [];
+    
+    for (const mesh of this.glassMeshes) {
+      this.glassGroup.remove(mesh);
+      this._disposeMeshOrLOD(mesh);
+    }
+    this.glassMeshes = [];
     
     for (const mesh of this.modelMeshes) {
       this.modelGroup.remove(mesh);
