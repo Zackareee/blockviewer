@@ -67,5 +67,27 @@ export function createSolidMaterial() {
   });
 }
 
+/**
+ * Create material for model blocks (slabs, stairs, flowers, etc.)
+ * Uses polygon offset to prevent z-fighting with adjacent full blocks
+ */
+export function createModelMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMinY: { value: -64 },
+      uMaxY: { value: 320 },
+    },
+    vertexShader,
+    fragmentShader,
+    side: THREE.FrontSide,
+    vertexColors: true,
+    // Polygon offset pushes fragments slightly back in depth
+    // This prevents z-fighting with full blocks
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+}
+
 export default createSolidMaterial;
 

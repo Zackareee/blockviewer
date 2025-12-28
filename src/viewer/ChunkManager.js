@@ -13,7 +13,7 @@
  */
 
 import * as THREE from 'three';
-import { createSolidMaterial } from './materials/SolidMaterial';
+import { createSolidMaterial, createModelMaterial } from './materials/SolidMaterial';
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
@@ -67,6 +67,7 @@ export class ChunkManager {
     this.solidMaterial = createSolidMaterial();
     this.waterMaterial = createWaterMaterial();
     this.lavaMaterial = createLavaMaterial();
+    this.modelMaterial = createModelMaterial(); // For non-cube blocks with polygon offset
     
     // Current meshes (arrays to support split meshes)
     this.solidMeshes = [];
@@ -176,6 +177,8 @@ export class ChunkManager {
     this.waterMaterial.uniforms.uMaxY.value = maxY;
     this.lavaMaterial.uniforms.uMinY.value = minY;
     this.lavaMaterial.uniforms.uMaxY.value = maxY;
+    this.modelMaterial.uniforms.uMinY.value = minY;
+    this.modelMaterial.uniforms.uMaxY.value = maxY;
   }
 
   /**
@@ -420,7 +423,7 @@ export class ChunkManager {
       if (solidMesh) this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
       if (waterMesh) this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
       if (lavaMesh) this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
-      if (modelMesh) this._addMeshesToScene(modelMesh, this.solidMaterial, this.modelGroup, this.modelMeshes);
+      if (modelMesh) this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
       
       this.totalBlocks = stats.totalBlocks;
       this.loadedChunks = stats.chunksProcessed;
@@ -565,7 +568,7 @@ export class ChunkManager {
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         if (modelMesh) {
-          drawCalls += this._addMeshesToScene(modelMesh, this.solidMaterial, this.modelGroup, this.modelMeshes);
+          drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
         }
         
         // Clean up builder immediately to free memory
@@ -766,7 +769,7 @@ export class ChunkManager {
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         if (modelMesh) {
-          drawCalls += this._addMeshesToScene(modelMesh, this.solidMaterial, this.modelGroup, this.modelMeshes);
+          drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
         }
         
         meshBuilder.dispose();
@@ -1349,6 +1352,7 @@ export class ChunkManager {
     this.solidMaterial.dispose();
     this.waterMaterial.dispose();
     this.lavaMaterial.dispose();
+    this.modelMaterial.dispose();
     
     this.scene.remove(this.solidGroup);
     this.scene.remove(this.waterGroup);
