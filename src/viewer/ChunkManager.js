@@ -3,9 +3,13 @@
  * 
  * Features:
  * - Progressive region loading (parse → mesh → render pipeline)
+ * - Unified worker pipeline for fastest possible loading
  * - Parallel processing across regions for memory efficiency
  * - Automatic mesh splitting for WebGL index limits
  * - GPU-based Y slicing via shader uniforms
+ * - Streaming support for hundreds of regions
+ * 
+ * Performance Target: 3 seconds per region for full pipeline
  */
 
 import * as THREE from 'three';
@@ -13,6 +17,7 @@ import { createSolidMaterial } from './materials/SolidMaterial';
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
+import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 
 // WebGL has a max index count limit (~30M). Use 25M to be safe.
 const MAX_INDICES_PER_DRAW = 25000000;
@@ -76,6 +81,12 @@ export class ChunkManager {
     // Y range for filtering
     this.minY = -64;
     this.maxY = 320;
+    
+    // Streaming loader for optimized region loading
+    this.streamingLoader = null;
+    
+    // Use streaming by default (faster for most cases)
+    this.useStreaming = options.useStreaming !== false;
   }
 
   /**
@@ -733,6 +744,438 @@ export class ChunkManager {
   }
 
   /**
+   * Fast streaming loading using unified worker pipeline
+   * 
+   * This method uses the new StreamingRegionLoader which handles the entire
+   * pipeline (parse → decode → mesh) in a worker, returning transferable buffers.
+   * 
+   * This is the fastest method for loading regions:
+   * - No main thread blocking during processing
+   * - Transferable buffers avoid memory copies
+   * - Target: 3 seconds per region
+   * 
+   * @param {Array} regionFiles - Array of { file, regionX, regionZ } objects
+   * @param {Object} options - { onRegionStart, onRegionComplete }
+   */
+  async loadRegionsStreaming(regionFiles, options = {}) {
+    const startTime = performance.now();
+    const { onRegionStart, onRegionComplete, enableLOD = true } = options;
+    
+    this.clear();
+    
+    if (!this.streamingLoader) {
+      this.streamingLoader = new StreamingRegionLoader({
+        maxWorkers: Math.min(navigator.hardwareConcurrency || 4, 4),
+        gcDelay: 50,
+      });
+    }
+    
+    const totalRegions = regionFiles.length;
+    let completedRegions = 0;
+    let totalBlocks = 0;
+    let totalChunks = 0;
+    let totalTriangles = 0;
+    
+    // Generate LOD for multi-region loads (essential for performance)
+    const shouldGenerateLOD = enableLOD && totalRegions >= 1;
+    
+    console.log(`[ChunkManager] 🚀 Fast streaming ${totalRegions} regions (LOD: ${shouldGenerateLOD})...`);
+    
+    // Process all regions using the streaming loader
+    for (let i = 0; i < regionFiles.length; i++) {
+      const region = regionFiles[i];
+      const regionName = region.file.name || `r.${region.regionX}.${region.regionZ}.mca`;
+      
+      onRegionStart?.(i, totalRegions, regionName);
+      this.onProgress?.(i, totalRegions);
+      
+      try {
+        const regionStart = performance.now();
+        const { result, stats } = await this.streamingLoader.processRegion(
+          region.file,
+          region.regionX,
+          region.regionZ,
+          { generateLOD: shouldGenerateLOD }
+        );
+        const regionTime = performance.now() - regionStart;
+        
+        // Add meshes to scene
+        let drawCalls = 0;
+        let meshCenter = null;
+        
+        // Handle solid mesh with LOD
+        if (result.solid) {
+          if (shouldGenerateLOD && result.lodMeshes) {
+            // Compute mesh center for LOD positioning
+            const geom = this._createGeometryFromBuffers(result.solid);
+            if (geom) {
+              geom.computeBoundingBox();
+              meshCenter = new THREE.Vector3();
+              geom.boundingBox.getCenter(meshCenter);
+              geom.dispose();
+            }
+            drawCalls += this._addMeshWithLODFromBuffers(
+              result.solid, 
+              result.lodMeshes, 
+              this.solidMaterial, 
+              this.solidGroup, 
+              this.solidMeshes
+            );
+          } else {
+            drawCalls += this._addMeshFromBuffers(result.solid, this.solidMaterial, this.solidGroup, this.solidMeshes);
+          }
+        }
+        
+        // Handle water/lava with LOD (hide at distance)
+        if (result.water) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes);
+          }
+        }
+        if (result.lava) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+          }
+        }
+        
+        // Update stats
+        totalBlocks += stats.totalBlocks || 0;
+        totalChunks += stats.chunksProcessed || 0;
+        const tris = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0);
+        totalTriangles += tris;
+        completedRegions++;
+        
+        const lodInfo = shouldGenerateLOD ? `, LOD: ${(stats.lodTimeMs || 0).toFixed(0)}ms` : '';
+        console.log(
+          `[ChunkManager] ✓ ${regionName}: ${stats.chunksProcessed} chunks, ` +
+          `${stats.totalBlocks.toLocaleString()} blocks, ${drawCalls} draws ` +
+          `in ${(regionTime / 1000).toFixed(2)}s${lodInfo}`
+        );
+        
+        onRegionComplete?.(i, totalRegions, regionName, stats);
+        this.onProgress?.(completedRegions, totalRegions);
+        
+      } catch (error) {
+        console.warn(`[ChunkManager] ⚠️ ${regionName} failed:`, error.message);
+        completedRegions++;
+        this.onProgress?.(completedRegions, totalRegions);
+      }
+    }
+    
+    // Update final stats
+    this.totalBlocks = totalBlocks;
+    this.loadedChunks = totalChunks;
+    this.loadedRegions = completedRegions;
+    
+    const totalTime = performance.now() - startTime;
+    const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length;
+    const avgTime = completedRegions > 0 ? totalTime / completedRegions : 0;
+    
+    console.log(
+      `[ChunkManager] ✅ Streaming complete: ${completedRegions} regions, ` +
+      `${totalChunks.toLocaleString()} chunks, ${totalBlocks.toLocaleString()} blocks, ` +
+      `${totalTriangles.toLocaleString()} triangles in ${(totalTime / 1000).toFixed(1)}s ` +
+      `(avg ${(avgTime / 1000).toFixed(2)}s/region)`
+    );
+    
+    this.onComplete?.();
+    
+    return {
+      regionsLoaded: completedRegions,
+      chunksLoaded: totalChunks,
+      totalBlocks,
+      totalTriangles,
+      meshCount,
+      timeMs: totalTime,
+      avgTimePerRegion: avgTime,
+    };
+  }
+  
+  /**
+   * Add more regions using streaming loader (without clearing existing)
+   */
+  async addRegionsStreaming(regionFiles, options = {}) {
+    const startTime = performance.now();
+    const { onRegionStart, onRegionComplete, enableLOD = true } = options;
+    
+    // Don't clear - keep existing meshes
+    
+    if (!this.streamingLoader) {
+      this.streamingLoader = new StreamingRegionLoader({
+        maxWorkers: Math.min(navigator.hardwareConcurrency || 4, 4),
+        gcDelay: 50,
+      });
+    }
+    
+    const totalRegions = regionFiles.length;
+    let completedRegions = 0;
+    let addedBlocks = 0;
+    let addedChunks = 0;
+    let addedTriangles = 0;
+    
+    // Generate LOD for added regions too
+    const shouldGenerateLOD = enableLOD;
+    
+    console.log(`[ChunkManager] 🚀 Adding ${totalRegions} regions via streaming (LOD: ${shouldGenerateLOD})...`);
+    
+    // Process all regions using the streaming loader
+    for (let i = 0; i < regionFiles.length; i++) {
+      const region = regionFiles[i];
+      const regionName = region.file.name || `r.${region.regionX}.${region.regionZ}.mca`;
+      
+      onRegionStart?.(i, totalRegions, regionName);
+      this.onProgress?.(this.loadedRegions + i, this.loadedRegions + totalRegions);
+      
+      try {
+        const regionStart = performance.now();
+        const { result, stats } = await this.streamingLoader.processRegion(
+          region.file,
+          region.regionX,
+          region.regionZ,
+          { generateLOD: shouldGenerateLOD }
+        );
+        const regionTime = performance.now() - regionStart;
+        
+        // Add meshes to scene
+        let drawCalls = 0;
+        let meshCenter = null;
+        
+        // Handle solid mesh with LOD
+        if (result.solid) {
+          if (shouldGenerateLOD && result.lodMeshes) {
+            const geom = this._createGeometryFromBuffers(result.solid);
+            if (geom) {
+              geom.computeBoundingBox();
+              meshCenter = new THREE.Vector3();
+              geom.boundingBox.getCenter(meshCenter);
+              geom.dispose();
+            }
+            drawCalls += this._addMeshWithLODFromBuffers(
+              result.solid, 
+              result.lodMeshes, 
+              this.solidMaterial, 
+              this.solidGroup, 
+              this.solidMeshes
+            );
+          } else {
+            drawCalls += this._addMeshFromBuffers(result.solid, this.solidMaterial, this.solidGroup, this.solidMeshes);
+          }
+        }
+        
+        // Handle water/lava with LOD (hide at distance)
+        if (result.water) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes);
+          }
+        }
+        if (result.lava) {
+          if (shouldGenerateLOD && meshCenter) {
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+          }
+        }
+        
+        // Update stats
+        addedBlocks += stats.totalBlocks || 0;
+        addedChunks += stats.chunksProcessed || 0;
+        const tris = (stats.solidTriangles || 0) + (stats.waterTriangles || 0) + (stats.lavaTriangles || 0);
+        addedTriangles += tris;
+        completedRegions++;
+        
+        const lodInfo = shouldGenerateLOD ? `, LOD: ${(stats.lodTimeMs || 0).toFixed(0)}ms` : '';
+        console.log(
+          `[ChunkManager] ✓ Added ${regionName}: ${stats.chunksProcessed} chunks, ` +
+          `${stats.totalBlocks.toLocaleString()} blocks, ${drawCalls} draws ` +
+          `in ${(regionTime / 1000).toFixed(2)}s${lodInfo}`
+        );
+        
+        onRegionComplete?.(i, totalRegions, regionName, stats);
+        this.onProgress?.(this.loadedRegions + completedRegions, this.loadedRegions + totalRegions);
+        
+      } catch (error) {
+        console.warn(`[ChunkManager] ⚠️ ${regionName} failed:`, error.message);
+        completedRegions++;
+        this.onProgress?.(this.loadedRegions + completedRegions, this.loadedRegions + totalRegions);
+      }
+    }
+    
+    // Update cumulative stats
+    this.totalBlocks += addedBlocks;
+    this.loadedChunks += addedChunks;
+    this.loadedRegions += completedRegions;
+    
+    const totalTime = performance.now() - startTime;
+    const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length;
+    const avgTime = completedRegions > 0 ? totalTime / completedRegions : 0;
+    
+    console.log(
+      `[ChunkManager] ✅ Added ${completedRegions} regions, ` +
+      `now have ${this.loadedRegions} total regions, ${this.totalBlocks.toLocaleString()} blocks ` +
+      `in ${(totalTime / 1000).toFixed(1)}s`
+    );
+    
+    this.onComplete?.();
+    
+    return {
+      regionsAdded: completedRegions,
+      totalRegions: this.loadedRegions,
+      chunksAdded: addedChunks,
+      totalChunks: this.loadedChunks,
+      blocksAdded: addedBlocks,
+      totalBlocks: this.totalBlocks,
+      trianglesAdded: addedTriangles,
+      meshCount,
+      timeMs: totalTime,
+      avgTimePerRegion: avgTime,
+    };
+  }
+  
+  /**
+   * Add mesh from raw buffers (used by streaming loader)
+   */
+  _addMeshFromBuffers(meshData, material, group, meshArray) {
+    if (!meshData || meshData.vertexCount === 0) return 0;
+    
+    const geometry = this._createGeometryFromBuffers(meshData);
+    if (!geometry) return 0;
+    
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = true;
+    group.add(mesh);
+    meshArray.push(mesh);
+    
+    return 1;
+  }
+  
+  /**
+   * Create a THREE.BufferGeometry from raw buffer data
+   */
+  _createGeometryFromBuffers(meshData) {
+    if (!meshData || meshData.vertexCount === 0) return null;
+    
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+    geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
+    geometry.computeBoundingSphere();
+    
+    return geometry;
+  }
+  
+  /**
+   * Add mesh with LOD levels from raw buffers (used by streaming loader)
+   */
+  _addMeshWithLODFromBuffers(solidData, lodMeshes, material, group, meshArray) {
+    if (!solidData || solidData.vertexCount === 0) return 0;
+    if (!lodMeshes || (!lodMeshes.lod1 && !lodMeshes.lod2)) {
+      return this._addMeshFromBuffers(solidData, material, group, meshArray);
+    }
+    
+    // Check if full-detail mesh is too large for LOD
+    if (solidData.indices.length > MAX_INDICES_PER_DRAW) {
+      console.log('[ChunkManager] Mesh too large for LOD, using regular mesh');
+      return this._addMeshFromBuffers(solidData, material, group, meshArray);
+    }
+    
+    // Create full-detail geometry
+    const geom0 = this._createGeometryFromBuffers(solidData);
+    if (!geom0) return 0;
+    
+    // Compute center for LOD distance calculation
+    geom0.computeBoundingBox();
+    const meshCenter = new THREE.Vector3();
+    geom0.boundingBox.getCenter(meshCenter);
+    
+    // Create LOD object
+    const lod = new THREE.LOD();
+    
+    // Add full detail mesh
+    const mesh0 = new THREE.Mesh(geom0, material);
+    mesh0.frustumCulled = true;
+    mesh0.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+    lod.addLevel(mesh0, 0);
+    
+    // Add LOD levels
+    let lodLevelsAdded = 1;
+    const addLodLevel = (lodData, distance, levelName) => {
+      if (!lodData) return;
+      const geom = this._createGeometryFromBuffers(lodData);
+      if (!geom) return;
+      const mesh = new THREE.Mesh(geom, material);
+      mesh.frustumCulled = true;
+      mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+      lod.addLevel(mesh, distance);
+      lodLevelsAdded++;
+      console.log(`[LOD] ${levelName} added at distance ${distance}, ${lodData.triangleCount} tris`);
+    };
+    
+    addLodLevel(lodMeshes.lod1, LOD_DISTANCE_1, 'LOD1');
+    addLodLevel(lodMeshes.lod2, LOD_DISTANCE_2, 'LOD2');
+    addLodLevel(lodMeshes.lod3, LOD_DISTANCE_3, 'LOD3');
+    addLodLevel(lodMeshes.lod4, LOD_DISTANCE_4, 'LOD4');
+    
+    console.log(`[LOD] Total ${lodLevelsAdded} levels added to LOD object`);
+    
+    // Position LOD at mesh center for distance calculation
+    lod.position.copy(meshCenter);
+    lod.autoUpdate = true;
+    lod.frustumCulled = false;
+    
+    group.add(lod);
+    meshArray.push(lod);
+    
+    return 1;
+  }
+  
+  /**
+   * Add fluid mesh with LOD that hides it at distance (from raw buffers)
+   */
+  _addFluidMeshWithLODFromBuffers(meshData, material, group, meshArray, meshCenter) {
+    if (!meshData || meshData.vertexCount === 0) return 0;
+    
+    // Check if mesh is too large
+    if (meshData.indices.length > MAX_INDICES_PER_DRAW) {
+      return this._addMeshFromBuffers(meshData, material, group, meshArray);
+    }
+    
+    const geom = this._createGeometryFromBuffers(meshData);
+    if (!geom) return 0;
+    
+    // Create LOD object
+    const lod = new THREE.LOD();
+    
+    // Level 0: Full detail fluid mesh
+    const mesh = new THREE.Mesh(geom, material);
+    mesh.frustumCulled = true;
+    mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+    lod.addLevel(mesh, 0);
+    
+    // Level 1: Empty mesh (invisible) at LOD_DISTANCE_1
+    const emptyGeom = new THREE.BufferGeometry();
+    emptyGeom.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    const emptyMesh = new THREE.Mesh(emptyGeom, material);
+    lod.addLevel(emptyMesh, LOD_DISTANCE_1);
+    
+    // Position LOD at same center as solid mesh
+    lod.position.copy(meshCenter);
+    lod.autoUpdate = true;
+    lod.frustumCulled = false;
+    
+    group.add(lod);
+    meshArray.push(lod);
+    
+    return 1;
+  }
+
+  /**
    * Dispose a mesh or LOD object and all its geometries
    */
   _disposeMeshOrLOD(obj) {
@@ -780,6 +1223,12 @@ export class ChunkManager {
    */
   dispose() {
     this.clear();
+    
+    // Dispose streaming loader
+    if (this.streamingLoader) {
+      this.streamingLoader.dispose();
+      this.streamingLoader = null;
+    }
     
     this.solidMaterial.dispose();
     this.waterMaterial.dispose();

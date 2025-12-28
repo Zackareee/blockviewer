@@ -131,9 +131,10 @@ function RegionScene({
   const loadedRegionKeysRef = useRef(new Set());
   
   // Load multiple regions progressively
+  // Uses fast streaming when available (unified worker pipeline)
   useEffect(() => {
     const manager = managerRef.current;
-    if (!manager || !regions || regions.length === 0 || !parseRegion) return;
+    if (!manager || !regions || regions.length === 0) return;
     
     // Compute which regions are new
     const currentKeys = new Set(regions.map(r => `${r.regionX},${r.regionZ}`));
@@ -153,9 +154,6 @@ function RegionScene({
     if (isFreshLoad) {
       manager.clear();
       loadedRegionKeysRef.current = new Set();
-      console.log(`[RegionViewer] Loading ${regions.length} regions progressively...`);
-    } else {
-      console.log(`[RegionViewer] Adding ${newRegions.length} new regions...`);
     }
     
     // Compute combined center from ALL region coordinates (including existing)
@@ -172,39 +170,93 @@ function RegionScene({
     const centerX = (minX + maxX) / 2;
     const centerZ = (minZ + maxZ) / 2;
     
-    // Choose load method based on whether this is fresh or addition
-    const loadMethod = isFreshLoad 
-      ? manager.loadRegionsProgressive.bind(manager)
-      : manager.addRegionsProgressive.bind(manager);
-    
     const regionsToLoad = isFreshLoad ? regions : newRegions;
     
-    loadMethod(regionsToLoad, parseRegion, {
-      onRegionStart: (index, total, name) => {
-        onProgress?.(index, total, true, `${isFreshLoad ? 'Loading' : 'Adding'}: ${name}`);
-      },
-      onRegionComplete: (index, total, name, stats) => {
-        onProgress?.(index + 1, total, index + 1 < total, `Completed: ${name}`);
-        invalidate(); // Render after each region completes
-      },
-      enableLOD, // Pass through LOD setting
-    }).then(result => {
-      const totalLoaded = isFreshLoad ? result.regionsLoaded : result.totalRegions;
-      console.log(`[RegionViewer] ${isFreshLoad ? 'Loaded' : 'Now have'} ${totalLoaded} regions, ${result.totalBlocks?.toLocaleString() || '?'} blocks`);
-      
-      // Update loaded keys
-      for (const r of regionsToLoad) {
-        loadedRegionKeysRef.current.add(`${r.regionX},${r.regionZ}`);
-      }
-      
-      // Only reposition camera on fresh load
-      if (isFreshLoad) {
-        positionCameraAt(centerX, 64, centerZ, result.chunksLoaded || result.totalChunks);
-      }
-      invalidate();
-    });
+    // Use fast streaming method if available (much faster - single worker for entire pipeline)
+    // Falls back to progressive loading with parseRegion if streaming not available
+    const useStreaming = manager.useStreaming && manager.loadRegionsStreaming;
     
-  }, [regions, parseRegion, invalidate]);
+    if (useStreaming) {
+      // Use streaming for both initial load and adding more regions
+      const streamingMethod = isFreshLoad 
+        ? manager.loadRegionsStreaming.bind(manager)
+        : manager.addRegionsStreaming.bind(manager);
+      
+      console.log(`[RegionViewer] 🚀 Fast streaming ${regionsToLoad.length} regions (${isFreshLoad ? 'load' : 'add'})...`);
+      
+      streamingMethod(regionsToLoad, {
+        onRegionStart: (index, total, name) => {
+          onProgress?.(index, total, true, `${isFreshLoad ? 'Loading' : 'Adding'}: ${name}`);
+        },
+        onRegionComplete: (index, total, name, stats) => {
+          onProgress?.(index + 1, total, index + 1 < total, `Completed: ${name}`);
+          invalidate(); // Render after each region completes
+        },
+        enableLOD, // Pass through LOD setting
+      }).then(result => {
+        const blocksLoaded = result.totalBlocks?.toLocaleString() || '?';
+        if (isFreshLoad) {
+          console.log(`[RegionViewer] ✅ Loaded ${result.regionsLoaded} regions, ${blocksLoaded} blocks`);
+        } else {
+          console.log(`[RegionViewer] ✅ Added ${result.regionsAdded} regions, now have ${result.totalRegions} total`);
+        }
+        
+        // Update loaded keys
+        for (const r of regionsToLoad) {
+          loadedRegionKeysRef.current.add(`${r.regionX},${r.regionZ}`);
+        }
+        
+        // Only reposition camera on fresh load
+        if (isFreshLoad) {
+          positionCameraAt(centerX, 64, centerZ, result.chunksLoaded || result.totalChunks);
+        }
+        invalidate();
+      }).catch(err => {
+        console.error('[RegionViewer] Streaming failed, falling back to progressive:', err);
+        // Fall back to progressive if streaming fails
+        if (parseRegion) {
+          loadWithProgressive();
+        }
+      });
+    } else if (parseRegion) {
+      loadWithProgressive();
+    }
+    
+    // Helper for progressive loading (fallback)
+    function loadWithProgressive() {
+      console.log(`[RegionViewer] Loading ${regionsToLoad.length} regions progressively...`);
+      
+      const loadMethod = isFreshLoad 
+        ? manager.loadRegionsProgressive.bind(manager)
+        : manager.addRegionsProgressive.bind(manager);
+      
+      loadMethod(regionsToLoad, parseRegion, {
+        onRegionStart: (index, total, name) => {
+          onProgress?.(index, total, true, `${isFreshLoad ? 'Loading' : 'Adding'}: ${name}`);
+        },
+        onRegionComplete: (index, total, name, stats) => {
+          onProgress?.(index + 1, total, index + 1 < total, `Completed: ${name}`);
+          invalidate(); // Render after each region completes
+        },
+        enableLOD, // Pass through LOD setting
+      }).then(result => {
+        const totalLoaded = isFreshLoad ? result.regionsLoaded : result.totalRegions;
+        console.log(`[RegionViewer] ${isFreshLoad ? 'Loaded' : 'Now have'} ${totalLoaded} regions, ${result.totalBlocks?.toLocaleString() || '?'} blocks`);
+        
+        // Update loaded keys
+        for (const r of regionsToLoad) {
+          loadedRegionKeysRef.current.add(`${r.regionX},${r.regionZ}`);
+        }
+        
+        // Only reposition camera on fresh load
+        if (isFreshLoad) {
+          positionCameraAt(centerX, 64, centerZ, result.chunksLoaded || result.totalChunks);
+        }
+        invalidate();
+      });
+    }
+    
+  }, [regions, parseRegion, invalidate, enableLOD]);
   
   // Position camera at a specific target
   const positionCameraAt = useCallback((cx, cy, cz, chunkCount = 100) => {

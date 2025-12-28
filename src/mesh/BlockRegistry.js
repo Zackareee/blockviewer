@@ -3,6 +3,50 @@
  * 
  * Maps block names to numeric IDs and provides rendering properties.
  * All block lookups in the meshing pipeline use numeric IDs for performance.
+ * 
+ * ARCHITECTURE NOTES FOR FUTURE TEXTURE ATLAS SUPPORT:
+ * =====================================================
+ * 
+ * Current implementation uses flat colors (RGB values) for each block.
+ * To migrate to a texture atlas:
+ * 
+ * 1. COLOR → UV MAPPING:
+ *    - Each block ID currently maps to an RGB color
+ *    - Replace colorR/G/B with uvX/uvY/uvWidth/uvHeight
+ *    - The mesher already generates color attributes per vertex
+ *    - Change to UV attributes: geometry.setAttribute('uv', ...)
+ * 
+ * 2. TEXTURE ATLAS STRUCTURE:
+ *    - Create a single 2048x2048 or 4096x4096 texture atlas
+ *    - Each block type gets a 16x16 or 32x32 region
+ *    - Store UV coordinates in the registry instead of colors
+ * 
+ * 3. MATERIAL CHANGES:
+ *    - Current: vertexColors: true, uses vertex color attributes
+ *    - Future: Add sampler2D for texture atlas
+ *    - Shader: Sample texture at UV instead of using vertex color
+ * 
+ * 4. BLOCK PROPERTY EXTENSIONS:
+ *    - Add 'topUV', 'sideUV', 'bottomUV' for different faces
+ *    - Add rotation/flip flags for variation
+ *    - Add animation frame count for animated textures (water, lava)
+ * 
+ * 5. MEMORY CONSIDERATIONS:
+ *    - UV coordinates use less memory than colors (2 floats vs 3)
+ *    - Texture atlas uses fixed GPU memory regardless of block count
+ *    - Consider texture compression (DXT/S3TC) for large atlases
+ * 
+ * TRANSPARENCY SYSTEM:
+ * ====================
+ * Water and Lava currently render at 50-60% opacity via the material:
+ * - WaterMaterial.js: uOpacity: 0.6
+ * - LavaMaterial.js: uOpacity: 0.5
+ * 
+ * To add transparency to other blocks:
+ * 1. Add 'opacity' field to BlockInfo (0.0-1.0)
+ * 2. Modify mesher to separate transparent blocks (like glass)
+ * 3. Create TransparentMaterial.js similar to WaterMaterial
+ * 4. Sort transparent meshes back-to-front for correct blending
  */
 
 // Block categories determine meshing strategy
