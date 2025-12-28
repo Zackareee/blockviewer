@@ -22,6 +22,13 @@ const AIR_BLOCKS = new Set([
   'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'air', 'cave_air', 'void_air'
 ]);
 
+// Blocks that inherently exist in water and should always render water
+const UNDERWATER_BLOCKS = new Set([
+  'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
+  'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp', 
+  'minecraft:kelp_plant', 'minecraft:bubble_column'
+]);
+
 /**
  * Unpack block indices from packed long array (Minecraft 1.16+ format)
  */
@@ -106,7 +113,17 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
     if (name.includes('water') || name.includes('lava')) {
       levels[i] = extractFluidLevel(entry);
     } else {
-      levels[i] = -1; // Not a fluid
+      // Check for waterlogged property on non-fluid blocks
+      if (typeof entry === 'object' && entry.Properties?.waterlogged === 'true') {
+        // Use level 8 as a marker for waterlogged blocks
+        levels[i] = 8;
+      } 
+      // Check for blocks that inherently exist in water (seagrass, kelp, etc.)
+      else if (UNDERWATER_BLOCKS.has(name)) {
+        levels[i] = 8;
+      } else {
+        levels[i] = -1; // Not a fluid, not waterlogged
+      }
     }
     
     // Check if this block needs state-based geometry

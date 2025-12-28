@@ -607,11 +607,15 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
     
     // Fluids - find topmost fluid in each (x,z) column, then greedy mesh
     // This guarantees only ONE surface per body of water regardless of depth
+    // Also handles waterlogged blocks (level == 8 marker for non-fluid blocks)
     
     // For each (x,z) column in this section, track the topmost water and lava Y level
     // Key: x + z*16, Value: { y: worldY, blockId, level, height }
     const topWater = new Map();
     const topLava = new Map();
+    
+    // Get water block ID for coloring waterlogged water
+    const waterBlockId = registry.getBlockId('minecraft:water');
     
     // Scan ALL Y levels in this section to find topmost fluids per column
     for (let ly = 0; ly < S; ly++) {
@@ -625,21 +629,28 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           if (value === 0) continue;
           
           const bid = value & BLOCK_ID_MASK;
+          const level = (value & LEVEL_MASK) >> LEVEL_SHIFT;
           const ft = isFluid[bid];
-          if (ft === 0) continue;
+          
+          // Check for waterlogged blocks: non-fluid blocks with level == 8
+          const isWaterlogged = (ft === 0 && level === 8);
+          
+          if (ft === 0 && !isWaterlogged) continue;
           
           const colKey = lx + lz * S;
-          const level = (value & LEVEL_MASK) >> LEVEL_SHIFT;
-          const h = level >= 8 ? 1.0 : (level > 0 ? Math.max(0.125, (14 - level * 1.5) / 16) : 0.875);
           
-          if (ft === 1) {
-            // Water - track topmost (highest Y)
+          if (ft === 1 || isWaterlogged) {
+            // Water or waterlogged block
+            // For waterlogged, use source water height (0.875)
+            const h = isWaterlogged ? 0.875 : (level >= 8 ? 1.0 : (level > 0 ? Math.max(0.125, (14 - level * 1.5) / 16) : 0.875));
             const existing = topWater.get(colKey);
             if (!existing || worldY > existing.y) {
-              topWater.set(colKey, { y: worldY, ly, blockId: bid, level, height: h, lx, lz });
+              // Use water block ID for color if waterlogged
+              topWater.set(colKey, { y: worldY, ly, blockId: isWaterlogged ? waterBlockId : bid, level, height: h, lx, lz });
             }
           } else if (ft === 2) {
-            // Lava - track topmost
+            // Lava
+            const h = level >= 8 ? 1.0 : (level > 0 ? Math.max(0.125, (14 - level * 1.5) / 16) : 0.875);
             const existing = topLava.get(colKey);
             if (!existing || worldY > existing.y) {
               topLava.set(colKey, { y: worldY, ly, blockId: bid, level, height: h, lx, lz });
@@ -649,16 +660,19 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
       }
     }
     
-    // Now check if topmost fluid is covered by fluid in section above
+    // Now check if topmost fluid is covered by fluid/waterlogged in section above
     // Only keep entries that are truly the top surface
     if (secTop) {
       for (const [colKey, data] of topWater) {
         if (data.ly === 15) {
           // This fluid is at top of section - check section above
           const aboveIdx = data.lz * S + data.lx; // Y=0 of section above
-          const aboveBid = secTop[aboveIdx] & BLOCK_ID_MASK;
-          if (isFluid[aboveBid] === 1) {
-            // Covered by water above - remove from top surface
+          const aboveValue = secTop[aboveIdx];
+          const aboveBid = aboveValue & BLOCK_ID_MASK;
+          const aboveLevel = (aboveValue & LEVEL_MASK) >> LEVEL_SHIFT;
+          // Remove if covered by water or waterlogged block above
+          const aboveIsWaterlogged = (isFluid[aboveBid] === 0 && aboveLevel === 8);
+          if (isFluid[aboveBid] === 1 || aboveIsWaterlogged) {
             topWater.delete(colKey);
           }
         }

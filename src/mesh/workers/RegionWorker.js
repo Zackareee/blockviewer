@@ -195,6 +195,14 @@ const COLOR_PATTERNS = COLOR_PATTERNS_NUMERIC.map(({ pattern, color }) => [patte
 
 const AIR_BLOCKS = new Set(['air', 'cave_air', 'void_air', 'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']);
 
+// Blocks that inherently exist in water and should always render water
+// These don't have waterlogged property because they can only exist in water
+const UNDERWATER_BLOCKS = new Set([
+  'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
+  'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp', 
+  'minecraft:kelp_plant', 'minecraft:bubble_column'
+]);
+
 class WorkerBlockRegistry {
   constructor() {
     this.nameToId = new Map();
@@ -352,6 +360,7 @@ function decodeChunk(chunk, grid, registry, regionX, regionZ) {
       const blockIds = new Uint16Array(palette.length);
       const isAir = new Uint8Array(palette.length);
       const levels = new Int8Array(palette.length);
+      const isWaterlogged = new Uint8Array(palette.length);
       
       for (let i = 0; i < palette.length; i++) {
         const entry = palette[i];
@@ -363,6 +372,14 @@ function decodeChunk(chunk, grid, registry, regionX, regionZ) {
           levels[i] = entry.Properties?.level !== undefined ? parseInt(entry.Properties.level, 10) || 0 : 0;
         } else {
           levels[i] = -1;
+          // Check for waterlogged property on non-fluid blocks
+          if (typeof entry === 'object' && entry.Properties?.waterlogged === 'true') {
+            isWaterlogged[i] = 1;
+          }
+          // Check for blocks that inherently exist in water (seagrass, kelp, etc.)
+          else if (UNDERWATER_BLOCKS.has(name)) {
+            isWaterlogged[i] = 1;
+          }
         }
       }
       
@@ -371,7 +388,9 @@ function decodeChunk(chunk, grid, registry, regionX, regionZ) {
       
       if (palette.length === 1 || !blockData || blockData.length === 0) {
         if (!isAir[0]) {
-          const val = (blockIds[0] & 0x0FFF) | (((levels[0] >= 0 ? levels[0] : 0) & 0xF) << 12);
+          // For waterlogged blocks, use level 8 as a marker
+          const lv = isWaterlogged[0] ? 8 : (levels[0] >= 0 ? levels[0] : 0);
+          const val = (blockIds[0] & 0x0FFF) | ((lv & 0xF) << 12);
           gridSection.fill(val);
           totalBlocks += S3;
           grid.totalBlocks += S3;
@@ -385,7 +404,8 @@ function decodeChunk(chunk, grid, registry, regionX, regionZ) {
       for (let i = 0; i < S3; i++) {
         const pi = indices[i];
         if (pi < palette.length && !isAir[pi]) {
-          const lv = levels[pi] >= 0 ? levels[pi] : 0;
+          // For waterlogged blocks, use level 8 as a marker (source water in waterlogged)
+          const lv = isWaterlogged[pi] ? 8 : (levels[pi] >= 0 ? levels[pi] : 0);
           gridSection[i] = (blockIds[pi] & 0x0FFF) | ((lv & 0xF) << 12);
           totalBlocks++;
           grid.totalBlocks++;
@@ -887,8 +907,12 @@ function buildMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
     }
     
     // Fluids - top surface only with greedy meshing
+    // Also handles waterlogged blocks (level == 8 marker for non-fluid blocks)
     const topWater = new Map();
     const topLava = new Map();
+    
+    // Get water block ID for coloring waterlogged water
+    const waterBlockId = registry.getBlockId('minecraft:water');
     
     for (let ly = 0; ly < S; ly++) {
       const sliceBase = ly * S2;
@@ -901,19 +925,28 @@ function buildMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
           if (value === 0) continue;
           
           const bid = value & BLOCK_ID_MASK;
+          const level = (value & LEVEL_MASK) >> LEVEL_SHIFT;
           const ft = isFluid[bid];
-          if (ft === 0) continue;
+          
+          // Check for waterlogged blocks: non-fluid blocks with level == 8
+          const isWaterlogged = (ft === 0 && level === 8);
+          
+          if (ft === 0 && !isWaterlogged) continue;
           
           const colKey = lx + lz * S;
-          const level = (value & LEVEL_MASK) >> LEVEL_SHIFT;
-          const h = level >= 8 ? 1.0 : (level > 0 ? Math.max(0.125, (14 - level * 1.5) / 16) : 0.875);
           
-          if (ft === 1) {
+          if (ft === 1 || isWaterlogged) {
+            // Water or waterlogged block
+            // For waterlogged, use source water height (0.875)
+            const h = isWaterlogged ? 0.875 : (level >= 8 ? 1.0 : (level > 0 ? Math.max(0.125, (14 - level * 1.5) / 16) : 0.875));
             const existing = topWater.get(colKey);
             if (!existing || worldY > existing.y) {
-              topWater.set(colKey, { y: worldY, ly, blockId: bid, height: h, lx, lz });
+              // Use water block ID for color if waterlogged
+              topWater.set(colKey, { y: worldY, ly, blockId: isWaterlogged ? waterBlockId : bid, height: h, lx, lz });
             }
-          } else {
+          } else if (ft === 2) {
+            // Lava
+            const h = level >= 8 ? 1.0 : (level > 0 ? Math.max(0.125, (14 - level * 1.5) / 16) : 0.875);
             const existing = topLava.get(colKey);
             if (!existing || worldY > existing.y) {
               topLava.set(colKey, { y: worldY, ly, blockId: bid, height: h, lx, lz });
@@ -923,12 +956,16 @@ function buildMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
       }
     }
     
-    // Check if topmost fluids are covered
+    // Check if topmost fluids are covered (by water, lava, or waterlogged blocks above)
     if (secTop) {
       for (const [colKey, data] of topWater) {
         if (data.ly === 15) {
-          const aboveBid = secTop[data.lz * S + data.lx] & BLOCK_ID_MASK;
-          if (isFluid[aboveBid] === 1) topWater.delete(colKey);
+          const aboveValue = secTop[data.lz * S + data.lx];
+          const aboveBid = aboveValue & BLOCK_ID_MASK;
+          const aboveLevel = (aboveValue & LEVEL_MASK) >> LEVEL_SHIFT;
+          // Remove if covered by water or waterlogged block above
+          const aboveIsWaterlogged = (isFluid[aboveBid] === 0 && aboveLevel === 8);
+          if (isFluid[aboveBid] === 1 || aboveIsWaterlogged) topWater.delete(colKey);
         }
       }
       for (const [colKey, data] of topLava) {

@@ -97,6 +97,13 @@ const AIR_BLOCKS = new Set([
   'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'air'
 ]);
 
+// Blocks that inherently exist in water and should always render water
+const UNDERWATER_BLOCKS = new Set([
+  'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
+  'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp', 
+  'minecraft:kelp_plant', 'minecraft:bubble_column'
+]);
+
 // Fast air check - avoid string operations in hot path
 function isAirBlockFast(name) {
   if (!name) return true;
@@ -105,12 +112,12 @@ function isAirBlockFast(name) {
 
 // Pre-process palette to extract block names, air mask, and fluid levels
 // Returns: { names: string[], airMask: Uint8Array, levels: Int8Array }
-// Level: -1 = not a fluid, 0-15 = fluid level (0=source, 1-7=flowing, 8-15=falling)
+// Level: -1 = not a fluid/waterlogged, 0-7 = fluid level (0=source, 1-7=flowing), 8 = waterlogged marker
 function preprocessPalette(palette) {
   const len = palette.length;
   const names = new Array(len);
   const airMask = new Uint8Array(len); // 1 = air, 0 = solid
-  const levels = new Int8Array(len); // -1 = not fluid, 0-15 = fluid level
+  const levels = new Int8Array(len); // -1 = not fluid, 0-15 = fluid level, 8 = waterlogged
   
   for (let i = 0; i < len; i++) {
     const entry = palette[i];
@@ -134,10 +141,19 @@ function preprocessPalette(palette) {
       } else if (isWater || isLava) {
         // Water/lava without level property = source block (level 0)
         levels[i] = 0;
+      } else if (props.waterlogged === 'true') {
+        // Waterlogged blocks use level 8 as a marker
+        levels[i] = 8;
+      } else if (UNDERWATER_BLOCKS.has(name)) {
+        // Blocks that inherently exist in water (seagrass, kelp, etc.)
+        levels[i] = 8;
       }
     } else if (isWater || isLava) {
       // Water/lava with no Properties = source block (level 0)
       levels[i] = 0;
+    } else if (UNDERWATER_BLOCKS.has(name)) {
+      // Blocks that inherently exist in water (seagrass, kelp, etc.)
+      levels[i] = 8;
     }
   }
   
