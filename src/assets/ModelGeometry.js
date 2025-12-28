@@ -123,15 +123,17 @@ class ModelGeometry {
         const faceStartVertex = vertexOffset / 3;
         const faceStartIndex = indexOffset;
 
-        // Compute rotated normal first (needed for z-fighting offset)
+        // Compute rotated normal first
         let nx = faceNormal[0], ny = faceNormal[1], nz = faceNormal[2];
         if (rotX !== 0 || rotY !== 0) {
           [nx, ny, nz] = this._applyRotation(nx, ny, nz, rotMatrix);
         }
 
-        // Small offset along normal to prevent z-fighting with adjacent blocks
-        // 0.001 blocks = ~1/16th of a pixel at typical view distances
-        const Z_FIGHT_OFFSET = 0.002;
+        // Only apply z-fighting offset to faces with cullface (flush with block boundary)
+        // These are the faces that can z-fight with adjacent full blocks
+        // Use a very small offset to avoid visible gaps
+        const hasCullface = !!faceData.cullface;
+        const Z_FIGHT_OFFSET = hasCullface ? 0.0005 : 0;
         const offsetX = nx * Z_FIGHT_OFFSET;
         const offsetY = ny * Z_FIGHT_OFFSET;
         const offsetZ = nz * Z_FIGHT_OFFSET;
@@ -156,7 +158,7 @@ class ModelGeometry {
             x += 0.5; y += 0.5; z += 0.5;
           }
 
-          // Apply z-fighting offset along normal
+          // Apply z-fighting offset along normal (only for cullface faces)
           positions[vertexOffset++] = x + offsetX;
           positions[vertexOffset++] = y + offsetY;
           positions[vertexOffset++] = z + offsetZ;
