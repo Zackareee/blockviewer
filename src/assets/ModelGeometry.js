@@ -200,10 +200,12 @@ class ModelGeometry {
 
   /**
    * Build 3x3 rotation matrix for X and Y rotations
+   * Minecraft uses clockwise rotation when viewed from the positive axis
    */
   _buildRotationMatrix(rotX, rotY) {
-    const radX = (rotX * Math.PI) / 180;
-    const radY = (rotY * Math.PI) / 180;
+    // Negate angles to convert from Minecraft's clockwise to standard CCW
+    const radX = (-rotX * Math.PI) / 180;
+    const radY = (-rotY * Math.PI) / 180;
     
     const cosX = Math.cos(radX), sinX = Math.sin(radX);
     const cosY = Math.cos(radY), sinY = Math.sin(radY);
@@ -282,16 +284,17 @@ class ModelGeometry {
 
   /**
    * Rotate a cullface direction
+   * Uses negated angles to match Minecraft's clockwise rotation convention
    */
   _rotateCullface(cullface, rotX, rotY) {
     // Map cullface to direction vector
     const dir = [...CULLFACE_OFFSETS[cullface]];
     
-    // Apply rotation
-    const radX = (rotX * Math.PI) / 180;
-    const radY = (rotY * Math.PI) / 180;
+    // Apply rotation (negate angles for Minecraft's clockwise convention)
+    const radX = (-rotX * Math.PI) / 180;
+    const radY = (-rotY * Math.PI) / 180;
     
-    // Rotate Y
+    // Rotate Y first
     if (rotY !== 0) {
       const cosY = Math.cos(radY), sinY = Math.sin(radY);
       const x = dir[0], z = dir[2];
@@ -299,7 +302,7 @@ class ModelGeometry {
       dir[2] = Math.round(-sinY * x + cosY * z);
     }
     
-    // Rotate X
+    // Rotate X second
     if (rotX !== 0) {
       const cosX = Math.cos(radX), sinX = Math.sin(radX);
       const y = dir[1], z = dir[2];
