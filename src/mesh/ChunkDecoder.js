@@ -7,8 +7,10 @@
  * - Pre-1.13: Blocks byte array
  */
 
-import { BinaryGrid, SECTION_SIZE, MIN_Y } from './BinaryGrid.js';
+import { BinaryGrid, SECTION_SIZE, MIN_Y, makeSectionKey } from './BinaryGrid.js';
 import { getBlockRegistry } from './BlockRegistry.js';
+import { BlockStateGrid } from './BlockStateGrid.js';
+import { isNonCubeBlock } from './ModelMesher.js';
 
 // Pre-computed BigInt bit offsets for common bitsPerBlock values (4-15)
 const BIT_OFFSETS = Array.from({ length: 16 }, (_, i) => 
@@ -78,18 +80,25 @@ function extractFluidLevel(entry) {
 }
 
 /**
- * Pre-process a palette into block IDs, air mask, and fluid levels
+ * Pre-process a palette into block IDs, air mask, fluid levels, and state info
  */
-function preprocessPalette(palette, registry) {
+function preprocessPalette(palette, registry, stateRegistry = null) {
   const len = palette.length;
   const blockIds = new Uint16Array(len);
   const isAir = new Uint8Array(len);
   const levels = new Int8Array(len);
+  const needsState = new Uint8Array(len);  // Track which entries need state storage
+  const stateIds = new Uint16Array(len);   // State IDs for non-cube blocks
+  const names = new Array(len);            // Block names for state lookup
+  const properties = new Array(len);       // Properties for each entry
   
   for (let i = 0; i < len; i++) {
     const entry = palette[i];
     const name = typeof entry === 'string' ? entry : (entry.Name || 'minecraft:air');
+    const props = (typeof entry === 'object' && entry.Properties) ? entry.Properties : null;
     
+    names[i] = name;
+    properties[i] = props;
     blockIds[i] = registry.getBlockId(name);
     isAir[i] = isAirBlock(name) ? 1 : 0;
     
@@ -99,15 +108,30 @@ function preprocessPalette(palette, registry) {
     } else {
       levels[i] = -1; // Not a fluid
     }
+    
+    // Check if this block needs state-based geometry
+    if (!isAir[i] && isNonCubeBlock(name)) {
+      needsState[i] = 1;
+      if (stateRegistry) {
+        stateIds[i] = stateRegistry.register(name, props || {});
+      }
+    }
   }
   
-  return { blockIds, isAir, levels };
+  return { blockIds, isAir, levels, needsState, stateIds, names, properties };
 }
 
 /**
  * Decode a single chunk section into the grid - OPTIMIZED
+ * @param {Object} section - NBT section data
+ * @param {number} chunkX - Chunk X coordinate
+ * @param {number} chunkZ - Chunk Z coordinate
+ * @param {BinaryGrid} grid - Block data grid
+ * @param {BlockRegistry} registry - Block registry
+ * @param {BlockStateGrid} stateGrid - Optional state grid for non-cube blocks
+ * @param {StateRegistry} stateRegistry - Optional state registry
  */
-function decodeSection(section, chunkX, chunkZ, grid, registry) {
+function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null, stateRegistry = null) {
   const sectionY = section.Y !== undefined ? Number(section.Y) : 0;
   // Minecraft section Y is already world-relative: section Y=-4 means world Y=-64
   const baseY = sectionY * SECTION_SIZE;
@@ -130,7 +154,11 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
     if (!palette || palette.length === 0) return 0;
     
     const blockData = blockStates.data;
-    const { blockIds, isAir, levels } = preprocessPalette(palette, registry);
+    const { blockIds, isAir, levels, needsState, stateIds } = preprocessPalette(palette, registry, stateRegistry);
+    
+    // Check if any palette entries need state storage
+    const hasNonCubeBlocks = stateGrid && needsState.some(v => v === 1);
+    const sectionKey = hasNonCubeBlocks ? makeSectionKey(chunkX, chunkZ, internalSectionY) : null;
     
     // Get or create section once (avoid repeated lookups)
     const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
@@ -146,6 +174,14 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
       // Fill entire section
       gridSection.fill(value);
       grid.totalBlocks += 4096;
+      
+      // If this single block type needs state, fill state grid too
+      if (hasNonCubeBlocks && needsState[0]) {
+        for (let i = 0; i < 4096; i++) {
+          stateGrid.setState(sectionKey, i, stateIds[0]);
+        }
+      }
+      
       return 4096;
     }
     
@@ -161,6 +197,11 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
         const level = levels[paletteIndex] >= 0 ? levels[paletteIndex] : 0;
         gridSection[i] = (blockIds[paletteIndex] & 0x0FFF) | ((level & 0xF) << 12);
         blocksDecoded++;
+        
+        // Store state ID for non-cube blocks
+        if (hasNonCubeBlocks && needsState[paletteIndex]) {
+          stateGrid.setState(sectionKey, i, stateIds[paletteIndex]);
+        }
       }
     }
     
@@ -175,7 +216,9 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
     
     if (palette.length === 0) return 0;
     
-    const { blockIds, isAir, levels } = preprocessPalette(palette, registry);
+    const { blockIds, isAir, levels, needsState, stateIds } = preprocessPalette(palette, registry, stateRegistry);
+    const hasNonCubeBlocks = stateGrid && needsState.some(v => v === 1);
+    const sectionKey = hasNonCubeBlocks ? makeSectionKey(chunkX, chunkZ, internalSectionY) : null;
     const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
     
     // Single block type section
@@ -188,6 +231,13 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
       
       gridSection.fill(value);
       grid.totalBlocks += 4096;
+      
+      if (hasNonCubeBlocks && needsState[0]) {
+        for (let i = 0; i < 4096; i++) {
+          stateGrid.setState(sectionKey, i, stateIds[0]);
+        }
+      }
+      
       return 4096;
     }
     
@@ -201,6 +251,10 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
         const level = levels[paletteIndex] >= 0 ? levels[paletteIndex] : 0;
         gridSection[i] = (blockIds[paletteIndex] & 0x0FFF) | ((level & 0xF) << 12);
         blocksDecoded++;
+        
+        if (hasNonCubeBlocks && needsState[paletteIndex]) {
+          stateGrid.setState(sectionKey, i, stateIds[paletteIndex]);
+        }
       }
     }
     
@@ -246,9 +300,11 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
  * @param {Object} chunk - Parsed chunk with { x, z, data }
  * @param {BinaryGrid} grid - Target grid
  * @param {BlockRegistry} registry - Block registry
+ * @param {BlockStateGrid} stateGrid - Optional state grid for non-cube blocks
+ * @param {StateRegistry} stateRegistry - Optional state registry
  * @returns {number} Number of blocks decoded
  */
-export function decodeChunk(chunk, grid, registry) {
+export function decodeChunk(chunk, grid, registry, stateGrid = null, stateRegistry = null) {
   const { x: chunkX, z: chunkZ, data } = chunk;
   
   // Get sections array
@@ -258,7 +314,7 @@ export function decodeChunk(chunk, grid, registry) {
   let totalBlocks = 0;
   
   for (const section of sections) {
-    totalBlocks += decodeSection(section, chunkX, chunkZ, grid, registry);
+    totalBlocks += decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid, stateRegistry);
   }
   
   return totalBlocks;
@@ -269,16 +325,18 @@ export function decodeChunk(chunk, grid, registry) {
  * @param {Array} chunks - Array of parsed chunks
  * @param {BlockRegistry} registry - Optional block registry (uses global if not provided)
  * @param {Function} onProgress - Optional progress callback (current, total)
+ * @param {BlockStateGrid} stateGrid - Optional state grid for non-cube blocks
+ * @param {StateRegistry} stateRegistry - Optional state registry
  * @returns {BinaryGrid} Populated grid
  */
-export function decodeRegion(chunks, registry = null, onProgress = null) {
+export function decodeRegion(chunks, registry = null, onProgress = null, stateGrid = null, stateRegistry = null) {
   const reg = registry || getBlockRegistry();
   const grid = new BinaryGrid();
   
   let totalBlocks = 0;
   
   for (let i = 0; i < chunks.length; i++) {
-    totalBlocks += decodeChunk(chunks[i], grid, reg);
+    totalBlocks += decodeChunk(chunks[i], grid, reg, stateGrid, stateRegistry);
     
     if (onProgress) {
       onProgress(i + 1, chunks.length);

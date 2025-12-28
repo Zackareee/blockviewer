@@ -22,6 +22,9 @@ function App() {
   
   // Region files for progressive loading
   const [regionFiles, setRegionFiles] = useState([]);
+  
+  // Model meshes toggle (non-cube blocks like slabs, stairs, flowers)
+  const [enableModelMeshes, setEnableModelMeshes] = useState(true);
 
   const handleBuildProgress = useCallback((current, total, isBuilding, message = '') => {
     setBuildProgress({ current, total, isBuilding, message });
@@ -149,6 +152,7 @@ function App() {
             regions={regionFiles}
             parseRegion={parseMCAFile}
             onBuildProgress={handleBuildProgress}
+            enableModelMeshes={enableModelMeshes}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -213,6 +217,23 @@ function App() {
             </div>
           )}
           {error && <div className="error-message">⚠️ {error}</div>}
+        </section>
+
+        {/* Render Options */}
+        <section className="panel-section">
+          <h3>Render Options</h3>
+          <label className="toggle-option">
+            <input 
+              type="checkbox"
+              checked={enableModelMeshes}
+              onChange={(e) => setEnableModelMeshes(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">{enableModelMeshes ? '🧱' : '◻️'}</span>
+              Model Blocks
+            </span>
+            <span className="toggle-hint">Slabs, stairs, flowers, etc.</span>
+          </label>
         </section>
 
         {/* Instructions */}

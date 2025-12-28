@@ -22,6 +22,7 @@
 // Core data structures
 export { BlockRegistry, BlockCategory, getBlockRegistry, resetBlockRegistry } from './BlockRegistry.js';
 export { BinaryGrid, SECTION_SIZE, MIN_Y, MAX_Y, worldYToSection, sectionToWorldY } from './BinaryGrid.js';
+export { BlockStateGrid } from './BlockStateGrid.js';
 
 // Decoding
 export { ChunkDecoder, decodeChunk, decodeRegion } from './ChunkDecoder.js';
@@ -29,6 +30,7 @@ export { ChunkDecoder, decodeChunk, decodeRegion } from './ChunkDecoder.js';
 // Meshing
 export { buildGridMeshes } from './FastMesher.js';
 export { buildGridMeshesParallel } from './ParallelMesher.js';
+export { buildModelMeshes, isNonCubeBlock, NON_CUBE_PATTERNS } from './ModelMesher.js';
 
 // Pipeline
 export { RegionMeshBuilder, buildRegionMeshes } from './RegionMeshBuilder.js';

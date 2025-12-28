@@ -52,11 +52,14 @@ export class ChunkManager {
     this.solidGroup = new THREE.Group();
     this.waterGroup = new THREE.Group();
     this.lavaGroup = new THREE.Group();
+    this.modelGroup = new THREE.Group(); // Non-cube blocks (slabs, stairs, flowers, etc.)
     this.waterGroup.renderOrder = 1;
     this.lavaGroup.renderOrder = 2;
+    this.modelGroup.renderOrder = 0; // Same as solid
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
     scene.add(this.lavaGroup);
+    scene.add(this.modelGroup);
     
     // Shared materials with Y-slice uniforms
     this.solidMaterial = createSolidMaterial();
@@ -67,6 +70,7 @@ export class ChunkManager {
     this.solidMeshes = [];
     this.waterMeshes = [];
     this.lavaMeshes = [];
+    this.modelMeshes = []; // Non-cube block meshes
     
     // Stats
     this.totalBlocks = 0;
@@ -334,19 +338,20 @@ export class ChunkManager {
     const meshBuilder = new RegionMeshBuilder();
     
     try {
-      const result = await meshBuilder.buildRegion(chunks, {});
-      const { solidMesh, waterMesh, lavaMesh, stats } = result;
+      const result = await meshBuilder.buildRegion(chunks, { enableModelMeshes: true });
+      const { solidMesh, waterMesh, lavaMesh, modelMesh, stats } = result;
       
       if (solidMesh) this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
       if (waterMesh) this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
       if (lavaMesh) this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+      if (modelMesh) this._addMeshesToScene(modelMesh, this.solidMaterial, this.modelGroup, this.modelMeshes);
       
       this.totalBlocks = stats.totalBlocks;
       this.loadedChunks = stats.chunksProcessed;
       this.loadedRegions = 1;
       
       const totalTime = performance.now() - startTime;
-      const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length;
+      const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.modelMeshes.length;
       
       console.log(
         `[ChunkManager] Loaded ${chunks.length} chunks, ` +
@@ -382,7 +387,7 @@ export class ChunkManager {
    */
   async loadRegionsProgressive(regionFiles, parseRegion, options = {}) {
     const startTime = performance.now();
-    const { onRegionStart, onRegionComplete, enableLOD = false } = options;
+    const { onRegionStart, onRegionComplete, enableLOD = false, enableModelMeshes = false } = options;
     
     this.clear();
     
@@ -434,11 +439,12 @@ export class ChunkManager {
         const result = await meshBuilder.buildRegion(offsetChunks, { 
           centerMesh: false,
           generateLOD: shouldGenerateLOD,
+          enableModelMeshes,
         });
         const meshTime = performance.now() - meshStart;
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, lodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, modelMesh, lodMeshes, stats } = result;
 
         let drawCalls = 0;
         let meshCenter = null;
@@ -473,6 +479,11 @@ export class ChunkManager {
           } else {
             drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
           }
+        }
+        
+        // Add model meshes (non-cube blocks like slabs, stairs, flowers)
+        if (modelMesh) {
+          drawCalls += this._addMeshesToScene(modelMesh, this.solidMaterial, this.modelGroup, this.modelMeshes);
         }
         
         // Clean up builder immediately to free memory
@@ -569,7 +580,7 @@ export class ChunkManager {
    */
   async addRegionsProgressive(regionFiles, parseRegion, options = {}) {
     const startTime = performance.now();
-    const { onRegionStart, onRegionComplete, enableLOD = false } = options;
+    const { onRegionStart, onRegionComplete, enableLOD = false, enableModelMeshes = false } = options;
     
     // Don't clear - keep existing meshes
     const totalRegions = regionFiles.length;
@@ -624,10 +635,11 @@ export class ChunkManager {
           centerMesh: false,
           forceSequential: isHighMemory, // Skip parallel mesher
           generateLOD: shouldGenerateLOD,
+          enableModelMeshes,
         });
         const meshTime = performance.now() - meshStart;
         
-        const { solidMesh, waterMesh, lavaMesh, lodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, modelMesh, lodMeshes, stats } = result;
         
         let drawCalls = 0;
         let meshCenter = null;
@@ -662,6 +674,11 @@ export class ChunkManager {
           } else {
             drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
           }
+        }
+        
+        // Add model meshes (non-cube blocks like slabs, stairs, flowers)
+        if (modelMesh) {
+          drawCalls += this._addMeshesToScene(modelMesh, this.solidMaterial, this.modelGroup, this.modelMeshes);
         }
         
         meshBuilder.dispose();
@@ -1213,6 +1230,12 @@ export class ChunkManager {
     }
     this.lavaMeshes = [];
     
+    for (const mesh of this.modelMeshes) {
+      this.modelGroup.remove(mesh);
+      this._disposeMeshOrLOD(mesh);
+    }
+    this.modelMeshes = [];
+    
     this.totalBlocks = 0;
     this.loadedChunks = 0;
     this.loadedRegions = 0;
@@ -1237,6 +1260,7 @@ export class ChunkManager {
     this.scene.remove(this.solidGroup);
     this.scene.remove(this.waterGroup);
     this.scene.remove(this.lavaGroup);
+    this.scene.remove(this.modelGroup);
   }
 
   /**
@@ -1257,13 +1281,17 @@ export class ChunkManager {
       const idx = mesh.geometry?.getIndex();
       if (idx) triangleCount += idx.count / 3;
     }
+    for (const mesh of this.modelMeshes) {
+      const idx = mesh.geometry?.getIndex();
+      if (idx) triangleCount += idx.count / 3;
+    }
     
     return {
       regionsLoaded: this.loadedRegions,
       chunksLoaded: this.loadedChunks,
       totalBlocks: this.totalBlocks,
       triangleCount,
-      meshCount: this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length,
+      meshCount: this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.modelMeshes.length,
     };
   }
 }

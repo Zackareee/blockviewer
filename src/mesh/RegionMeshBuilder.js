@@ -6,11 +6,14 @@
 
 import * as THREE from 'three';
 import { BinaryGrid } from './BinaryGrid.js';
+import { BlockStateGrid } from './BlockStateGrid.js';
 import { getBlockRegistry } from './BlockRegistry.js';
 import { decodeChunk } from './ChunkDecoder.js';
 import { buildGridMeshes } from './FastMesher.js';
 import { buildGridMeshesParallel } from './ParallelMesher.js';
 import { buildSimplifiedMesh } from './SimplifiedMesher.js';
+import { buildModelMeshes } from './ModelMesher.js';
+import { getStateRegistry } from '../assets/StateRegistry.js';
 
 // Check if SharedArrayBuffer is available
 const USE_PARALLEL = typeof SharedArrayBuffer !== 'undefined';
@@ -27,22 +30,30 @@ export class RegionMeshBuilder {
   /**
    * Build region from parsed chunks
    * @param {Array} chunks - Parsed chunk data
-   * @param {Object} options - { centerMesh, forceSequential, generateLOD }
+   * @param {Object} options - { centerMesh, forceSequential, generateLOD, enableModelMeshes }
    *   - centerMesh: if false, don't center mesh (for multi-region)
    *   - forceSequential: if true, skip parallel mesher (for memory conservation)
    *   - generateLOD: if true, also generate lower-detail meshes for distance viewing
+   *   - enableModelMeshes: if true, generate geometry for non-cube blocks (slabs, stairs, etc.)
    */
   async buildRegion(chunks, options = {}) {
-    const { centerMesh = true, forceSequential = false, generateLOD = false } = options;
+    const { 
+      centerMesh = true, 
+      forceSequential = false, 
+      generateLOD = false,
+      enableModelMeshes = false, // Disabled by default until fully tested
+    } = options;
     const startTime = performance.now();
     const stats = {
       decodeTimeMs: 0,
       meshTimeMs: 0,
+      modelMeshTimeMs: 0,
       totalBlocks: 0,
       chunksProcessed: 0,
       solidTriangles: 0,
       waterTriangles: 0,
       lavaTriangles: 0,
+      modelTriangles: 0,
     };
     
     // Phase 1: Decode chunks into binary grid
@@ -51,8 +62,17 @@ export class RegionMeshBuilder {
     const decodeStart = performance.now();
     const grid = new BinaryGrid();
     
+    // Create state grid for non-cube blocks (only if model meshes enabled)
+    const stateGrid = enableModelMeshes ? new BlockStateGrid() : null;
+    const stateRegistry = enableModelMeshes ? getStateRegistry() : null;
+    
+    // Initialize state registry if using model meshes
+    if (stateRegistry) {
+      await stateRegistry.init();
+    }
+    
     for (let i = 0; i < chunks.length; i++) {
-      decodeChunk(chunks[i], grid, this.registry);
+      decodeChunk(chunks[i], grid, this.registry, stateGrid, stateRegistry);
       stats.chunksProcessed++;
     }
     
@@ -120,6 +140,30 @@ export class RegionMeshBuilder {
     stats.waterTriangles = waterMesh?.triangleCount || 0;
     stats.lavaTriangles = lavaMesh?.triangleCount || 0;
     
+    // Phase 2b: Build model meshes for non-cube blocks (if enabled)
+    let modelMesh = null;
+    if (enableModelMeshes && stateGrid && stateGrid.stateCount > 0) {
+      this.onProgress?.('modelMeshing', 0, 100, 'Building model meshes...');
+      const modelStart = performance.now();
+      
+      try {
+        // Precompute geometry for all registered block states
+        await stateRegistry.precomputeAll();
+        
+        // Build model meshes using pre-computed geometry
+        modelMesh = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset);
+        
+        stats.modelMeshTimeMs = performance.now() - modelStart;
+        stats.modelTriangles = modelMesh?.triangleCount || 0;
+        
+        if (stats.modelTriangles > 0) {
+          console.log(`[RegionMeshBuilder] Model meshes: ${stats.modelTriangles.toLocaleString()} triangles in ${stats.modelMeshTimeMs.toFixed(0)}ms`);
+        }
+      } catch (err) {
+        console.warn('[RegionMeshBuilder] Model mesh generation failed:', err.message);
+      }
+    }
+    
     // Generate LOD meshes if requested - 4 levels of detail
     let lodMeshes = null;
     if (generateLOD && solidMesh) {
@@ -158,16 +202,19 @@ export class RegionMeshBuilder {
     
     this.onProgress?.('complete', 100, 100, 'Complete');
     
+    const totalTriangles = stats.solidTriangles + stats.waterTriangles + stats.lavaTriangles + stats.modelTriangles;
     console.log(
       `✅ Region built: ${stats.totalBlocks.toLocaleString()} blocks, ` +
-      `${stats.solidTriangles + stats.waterTriangles + stats.lavaTriangles} triangles ` +
-      `in ${(stats.totalTimeMs / 1000).toFixed(2)}s`
+      `${totalTriangles.toLocaleString()} triangles ` +
+      `in ${(stats.totalTimeMs / 1000).toFixed(2)}s` +
+      (stats.modelTriangles > 0 ? ` (${stats.modelTriangles.toLocaleString()} model)` : '')
     );
     
     return {
       solidMesh,
       waterMesh,
       lavaMesh,
+      modelMesh, // Non-cube block geometry (slabs, stairs, flowers, etc.)
       lodMeshes,
       offset,
       bounds,

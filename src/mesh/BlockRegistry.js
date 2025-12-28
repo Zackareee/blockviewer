@@ -61,6 +61,23 @@ export const BlockCategory = {
 // Import comprehensive block colors from data module
 import { getBlockColorsNumeric, COLOR_PATTERNS_NUMERIC } from '../data/blockColors.js';
 
+// Non-cube block patterns (blocks that need model-based rendering, not greedy meshing)
+const NON_CUBE_PATTERNS = [
+  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars',
+  'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',
+  'cornflower', 'lily_of_the_valley', 'wither_rose', 'sunflower', 'lilac', 'rose_bush',
+  'peony', 'torchflower', 'pitcher', 'short_grass', 'tall_grass', 'fern', 'large_fern',
+  'dead_bush', 'seagrass', 'tall_seagrass', 'kelp', '_sapling', 'mangrove_propagule',
+  'brown_mushroom', 'red_mushroom', 'wheat', 'carrots', 'potatoes', 'beetroots',
+  'sweet_berry_bush', 'melon_stem', 'pumpkin_stem', 'cocoa', '_rail', 'torch', 'soul_torch',
+  'redstone_torch', 'lantern', 'soul_lantern', 'chain', '_carpet', 'snow', '_button',
+  '_pressure_plate', '_sign', 'lever', 'ladder', 'vine', 'weeping_vines', 'twisting_vines',
+  'cave_vines', 'glow_lichen', 'coral', 'coral_fan', 'candle', 'sculk_vein', 'sculk_sensor',
+  'sculk_shrieker', 'dripleaf', 'flower_pot', 'potted_', 'campfire', 'soul_campfire',
+  'anvil', 'bell', 'grindstone', 'brewing_stand', 'cauldron', 'end_rod', 'lightning_rod',
+  'pointed_dripstone', 'amethyst_cluster', 'amethyst_bud', 'bamboo',
+];
+
 // Pre-defined block colors (hex values) - loaded from comprehensive color map
 const BLOCK_COLORS = getBlockColorsNumeric();
 
@@ -239,6 +256,16 @@ export class BlockRegistry {
   }
   
   /**
+   * Check if block ID is a non-cube (needs model-based rendering)
+   * @param {number} id - Block type ID
+   * @returns {boolean}
+   */
+  isNonCube(id) {
+    const info = this.idToInfo[id];
+    return info ? info.category === BlockCategory.CUSTOM : false;
+  }
+  
+  /**
    * Get RGB color components for a block ID
    * @param {number} id - Block type ID
    * @returns {{r: number, g: number, b: number}} - RGB values 0-1
@@ -261,6 +288,11 @@ export class BlockRegistry {
       return BlockCategory.FLUID;
     }
     
+    // Check for non-cube blocks (model-based rendering)
+    if (this._isNonCube(name)) {
+      return BlockCategory.CUSTOM;
+    }
+    
     // Check for transparent blocks
     for (const pattern of TRANSPARENT_BLOCKS) {
       if (name.includes(pattern)) {
@@ -269,6 +301,18 @@ export class BlockRegistry {
     }
     
     return BlockCategory.SOLID;
+  }
+  
+  /**
+   * Check if block is a non-cube (needs model-based rendering)
+   */
+  _isNonCube(name) {
+    for (const pattern of NON_CUBE_PATTERNS) {
+      if (name.includes(pattern)) {
+        return true;
+      }
+    }
+    return false;
   }
   
   /**

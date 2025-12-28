@@ -404,6 +404,52 @@ body {
 
 
 
+/* Toggle Options */
+.toggle-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.toggle-option:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+
+.toggle-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.toggle-icon {
+  font-size: 1rem;
+}
+
+.toggle-hint {
+  flex: 0 0 100%;
+  margin-left: 26px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 /* Instructions */
 .instructions {
   margin-top: auto;

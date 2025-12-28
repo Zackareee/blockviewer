@@ -16,6 +16,7 @@ const S3 = 4096;
 export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
   // Build lookup tables
   const isOpaque = new Uint8Array(4096);
+  const isNonCube = new Uint8Array(4096); // Non-cube blocks skip greedy meshing
   const colorR = new Float32Array(4096);
   const colorG = new Float32Array(4096);
   const colorB = new Float32Array(4096);
@@ -25,6 +26,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
     const info = registry.getBlockInfo(id);
     if (info) {
       isOpaque[id] = registry.isOpaque(id) ? 1 : 0;
+      isNonCube[id] = registry.isNonCube(id) ? 1 : 0;
       const col = registry.getColor(id);
       colorR[id] = col.r;
       colorG[id] = col.g;
@@ -168,7 +170,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
       const sliceBase = ly * S2;
       for (let j = 0; j < S2; j++) {
         const bid = section[sliceBase + j] & BLOCK_ID_MASK;
-        if (bid === 0 || !isOpaque[bid]) continue;
+        if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
         
         // Check neighbor above
         let nid = 0;
@@ -178,7 +180,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           nid = secTop[j] & BLOCK_ID_MASK;
         }
         
-        if (!isOpaque[nid]) {
+        if (!isOpaque[nid] || isNonCube[nid]) {
           mask[j] = bid;
           hasFaces = true;
         }
@@ -243,7 +245,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
       const sliceBase = ly * S2;
       for (let j = 0; j < S2; j++) {
         const bid = section[sliceBase + j] & BLOCK_ID_MASK;
-        if (bid === 0 || !isOpaque[bid]) continue;
+        if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
         
         let nid = 0;
         if (ly > 0) {
@@ -252,7 +254,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           nid = secBot[15 * S2 + j] & BLOCK_ID_MASK;
         }
         
-        if (!isOpaque[nid]) {
+        if (!isOpaque[nid] || isNonCube[nid]) {
           mask[j] = bid;
           hasFaces = true;
         }
@@ -316,7 +318,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         for (let lz = 0; lz < S; lz++) {
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid]) continue;
+          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
           
           let nid = 0;
           if (lx < 15) {
@@ -325,7 +327,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
             nid = secRight[ly * S2 + lz * S] & BLOCK_ID_MASK;
           }
           
-          if (!isOpaque[nid]) {
+          if (!isOpaque[nid] || isNonCube[nid]) {
             mask[ly * S + lz] = bid;
             hasFaces = true;
           }
@@ -390,7 +392,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         for (let lz = 0; lz < S; lz++) {
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid]) continue;
+          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
           
           let nid = 0;
           if (lx > 0) {
@@ -399,7 +401,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
             nid = secLeft[ly * S2 + lz * S + 15] & BLOCK_ID_MASK;
           }
           
-          if (!isOpaque[nid]) {
+          if (!isOpaque[nid] || isNonCube[nid]) {
             mask[ly * S + lz] = bid;
             hasFaces = true;
           }
@@ -464,7 +466,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         for (let lx = 0; lx < S; lx++) {
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid]) continue;
+          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
           
           let nid = 0;
           if (lz < 15) {
@@ -473,7 +475,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
             nid = secFront[ly * S2 + lx] & BLOCK_ID_MASK;
           }
           
-          if (!isOpaque[nid]) {
+          if (!isOpaque[nid] || isNonCube[nid]) {
             mask[ly * S + lx] = bid;
             hasFaces = true;
           }
@@ -538,7 +540,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         for (let lx = 0; lx < S; lx++) {
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid]) continue;
+          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
           
           let nid = 0;
           if (lz > 0) {
@@ -547,7 +549,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
             nid = secBack[ly * S2 + 15 * S + lx] & BLOCK_ID_MASK;
           }
           
-          if (!isOpaque[nid]) {
+          if (!isOpaque[nid] || isNonCube[nid]) {
             mask[ly * S + lx] = bid;
             hasFaces = true;
           }

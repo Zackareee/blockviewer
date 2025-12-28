@@ -78,6 +78,7 @@ function RegionScene({
   regions,
   parseRegion,
   enableLOD,
+  enableModelMeshes,
   onProgress, 
   onComplete,
   onStats 
@@ -89,6 +90,8 @@ function RegionScene({
   // Create ChunkManager once
   useEffect(() => {
     const manager = new ChunkManager(scene, {
+      // Disable streaming - progressive loading supports model meshes
+      useStreaming: false,
       onProgress: (loaded, total) => {
         onProgress?.(loaded, total, loaded < total, `Loading: ${loaded}/${total} regions`);
         invalidate(); // Request render on progress
@@ -193,6 +196,7 @@ function RegionScene({
           invalidate(); // Render after each region completes
         },
         enableLOD, // Pass through LOD setting
+        enableModelMeshes: true, // Always generate model meshes (toggle controls visibility)
       }).then(result => {
         const blocksLoaded = result.totalBlocks?.toLocaleString() || '?';
         if (isFreshLoad) {
@@ -239,6 +243,7 @@ function RegionScene({
           invalidate(); // Render after each region completes
         },
         enableLOD, // Pass through LOD setting
+        enableModelMeshes: true, // Always generate model meshes (toggle controls visibility)
       }).then(result => {
         const totalLoaded = isFreshLoad ? result.regionsLoaded : result.totalRegions;
         console.log(`[RegionViewer] ${isFreshLoad ? 'Loaded' : 'Now have'} ${totalLoaded} regions, ${result.totalBlocks?.toLocaleString() || '?'} blocks`);
@@ -258,6 +263,15 @@ function RegionScene({
     
   }, [regions, parseRegion, invalidate, enableLOD]);
   
+  // Toggle model meshes visibility
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager) return;
+    
+    manager.modelGroup.visible = enableModelMeshes;
+    invalidate(); // Re-render to show/hide model meshes
+  }, [enableModelMeshes, invalidate]);
+
   // Position camera at a specific target
   const positionCameraAt = useCallback((cx, cy, cz, chunkCount = 100) => {
     if (controlsRef.current) {
@@ -315,6 +329,7 @@ export function RegionViewer({
   regions,
   parseRegion,
   enableLOD = true,
+  enableModelMeshes = true,
   onBuildProgress = null,
   enablePerformanceMonitor = true,
   style = {}
@@ -352,6 +367,7 @@ export function RegionViewer({
         regions={regions}
         parseRegion={parseRegion}
         enableLOD={enableLOD}
+        enableModelMeshes={enableModelMeshes}
         onProgress={onBuildProgress}
         onComplete={() => console.log('[RegionViewer] Load complete')}
         onStats={handleStats}

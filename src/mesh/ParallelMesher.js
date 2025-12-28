@@ -15,6 +15,7 @@ const BLOCK_ID_MASK = 0x0FFF;
 let sharedGrid = null;
 let sectionOffsets = null;
 let isOpaque = null;
+let isNonCube = null;
 let colorR = null, colorG = null, colorB = null;
 
 self.onmessage = function(e) {
@@ -24,6 +25,7 @@ self.onmessage = function(e) {
     sharedGrid = new Uint16Array(data.gridBuffer);
     sectionOffsets = data.sectionOffsets;
     isOpaque = new Uint8Array(data.isOpaque);
+    isNonCube = new Uint8Array(data.isNonCube);
     colorR = new Float32Array(data.colorR);
     colorG = new Float32Array(data.colorG);
     colorB = new Float32Array(data.colorB);
@@ -82,13 +84,13 @@ function meshSections(sectionKeys, baseCoords, neighborKeys, offset) {
       
       for (let j = 0; j < S2; j++) {
         const bid = section[sliceBase + j] & BLOCK_ID_MASK;
-        if (bid === 0 || !isOpaque[bid]) continue;
+        if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
         
         let nid = 0;
         if (ly < 15) nid = section[sliceBase + S2 + j] & BLOCK_ID_MASK;
         else if (secTop) nid = secTop[j] & BLOCK_ID_MASK;
         
-        if (!isOpaque[nid]) { mask[j] = bid; hasFaces = true; }
+        if (!isOpaque[nid] || isNonCube[nid]) { mask[j] = bid; hasFaces = true; }
       }
       
       if (hasFaces) {
@@ -161,13 +163,13 @@ function meshSections(sectionKeys, baseCoords, neighborKeys, offset) {
       
       for (let j = 0; j < S2; j++) {
         const bid = section[sliceBase + j] & BLOCK_ID_MASK;
-        if (bid === 0 || !isOpaque[bid]) continue;
+        if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
         
         let nid = 0;
         if (ly > 0) nid = section[sliceBase - S2 + j] & BLOCK_ID_MASK;
         else if (secBot) nid = secBot[15 * S2 + j] & BLOCK_ID_MASK;
         
-        if (!isOpaque[nid]) { mask[j] = bid; hasFaces = true; }
+        if (!isOpaque[nid] || isNonCube[nid]) { mask[j] = bid; hasFaces = true; }
       }
       
       if (hasFaces) {
@@ -225,13 +227,13 @@ function meshSections(sectionKeys, baseCoords, neighborKeys, offset) {
         for (let lz = 0; lz < S; lz++) {
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid]) continue;
+          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
           
           let nid = 0;
           if (lx < 15) nid = section[idx + 1] & BLOCK_ID_MASK;
           else if (secRight) nid = secRight[ly * S2 + lz * S] & BLOCK_ID_MASK;
           
-          if (!isOpaque[nid]) { mask[ly * S + lz] = bid; hasFaces = true; }
+          if (!isOpaque[nid] || isNonCube[nid]) { mask[ly * S + lz] = bid; hasFaces = true; }
         }
       }
       
@@ -290,13 +292,13 @@ function meshSections(sectionKeys, baseCoords, neighborKeys, offset) {
         for (let lz = 0; lz < S; lz++) {
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid]) continue;
+          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
           
           let nid = 0;
           if (lx > 0) nid = section[idx - 1] & BLOCK_ID_MASK;
           else if (secLeft) nid = secLeft[ly * S2 + lz * S + 15] & BLOCK_ID_MASK;
           
-          if (!isOpaque[nid]) { mask[ly * S + lz] = bid; hasFaces = true; }
+          if (!isOpaque[nid] || isNonCube[nid]) { mask[ly * S + lz] = bid; hasFaces = true; }
         }
       }
       
@@ -355,13 +357,13 @@ function meshSections(sectionKeys, baseCoords, neighborKeys, offset) {
         for (let lx = 0; lx < S; lx++) {
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid]) continue;
+          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
           
           let nid = 0;
           if (lz < 15) nid = section[idx + S] & BLOCK_ID_MASK;
           else if (secFront) nid = secFront[ly * S2 + lx] & BLOCK_ID_MASK;
           
-          if (!isOpaque[nid]) { mask[ly * S + lx] = bid; hasFaces = true; }
+          if (!isOpaque[nid] || isNonCube[nid]) { mask[ly * S + lx] = bid; hasFaces = true; }
         }
       }
       
@@ -420,13 +422,13 @@ function meshSections(sectionKeys, baseCoords, neighborKeys, offset) {
         for (let lx = 0; lx < S; lx++) {
           const idx = ly * S2 + lz * S + lx;
           const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid]) continue;
+          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
           
           let nid = 0;
           if (lz > 0) nid = section[idx - S] & BLOCK_ID_MASK;
           else if (secBack) nid = secBack[ly * S2 + 15 * S + lx] & BLOCK_ID_MASK;
           
-          if (!isOpaque[nid]) { mask[ly * S + lx] = bid; hasFaces = true; }
+          if (!isOpaque[nid] || isNonCube[nid]) { mask[ly * S + lx] = bid; hasFaces = true; }
         }
       }
       
@@ -509,6 +511,7 @@ function createWorker() {
 export async function buildGridMeshesParallel(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
   // Build lookup tables
   const isOpaque = new Uint8Array(4096);
+  const isNonCube = new Uint8Array(4096);
   const colorR = new Float32Array(4096);
   const colorG = new Float32Array(4096);
   const colorB = new Float32Array(4096);
@@ -518,6 +521,7 @@ export async function buildGridMeshesParallel(grid, registry, offset = { x: 0, y
     const info = registry.getBlockInfo(id);
     if (info) {
       isOpaque[id] = registry.isOpaque(id) ? 1 : 0;
+      isNonCube[id] = registry.isNonCube(id) ? 1 : 0;
       const col = registry.getColor(id);
       colorR[id] = col.r;
       colorG[id] = col.g;
@@ -573,6 +577,7 @@ export async function buildGridMeshesParallel(grid, registry, offset = { x: 0, y
         gridBuffer,
         sectionOffsets,
         isOpaque: isOpaque.buffer,
+        isNonCube: isNonCube.buffer,
         colorR: colorR.buffer,
         colorG: colorG.buffer,
         colorB: colorB.buffer,
