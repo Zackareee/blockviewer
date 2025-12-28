@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "benchmark": "node benchmark.js",
     "test": "node test/mesh.test.js",
-    "test:update": "node test/mesh.test.js --update"
+    "test:update": "node test/mesh.test.js --update",
+    "test:e2e": "node test/e2e/regionDisplay.test.js",
+    "test:e2e:regression": "HEADLESS=1 node test/e2e/screenshotRegression.test.js",
+    "test:e2e:update-baseline": "HEADLESS=1 node test/e2e/screenshotRegression.test.js --update"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -29,6 +32,9 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "pixelmatch": "^6.0.0",
+    "pngjs": "^7.0.0",
+    "selenium-webdriver": "^4.27.0",
     "vite": "^7.2.4"
   }
 }
