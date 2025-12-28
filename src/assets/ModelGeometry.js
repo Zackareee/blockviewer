@@ -160,13 +160,13 @@ class ModelGeometry {
           normals[faceStartVertex * 3 + i * 3 + 2] = nz;
         }
 
-        // Generate indices (2 triangles)
+        // Generate indices (2 triangles) - CCW winding for front faces
         indices[indexOffset++] = faceStartVertex;
+        indices[indexOffset++] = faceStartVertex + 2;
         indices[indexOffset++] = faceStartVertex + 1;
-        indices[indexOffset++] = faceStartVertex + 2;
         indices[indexOffset++] = faceStartVertex;
-        indices[indexOffset++] = faceStartVertex + 2;
         indices[indexOffset++] = faceStartVertex + 3;
+        indices[indexOffset++] = faceStartVertex + 2;
 
         // Track cullface info
         let cullface = faceData.cullface || null;
