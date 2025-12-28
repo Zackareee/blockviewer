@@ -106,10 +106,19 @@ class ModelGeometry {
     // Build rotation matrix for block-level rotation
     const rotMatrix = this._buildRotationMatrix(rotX, rotY);
 
+    // Small offset to prevent z-fighting on thin blocks (in block units)
+    const THIN_FACE_OFFSET = 0.002;
+    const THIN_THRESHOLD = 0.02; // Elements thinner than this get offset
+
     for (const element of elements) {
       // Element bounds in [0-16] space, convert to [0-1]
       const from = element.from.map(v => v / 16);
       const to = element.to.map(v => v / 16);
+
+      // Calculate element thickness in each axis
+      const sizeX = Math.abs(to[0] - from[0]);
+      const sizeY = Math.abs(to[1] - from[1]);
+      const sizeZ = Math.abs(to[2] - from[2]);
 
       // Element-level rotation (optional)
       const elRot = element.rotation;
@@ -123,29 +132,30 @@ class ModelGeometry {
         const faceStartVertex = vertexOffset / 3;
         const faceStartIndex = indexOffset;
 
-        // Compute rotated normal first
-        let nx = faceNormal[0], ny = faceNormal[1], nz = faceNormal[2];
-        if (rotX !== 0 || rotY !== 0) {
-          [nx, ny, nz] = this._applyRotation(nx, ny, nz, rotMatrix);
+        // Determine if this face needs an offset to prevent z-fighting
+        // Thin elements that are nearly flush with block edges need a nudge
+        let offsetX = 0, offsetY = 0, offsetZ = 0;
+        
+        // Check if element is thin and near a block edge
+        if (sizeZ < THIN_THRESHOLD && (from[2] < THIN_THRESHOLD || to[2] > 1 - THIN_THRESHOLD)) {
+          // Thin in Z, near z=0 or z=1 edge - offset away from edge
+          offsetZ = from[2] < 0.5 ? THIN_FACE_OFFSET : -THIN_FACE_OFFSET;
         }
-
-        // Only apply z-fighting offset to faces with cullface (flush with block boundary)
-        // These are the faces that can z-fight with adjacent full blocks
-        // Use a very small offset to avoid visible gaps
-        const hasCullface = !!faceData.cullface;
-        const Z_FIGHT_OFFSET = hasCullface ? 0.0005 : 0;
-        const offsetX = nx * Z_FIGHT_OFFSET;
-        const offsetY = ny * Z_FIGHT_OFFSET;
-        const offsetZ = nz * Z_FIGHT_OFFSET;
+        if (sizeX < THIN_THRESHOLD && (from[0] < THIN_THRESHOLD || to[0] > 1 - THIN_THRESHOLD)) {
+          offsetX = from[0] < 0.5 ? THIN_FACE_OFFSET : -THIN_FACE_OFFSET;
+        }
+        if (sizeY < THIN_THRESHOLD && (from[1] < THIN_THRESHOLD || to[1] > 1 - THIN_THRESHOLD)) {
+          offsetY = from[1] < 0.5 ? THIN_FACE_OFFSET : -THIN_FACE_OFFSET;
+        }
 
         // Generate 4 vertices for this face
         for (let i = 0; i < 4; i++) {
           const template = faceVerts[i];
           
           // Interpolate within element bounds
-          let x = from[0] + template[0] * (to[0] - from[0]);
-          let y = from[1] + template[1] * (to[1] - from[1]);
-          let z = from[2] + template[2] * (to[2] - from[2]);
+          let x = from[0] + template[0] * (to[0] - from[0]) + offsetX;
+          let y = from[1] + template[1] * (to[1] - from[1]) + offsetY;
+          let z = from[2] + template[2] * (to[2] - from[2]) + offsetZ;
 
           // Apply element rotation
           if (elRot) {
@@ -158,13 +168,17 @@ class ModelGeometry {
             x += 0.5; y += 0.5; z += 0.5;
           }
 
-          // Apply z-fighting offset along normal (only for cullface faces)
-          positions[vertexOffset++] = x + offsetX;
-          positions[vertexOffset++] = y + offsetY;
-          positions[vertexOffset++] = z + offsetZ;
+          positions[vertexOffset++] = x;
+          positions[vertexOffset++] = y;
+          positions[vertexOffset++] = z;
         }
 
-        // Store normals for all 4 vertices
+        // Generate normal (rotated if needed)
+        let nx = faceNormal[0], ny = faceNormal[1], nz = faceNormal[2];
+        if (rotX !== 0 || rotY !== 0) {
+          [nx, ny, nz] = this._applyRotation(nx, ny, nz, rotMatrix);
+        }
+        
         for (let i = 0; i < 4; i++) {
           normals[faceStartVertex * 3 + i * 3] = nx;
           normals[faceStartVertex * 3 + i * 3 + 1] = ny;
