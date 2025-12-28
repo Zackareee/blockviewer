@@ -120,7 +120,7 @@ class BlockstateResolver {
       return this._resolveMultipart(lookup.get('__multipart__'), properties);
     }
 
-    // Variants format - build property string
+    // Variants format - build property string with ALL properties
     const propsStr = this._buildPropsString(properties);
     
     // Try exact match first
@@ -133,6 +133,15 @@ class BlockstateResolver {
       return lookup.get('');
     }
 
+    // No exact match - need to find best matching variant
+    // Blockstate JSON only includes properties that affect the model,
+    // but NBT includes ALL properties (like waterlogged)
+    // Find variant where all its required properties match our values
+    const bestMatch = this._findBestMatch(lookup, properties);
+    if (bestMatch) {
+      return bestMatch;
+    }
+
     // Fallback - return first variant
     const firstKey = lookup.keys().next().value;
     if (firstKey) {
@@ -141,6 +150,50 @@ class BlockstateResolver {
 
     // Ultimate fallback
     return [{ model: `block/${normalized}`, x: 0, y: 0, uvlock: false }];
+  }
+
+  /**
+   * Find the variant that best matches the given properties
+   * The blockstate JSON may use fewer properties than the NBT has
+   */
+  _findBestMatch(lookup, properties) {
+    for (const [variantKey, variants] of lookup) {
+      if (variantKey === '' || variantKey === '__multipart__') continue;
+      
+      // Parse the variant key into property requirements
+      const requiredProps = this._parsePropsString(variantKey);
+      
+      // Check if all required properties match
+      let matches = true;
+      for (const [key, value] of Object.entries(requiredProps)) {
+        if (String(properties[key]) !== String(value)) {
+          matches = false;
+          break;
+        }
+      }
+      
+      if (matches) {
+        return variants;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parse a property string back into an object
+   * "facing=east,half=bottom" -> {facing: "east", half: "bottom"}
+   */
+  _parsePropsString(propsStr) {
+    const result = {};
+    if (!propsStr) return result;
+    
+    for (const pair of propsStr.split(',')) {
+      const [key, value] = pair.split('=');
+      if (key && value !== undefined) {
+        result[key] = value;
+      }
+    }
+    return result;
   }
 
   /**
