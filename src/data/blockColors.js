@@ -1494,5 +1494,54 @@ export const COLOR_PATTERNS_NUMERIC = [
   { pattern: 'bars', color: 0x8A8A8A },
 ];
 
+/**
+ * Build a reverse lookup from RGB color to block name
+ * Uses the numeric color value as the key
+ */
+let colorToBlockCache = null;
+
+export function getBlockNameFromColor(r, g, b) {
+  // Build cache on first call
+  if (!colorToBlockCache) {
+    colorToBlockCache = new Map();
+    for (const [name, hexStr] of Object.entries(BLOCK_COLORS)) {
+      const hex = hexStr.replace('#', '');
+      const rgbHex = hex.substring(0, 6);
+      const colorNum = parseInt(rgbHex, 16);
+      // Only store first occurrence (prefer blocks without variants)
+      if (!colorToBlockCache.has(colorNum)) {
+        colorToBlockCache.set(colorNum, name);
+      }
+    }
+  }
+  
+  // Convert float RGB (0-1) to int (0-255) then to combined number
+  const ri = Math.round(r * 255);
+  const gi = Math.round(g * 255);
+  const bi = Math.round(b * 255);
+  const colorNum = (ri << 16) | (gi << 8) | bi;
+  
+  // Direct lookup
+  if (colorToBlockCache.has(colorNum)) {
+    return colorToBlockCache.get(colorNum);
+  }
+  
+  // Try finding closest color (within tolerance of 5)
+  const tolerance = 5;
+  for (const [storedColor, name] of colorToBlockCache) {
+    const sr = (storedColor >> 16) & 0xFF;
+    const sg = (storedColor >> 8) & 0xFF;
+    const sb = storedColor & 0xFF;
+    
+    if (Math.abs(ri - sr) <= tolerance && 
+        Math.abs(gi - sg) <= tolerance && 
+        Math.abs(bi - sb) <= tolerance) {
+      return name;
+    }
+  }
+  
+  return null;
+}
+
 export default BLOCK_COLORS;
 

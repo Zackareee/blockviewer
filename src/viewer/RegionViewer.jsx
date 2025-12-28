@@ -10,10 +10,12 @@
  * - On-demand rendering (only render when needed)
  */
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, AdaptiveDpr, PerformanceMonitor } from '@react-three/drei';
 import { ChunkManager } from './ChunkManager';
+import { getBlockNameFromColor } from '../data/blockColors';
+import * as THREE from 'three';
 
 /**
  * Adaptive pixel ratio component - reduces DPR when performance drops
@@ -71,6 +73,204 @@ function MovementRegression() {
 }
 
 /**
+ * Debug block highlight - shows red wireframe around hovered block
+ */
+function BlockHighlight({ position }) {
+  const boxRef = useRef();
+  
+  // Wireframe cube geometry (1x1x1 block)
+  const geometry = useMemo(() => new THREE.BoxGeometry(1.02, 1.02, 1.02), []);
+  const material = useMemo(() => new THREE.LineBasicMaterial({ 
+    color: 0xff0000, 
+    linewidth: 2,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.9
+  }), []);
+  const edges = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry]);
+  
+  if (!position) return null;
+  
+  return (
+    <lineSegments 
+      ref={boxRef}
+      position={[position.x + 0.5, position.y + 0.5, position.z + 0.5]}
+      geometry={edges}
+      material={material}
+      renderOrder={1000}
+    />
+  );
+}
+
+/**
+ * Debug mode hook - handles raycasting and block detection
+ * Uses aggressive throttling to prevent lag from expensive raycasting
+ */
+function useBlockHover(debugMode, onBlockHover) {
+  const { scene, camera, gl, invalidate } = useThree();
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const hoveredBlockRef = useRef(null);
+  const throttleRef = useRef(null);
+  const lastMousePos = useRef({ x: 0, y: 0 });
+  
+  // Very aggressive throttle - 150ms between raycasts
+  const THROTTLE_MS = 150;
+  
+  useEffect(() => {
+    if (!debugMode) {
+      // Clear hover state when debug mode is disabled
+      if (onBlockHover) onBlockHover(null);
+      hoveredBlockRef.current = null;
+      if (throttleRef.current) {
+        clearTimeout(throttleRef.current);
+        throttleRef.current = null;
+      }
+      return;
+    }
+    
+    const performRaycast = () => {
+      const mouse = new THREE.Vector2(lastMousePos.current.x, lastMousePos.current.y);
+      raycaster.setFromCamera(mouse, camera);
+      
+      // Only raycast against the main groups (solid, water, lava, model)
+      // Find them by looking for groups that are direct children of scene
+      const meshes = [];
+      scene.children.forEach(child => {
+        if (child.isGroup) {
+          child.traverse(obj => {
+            if (obj.isMesh && obj.geometry && obj.visible) {
+              meshes.push(obj);
+            }
+          });
+        }
+      });
+      
+      if (meshes.length === 0) return;
+      
+      const intersects = raycaster.intersectObjects(meshes, false);
+      
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const point = hit.point;
+        const normal = hit.face?.normal || new THREE.Vector3(0, 1, 0);
+        
+        // Convert to world-space normal
+        const worldNormal = normal.clone();
+        if (hit.object.matrixWorld) {
+          const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
+          worldNormal.applyMatrix3(normalMatrix).normalize();
+        }
+        
+        // Get block position (step slightly into the block)
+        const blockX = Math.floor(point.x - worldNormal.x * 0.01);
+        const blockY = Math.floor(point.y - worldNormal.y * 0.01);
+        const blockZ = Math.floor(point.z - worldNormal.z * 0.01);
+        
+        // Skip if same block
+        const prev = hoveredBlockRef.current;
+        if (prev && prev.x === blockX && prev.y === blockY && prev.z === blockZ) {
+          return;
+        }
+        
+        // Determine face name
+        let faceName = 'unknown';
+        const ax = Math.abs(worldNormal.x);
+        const ay = Math.abs(worldNormal.y);
+        const az = Math.abs(worldNormal.z);
+        
+        if (ax > ay && ax > az) {
+          faceName = worldNormal.x > 0 ? 'east (+X)' : 'west (-X)';
+        } else if (ay > ax && ay > az) {
+          faceName = worldNormal.y > 0 ? 'top (+Y)' : 'bottom (-Y)';
+        } else {
+          faceName = worldNormal.z > 0 ? 'south (+Z)' : 'north (-Z)';
+        }
+        
+        // Get vertex color and block type from color
+        let color = null;
+        let blockType = null;
+        
+        if (hit.object.geometry.attributes.color && hit.face) {
+          const colorAttr = hit.object.geometry.attributes.color;
+          const idx = hit.face.a;
+          if (idx * 3 + 2 < colorAttr.array.length) {
+            const r = colorAttr.array[idx * 3];
+            const g = colorAttr.array[idx * 3 + 1];
+            const b = colorAttr.array[idx * 3 + 2];
+            
+            color = { r, g, b };
+            
+            // Look up block name from vertex color
+            blockType = getBlockNameFromColor(r, g, b);
+          }
+        }
+        
+        
+        const blockInfo = {
+          x: blockX,
+          y: blockY,
+          z: blockZ,
+          face: faceName,
+          color,
+          blockType,
+          distance: hit.distance.toFixed(1)
+        };
+        
+        hoveredBlockRef.current = blockInfo;
+        if (onBlockHover) onBlockHover(blockInfo);
+        invalidate();
+      } else {
+        if (hoveredBlockRef.current) {
+          hoveredBlockRef.current = null;
+          if (onBlockHover) onBlockHover(null);
+          invalidate();
+        }
+      }
+    };
+    
+    const handleMouseMove = (event) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      lastMousePos.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      lastMousePos.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      
+      // Only schedule if not already scheduled
+      if (!throttleRef.current) {
+        throttleRef.current = setTimeout(() => {
+          throttleRef.current = null;
+          performRaycast();
+        }, THROTTLE_MS);
+      }
+    };
+    
+    const handleMouseLeave = () => {
+      if (throttleRef.current) {
+        clearTimeout(throttleRef.current);
+        throttleRef.current = null;
+      }
+      if (hoveredBlockRef.current) {
+        hoveredBlockRef.current = null;
+        if (onBlockHover) onBlockHover(null);
+        invalidate();
+      }
+    };
+    
+    gl.domElement.addEventListener('mousemove', handleMouseMove);
+    gl.domElement.addEventListener('mouseleave', handleMouseLeave);
+    
+    return () => {
+      gl.domElement.removeEventListener('mousemove', handleMouseMove);
+      gl.domElement.removeEventListener('mouseleave', handleMouseLeave);
+      if (throttleRef.current) {
+        clearTimeout(throttleRef.current);
+        throttleRef.current = null;
+      }
+    };
+  }, [debugMode, scene, camera, gl, raycaster, onBlockHover, invalidate]);
+  
+  return hoveredBlockRef.current;
+}
+
+/**
  * Inner scene component that manages the ChunkManager
  */
 function RegionScene({ 
@@ -79,6 +279,8 @@ function RegionScene({
   parseRegion,
   enableLOD,
   enableModelMeshes,
+  debugMode,
+  onBlockHover,
   onProgress, 
   onComplete,
   onStats 
@@ -293,6 +495,9 @@ function RegionScene({
     positionCameraAt(0, 64, 0, stats.chunksLoaded || 100);
   }, [positionCameraAt]);
   
+  // Debug mode block hover detection (uses color-based lookup)
+  const hoveredBlock = useBlockHover(debugMode, onBlockHover);
+  
   return (
     <>
       <OrbitControls 
@@ -309,6 +514,11 @@ function RegionScene({
       
       {/* Performance optimizations */}
       <MovementRegression />
+      
+      {/* Debug block highlight */}
+      {debugMode && hoveredBlock && (
+        <BlockHighlight position={hoveredBlock} />
+      )}
     </>
   );
 }
@@ -323,6 +533,8 @@ function RegionScene({
  * - enableLOD: Enable Level of Detail for distant regions (default: true)
  * - onBuildProgress: (current, total, isBuilding, message) => void
  * - enablePerformanceMonitor: Enable adaptive DPR based on performance (default: true)
+ * - debugMode: Enable debug mode for block inspection on hover (default: false)
+ * - onBlockHover: Callback when hovering over a block (receives block info or null)
  */
 export function RegionViewer({ 
   chunks, 
@@ -332,6 +544,8 @@ export function RegionViewer({
   enableModelMeshes = true,
   onBuildProgress = null,
   enablePerformanceMonitor = true,
+  debugMode = false,
+  onBlockHover = null,
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -368,6 +582,8 @@ export function RegionViewer({
         parseRegion={parseRegion}
         enableLOD={enableLOD}
         enableModelMeshes={enableModelMeshes}
+        debugMode={debugMode}
+        onBlockHover={onBlockHover}
         onProgress={onBuildProgress}
         onComplete={() => console.log('[RegionViewer] Load complete')}
         onStats={handleStats}

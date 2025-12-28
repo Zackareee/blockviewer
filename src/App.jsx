@@ -25,6 +25,10 @@ function App() {
   
   // Model meshes toggle (non-cube blocks like slabs, stairs, flowers)
   const [enableModelMeshes, setEnableModelMeshes] = useState(true);
+  
+  // Debug mode - shows block info on hover
+  const [debugMode, setDebugMode] = useState(false);
+  const [hoveredBlock, setHoveredBlock] = useState(null);
 
   const handleBuildProgress = useCallback((current, total, isBuilding, message = '') => {
     setBuildProgress({ current, total, isBuilding, message });
@@ -153,6 +157,8 @@ function App() {
             parseRegion={parseMCAFile}
             onBuildProgress={handleBuildProgress}
             enableModelMeshes={enableModelMeshes}
+            debugMode={debugMode}
+            onBlockHover={debugMode ? setHoveredBlock : null}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -234,7 +240,71 @@ function App() {
             </span>
             <span className="toggle-hint">Slabs, stairs, flowers, etc.</span>
           </label>
+          <label className="toggle-option" style={{ marginTop: '0.5rem' }}>
+            <input 
+              type="checkbox"
+              checked={debugMode}
+              onChange={(e) => setDebugMode(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">{debugMode ? '🔍' : '👁️'}</span>
+              Debug Mode
+            </span>
+            <span className="toggle-hint">Hover to inspect blocks</span>
+          </label>
         </section>
+        
+        {/* Debug Info Panel */}
+        {debugMode && (
+          <section className="panel-section debug-panel">
+            <h3>Block Inspector</h3>
+            {hoveredBlock ? (
+              <div className="debug-block-info">
+                {hoveredBlock.blockType && (
+                  <div className="debug-row debug-row-highlight">
+                    <span className="debug-label">Block</span>
+                    <span className="debug-value debug-block-name">
+                      {hoveredBlock.blockType.replace('minecraft:', '')}
+                    </span>
+                  </div>
+                )}
+                <div className="debug-row">
+                  <span className="debug-label">Position</span>
+                  <span className="debug-value">
+                    {hoveredBlock.x}, {hoveredBlock.y}, {hoveredBlock.z}
+                  </span>
+                </div>
+                <div className="debug-row">
+                  <span className="debug-label">Chunk</span>
+                  <span className="debug-value">
+                    {Math.floor(hoveredBlock.x / 16)}, {Math.floor(hoveredBlock.z / 16)}
+                  </span>
+                </div>
+                <div className="debug-row">
+                  <span className="debug-label">Face</span>
+                  <span className="debug-value">{hoveredBlock.face || 'N/A'}</span>
+                </div>
+                {hoveredBlock.color && (
+                  <div className="debug-row">
+                    <span className="debug-label">Color</span>
+                    <span className="debug-value debug-color-value">
+                      <span 
+                        className="debug-color-swatch" 
+                        style={{ backgroundColor: `rgb(${Math.round(hoveredBlock.color.r * 255)}, ${Math.round(hoveredBlock.color.g * 255)}, ${Math.round(hoveredBlock.color.b * 255)})` }}
+                      />
+                      RGB({Math.round(hoveredBlock.color.r * 255)}, {Math.round(hoveredBlock.color.g * 255)}, {Math.round(hoveredBlock.color.b * 255)})
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="debug-empty">
+                <span className="debug-empty-icon">🎯</span>
+                <p>Hover over a block to inspect</p>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Instructions */}
         <section className="panel-section instructions">

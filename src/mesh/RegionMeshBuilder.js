@@ -30,11 +30,12 @@ export class RegionMeshBuilder {
   /**
    * Build region from parsed chunks
    * @param {Array} chunks - Parsed chunk data
-   * @param {Object} options - { centerMesh, forceSequential, generateLOD, enableModelMeshes }
+   * @param {Object} options - { centerMesh, forceSequential, generateLOD, enableModelMeshes, returnGrid }
    *   - centerMesh: if false, don't center mesh (for multi-region)
    *   - forceSequential: if true, skip parallel mesher (for memory conservation)
    *   - generateLOD: if true, also generate lower-detail meshes for distance viewing
    *   - enableModelMeshes: if true, generate geometry for non-cube blocks (slabs, stairs, etc.)
+   *   - returnGrid: if true, return the grid for debug lookups (uses more memory)
    */
   async buildRegion(chunks, options = {}) {
     const { 
@@ -42,6 +43,7 @@ export class RegionMeshBuilder {
       forceSequential = false, 
       generateLOD = false,
       enableModelMeshes = false, // Disabled by default until fully tested
+      returnGrid = false,
     } = options;
     const startTime = performance.now();
     const stats = {
@@ -219,8 +221,8 @@ export class RegionMeshBuilder {
       offset,
       bounds,
       stats,
-      // Keep grid reference for potential LOD generation later
-      _grid: generateLOD ? null : grid,
+      // Keep grid reference for debug lookups or LOD generation
+      _grid: returnGrid ? grid : (generateLOD ? null : grid),
     };
   }
   

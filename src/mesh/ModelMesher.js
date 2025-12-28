@@ -9,6 +9,7 @@
 
 import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, sectionToWorldY, makeSectionKey, parseSectionKey } from './BinaryGrid.js';
 import { CULLFACE_OFFSETS } from '../assets/ModelGeometry.js';
+import { BlockCategory } from './BlockRegistry.js';
 
 // Initial buffer sizes (will grow as needed)
 const INITIAL_VERTEX_COUNT = 50000;
@@ -88,8 +89,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       const g = colorG[blockId];
       const b = colorB[blockId];
 
-      // Get neighbor data for face culling
-      const neighbors = getNeighborMask(grid, baseX + lx, baseY + ly, baseZ + lz);
+      // Get neighbor data for face culling (only cull against full opaque cubes)
+      const neighbors = getNeighborMask(grid, baseX + lx, baseY + ly, baseZ + lz, registry);
 
       // Add geometry from all variants
       for (const geom of geometries) {
@@ -168,15 +169,24 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
 /**
  * Get neighbor occupancy mask for face culling
  * Returns object with boolean for each direction
+ * Only returns true if neighbor is a full opaque cube (not air, transparent, or non-cube)
  */
-function getNeighborMask(grid, wx, wy, wz) {
+function getNeighborMask(grid, wx, wy, wz, registry) {
+  const isFullOpaqueCube = (id) => {
+    if (id === 0) return false;
+    const info = registry.getBlockInfo(id);
+    if (!info) return false;
+    // Only cull if neighbor is SOLID category (full opaque cubes)
+    return info.category === BlockCategory.SOLID && info.isOpaque;
+  };
+  
   return {
-    up: grid.getBlockId(wx, wy + 1, wz) !== 0,
-    down: grid.getBlockId(wx, wy - 1, wz) !== 0,
-    north: grid.getBlockId(wx, wy, wz - 1) !== 0,
-    south: grid.getBlockId(wx, wy, wz + 1) !== 0,
-    west: grid.getBlockId(wx - 1, wy, wz) !== 0,
-    east: grid.getBlockId(wx + 1, wy, wz) !== 0,
+    up: isFullOpaqueCube(grid.getBlockId(wx, wy + 1, wz)),
+    down: isFullOpaqueCube(grid.getBlockId(wx, wy - 1, wz)),
+    north: isFullOpaqueCube(grid.getBlockId(wx, wy, wz - 1)),
+    south: isFullOpaqueCube(grid.getBlockId(wx, wy, wz + 1)),
+    west: isFullOpaqueCube(grid.getBlockId(wx - 1, wy, wz)),
+    east: isFullOpaqueCube(grid.getBlockId(wx + 1, wy, wz)),
   };
 }
 

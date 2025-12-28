@@ -18,6 +18,8 @@ import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
+import { BinaryGrid } from '../mesh/BinaryGrid';
+import { getBlockRegistry } from '../mesh/BlockRegistry';
 
 // WebGL has a max index count limit (~30M). Use 25M to be safe.
 const MAX_INDICES_PER_DRAW = 25000000;
@@ -91,6 +93,72 @@ export class ChunkManager {
     
     // Use streaming by default (faster for most cases)
     this.useStreaming = options.useStreaming !== false;
+    
+    // Debug mode: block lookup grid (stores block IDs for position lookup)
+    // Only populated when enableDebugLookup is true
+    this.debugGrid = null;
+    this.blockRegistry = getBlockRegistry();
+  }
+  
+  /**
+   * Enable debug block lookup (stores block data for coordinate queries)
+   * Call this before loading regions if you need block info at coordinates
+   */
+  enableDebugLookup() {
+    if (!this.debugGrid) {
+      this.debugGrid = new BinaryGrid();
+    }
+  }
+  
+  /**
+   * Get block info at world coordinates (for debug mode)
+   * @returns {Object|null} { id, name, category } or null if no block
+   */
+  getBlockAt(worldX, worldY, worldZ) {
+    if (!this.debugGrid) return null;
+    
+    const blockData = this.debugGrid.getBlock(worldX, worldY, worldZ);
+    if (!blockData || blockData.blockId === 0) return null;
+    
+    const info = this.blockRegistry.getBlockInfo(blockData.blockId);
+    if (!info) return null;
+    
+    return {
+      id: blockData.blockId,
+      name: info.name,
+      category: info.category,
+    };
+  }
+  
+  /**
+   * Merge a source grid into the debug grid
+   * @param {BinaryGrid} sourceGrid - Grid to merge from
+   */
+  _mergeDebugGrid(sourceGrid) {
+    if (!this.debugGrid || !sourceGrid) return;
+    
+    // Iterate all sections in source grid and merge into debug grid
+    for (const [key, section] of sourceGrid.sections) {
+      // Parse key to get chunk coords
+      const [chunkX, chunkZ, sectionY] = key.split(',').map(Number);
+      
+      // Copy non-air blocks to debug grid
+      for (let i = 0; i < section.length; i++) {
+        if (section[i] !== 0) {
+          const localX = i % 16;
+          const localZ = Math.floor(i / 16) % 16;
+          const localY = Math.floor(i / 256);
+          
+          const blockId = section[i] & 0x0FFF;
+          const level = (section[i] >> 12) & 0xF;
+          
+          // Calculate world Y from section Y index
+          const worldY = (sectionY - 4) * 16 + localY; // sectionY is 0-based from MIN_Y=-64
+          
+          this.debugGrid.setBlockLocal(chunkX, chunkZ, localX, worldY, localZ, blockId, level);
+        }
+      }
+    }
   }
 
   /**
@@ -338,8 +406,16 @@ export class ChunkManager {
     const meshBuilder = new RegionMeshBuilder();
     
     try {
-      const result = await meshBuilder.buildRegion(chunks, { enableModelMeshes: true });
-      const { solidMesh, waterMesh, lavaMesh, modelMesh, stats } = result;
+      const result = await meshBuilder.buildRegion(chunks, { 
+        enableModelMeshes: true,
+        returnGrid: !!this.debugGrid,
+      });
+      const { solidMesh, waterMesh, lavaMesh, modelMesh, stats, _grid } = result;
+      
+      // Merge grid for debug lookups
+      if (_grid && this.debugGrid) {
+        this._mergeDebugGrid(_grid);
+      }
       
       if (solidMesh) this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
       if (waterMesh) this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
@@ -440,8 +516,14 @@ export class ChunkManager {
           centerMesh: false,
           generateLOD: shouldGenerateLOD,
           enableModelMeshes,
+          returnGrid: !!this.debugGrid,
         });
         const meshTime = performance.now() - meshStart;
+        
+        // Merge grid for debug lookups
+        if (result._grid && this.debugGrid) {
+          this._mergeDebugGrid(result._grid);
+        }
         
         // Step 3: Add to scene immediately (user sees progress)
         const { solidMesh, waterMesh, lavaMesh, modelMesh, lodMeshes, stats } = result;
@@ -636,8 +718,14 @@ export class ChunkManager {
           forceSequential: isHighMemory, // Skip parallel mesher
           generateLOD: shouldGenerateLOD,
           enableModelMeshes,
+          returnGrid: !!this.debugGrid,
         });
         const meshTime = performance.now() - meshStart;
+        
+        // Merge grid for debug lookups
+        if (result._grid && this.debugGrid) {
+          this._mergeDebugGrid(result._grid);
+        }
         
         const { solidMesh, waterMesh, lavaMesh, modelMesh, lodMeshes, stats } = result;
         
@@ -1239,6 +1327,11 @@ export class ChunkManager {
     this.totalBlocks = 0;
     this.loadedChunks = 0;
     this.loadedRegions = 0;
+    
+    // Clear debug grid
+    if (this.debugGrid) {
+      this.debugGrid.clear();
+    }
   }
 
   /**
