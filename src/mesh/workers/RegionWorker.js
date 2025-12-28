@@ -181,28 +181,17 @@ function parseMCABuffer(buffer) {
 }
 
 // ============================================================================
-// Block Registry (simplified for worker)
+// Block Registry (using comprehensive color map)
 // ============================================================================
 
-const BLOCK_COLORS = {
-  'stone': 0x808080, 'granite': 0x9A6C4C, 'diorite': 0xBFBFBF, 'andesite': 0x888888,
-  'deepslate': 0x4A4A4A, 'cobblestone': 0x7A7A7A, 'bedrock': 0x2A2A2A, 'tuff': 0x5A5A4A,
-  'dirt': 0x8B6C4C, 'grass_block': 0x5D8C32, 'sand': 0xE3D59E, 'gravel': 0x8A8A8A,
-  'coal_ore': 0x4A4A4A, 'iron_ore': 0xB8A090, 'copper_ore': 0xA67B5B, 'gold_ore': 0xFCEE4B,
-  'diamond_ore': 0x4AEDD9, 'emerald_ore': 0x17DD62, 'redstone_ore': 0xFF0000,
-  'water': 0x3F76E4, 'flowing_water': 0x3F76E4, 'lava': 0xFF6600, 'flowing_lava': 0xFF6600,
-  'oak_log': 0x8B7355, 'oak_leaves': 0x3A8B25, 'oak_planks': 0xBA9862,
-  'spruce_log': 0x4A3728, 'birch_log': 0xE8E4D5, 'clay': 0x9BA4AF,
-  'ice': 0x91B9FF, 'snow_block': 0xF0F0F0, 'netherrack': 0x8A3A3A, 'obsidian': 0x1A0A2A,
-};
+// Import comprehensive block colors
+import { getBlockColorsNumeric, COLOR_PATTERNS_NUMERIC } from '../../data/blockColors.js';
 
-const COLOR_PATTERNS = [
-  ['ore', 0x8A7A6A], ['log', 0x8B7355], ['wood', 0x8B7355], ['leaves', 0x3A8B25],
-  ['stone', 0x808080], ['dirt', 0x8B6C4C], ['sand', 0xE3D59E], ['grass', 0x5D8C32],
-  ['water', 0x3F76E4], ['lava', 0xFF6600], ['ice', 0x91B9FF], ['snow', 0xF0F0F0],
-  ['deepslate', 0x4A4A4A], ['copper', 0xC06040], ['iron', 0xD8D8D8], ['gold', 0xFCEE4B],
-  ['diamond', 0x4AEDD9], ['emerald', 0x17DD62], ['coal', 0x2A2A2A], ['planks', 0xBA9862],
-];
+// Load the comprehensive color map (1166 blocks)
+const BLOCK_COLORS = getBlockColorsNumeric();
+
+// Convert pattern format for worker usage
+const COLOR_PATTERNS = COLOR_PATTERNS_NUMERIC.map(({ pattern, color }) => [pattern, color]);
 
 const AIR_BLOCKS = new Set(['air', 'cave_air', 'void_air', 'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']);
 
