@@ -123,6 +123,19 @@ class ModelGeometry {
         const faceStartVertex = vertexOffset / 3;
         const faceStartIndex = indexOffset;
 
+        // Compute rotated normal first (needed for z-fighting offset)
+        let nx = faceNormal[0], ny = faceNormal[1], nz = faceNormal[2];
+        if (rotX !== 0 || rotY !== 0) {
+          [nx, ny, nz] = this._applyRotation(nx, ny, nz, rotMatrix);
+        }
+
+        // Small offset along normal to prevent z-fighting with adjacent blocks
+        // 0.001 blocks = ~1/16th of a pixel at typical view distances
+        const Z_FIGHT_OFFSET = 0.002;
+        const offsetX = nx * Z_FIGHT_OFFSET;
+        const offsetY = ny * Z_FIGHT_OFFSET;
+        const offsetZ = nz * Z_FIGHT_OFFSET;
+
         // Generate 4 vertices for this face
         for (let i = 0; i < 4; i++) {
           const template = faceVerts[i];
@@ -143,17 +156,13 @@ class ModelGeometry {
             x += 0.5; y += 0.5; z += 0.5;
           }
 
-          positions[vertexOffset++] = x;
-          positions[vertexOffset++] = y;
-          positions[vertexOffset++] = z;
+          // Apply z-fighting offset along normal
+          positions[vertexOffset++] = x + offsetX;
+          positions[vertexOffset++] = y + offsetY;
+          positions[vertexOffset++] = z + offsetZ;
         }
 
-        // Generate normal (rotated if needed)
-        let nx = faceNormal[0], ny = faceNormal[1], nz = faceNormal[2];
-        if (rotX !== 0 || rotY !== 0) {
-          [nx, ny, nz] = this._applyRotation(nx, ny, nz, rotMatrix);
-        }
-        
+        // Store normals for all 4 vertices
         for (let i = 0; i < 4; i++) {
           normals[faceStartVertex * 3 + i * 3] = nx;
           normals[faceStartVertex * 3 + i * 3 + 1] = ny;
