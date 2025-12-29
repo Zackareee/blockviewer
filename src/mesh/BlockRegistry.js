@@ -63,19 +63,138 @@ import { getBlockColorsNumeric, COLOR_PATTERNS_NUMERIC } from '../data/blockColo
 
 // Non-cube block patterns (blocks that need model-based rendering, not greedy meshing)
 const NON_CUBE_PATTERNS = [
+  // Slabs, stairs, fences, walls, doors, trapdoors
   '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars',
+  
+  // Flowers
   'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',
   'cornflower', 'lily_of_the_valley', 'wither_rose', 'sunflower', 'lilac', 'rose_bush',
-  'peony', 'torchflower', 'pitcher', 'short_grass', 'tall_grass', 'fern', 'large_fern',
-  'dead_bush', 'seagrass', 'tall_seagrass', 'kelp', '_sapling', 'mangrove_propagule',
-  'brown_mushroom', 'red_mushroom', 'wheat', 'carrots', 'potatoes', 'beetroots',
-  'sweet_berry_bush', 'melon_stem', 'pumpkin_stem', 'cocoa', '_rail', 'torch', 'soul_torch',
-  'redstone_torch', 'lantern', 'soul_lantern', 'chain', '_carpet', 'snow', '_button',
-  '_pressure_plate', '_sign', 'lever', 'ladder', 'vine', 'weeping_vines', 'twisting_vines',
-  'cave_vines', 'glow_lichen', 'coral', 'coral_fan', 'candle', 'sculk_vein', 'sculk_sensor',
-  'sculk_shrieker', 'dripleaf', 'flower_pot', 'potted_', 'campfire', 'soul_campfire',
+  'peony', 'torchflower', 'pitcher', 'pink_petals', 'spore_blossom', 'cactus_flower',
+  'eyeblossom', 'wildflowers',
+  
+  // Grass and plants
+  'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'bush',
+  'seagrass', 'tall_seagrass', 'kelp', 'sugar_cane', 'cactus', 'lily_pad',
+  'nether_sprouts', 'hanging_roots', 'short_dry_grass', 'tall_dry_grass', 'leaf_litter',
+  'pale_hanging_moss', 'firefly_bush',
+  
+  // Saplings
+  '_sapling', 'mangrove_propagule',
+  
+  // Note: Small mushrooms need a special check because their names overlap with mushroom_block
+  // We handle this in _isNonCube() with specific exact matching
+  
+  // Crops
+  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush', 'nether_wart',
+  'melon_stem', 'pumpkin_stem', 'cocoa',
+  
+  // Rails (covers rail, powered_rail, detector_rail, activator_rail)
+  'rail',
+  
+  // Torches and lighting
+  'torch', 'soul_torch', 'redstone_torch', 'lantern', 'soul_lantern',
+  
+  // Note: 'chain' is handled as exact match to avoid matching chain_command_block
+  
+  // Carpets and thin layers (note: 'snow' is exact match to avoid snow_block)
+  '_carpet', 'moss_carpet',
+  
+  // Buttons and pressure plates
+  '_button', '_pressure_plate',
+  
+  // Signs
+  '_sign',
+  
+  // Misc redstone and utility
+  'lever', 'ladder', 'tripwire', 'tripwire_hook', 'redstone_wire',
+  
+  // Vines and climbing plants
+  'vine', 'weeping_vines', 'twisting_vines', 'cave_vines', 'glow_lichen',
+  
+  // Coral fans (small corals like tube_coral are exact matched)
+  'coral_fan', 'coral_wall_fan',
+  
+  // Candles
+  'candle',
+  
+  // Sculk
+  'sculk_vein', 'sculk_sensor', 'sculk_shrieker', 'calibrated_sculk_sensor',
+  
+  // Dripleaf
+  'dripleaf',
+  
+  // Flower pots
+  'flower_pot', 'potted_',
+  
+  // Campfires
+  'campfire', 'soul_campfire',
+  
+  // Utility blocks with custom models
   'anvil', 'bell', 'grindstone', 'brewing_stand', 'cauldron', 'end_rod', 'lightning_rod',
-  'pointed_dripstone', 'amethyst_cluster', 'amethyst_bud', 'bamboo',
+  
+  // Dripstone and amethyst
+  'pointed_dripstone', 'amethyst_cluster', 'amethyst_bud',
+  
+  // Note: 'bamboo' is handled as exact match to avoid bamboo_block, bamboo_planks, etc.
+  
+  // Eggs
+  'turtle_egg', 'sniffer_egg', 'frogspawn', 'dragon_egg',
+  
+  // Chorus
+  'chorus_plant', 'chorus_flower',
+  
+  // Sea pickle
+  'sea_pickle',
+  
+  // Cake
+  'cake',
+  
+  // Decorated pot
+  'decorated_pot',
+  
+  // Heads and skulls
+  '_head', '_skull',
+  
+  // Cobweb
+  'cobweb',
+  
+  // Note: azalea and flowering_azalea are handled as exact matches to avoid matching azalea_leaves
+  
+  // Conduit
+  'conduit',
+  
+  // Resin clump
+  'resin_clump',
+  
+  // Beds
+  '_bed',
+  
+  // Enchanting table and lectern
+  'enchanting_table', 'lectern',
+  
+  // Chests
+  'chest', 'ender_chest', 'trapped_chest',
+  
+  // Piston head
+  'piston_head',
+  
+  // End portal frame
+  'end_portal_frame',
+  
+  // Banner
+  '_banner',
+  
+  // Redstone components with custom models
+  'comparator', 'repeater', 'daylight_detector',
+  
+  // Hopper and composter
+  'hopper', 'composter',
+  
+  // Scaffolding
+  'scaffolding',
+  
+  // Shulker boxes (not full cubes when open)
+  'shulker_box',
 ];
 
 // Pre-defined block colors (hex values) - loaded from comprehensive color map
@@ -307,6 +426,24 @@ export class BlockRegistry {
    * Check if block is a non-cube (needs model-based rendering)
    */
   _isNonCube(name) {
+    // Exact match blocks that would otherwise overlap with full cube variants
+    // e.g., 'brown_mushroom' vs 'brown_mushroom_block'
+    const EXACT_MATCH_NON_CUBES = new Set([
+      'brown_mushroom', 'red_mushroom',  // Small mushrooms (not _block variants)
+      'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
+      'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
+      'snow',                              // Snow layers (not snow_block)
+      'chain',                             // Chain item (not chain_command_block)
+      // Small corals (not coral_block variants)
+      'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
+      'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral', 'dead_fire_coral', 'dead_horn_coral',
+    ]);
+    
+    if (EXACT_MATCH_NON_CUBES.has(name)) {
+      return true;
+    }
+    
+    // Pattern-based matching for all other non-cube blocks
     for (const pattern of NON_CUBE_PATTERNS) {
       if (name.includes(pattern)) {
         return true;

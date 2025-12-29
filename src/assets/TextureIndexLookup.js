@@ -179,6 +179,35 @@ export class TextureIndexLookup {
   }
   
   /**
+   * Get texture index by texture path (for model-based rendering)
+   * @param {string} texturePath - Texture path like "block/sunflower_top"
+   * @returns {number} - Atlas texture index, or defaultIndex if not found
+   */
+  getIndexByPath(texturePath) {
+    if (!texturePath) return this.defaultIndex;
+    
+    // Normalize path
+    const normalized = texturePath.replace('minecraft:', '');
+    
+    // Try multiple path formats
+    const pathsToTry = [
+      normalized,                              // e.g., 'block/sunflower_top'
+      normalized.startsWith('block/') ? normalized.substring(6) : null, // e.g., 'sunflower_top'
+      `textures/${normalized}.png`,            // e.g., 'textures/block/sunflower_top.png'
+      `textures/${normalized}`,                // e.g., 'textures/block/sunflower_top'
+    ].filter(Boolean);
+    
+    for (const path of pathsToTry) {
+      const idx = this.texturePathToIndex.get(path);
+      if (idx !== undefined) {
+        return idx;
+      }
+    }
+    
+    return this.defaultIndex;
+  }
+  
+  /**
    * Get the raw indices array (for passing to workers)
    * @returns {Float32Array}
    */

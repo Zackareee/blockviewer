@@ -129,15 +129,22 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             indices = growArrayUint(indices, capacity * 2);
           }
 
-          // Determine face direction for texture lookup
-          // Use cullface if available, otherwise guess from the first face's geometry
-          let faceDir = FACE_UP; // Default
-          if (cullInfo.cullface && FACE_NAME_TO_INDEX[cullInfo.cullface] !== undefined) {
-            faceDir = FACE_NAME_TO_INDEX[cullInfo.cullface];
-          }
-          
           // Get texture index for this face
-          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(blockId, faceDir) : 0;
+          // Priority: 1. Use texture from model geometry, 2. Fall back to block ID lookup
+          let texIdx = 0;
+          if (textureIndexLookup) {
+            if (cullInfo.texture) {
+              // Use the texture path from the resolved model
+              texIdx = textureIndexLookup.getIndexByPath(cullInfo.texture);
+            } else {
+              // Fall back to block ID based lookup
+              let faceDir = FACE_UP; // Default
+              if (cullInfo.cullface && FACE_NAME_TO_INDEX[cullInfo.cullface] !== undefined) {
+                faceDir = FACE_NAME_TO_INDEX[cullInfo.cullface];
+              }
+              texIdx = textureIndexLookup.getIndex(blockId, faceDir);
+            }
+          }
 
           // Copy vertices for this face
           const startIdx = cullInfo.indexStart;
@@ -261,75 +268,164 @@ function growArrayUint(arr, newSize) {
  * These patterns match blocks with non-cube geometry
  */
 export const NON_CUBE_PATTERNS = [
-  // Slabs
-  '_slab',
-  // Stairs
-  '_stairs',
-  // Fences and walls
-  '_fence', '_wall',
-  // Doors and trapdoors
-  '_door', '_trapdoor',
-  // Glass panes and iron bars
-  '_pane', 'iron_bars',
-  // Plants and flowers
-  'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet',
-  'tulip', 'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
-  'sunflower', 'lilac', 'rose_bush', 'peony', 'torchflower', 'pitcher',
-  'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush',
-  'seagrass', 'tall_seagrass', 'kelp',
+  // Slabs, stairs, fences, walls, doors, trapdoors
+  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars',
+  
+  // Flowers
+  'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',
+  'cornflower', 'lily_of_the_valley', 'wither_rose', 'sunflower', 'lilac', 'rose_bush',
+  'peony', 'torchflower', 'pitcher', 'pink_petals', 'spore_blossom', 'cactus_flower',
+  'eyeblossom', 'wildflowers',
+  
+  // Grass and plants
+  'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'bush',
+  'seagrass', 'tall_seagrass', 'kelp', 'sugar_cane', 'cactus', 'lily_pad',
+  'nether_sprouts', 'hanging_roots', 'short_dry_grass', 'tall_dry_grass', 'leaf_litter',
+  'pale_hanging_moss', 'firefly_bush',
+  
   // Saplings
   '_sapling', 'mangrove_propagule',
-  // Mushrooms (not blocks)
-  'brown_mushroom', 'red_mushroom',
+  
+  // Note: Small mushrooms need a special check in the matching function
+  // because their names overlap with mushroom_block which IS a full cube
+  
   // Crops
-  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush',
+  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush', 'nether_wart',
   'melon_stem', 'pumpkin_stem', 'cocoa',
-  // Rails
-  '_rail',
-  // Torches
-  'torch', 'soul_torch', 'redstone_torch',
-  // Lanterns
-  'lantern', 'soul_lantern',
-  // Chains
-  'chain',
-  // Carpets
-  '_carpet',
-  // Snow
-  'snow',
+  
+  // Rails (covers rail, powered_rail, detector_rail, activator_rail)
+  'rail',
+  
+  // Torches and lighting
+  'torch', 'soul_torch', 'redstone_torch', 'lantern', 'soul_lantern',
+  
+  // Note: 'chain' is handled as exact match to avoid matching chain_command_block
+  
+  // Carpets and thin layers (note: 'snow' is exact match to avoid snow_block)
+  '_carpet', 'moss_carpet',
+  
   // Buttons and pressure plates
   '_button', '_pressure_plate',
+  
   // Signs
   '_sign',
-  // Levers
-  'lever',
-  // Ladders
-  'ladder',
-  // Vines
+  
+  // Misc redstone and utility
+  'lever', 'ladder', 'tripwire', 'tripwire_hook', 'redstone_wire',
+  
+  // Vines and climbing plants
   'vine', 'weeping_vines', 'twisting_vines', 'cave_vines', 'glow_lichen',
-  // Coral
-  'coral', 'coral_fan',
+  
+  // Coral fans (small corals like tube_coral are exact matched)
+  'coral_fan', 'coral_wall_fan',
+  
   // Candles
   'candle',
+  
   // Sculk
-  'sculk_vein', 'sculk_sensor', 'sculk_shrieker',
+  'sculk_vein', 'sculk_sensor', 'sculk_shrieker', 'calibrated_sculk_sensor',
+  
   // Dripleaf
   'dripleaf',
-  // Misc
+  
+  // Flower pots
   'flower_pot', 'potted_',
+  
+  // Campfires
   'campfire', 'soul_campfire',
-  'anvil', 'bell', 'grindstone',
-  'brewing_stand', 'cauldron',
-  'end_rod', 'lightning_rod',
-  'pointed_dripstone',
-  'amethyst_cluster', 'amethyst_bud',
-  'bamboo',
+  
+  // Utility blocks with custom models
+  'anvil', 'bell', 'grindstone', 'brewing_stand', 'cauldron', 'end_rod', 'lightning_rod',
+  
+  // Dripstone and amethyst
+  'pointed_dripstone', 'amethyst_cluster', 'amethyst_bud',
+  
+  // Note: 'bamboo' is handled as exact match to avoid bamboo_block, bamboo_planks, etc.
+  
+  // Eggs
+  'turtle_egg', 'sniffer_egg', 'frogspawn', 'dragon_egg',
+  
+  // Chorus
+  'chorus_plant', 'chorus_flower',
+  
+  // Sea pickle
+  'sea_pickle',
+  
+  // Cake
+  'cake',
+  
+  // Decorated pot
+  'decorated_pot',
+  
+  // Heads and skulls
+  '_head', '_skull',
+  
+  // Cobweb
+  'cobweb',
+  
+  // Note: azalea and flowering_azalea are handled as exact matches to avoid matching azalea_leaves
+  
+  // Conduit
+  'conduit',
+  
+  // Resin clump
+  'resin_clump',
+  
+  // Beds
+  '_bed',
+  
+  // Enchanting table and lectern
+  'enchanting_table', 'lectern',
+  
+  // Chests
+  'chest', 'ender_chest', 'trapped_chest',
+  
+  // Piston head
+  'piston_head',
+  
+  // End portal frame
+  'end_portal_frame',
+  
+  // Banner
+  '_banner',
+  
+  // Redstone components with custom models
+  'comparator', 'repeater', 'daylight_detector',
+  
+  // Hopper and composter
+  'hopper', 'composter',
+  
+  // Scaffolding
+  'scaffolding',
+  
+  // Shulker boxes (not full cubes when open)
+  'shulker_box',
 ];
+
+// Exact match blocks that would otherwise overlap with full cube variants
+const EXACT_MATCH_NON_CUBES = new Set([
+  'brown_mushroom', 'red_mushroom',  // Small mushrooms (not _block variants)
+  'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
+      'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
+      'snow',                              // Snow layers (not snow_block)
+      'chain',                             // Chain item (not chain_command_block)
+      // Small corals (not coral_block variants)
+      'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
+      'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral', 'dead_fire_coral', 'dead_horn_coral',
+    ]);
 
 /**
  * Check if a block name needs model-based rendering
  */
 export function isNonCubeBlock(blockName) {
   const name = blockName.replace('minecraft:', '');
+  
+  // Check exact matches first
+  if (EXACT_MATCH_NON_CUBES.has(name)) {
+    return true;
+  }
+  
+  // Pattern-based matching
   return NON_CUBE_PATTERNS.some(pattern => name.includes(pattern));
 }
 

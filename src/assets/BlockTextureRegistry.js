@@ -349,9 +349,111 @@ const TEXTURE_MAPPINGS = {
   // Simplified names
   'grass': 'block/short_grass',
   'short_grass': 'block/short_grass',
-  'tall_grass': 'block/tall_grass_top',
   'fern': 'block/fern',
+  
+  // Tall two-block plants - use top texture as it's more distinctive
+  // Note: These blocks have half=upper/lower variants in NBT
+  'tall_grass': 'block/tall_grass_top',
   'large_fern': 'block/large_fern_top',
+  'sunflower': 'block/sunflower_front',
+  'lilac': 'block/lilac_top',
+  'rose_bush': 'block/rose_bush_top',
+  'peony': 'block/peony_top',
+  'pitcher_plant': 'block/pitcher_crop_top',
+  'tall_seagrass': 'block/tall_seagrass_top',
+  
+  // Cross-model plants
+  'sugar_cane': 'block/sugar_cane',
+  'cactus': 'block/cactus_side',
+  'bamboo': 'block/bamboo_stalk',
+  'firefly_bush': 'block/firefly_bush',
+  
+  // Other non-cube blocks that need explicit mappings
+  'pink_petals': 'block/pink_petals',
+  'lily_pad': 'block/lily_pad',
+  'spore_blossom': 'block/spore_blossom',
+  'sea_pickle': 'block/sea_pickle',
+  'chorus_plant': 'block/chorus_plant',
+  'chorus_flower': 'block/chorus_flower',
+  'nether_sprouts': 'block/nether_sprouts',
+  'hanging_roots': 'block/hanging_roots',
+  'azalea': 'block/azalea_plant',
+  'flowering_azalea': 'block/flowering_azalea',
+  'cave_vines': 'block/cave_vines',
+  'cave_vines_plant': 'block/cave_vines_plant',
+  'glow_lichen': 'block/glow_lichen',
+  'sculk_vein': 'block/sculk_vein',
+  'cobweb': 'block/cobweb',
+  'dead_bush': 'block/dead_bush',
+  
+  // Crops
+  'wheat': 'block/wheat_stage7',
+  'carrots': 'block/carrots_stage3',
+  'potatoes': 'block/potatoes_stage3',
+  'beetroots': 'block/beetroots_stage3',
+  'nether_wart': 'block/nether_wart_stage2',
+  'sweet_berry_bush': 'block/sweet_berry_bush_stage3',
+  'torchflower': 'block/torchflower',
+  
+  // Redstone components
+  'redstone_wire': 'block/redstone_dust_line0',
+  'comparator': 'block/comparator',
+  'repeater': 'block/repeater',
+  
+  // Utility blocks
+  'cake': 'block/cake_side',
+  'composter': 'block/composter_side',
+  'hopper': 'block/hopper_outside',
+  
+  // Rails
+  'rail': 'block/rail',
+  'powered_rail': 'block/powered_rail',
+  'detector_rail': 'block/detector_rail',
+  'activator_rail': 'block/activator_rail',
+  
+  // Vines
+  'vine': 'block/vine',
+  'twisting_vines': 'block/twisting_vines',
+  'twisting_vines_plant': 'block/twisting_vines_plant',
+  'weeping_vines': 'block/weeping_vines',
+  'weeping_vines_plant': 'block/weeping_vines_plant',
+  
+  // Dripleaf
+  'big_dripleaf': 'block/big_dripleaf_top',
+  'big_dripleaf_stem': 'block/big_dripleaf_stem',
+  'small_dripleaf': 'block/small_dripleaf_top',
+  
+  // Snow layers
+  'snow': 'block/snow',
+  
+  // Moss
+  'moss_carpet': 'block/moss_block',
+  'pale_moss_carpet': 'block/pale_moss_block',
+  'pale_hanging_moss': 'block/pale_hanging_moss',
+  
+  // Other partial blocks  
+  'short_dry_grass': 'block/short_dry_grass',
+  'tall_dry_grass': 'block/tall_dry_grass',
+  'leaf_litter': 'block/leaf_litter',
+  'dragon_egg': 'block/dragon_egg',
+  'turtle_egg': 'block/turtle_egg',
+  'sniffer_egg': 'block/sniffer_egg',
+  'frogspawn': 'block/frogspawn',
+  'decorated_pot': 'block/decorated_pot_side',
+  'scaffolding': 'block/scaffolding_side',
+  'conduit': 'block/conduit',
+  'end_rod': 'block/end_rod',
+  'lightning_rod': 'block/lightning_rod',
+  
+  // Eyeblossoms
+  'open_eyeblossom': 'block/open_eyeblossom',
+  'closed_eyeblossom': 'block/closed_eyeblossom',
+  
+  // Crimson/Warped nether plants
+  'crimson_roots': 'block/crimson_roots',
+  'warped_roots': 'block/warped_roots',
+  'crimson_fungus': 'block/crimson_fungus',
+  'warped_fungus': 'block/warped_fungus',
   
   // Stone bricks
   'stone_bricks': 'block/stone_bricks',

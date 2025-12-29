@@ -44,9 +44,10 @@ const CULLFACE_OFFSETS = {
  * @property {Float32Array} positions - Vertex positions (3 floats per vertex)
  * @property {Float32Array} normals - Vertex normals (3 floats per vertex)
  * @property {Uint16Array} indices - Triangle indices
- * @property {Array} cullFaces - Per-face cullface info [{start, count, cullface}]
+ * @property {Array} cullFaces - Per-face cullface info [{start, count, cullface, texture}]
  * @property {number} vertexCount - Total vertices
  * @property {boolean} isFullCube - Whether this is a standard full cube
+ * @property {string|null} primaryTexture - The main texture used by this model (for non-cube blocks)
  */
 
 class ModelGeometry {
@@ -199,11 +200,18 @@ class ModelGeometry {
           cullface = this._rotateCullface(cullface, rotX, rotY);
         }
 
+        // Resolve texture reference for this face
+        let texturePath = null;
+        if (faceData.texture) {
+          texturePath = this._resolveTextureRef(faceData.texture, model.textures);
+        }
+
         cullFaces.push({
           faceIndex: faceIndex++,
           indexStart: faceStartIndex,
           indexCount: 6,
           cullface: cullface,
+          texture: texturePath,
         });
       }
     }
@@ -213,6 +221,15 @@ class ModelGeometry {
       elements[0].from[0] === 0 && elements[0].from[1] === 0 && elements[0].from[2] === 0 &&
       elements[0].to[0] === 16 && elements[0].to[1] === 16 && elements[0].to[2] === 16;
 
+    // Determine primary texture (first texture found, used for non-cube blocks)
+    let primaryTexture = null;
+    for (const face of cullFaces) {
+      if (face.texture) {
+        primaryTexture = face.texture;
+        break;
+      }
+    }
+
     return {
       positions: positions.subarray(0, vertexOffset),
       normals: normals.subarray(0, vertexOffset),
@@ -220,7 +237,30 @@ class ModelGeometry {
       cullFaces,
       vertexCount: vertexOffset / 3,
       isFullCube,
+      primaryTexture,
     };
+  }
+
+  /**
+   * Resolve a texture reference like "#cross" to the actual texture path
+   */
+  _resolveTextureRef(ref, textures) {
+    if (!ref) return null;
+    if (!ref.startsWith('#')) {
+      // Already a direct path
+      return ref.replace('minecraft:', '');
+    }
+    
+    const varName = ref.substring(1);
+    const resolved = textures?.[varName];
+    if (!resolved) return null;
+    
+    // Recursively resolve if it's another reference
+    if (resolved.startsWith('#')) {
+      return this._resolveTextureRef(resolved, textures);
+    }
+    
+    return resolved.replace('minecraft:', '');
   }
 
   /**
