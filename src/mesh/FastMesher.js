@@ -5,6 +5,9 @@
  */
 
 import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, sectionToWorldY, makeSectionKey, parseSectionKey } from './BinaryGrid.js';
+import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
+import { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT, AXIS_MASK } from './ChunkDecoder.js';
+import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
 
 const S = 16;
 const S2 = 256;
@@ -12,8 +15,19 @@ const S3 = 4096;
 
 /**
  * Build all meshes for a region
+ * @param {BinaryGrid} grid - The block grid
+ * @param {BlockRegistry} registry - Block registry
+ * @param {Object} offset - World offset { x, y, z }
+ * @param {Object} options - Optional parameters
+ * @param {TextureIndexLookup} options.textureIndexLookup - Texture atlas index lookup
  */
-export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) {
+export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
+  const { textureIndexLookup = null } = options;
+  
+  if (textureIndexLookup) {
+    console.log(`[FastMesher] Using textureIndexLookup with ${textureIndexLookup.registeredBlocks.size} blocks, tiles: ${textureIndexLookup.tilesPerRow}x${textureIndexLookup.tilesPerCol}`);
+  }
+  
   // Build lookup tables
   const isOpaque = new Uint8Array(4096);
   const isNonCube = new Uint8Array(4096); // Non-cube blocks skip greedy meshing
@@ -22,6 +36,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
   const colorB = new Float32Array(4096);
   const isFluid = new Uint8Array(4096);
   const isGlass = new Uint8Array(4096); // Glass and transparent blocks
+  const isRotatable = new Uint8Array(4096); // Blocks that support axis rotation
   
   for (let id = 0; id < 4096; id++) {
     const info = registry.getBlockInfo(id);
@@ -39,10 +54,90 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         else if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('tinted_glass')) {
           isGlass[id] = 1;
         }
+        // Check if this block is rotatable (logs, pillars, etc.)
+        if (isRotatableBlock(info.name)) {
+          isRotatable[id] = 1;
+        }
       }
     }
   }
   
+  /**
+   * Calculate texture rotation for a rotated block face
+   * @param {number} axis - Block axis: 0=y, 1=x, 2=z
+   * @param {number} faceDir - Face direction constant (FACE_UP, FACE_NORTH, etc.)
+   * @returns {number} UV rotation: 0=0°, 1=90°, 2=180°, 3=270°
+   */
+  function getTextureRotation(axis, faceDir) {
+    if (axis === AXIS_Y) {
+      return 0; // No rotation for default vertical orientation
+    }
+    
+    if (axis === AXIS_X) {
+      // Block is horizontal along X axis (east-west)
+      // East/West faces show the end texture (no rotation)
+      // Top/Bottom/North/South faces show side texture rotated 90°
+      if (faceDir === FACE_EAST || faceDir === FACE_WEST) {
+        return 0;
+      } else if (faceDir === FACE_UP || faceDir === FACE_DOWN) {
+        return 1; // 90° rotation
+      } else {
+        return 1; // North/South sides also rotated
+      }
+    }
+    
+    if (axis === AXIS_Z) {
+      // Block is horizontal along Z axis (north-south)
+      // North/South faces show the end texture (no rotation)
+      // Top/Bottom faces show side texture (no rotation needed)
+      // East/West faces show side texture rotated 90°
+      if (faceDir === FACE_NORTH || faceDir === FACE_SOUTH) {
+        return 0;
+      } else if (faceDir === FACE_EAST || faceDir === FACE_WEST) {
+        return 1; // 90° rotation
+      } else {
+        return 0; // Top/Bottom
+      }
+    }
+    
+    return 0;
+  }
+
+  /**
+   * Get the effective face direction for texture lookup on a rotated block
+   * Maps the actual face to the "logical" face for texture selection
+   * @param {number} axis - Block axis: 0=y, 1=x, 2=z
+   * @param {number} faceDir - Actual face direction
+   * @returns {number} Logical face for texture lookup
+   */
+  function getRotatedFace(axis, faceDir) {
+    if (axis === AXIS_Y) {
+      return faceDir; // No remapping for default orientation
+    }
+    
+    if (axis === AXIS_X) {
+      // Block is horizontal along X axis
+      // East/West are now the "end" faces (like top/bottom of upright block)
+      if (faceDir === FACE_EAST || faceDir === FACE_WEST) {
+        return FACE_UP; // Use top texture
+      } else {
+        return FACE_NORTH; // Use side texture
+      }
+    }
+    
+    if (axis === AXIS_Z) {
+      // Block is horizontal along Z axis
+      // North/South are now the "end" faces
+      if (faceDir === FACE_NORTH || faceDir === FACE_SOUTH) {
+        return FACE_UP; // Use top texture
+      } else {
+        return FACE_EAST; // Use side texture (east is side in our mapping)
+      }
+    }
+    
+    return faceDir;
+  }
+
   // Growable arrays - start small, expand as needed
   // This avoids large upfront allocations that can fail under memory pressure
   const INITIAL_SIZE = 100000; // Start with 100k triangles worth
@@ -52,6 +147,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
   let sPos = new Float32Array(INITIAL_SIZE * 12);
   let sNorm = new Float32Array(INITIAL_SIZE * 12);
   let sCol = new Float32Array(INITIAL_SIZE * 12);
+  let sTexIdx = new Float32Array(INITIAL_SIZE * 4); // Texture index per vertex
+  let sTexRot = new Float32Array(INITIAL_SIZE * 4); // Texture rotation per vertex (0-3 for 90° increments)
   let sIdx = new Uint32Array(INITIAL_SIZE * 6);
   let sVC = 0, sIC = 0;
   let sCapacity = INITIAL_SIZE;
@@ -76,6 +173,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
   let gPos = new Float32Array(INITIAL_SIZE * 0.2 * 12);
   let gNorm = new Float32Array(INITIAL_SIZE * 0.2 * 12);
   let gCol = new Float32Array(INITIAL_SIZE * 0.2 * 12);
+  let gTexIdx = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Texture index per vertex
+  let gTexRot = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Texture rotation per vertex
   let gIdx = new Uint32Array(INITIAL_SIZE * 0.2 * 6);
   let gVC = 0, gIC = 0;
   let gCapacity = Math.floor(INITIAL_SIZE * 0.2);
@@ -88,12 +187,16 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         const newPos = new Float32Array(newCap * 12);
         const newNorm = new Float32Array(newCap * 12);
         const newCol = new Float32Array(newCap * 12);
+        const newTexIdx = new Float32Array(newCap * 4);
+        const newTexRot = new Float32Array(newCap * 4);
         const newIdx = new Uint32Array(newCap * 6);
         newPos.set(sPos.subarray(0, sVC * 3));
         newNorm.set(sNorm.subarray(0, sVC * 3));
         newCol.set(sCol.subarray(0, sVC * 3));
+        newTexIdx.set(sTexIdx.subarray(0, sVC));
+        newTexRot.set(sTexRot.subarray(0, sVC));
         newIdx.set(sIdx.subarray(0, sIC));
-        sPos = newPos; sNorm = newNorm; sCol = newCol; sIdx = newIdx;
+        sPos = newPos; sNorm = newNorm; sCol = newCol; sTexIdx = newTexIdx; sTexRot = newTexRot; sIdx = newIdx;
         sCapacity = newCap;
       } else if (type === 'w') {
         const newCap = Math.floor(wCapacity * GROWTH_FACTOR);
@@ -124,12 +227,16 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
         const newPos = new Float32Array(newCap * 12);
         const newNorm = new Float32Array(newCap * 12);
         const newCol = new Float32Array(newCap * 12);
+        const newTexIdx = new Float32Array(newCap * 4);
+        const newTexRot = new Float32Array(newCap * 4);
         const newIdx = new Uint32Array(newCap * 6);
         newPos.set(gPos.subarray(0, gVC * 3));
         newNorm.set(gNorm.subarray(0, gVC * 3));
         newCol.set(gCol.subarray(0, gVC * 3));
+        newTexIdx.set(gTexIdx.subarray(0, gVC));
+        newTexRot.set(gTexRot.subarray(0, gVC));
         newIdx.set(gIdx.subarray(0, gIC));
-        gPos = newPos; gNorm = newNorm; gCol = newCol; gIdx = newIdx;
+        gPos = newPos; gNorm = newNorm; gCol = newCol; gTexIdx = newTexIdx; gTexRot = newTexRot; gIdx = newIdx;
         gCapacity = newCap;
       }
       return true;
@@ -251,10 +358,20 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           sPos[pi+6] = x + w; sPos[pi+7] = y; sPos[pi+8] = z;
           sPos[pi+9] = x; sPos[pi+10] = y; sPos[pi+11] = z;
           
+          // Extract axis from the first block of this quad
+          const blockIdx = ly * S2 + jj * S + ii;
+          const fullValue = section[blockIdx];
+          const axis = isRotatable[bid] ? ((fullValue >> AXIS_SHIFT) & 0x3) : AXIS_Y;
+          
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const rotatedFace = getRotatedFace(axis, FACE_UP);
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
+          const texRot = getTextureRotation(axis, FACE_UP);
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 1; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
+            sTexIdx[sVC + v] = texIdx;
+            sTexRot[sVC + v] = texRot;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -323,10 +440,20 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           sPos[pi+6] = x + w; sPos[pi+7] = y; sPos[pi+8] = z + h;
           sPos[pi+9] = x; sPos[pi+10] = y; sPos[pi+11] = z + h;
           
+          // Extract axis from the first block of this quad
+          const blockIdx = ly * S2 + jj * S + ii;
+          const fullValue = section[blockIdx];
+          const axis = isRotatable[bid] ? ((fullValue >> AXIS_SHIFT) & 0x3) : AXIS_Y;
+          
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const rotatedFace = getRotatedFace(axis, FACE_DOWN);
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
+          const texRot = getTextureRotation(axis, FACE_DOWN);
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = -1; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
+            sTexIdx[sVC + v] = texIdx;
+            sTexRot[sVC + v] = texRot;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -397,10 +524,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           sPos[pi+6] = x; sPos[pi+7] = y + h; sPos[pi+8] = z + w;
           sPos[pi+9] = x; sPos[pi+10] = y; sPos[pi+11] = z + w;
           
+          // Extract axis from the first block of this quad
+          // For X face: mask uses jj=Y, ii=Z, so blockIdx = jj*S2 + ii*S + lx
+          const blockIdx = jj * S2 + ii * S + lx;
+          const fullValue = section[blockIdx];
+          const axis = isRotatable[bid] ? ((fullValue >> AXIS_SHIFT) & 0x3) : AXIS_Y;
+          
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const rotatedFace = getRotatedFace(axis, FACE_EAST);
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
+          const texRot = getTextureRotation(axis, FACE_EAST);
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 1; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
+            sTexIdx[sVC + v] = texIdx;
+            sTexRot[sVC + v] = texRot;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -471,10 +609,20 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           sPos[pi+6] = x; sPos[pi+7] = y + h; sPos[pi+8] = z;
           sPos[pi+9] = x; sPos[pi+10] = y; sPos[pi+11] = z;
           
+          // Extract axis from the first block of this quad
+          const blockIdx = jj * S2 + ii * S + lx;
+          const fullValue = section[blockIdx];
+          const axis = isRotatable[bid] ? ((fullValue >> AXIS_SHIFT) & 0x3) : AXIS_Y;
+          
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const rotatedFace = getRotatedFace(axis, FACE_WEST);
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
+          const texRot = getTextureRotation(axis, FACE_WEST);
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = -1; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
+            sTexIdx[sVC + v] = texIdx;
+            sTexRot[sVC + v] = texRot;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -545,10 +693,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           sPos[pi+6] = x + w; sPos[pi+7] = y + h; sPos[pi+8] = z;
           sPos[pi+9] = x; sPos[pi+10] = y + h; sPos[pi+11] = z;
           
+          // Extract axis from the first block of this quad
+          // For Z face: mask uses jj=Y, ii=X, so blockIdx = jj*S2 + lz*S + ii
+          const blockIdx = jj * S2 + lz * S + ii;
+          const fullValue = section[blockIdx];
+          const axis = isRotatable[bid] ? ((fullValue >> AXIS_SHIFT) & 0x3) : AXIS_Y;
+          
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const rotatedFace = getRotatedFace(axis, FACE_SOUTH);
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
+          const texRot = getTextureRotation(axis, FACE_SOUTH);
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 1;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
+            sTexIdx[sVC + v] = texIdx;
+            sTexRot[sVC + v] = texRot;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -619,10 +778,20 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           sPos[pi+6] = x; sPos[pi+7] = y + h; sPos[pi+8] = z;
           sPos[pi+9] = x + w; sPos[pi+10] = y + h; sPos[pi+11] = z;
           
+          // Extract axis from the first block of this quad
+          const blockIdx = jj * S2 + lz * S + ii;
+          const fullValue = section[blockIdx];
+          const axis = isRotatable[bid] ? ((fullValue >> AXIS_SHIFT) & 0x3) : AXIS_Y;
+          
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const rotatedFace = getRotatedFace(axis, FACE_NORTH);
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
+          const texRot = getTextureRotation(axis, FACE_NORTH);
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = -1;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
+            sTexIdx[sVC + v] = texIdx;
+            sTexRot[sVC + v] = texRot;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -937,9 +1106,12 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           gPos[pi+9] = x; gPos[pi+10] = y; gPos[pi+11] = z;
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_UP) : 0;
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 1; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+            gTexIdx[gVC + v] = texIdx;
+            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1011,9 +1183,12 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           gPos[pi+9] = x; gPos[pi+10] = y; gPos[pi+11] = z + h;
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_DOWN) : 0;
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = -1; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+            gTexIdx[gVC + v] = texIdx;
+            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1087,9 +1262,12 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           gPos[pi+9] = x; gPos[pi+10] = y; gPos[pi+11] = z + w;
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_EAST) : 0;
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 1; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+            gTexIdx[gVC + v] = texIdx;
+            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1163,9 +1341,12 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           gPos[pi+9] = x; gPos[pi+10] = y; gPos[pi+11] = z;
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_WEST) : 0;
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = -1; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+            gTexIdx[gVC + v] = texIdx;
+            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1239,9 +1420,12 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           gPos[pi+9] = x; gPos[pi+10] = y + h; gPos[pi+11] = z;
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_SOUTH) : 0;
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 1;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+            gTexIdx[gVC + v] = texIdx;
+            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1315,9 +1499,12 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
           gPos[pi+9] = x + w; gPos[pi+10] = y + h; gPos[pi+11] = z;
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_NORTH) : 0;
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = -1;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
+            gTexIdx[gVC + v] = texIdx;
+            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1328,9 +1515,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
   }
   
   // Trim and return
-  const trimMesh = (pos, norm, col, idx, vc, ic) => {
+  const trimMesh = (pos, norm, col, idx, vc, ic, texIdx = null, texRot = null) => {
     if (vc === 0) return null;
-    return {
+    const result = {
       positions: pos.subarray(0, vc * 3),
       normals: norm.subarray(0, vc * 3),
       colors: col.subarray(0, vc * 3),
@@ -1338,13 +1525,20 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }) 
       vertexCount: vc,
       triangleCount: ic / 3,
     };
+    if (texIdx) {
+      result.texIndices = texIdx.subarray(0, vc);
+    }
+    if (texRot) {
+      result.texRotations = texRot.subarray(0, vc);
+    }
+    return result;
   };
   
   return {
-    solid: trimMesh(sPos, sNorm, sCol, sIdx, sVC, sIC),
+    solid: trimMesh(sPos, sNorm, sCol, sIdx, sVC, sIC, sTexIdx, sTexRot),
     water: trimMesh(wPos, wNorm, wCol, wIdx, wVC, wIC),
     lava: trimMesh(lPos, lNorm, lCol, lIdx, lVC, lIC),
-    glass: trimMesh(gPos, gNorm, gCol, gIdx, gVC, gIC),
+    glass: trimMesh(gPos, gNorm, gCol, gIdx, gVC, gIC, gTexIdx, gTexRot),
   };
 }
 

@@ -11,6 +11,15 @@ import { BinaryGrid, SECTION_SIZE, MIN_Y, makeSectionKey } from './BinaryGrid.js
 import { getBlockRegistry } from './BlockRegistry.js';
 import { BlockStateGrid } from './BlockStateGrid.js';
 import { isNonCubeBlock } from './ModelMesher.js';
+import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
+
+// Axis encoding for rotatable blocks (stored in bits 12-13 of block data)
+// Axis values: 0 = y (default), 1 = x, 2 = z
+export const AXIS_Y = 0;
+export const AXIS_X = 1;
+export const AXIS_Z = 2;
+export const AXIS_SHIFT = 12;
+export const AXIS_MASK = 0x3000; // Bits 12-13
 
 // Pre-computed BigInt bit offsets for common bitsPerBlock values (4-15)
 const BIT_OFFSETS = Array.from({ length: 16 }, (_, i) => 
@@ -87,13 +96,14 @@ function extractFluidLevel(entry) {
 }
 
 /**
- * Pre-process a palette into block IDs, air mask, fluid levels, and state info
+ * Pre-process a palette into block IDs, air mask, fluid levels, axis, and state info
  */
 function preprocessPalette(palette, registry, stateRegistry = null) {
   const len = palette.length;
   const blockIds = new Uint16Array(len);
   const isAir = new Uint8Array(len);
   const levels = new Int8Array(len);
+  const axisValues = new Uint8Array(len);  // Axis for rotatable blocks (0=y, 1=x, 2=z)
   const needsState = new Uint8Array(len);  // Track which entries need state storage
   const stateIds = new Uint16Array(len);   // State IDs for non-cube blocks
   const names = new Array(len);            // Block names for state lookup
@@ -126,6 +136,17 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
       }
     }
     
+    // Extract axis for rotatable blocks (logs, pillars, etc.)
+    if (isRotatableBlock(name) && props?.axis) {
+      if (props.axis === 'x') {
+        axisValues[i] = AXIS_X;
+      } else if (props.axis === 'z') {
+        axisValues[i] = AXIS_Z;
+      } else {
+        axisValues[i] = AXIS_Y; // Default or explicit 'y'
+      }
+    }
+    
     // Check if this block needs state-based geometry
     if (!isAir[i] && isNonCubeBlock(name)) {
       needsState[i] = 1;
@@ -135,7 +156,7 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
     }
   }
   
-  return { blockIds, isAir, levels, needsState, stateIds, names, properties };
+  return { blockIds, isAir, levels, axisValues, needsState, stateIds, names, properties };
 }
 
 /**
@@ -171,7 +192,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
     if (!palette || palette.length === 0) return 0;
     
     const blockData = blockStates.data;
-    const { blockIds, isAir, levels, needsState, stateIds } = preprocessPalette(palette, registry, stateRegistry);
+    const { blockIds, isAir, levels, axisValues, needsState, stateIds } = preprocessPalette(palette, registry, stateRegistry);
     
     // Check if any palette entries need state storage
     const hasNonCubeBlocks = stateGrid && needsState.some(v => v === 1);
@@ -185,8 +206,11 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
       if (isAir[0]) return 0;
       
       const blockId = blockIds[0];
+      // For rotatable blocks, encode axis in bits 12-13; for fluids, use level in bits 12-15
       const level = levels[0] >= 0 ? levels[0] : 0;
-      const value = (blockId & 0x0FFF) | ((level & 0xF) << 12);
+      const axis = axisValues[0];
+      const metadata = level >= 0 ? level : (axis << 0); // If it's a fluid, use level; otherwise axis
+      const value = (blockId & 0x0FFF) | ((axis & 0x3) << AXIS_SHIFT);
       
       // Fill entire section
       gridSection.fill(value);
@@ -211,8 +235,24 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
       const paletteIndex = indices[i];
       
       if (paletteIndex < palette.length && !isAir[paletteIndex]) {
-        const level = levels[paletteIndex] >= 0 ? levels[paletteIndex] : 0;
-        gridSection[i] = (blockIds[paletteIndex] & 0x0FFF) | ((level & 0xF) << 12);
+        const blockId = blockIds[paletteIndex];
+        const level = levels[paletteIndex];
+        const axis = axisValues[paletteIndex];
+        
+        // Encode metadata in bits 12-15:
+        // - For fluids: level (0-15)
+        // - For rotatable blocks: axis (0-2) in bits 12-13
+        // - For other blocks: 0
+        let metadata;
+        if (level >= 0) {
+          metadata = level; // Fluid level
+        } else if (axis > 0) {
+          metadata = axis; // Axis value (1=x, 2=z; 0=y is default)
+        } else {
+          metadata = 0;
+        }
+        
+        gridSection[i] = (blockId & 0x0FFF) | ((metadata & 0xF) << 12);
         blocksDecoded++;
         
         // Store state ID for non-cube blocks
@@ -233,7 +273,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
     
     if (palette.length === 0) return 0;
     
-    const { blockIds, isAir, levels, needsState, stateIds } = preprocessPalette(palette, registry, stateRegistry);
+    const { blockIds, isAir, levels, axisValues, needsState, stateIds } = preprocessPalette(palette, registry, stateRegistry);
     const hasNonCubeBlocks = stateGrid && needsState.some(v => v === 1);
     const sectionKey = hasNonCubeBlocks ? makeSectionKey(chunkX, chunkZ, internalSectionY) : null;
     const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
@@ -243,8 +283,10 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
       if (isAir[0]) return 0;
       
       const blockId = blockIds[0];
-      const level = levels[0] >= 0 ? levels[0] : 0;
-      const value = (blockId & 0x0FFF) | ((level & 0xF) << 12);
+      const level = levels[0];
+      const axis = axisValues[0];
+      const metadata = level >= 0 ? level : (axis > 0 ? axis : 0);
+      const value = (blockId & 0x0FFF) | ((metadata & 0xF) << 12);
       
       gridSection.fill(value);
       grid.totalBlocks += 4096;
@@ -265,8 +307,12 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
       const paletteIndex = indices[i];
       
       if (paletteIndex < palette.length && !isAir[paletteIndex]) {
-        const level = levels[paletteIndex] >= 0 ? levels[paletteIndex] : 0;
-        gridSection[i] = (blockIds[paletteIndex] & 0x0FFF) | ((level & 0xF) << 12);
+        const blockId = blockIds[paletteIndex];
+        const level = levels[paletteIndex];
+        const axis = axisValues[paletteIndex];
+        const metadata = level >= 0 ? level : (axis > 0 ? axis : 0);
+        
+        gridSection[i] = (blockId & 0x0FFF) | ((metadata & 0xF) << 12);
         blocksDecoded++;
         
         if (hasNonCubeBlocks && needsState[paletteIndex]) {

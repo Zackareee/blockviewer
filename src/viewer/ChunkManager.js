@@ -13,10 +13,11 @@
  */
 
 import * as THREE from 'three';
-import { createSolidMaterial, createModelMaterial } from './materials/SolidMaterial';
+// SolidMaterial no longer used - using TexturedMaterial for all blocks
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { createGlassMaterial } from './materials/GlassMaterial';
+import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, updateMaterialAtlas, setMaterialTextureMode } from './materials/TexturedMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
@@ -51,6 +52,10 @@ export class ChunkManager {
     this.onProgress = options.onProgress || null;
     this.onComplete = options.onComplete || null;
     
+    // Texture mode: 'solid', 'default', or 'custom'
+    this.textureMode = options.textureMode || 'solid';
+    this.textureAtlas = options.textureAtlas || null;
+    
     // Three.js groups (added to scene)
     this.solidGroup = new THREE.Group();
     this.waterGroup = new THREE.Group();
@@ -67,12 +72,17 @@ export class ChunkManager {
     scene.add(this.glassGroup);
     scene.add(this.modelGroup);
     
+    // Create materials based on texture mode
+    // When textures are enabled, use textured materials that can fall back to vertex colors
+    const useTextures = this.textureMode !== 'solid' && this.textureAtlas;
+    
     // Shared materials with Y-slice uniforms
-    this.solidMaterial = createSolidMaterial();
-    this.waterMaterial = createWaterMaterial();
-    this.lavaMaterial = createLavaMaterial();
-    this.glassMaterial = createGlassMaterial();
-    this.modelMaterial = createModelMaterial(); // For non-cube blocks with polygon offset
+    // Use textured material that supports both textures and vertex colors
+    this.solidMaterial = createTexturedMaterial(this.textureAtlas, useTextures);
+    this.waterMaterial = createWaterMaterial(); // Water uses its own animated shader
+    this.lavaMaterial = createLavaMaterial(); // Lava uses its own animated shader
+    this.glassMaterial = createTexturedGlassMaterial(this.textureAtlas, useTextures);
+    this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures); // Non-cube blocks with polygon offset
     
     // Current meshes (arrays to support split meshes)
     this.solidMeshes = [];
@@ -105,6 +115,40 @@ export class ChunkManager {
     // Only populated when enableDebugLookup is true
     this.debugGrid = null;
     this.blockRegistry = getBlockRegistry();
+  }
+  
+  /**
+   * Set texture mode and update materials
+   * @param {string} mode - 'solid', 'default', or 'custom'
+   * @param {Object|THREE.Texture} atlasData - Material data { atlas, size, textureIndexLookup } or legacy texture
+   */
+  setTextureMode(mode, atlasData) {
+    this.textureMode = mode;
+    this.textureAtlas = atlasData;
+    
+    const useTextures = mode !== 'solid' && atlasData && atlasData.atlas;
+    
+    // Update solid material
+    updateMaterialAtlas(this.solidMaterial, atlasData);
+    setMaterialTextureMode(this.solidMaterial, useTextures);
+    
+    // Update glass material
+    updateMaterialAtlas(this.glassMaterial, atlasData);
+    setMaterialTextureMode(this.glassMaterial, useTextures);
+    
+    // Update model material (slabs, stairs, etc.)
+    updateMaterialAtlas(this.modelMaterial, atlasData);
+    setMaterialTextureMode(this.modelMaterial, useTextures);
+    
+    console.log(`[ChunkManager] Texture mode: ${mode}, using textures: ${useTextures}`);
+  }
+  
+  /**
+   * Get the current texture index lookup (or null if not using textures)
+   */
+  getTextureIndexLookup() {
+    if (this.textureMode === 'solid' || !this.textureAtlas) return null;
+    return this.textureAtlas.textureIndexLookup || null;
   }
   
   /**
@@ -197,7 +241,10 @@ export class ChunkManager {
       return meshData ? [meshData] : [];
     }
     
-    const { positions, normals, colors, indices } = meshData;
+    const { positions, normals, colors, indices, texIndices, texRotations } = meshData;
+    const hasTexIndices = !!texIndices;
+    const hasTexRotations = !!texRotations;
+    
     const chunks = [];
     const indicesPerChunk = Math.floor(MAX_INDICES_PER_DRAW / 6) * 6;
     
@@ -207,6 +254,8 @@ export class ChunkManager {
       const chunkPositions = [];
       const chunkNormals = [];
       const chunkColors = [];
+      const chunkTexIndices = hasTexIndices ? [] : null;
+      const chunkTexRotations = hasTexRotations ? [] : null;
       const vertexMap = new Map();
       let newVertexIndex = 0;
       
@@ -220,20 +269,27 @@ export class ChunkManager {
           chunkPositions.push(positions[pos], positions[pos + 1], positions[pos + 2]);
           chunkNormals.push(normals[pos], normals[pos + 1], normals[pos + 2]);
           chunkColors.push(colors[pos], colors[pos + 1], colors[pos + 2]);
+          if (hasTexIndices) chunkTexIndices.push(texIndices[oldIdx]);
+          if (hasTexRotations) chunkTexRotations.push(texRotations[oldIdx]);
           vertexMap.set(oldIdx, newVertexIndex++);
         }
         
         chunkIndices.push(vertexMap.get(oldIdx));
       }
       
-      chunks.push({
+      const chunk = {
         positions: new Float32Array(chunkPositions),
         normals: new Float32Array(chunkNormals),
         colors: new Float32Array(chunkColors),
         indices: new Uint32Array(chunkIndices),
         vertexCount: newVertexIndex,
         triangleCount: chunkIndices.length / 3,
-      });
+      };
+      
+      if (hasTexIndices) chunk.texIndices = new Float32Array(chunkTexIndices);
+      if (hasTexRotations) chunk.texRotations = new Float32Array(chunkTexRotations);
+      
+      chunks.push(chunk);
       
       indexOffset = endIndex;
     }
@@ -414,7 +470,9 @@ export class ChunkManager {
     
     console.log(`[ChunkManager] Loading ${chunks.length} chunks...`);
     
-    const meshBuilder = new RegionMeshBuilder();
+    const meshBuilder = new RegionMeshBuilder({
+      textureIndexLookup: this.getTextureIndexLookup(),
+    });
     
     try {
       const result = await meshBuilder.buildRegion(chunks, { 
@@ -522,7 +580,9 @@ export class ChunkManager {
         // Always generate LOD for multi-region loads - it's essential for performance
         const shouldGenerateLOD = enableLOD && totalRegions > 1;
         
-        const meshBuilder = new RegionMeshBuilder();
+        const meshBuilder = new RegionMeshBuilder({
+          textureIndexLookup: this.getTextureIndexLookup(),
+        });
         const meshStart = performance.now();
         const result = await meshBuilder.buildRegion(offsetChunks, { 
           centerMesh: false,
@@ -725,7 +785,9 @@ export class ChunkManager {
           z: chunk.z + regionZ * 32,
         }));
         
-        const meshBuilder = new RegionMeshBuilder();
+        const meshBuilder = new RegionMeshBuilder({
+          textureIndexLookup: this.getTextureIndexLookup(),
+        });
         const meshStart = performance.now();
         
         // Force single-threaded mode when memory is high to avoid parallel allocation failures
@@ -1209,6 +1271,12 @@ export class ChunkManager {
     geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+    
+    // Add texture index attribute if present (for texture atlas lookup in shader)
+    if (meshData.texIndices) {
+      geometry.setAttribute('texIndex', new THREE.BufferAttribute(meshData.texIndices, 1));
+    }
+    
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
     geometry.computeBoundingSphere();
     

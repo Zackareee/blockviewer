@@ -3,6 +3,7 @@
  * 
  * Handles both "variants" and "multipart" blockstate formats.
  * Pre-loads all blockstates at startup for fast lookup.
+ * Supports loading from texture packs with fallback to bundled assets.
  */
 
 const ASSETS_BASE = '/textures/1.21.11+Template/assets/minecraft';
@@ -26,6 +27,19 @@ class BlockstateResolver {
     
     this.loaded = false;
     this.loading = null;
+    
+    // Optional texture pack manager for overrides
+    this.packManager = null;
+  }
+  
+  /**
+   * Set the texture pack manager for blockstate overrides
+   * @param {TexturePackManager} packManager
+   */
+  setPackManager(packManager) {
+    this.packManager = packManager;
+    // Clear compiled cache when pack changes
+    this.compiled.clear();
   }
 
   /**
@@ -50,6 +64,7 @@ class BlockstateResolver {
 
   /**
    * Get blockstate JSON, loading if needed
+   * Checks texture pack first if available, then falls back to bundled assets
    */
   async getBlockstate(blockName) {
     // Normalize: "minecraft:stone" → "stone"
@@ -58,7 +73,18 @@ class BlockstateResolver {
     if (this.blockstates.has(normalized)) {
       return this.blockstates.get(normalized);
     }
+    
+    // Try texture pack first if available
+    if (this.packManager && this.packManager.isLoaded) {
+      const packBlockstate = this.packManager.getBlockstate(normalized);
+      if (packBlockstate) {
+        this.blockstates.set(normalized, packBlockstate);
+        this._compileBlockstate(normalized, packBlockstate);
+        return packBlockstate;
+      }
+    }
 
+    // Fall back to bundled assets
     try {
       const url = `${ASSETS_BASE}/blockstates/${normalized}.json`;
       const response = await fetch(url);

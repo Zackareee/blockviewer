@@ -3,6 +3,7 @@
  * 
  * Pre-loads all models at startup and resolves parent inheritance chains.
  * Caches resolved models for fast lookup during meshing.
+ * Supports loading from texture packs with fallback to bundled assets.
  */
 
 // Base path to assets
@@ -27,6 +28,19 @@ class ModelResolver {
     // Loading state
     this.loaded = false;
     this.loading = null;
+    
+    // Optional texture pack manager for overrides
+    this.packManager = null;
+  }
+  
+  /**
+   * Set the texture pack manager for model overrides
+   * @param {TexturePackManager} packManager
+   */
+  setPackManager(packManager) {
+    this.packManager = packManager;
+    // Clear resolved cache when pack changes (raw models can stay)
+    this.resolvedModels.clear();
   }
 
   /**
@@ -53,6 +67,7 @@ class ModelResolver {
 
   /**
    * Get a raw model JSON, loading if necessary
+   * Checks texture pack first if available, then falls back to bundled assets
    */
   async getRawModel(modelPath) {
     // Normalize path: "minecraft:block/stone" → "block/stone"
@@ -61,7 +76,17 @@ class ModelResolver {
     if (this.rawModels.has(normalized)) {
       return this.rawModels.get(normalized);
     }
+    
+    // Try texture pack first if available
+    if (this.packManager && this.packManager.isLoaded) {
+      const packModel = this.packManager.getModel(normalized);
+      if (packModel) {
+        this.rawModels.set(normalized, packModel);
+        return packModel;
+      }
+    }
 
+    // Fall back to bundled assets
     try {
       const url = `${ASSETS_BASE}/models/${normalized}.json`;
       const response = await fetch(url);

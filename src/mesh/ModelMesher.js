@@ -2,7 +2,7 @@
  * ModelMesher - Generates mesh geometry for non-cube blocks
  * 
  * Uses pre-computed model geometry from the assets system.
- * Applies vertex colors from BlockRegistry (no textures yet).
+ * Applies vertex colors from BlockRegistry, with optional texture atlas support.
  * 
  * Handles face culling based on cullface data from models.
  */
@@ -10,6 +10,17 @@
 import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, sectionToWorldY, makeSectionKey, parseSectionKey } from './BinaryGrid.js';
 import { CULLFACE_OFFSETS } from '../assets/ModelGeometry.js';
 import { BlockCategory } from './BlockRegistry.js';
+import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
+
+// Map face name to face index constant
+const FACE_NAME_TO_INDEX = {
+  'up': FACE_UP,
+  'down': FACE_DOWN,
+  'north': FACE_NORTH,
+  'south': FACE_SOUTH,
+  'east': FACE_EAST,
+  'west': FACE_WEST,
+};
 
 // Initial buffer sizes (will grow as needed)
 const INITIAL_VERTEX_COUNT = 50000;
@@ -22,9 +33,13 @@ const INITIAL_VERTEX_COUNT = 50000;
  * @param {BlockRegistry} registry - Block type info
  * @param {StateRegistry} stateRegistry - State to geometry mapping
  * @param {Object} offset - World offset {x, y, z}
- * @returns {Object} Mesh data {positions, normals, colors, indices}
+ * @param {Object} options - Optional parameters
+ * @param {TextureIndexLookup} options.textureIndexLookup - Texture atlas index lookup
+ * @returns {Object} Mesh data {positions, normals, colors, indices, texIndices}
  */
-export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset = { x: 0, y: 64, z: 0 }) {
+export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
+  const { textureIndexLookup = null } = options;
+  
   // Build lookup tables for colors
   const colorR = new Float32Array(4096);
   const colorG = new Float32Array(4096);
@@ -41,6 +56,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let positions = new Float32Array(INITIAL_VERTEX_COUNT * 3);
   let normals = new Float32Array(INITIAL_VERTEX_COUNT * 3);
   let colors = new Float32Array(INITIAL_VERTEX_COUNT * 3);
+  let texIndices = new Float32Array(INITIAL_VERTEX_COUNT); // Texture atlas index per vertex
+  let texRotations = new Float32Array(INITIAL_VERTEX_COUNT); // Texture rotation per vertex (0 for model blocks)
   let indices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
   
   let vertexCount = 0;
@@ -107,8 +124,20 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             positions = growArray(positions, capacity * 3);
             normals = growArray(normals, capacity * 3);
             colors = growArray(colors, capacity * 3);
+            texIndices = growArray(texIndices, capacity);
+            texRotations = growArray(texRotations, capacity);
             indices = growArrayUint(indices, capacity * 2);
           }
+
+          // Determine face direction for texture lookup
+          // Use cullface if available, otherwise guess from the first face's geometry
+          let faceDir = FACE_UP; // Default
+          if (cullInfo.cullface && FACE_NAME_TO_INDEX[cullInfo.cullface] !== undefined) {
+            faceDir = FACE_NAME_TO_INDEX[cullInfo.cullface];
+          }
+          
+          // Get texture index for this face
+          const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(blockId, faceDir) : 0;
 
           // Copy vertices for this face
           const startIdx = cullInfo.indexStart;
@@ -141,6 +170,10 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             colors[ni] = r;
             colors[ni + 1] = g;
             colors[ni + 2] = b;
+            
+            // Texture index and rotation (0 = no rotation for model blocks)
+            texIndices[newIdx] = texIdx;
+            texRotations[newIdx] = 0;
           }
           
           // Add remapped indices
@@ -156,7 +189,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     return null;
   }
 
-  return {
+  const result = {
     positions: positions.subarray(0, vertexCount * 3),
     normals: normals.subarray(0, vertexCount * 3),
     colors: colors.subarray(0, vertexCount * 3),
@@ -164,6 +197,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     vertexCount,
     triangleCount: indexCount / 3,
   };
+  
+  // Include texture indices and rotations if texture lookup is available
+  if (textureIndexLookup) {
+    result.texIndices = texIndices.subarray(0, vertexCount);
+    result.texRotations = texRotations.subarray(0, vertexCount);
+  }
+  
+  return result;
 }
 
 /**

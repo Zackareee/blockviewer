@@ -283,7 +283,9 @@ function RegionScene({
   onBlockHover,
   onProgress, 
   onComplete,
-  onStats 
+  onStats,
+  textureMode,
+  textureAtlas,
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -294,6 +296,8 @@ function RegionScene({
     const manager = new ChunkManager(scene, {
       // Disable streaming - progressive loading supports model meshes
       useStreaming: false,
+      textureMode,
+      textureAtlas,
       onProgress: (loaded, total) => {
         onProgress?.(loaded, total, loaded < total, `Loading: ${loaded}/${total} regions`);
         invalidate(); // Request render on progress
@@ -315,7 +319,17 @@ function RegionScene({
     };
   }, [scene, invalidate]);
   
+  // Update texture mode when it changes
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.setTextureMode) {
+      manager.setTextureMode(textureMode, textureAtlas);
+      invalidate();
+    }
+  }, [textureMode, textureAtlas, invalidate]);
+  
   // Load single region chunks
+  // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
   useEffect(() => {
     const manager = managerRef.current;
     if (!manager || !chunks || chunks.length === 0) return;
@@ -330,10 +344,11 @@ function RegionScene({
       invalidate();
     });
     
-  }, [chunks, invalidate]);
+  }, [chunks, textureAtlas, invalidate]);
   
   // Track loaded regions to detect additions
   const loadedRegionKeysRef = useRef(new Set());
+  const lastTextureAtlasRef = useRef(null);
   
   // Load multiple regions progressively
   // Uses fast streaming when available (unified worker pipeline)
@@ -341,15 +356,25 @@ function RegionScene({
     const manager = managerRef.current;
     if (!manager || !regions || regions.length === 0) return;
     
+    // Check if textureAtlas changed - if so, force a reload to rebuild meshes with new texture indices
+    const textureAtlasChanged = textureAtlas !== lastTextureAtlasRef.current;
+    lastTextureAtlasRef.current = textureAtlas;
+    
     // Compute which regions are new
     const currentKeys = new Set(regions.map(r => `${r.regionX},${r.regionZ}`));
     const loadedKeys = loadedRegionKeysRef.current;
     
     // Find regions that need to be loaded
-    const newRegions = regions.filter(r => !loadedKeys.has(`${r.regionX},${r.regionZ}`));
+    let newRegions = regions.filter(r => !loadedKeys.has(`${r.regionX},${r.regionZ}`));
+    
+    // If textureAtlas changed, reload ALL regions (not just new ones)
+    if (textureAtlasChanged && loadedKeys.size > 0) {
+      console.log('[RegionViewer] Texture atlas changed, reloading all regions...');
+      newRegions = regions;
+    }
     
     // If all current regions are new, this is a fresh load (clear existing)
-    const isFreshLoad = newRegions.length === regions.length || loadedKeys.size === 0;
+    const isFreshLoad = newRegions.length === regions.length || loadedKeys.size === 0 || textureAtlasChanged;
     
     if (newRegions.length === 0) {
       // All regions already loaded, nothing to do
@@ -463,7 +488,8 @@ function RegionScene({
       });
     }
     
-  }, [regions, parseRegion, invalidate, enableLOD]);
+  // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
+  }, [regions, parseRegion, invalidate, enableLOD, textureAtlas]);
   
   // Toggle model meshes visibility
   useEffect(() => {
@@ -535,6 +561,8 @@ function RegionScene({
  * - enablePerformanceMonitor: Enable adaptive DPR based on performance (default: true)
  * - debugMode: Enable debug mode for block inspection on hover (default: false)
  * - onBlockHover: Callback when hovering over a block (receives block info or null)
+ * - textureMode: 'solid' | 'default' | 'custom' - Which texture mode to use
+ * - textureAtlas: THREE.Texture - The texture atlas for textured rendering
  */
 export function RegionViewer({ 
   chunks, 
@@ -546,6 +574,8 @@ export function RegionViewer({
   enablePerformanceMonitor = true,
   debugMode = false,
   onBlockHover = null,
+  textureMode = 'solid',
+  textureAtlas = null,
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -587,6 +617,8 @@ export function RegionViewer({
         onProgress={onBuildProgress}
         onComplete={() => console.log('[RegionViewer] Load complete')}
         onStats={handleStats}
+        textureMode={textureMode}
+        textureAtlas={textureAtlas}
       />
     </Canvas>
   );

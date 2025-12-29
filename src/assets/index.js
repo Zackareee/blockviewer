@@ -1,17 +1,33 @@
 /**
- * Assets module - Block model and state management
+ * Assets module - Block model, state, and texture management
  */
 
 export { ModelResolver, getModelResolver } from './ModelResolver.js';
 export { BlockstateResolver, getBlockstateResolver } from './BlockstateResolver.js';
 export { ModelGeometry, getModelGeometry } from './ModelGeometry.js';
 export { StateRegistry, getStateRegistry } from './StateRegistry.js';
+export { 
+  TexturePackManager, 
+  getDefaultPackManager, 
+  getCustomPackManager, 
+  getActivePackManager,
+  TEXTURE_MODE 
+} from './TexturePackManager.js';
+export { 
+  TextureAtlas, 
+  getTextureAtlas,
+  TEXTURE_SIZE,
+  TILE_SIZE,
+} from './TextureAtlas.js';
 
 /**
  * Initialize all asset systems
  * Call once at app startup before loading any regions
+ * @param {Object} options - { loadTextures: boolean, textureMode: string }
  */
-export async function initAssets() {
+export async function initAssets(options = {}) {
+  const { loadTextures = false, textureMode = 'solid' } = options;
+  
   const { getModelResolver } = await import('./ModelResolver.js');
   const { getBlockstateResolver } = await import('./BlockstateResolver.js');
   const { getStateRegistry } = await import('./StateRegistry.js');
@@ -23,12 +39,29 @@ export async function initAssets() {
   // Initialize state registry with resolvers
   await stateRegistry.init();
 
-  console.log('[Assets] Initialized');
+  let textureAtlas = null;
+  let packManager = null;
+  
+  // Load textures if requested
+  if (loadTextures && textureMode !== 'solid') {
+    const { getDefaultPackManager, getTextureAtlas } = await import('./TexturePackManager.js');
+    const { getTextureAtlas: getAtlas } = await import('./TextureAtlas.js');
+    
+    packManager = getDefaultPackManager();
+    await packManager.loadDefaultPack();
+    
+    textureAtlas = getAtlas();
+    await textureAtlas.build(packManager);
+  }
+
+  console.log('[Assets] Initialized' + (loadTextures ? ' with textures' : ''));
   
   return {
     modelResolver,
     blockstateResolver,
     stateRegistry,
+    textureAtlas,
+    packManager,
   };
 }
 

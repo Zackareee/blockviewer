@@ -25,6 +25,15 @@ export class RegionMeshBuilder {
   constructor(options = {}) {
     this.onProgress = options.onProgress || null;
     this.registry = options.registry || getBlockRegistry();
+    this.textureIndexLookup = options.textureIndexLookup || null;
+  }
+  
+  /**
+   * Set the texture index lookup for textured rendering
+   * @param {TextureIndexLookup} lookup
+   */
+  setTextureIndexLookup(lookup) {
+    this.textureIndexLookup = lookup;
   }
   
   /**
@@ -99,17 +108,29 @@ export class RegionMeshBuilder {
     
     let solidMesh, waterMesh, lavaMesh, glassMesh;
     
+    // Mesher options (including texture index lookup for textured rendering)
+    const mesherOptions = {
+      textureIndexLookup: this.textureIndexLookup,
+    };
+    
+    if (this.textureIndexLookup) {
+      console.log(`[RegionMeshBuilder] Using textureIndexLookup with ${this.textureIndexLookup.registeredBlocks.size} registered blocks`);
+    }
+    
     // Use parallel mesher for large grids, with fallback on memory errors
     // Skip parallel entirely if forceSequential is set (memory conservation mode)
+    // NOTE: ParallelMesher doesn't support textureIndexLookup yet, so fall back to single-threaded when textures are enabled
     // NOTE: ParallelMesher only handles solid blocks, so we always use FastMesher for fluids/glass
-    if (USE_PARALLEL && grid.sections.size > 50 && !forceSequential) {
+    const useParallel = USE_PARALLEL && grid.sections.size > 50 && !forceSequential && !this.textureIndexLookup;
+    
+    if (useParallel) {
       try {
         const result = await buildGridMeshesParallel(grid, this.registry, offset);
         solidMesh = result.solid;
         
         // ParallelMesher doesn't handle fluids/glass - use FastMesher for those
         // This is fast since it only processes fluid and glass blocks
-        const fluidResult = buildGridMeshes(grid, this.registry, offset);
+        const fluidResult = buildGridMeshes(grid, this.registry, offset, mesherOptions);
         waterMesh = fluidResult.water;
         lavaMesh = fluidResult.lava;
         glassMesh = fluidResult.glass;
@@ -123,7 +144,7 @@ export class RegionMeshBuilder {
         
         if (isMemoryError) {
           console.warn('[RegionMeshBuilder] Parallel meshing failed (memory), falling back to single-threaded');
-          const result = buildGridMeshes(grid, this.registry, offset);
+          const result = buildGridMeshes(grid, this.registry, offset, mesherOptions);
           solidMesh = result.solid;
           waterMesh = result.water;
           lavaMesh = result.lava;
@@ -134,7 +155,7 @@ export class RegionMeshBuilder {
       }
     } else {
       // Use fast single-threaded mesher for smaller grids (more memory efficient)
-      const result = buildGridMeshes(grid, this.registry, offset);
+      const result = buildGridMeshes(grid, this.registry, offset, mesherOptions);
       solidMesh = result.solid;
       waterMesh = result.water;
       lavaMesh = result.lava;
@@ -158,7 +179,10 @@ export class RegionMeshBuilder {
         await stateRegistry.precomputeAll();
         
         // Build model meshes using pre-computed geometry
-        modelMesh = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset);
+        const modelOptions = {
+          textureIndexLookup: this.textureIndexLookup,
+        };
+        modelMesh = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
         
         stats.modelMeshTimeMs = performance.now() - modelStart;
         stats.modelTriangles = modelMesh?.triangleCount || 0;
@@ -243,6 +267,17 @@ export class RegionMeshBuilder {
     geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+    
+    // Add texture index attribute if present (for texture atlas lookup in shader)
+    if (meshData.texIndices) {
+      geometry.setAttribute('texIndex', new THREE.BufferAttribute(meshData.texIndices, 1));
+    }
+    
+    // Add texture rotation attribute if present (for UV rotation in shader)
+    if (meshData.texRotations) {
+      geometry.setAttribute('texRotation', new THREE.BufferAttribute(meshData.texRotations, 1));
+    }
+    
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
     geometry.computeBoundingSphere();
     

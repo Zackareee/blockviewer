@@ -1,6 +1,14 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { RegionViewer } from './viewer';
 import { parseMCAFile } from './utils/mcaParser';
+import { 
+  getDefaultPackManager, 
+  getCustomPackManager,
+  getTextureAtlas,
+  TEXTURE_MODE 
+} from './assets';
+import { getBlockColorsNumeric, BLOCK_COLORS } from './data/blockColors';
+import { getBlockRegistry } from './mesh/BlockRegistry';
 import './App.css';
 
 function App() {
@@ -29,6 +37,125 @@ function App() {
   // Debug mode - shows block info on hover
   const [debugMode, setDebugMode] = useState(false);
   const [hoveredBlock, setHoveredBlock] = useState(null);
+  
+  // Texture pack state
+  const [textureMode, setTextureMode] = useState(TEXTURE_MODE.SOLID_COLOR);
+  const [texturePackLoading, setTexturePackLoading] = useState(false);
+  const [texturePackInfo, setTexturePackInfo] = useState(null);
+  const [textureAtlas, setTextureAtlas] = useState(null);
+  const [atlasDebugUrl, setAtlasDebugUrl] = useState(null); // Debug: atlas preview
+  
+  // Load default texture pack when mode changes to default
+  useEffect(() => {
+    if (textureMode === TEXTURE_MODE.DEFAULT_PACK && !texturePackInfo) {
+      loadDefaultTexturePack();
+    }
+  }, [textureMode]);
+  
+  // Load the default bundled texture pack
+  const loadDefaultTexturePack = useCallback(async () => {
+    setTexturePackLoading(true);
+    try {
+      const packManager = getDefaultPackManager();
+      await packManager.loadDefaultPack();
+      
+      // Debug: Validate textures are loaded correctly
+      packManager.debugValidateTextures();
+      
+      const atlas = getTextureAtlas();
+      await atlas.build(packManager);
+      
+      // Pre-register all known blocks from BLOCK_COLORS to the registry
+      // This is necessary because blocks are normally registered during chunk decoding,
+      // but we need them registered now to build the texture index lookup
+      const blockRegistry = getBlockRegistry();
+      const blockNames = Object.keys(BLOCK_COLORS);
+      console.log(`[App] Pre-registering ${blockNames.length} blocks from BLOCK_COLORS...`);
+      
+      for (const blockName of blockNames) {
+        blockRegistry.registerBlock(blockName);
+      }
+      
+      // Verify registration worked
+      const registrySize = blockRegistry.idToInfo.length;
+      console.log(`[App] Pre-registered ${blockNames.length} blocks, registry now has ${registrySize} entries`);
+      
+      // Log a few sample blocks to verify IDs
+      const sampleBlocks = ['minecraft:stone', 'minecraft:dirt', 'minecraft:grass_block', 'minecraft:oak_planks'];
+      for (const name of sampleBlocks) {
+        const id = blockRegistry.nameToId.get(name);
+        console.log(`[App]   ${name} -> ID ${id}`);
+      }
+      
+      // Build the TextureIndexLookup which maps (blockId, face) -> atlas index
+      atlas.buildTextureIndexLookup(blockRegistry);
+      
+      // Set the material data (includes atlas, textureIndexLookup, and size)
+      setTextureAtlas(atlas.getMaterialData());
+      setTexturePackInfo(packManager.getPackInfo());
+      
+      // Debug: generate atlas preview URL
+      setAtlasDebugUrl(atlas.toDataURL());
+      
+      console.log('[App] Default texture pack loaded');
+    } catch (err) {
+      console.error('[App] Failed to load default texture pack:', err);
+      setError('Failed to load default texture pack');
+      setTextureMode(TEXTURE_MODE.SOLID_COLOR);
+    } finally {
+      setTexturePackLoading(false);
+    }
+  }, []);
+  
+  // Handle custom texture pack upload
+  const handleTexturePackUpload = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setTexturePackLoading(true);
+    try {
+      // First ensure default pack is loaded as fallback
+      const defaultPack = getDefaultPackManager();
+      if (!defaultPack.isLoaded) {
+        await defaultPack.loadDefaultPack();
+      }
+      
+      const customPack = getCustomPackManager();
+      await customPack.loadFromZip(file, file.name.replace('.zip', ''));
+      
+      const atlas = getTextureAtlas();
+      await atlas.build(customPack);
+      
+      // Pre-register all known blocks from BLOCK_COLORS to the registry
+      const blockRegistry = getBlockRegistry();
+      const blockNames = Object.keys(BLOCK_COLORS);
+      console.log(`[App] Pre-registering ${blockNames.length} blocks for custom pack...`);
+      
+      for (const blockName of blockNames) {
+        blockRegistry.registerBlock(blockName);
+      }
+      
+      console.log(`[App] Registry now has ${blockRegistry.idToInfo.length} entries`);
+      
+      // Build the TextureIndexLookup which maps (blockId, face) -> atlas index
+      atlas.buildTextureIndexLookup(blockRegistry);
+      
+      setTextureAtlas(atlas.getMaterialData());
+      setTexturePackInfo(customPack.getPackInfo());
+      setTextureMode(TEXTURE_MODE.CUSTOM_PACK);
+      
+      // Debug: generate atlas preview URL
+      setAtlasDebugUrl(atlas.toDataURL());
+      
+      console.log('[App] Custom texture pack loaded:', file.name);
+    } catch (err) {
+      console.error('[App] Failed to load texture pack:', err);
+      setError('Failed to load texture pack: ' + err.message);
+    } finally {
+      setTexturePackLoading(false);
+      event.target.value = '';
+    }
+  }, []);
 
   const handleBuildProgress = useCallback((current, total, isBuilding, message = '') => {
     setBuildProgress({ current, total, isBuilding, message });
@@ -159,6 +286,8 @@ function App() {
             enableModelMeshes={enableModelMeshes}
             debugMode={debugMode}
             onBlockHover={debugMode ? setHoveredBlock : null}
+            textureMode={textureMode}
+            textureAtlas={textureAtlas}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -223,6 +352,89 @@ function App() {
             </div>
           )}
           {error && <div className="error-message">⚠️ {error}</div>}
+        </section>
+
+        {/* Texture Pack */}
+        <section className="panel-section">
+          <h3>Textures</h3>
+          <div className="texture-mode-selector">
+            <label className={`texture-mode-option ${textureMode === TEXTURE_MODE.SOLID_COLOR ? 'active' : ''}`}>
+              <input
+                type="radio"
+                name="textureMode"
+                value={TEXTURE_MODE.SOLID_COLOR}
+                checked={textureMode === TEXTURE_MODE.SOLID_COLOR}
+                onChange={() => setTextureMode(TEXTURE_MODE.SOLID_COLOR)}
+                disabled={texturePackLoading}
+              />
+              <span className="texture-mode-label">
+                <span className="texture-mode-icon">🎨</span>
+                Solid Colors
+              </span>
+            </label>
+            <label className={`texture-mode-option ${textureMode === TEXTURE_MODE.DEFAULT_PACK ? 'active' : ''}`}>
+              <input
+                type="radio"
+                name="textureMode"
+                value={TEXTURE_MODE.DEFAULT_PACK}
+                checked={textureMode === TEXTURE_MODE.DEFAULT_PACK}
+                onChange={() => setTextureMode(TEXTURE_MODE.DEFAULT_PACK)}
+                disabled={texturePackLoading}
+              />
+              <span className="texture-mode-label">
+                <span className="texture-mode-icon">📦</span>
+                Default Pack
+              </span>
+            </label>
+          </div>
+          
+          <div className="texture-pack-import">
+            <label className="file-upload file-upload-texture">
+              <input
+                type="file"
+                accept=".zip"
+                onChange={handleTexturePackUpload}
+                disabled={texturePackLoading}
+              />
+              <span className="upload-button upload-button-secondary">
+                {texturePackLoading ? (
+                  <>
+                    <span className="spinner"></span>
+                    Loading...
+                  </>
+                ) : (
+                  <>📥 Import Pack</>
+                )}
+              </span>
+            </label>
+          </div>
+          
+          {texturePackInfo && textureMode !== TEXTURE_MODE.SOLID_COLOR && (
+            <div className="texture-pack-info">
+              <span className="texture-pack-name">{texturePackInfo.name}</span>
+              <span className="texture-pack-stats">
+                {texturePackInfo.textureCount} textures
+              </span>
+            </div>
+          )}
+          
+          {/* Debug: Atlas Preview */}
+          {atlasDebugUrl && textureMode !== TEXTURE_MODE.SOLID_COLOR && (
+            <div className="atlas-debug-preview">
+              <div className="atlas-debug-label">Atlas Preview (debug)</div>
+              <img 
+                src={atlasDebugUrl} 
+                alt="Texture Atlas" 
+                style={{ 
+                  width: '100%', 
+                  maxWidth: '200px',
+                  imageRendering: 'pixelated',
+                  border: '1px solid #444',
+                  borderRadius: '4px'
+                }}
+              />
+            </div>
+          )}
         </section>
 
         {/* Render Options */}

@@ -512,6 +512,85 @@ kbd {
   }
 }
 
+/* Texture Mode Selector */
+.texture-mode-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.875rem;
+}
+
+.texture-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.texture-mode-option:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+
+.texture-mode-option.active {
+  border-color: var(--accent-primary);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, var(--bg-secondary) 100%);
+}
+
+.texture-mode-option input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.texture-mode-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.texture-mode-icon {
+  font-size: 1rem;
+}
+
+.texture-pack-import {
+  margin-bottom: 0.75rem;
+}
+
+.file-upload-texture {
+  display: block;
+}
+
+.texture-pack-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+
+.texture-pack-name {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.texture-pack-stats {
+  color: var(--emerald);
+  font-size: 0.75rem;
+}
+
 /* Debug Panel */
 .debug-panel {
   background: linear-gradient(180deg, rgba(239, 68, 68, 0.05) 0%, var(--bg-secondary) 100%);
@@ -590,6 +669,28 @@ kbd {
 
 .debug-empty p {
   font-size: 0.8rem;
+}
+
+/* Atlas Debug Preview */
+.atlas-debug-preview {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.atlas-debug-label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.atlas-debug-preview img {
+  display: block;
+  margin: 0 auto;
 }
 
 /* Responsive */
