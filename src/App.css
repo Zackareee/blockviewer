@@ -114,6 +114,52 @@ body {
   color: var(--text-muted);
 }
 
+/* Sidebar Toggle Button */
+.sidebar-toggle {
+  position: absolute;
+  right: 320px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 200;
+  width: 24px;
+  height: 48px;
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-right: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.sidebar-toggle-arrow {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: transform var(--transition-normal);
+  line-height: 1;
+}
+
+.sidebar-toggle:hover .sidebar-toggle-arrow {
+  color: var(--text-primary);
+}
+
+.sidebar-toggle.collapsed {
+  right: 0;
+}
+
+.sidebar-toggle.collapsed .sidebar-toggle-arrow {
+  transform: rotate(180deg);
+}
+
 /* Control Panel */
 .control-panel {
   width: 320px;
@@ -125,6 +171,15 @@ body {
   flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden;
+  transition: width var(--transition-normal), min-width var(--transition-normal), transform var(--transition-normal);
+}
+
+.control-panel.collapsed {
+  width: 0;
+  min-width: 0;
+  transform: translateX(100%);
+  border-left: none;
+  overflow: hidden;
 }
 
 .control-panel::-webkit-scrollbar {
@@ -891,6 +946,32 @@ kbd {
     flex-direction: column;
   }
   
+  .sidebar-toggle {
+    right: auto;
+    left: 50%;
+    top: auto;
+    bottom: 50vh;
+    transform: translateX(-50%);
+    width: 48px;
+    height: 24px;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    border: 1px solid var(--border-subtle);
+    border-bottom: none;
+  }
+  
+  .sidebar-toggle.collapsed {
+    right: auto;
+    bottom: 0;
+  }
+  
+  .sidebar-toggle-arrow {
+    transform: rotate(-90deg);
+  }
+  
+  .sidebar-toggle.collapsed .sidebar-toggle-arrow {
+    transform: rotate(90deg);
+  }
+  
   .control-panel {
     width: 100%;
     min-width: 100%;
@@ -898,6 +979,15 @@ kbd {
     max-height: 50vh;
     border-left: none;
     border-top: 1px solid var(--border-subtle);
+    transition: max-height var(--transition-normal), transform var(--transition-normal);
+  }
+  
+  .control-panel.collapsed {
+    width: 100%;
+    min-width: 100%;
+    max-height: 0;
+    transform: translateY(100%);
+    border-top: none;
   }
   
   .viewer-container {

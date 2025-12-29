@@ -55,14 +55,12 @@ const GRASS_TINTED_BLOCKS = new Set([
   'minecraft:grass_block',
   'minecraft:short_grass',
   'minecraft:tall_grass',
-  'minecraft:fern',
-  'minecraft:large_fern',
   'minecraft:sugar_cane',
-  // Potted fern uses fern tint
-  'minecraft:potted_fern',
 ]);
 
 // Block names that need foliage colormap tinting
+// Note: Cherry, Azalea, and Flowering Azalea leaves do NOT use biome tinting
+// - they have their own colors in the texture
 const FOLIAGE_TINTED_BLOCKS = new Set([
   // Oak leaves
   'minecraft:oak_leaves',
@@ -74,13 +72,16 @@ const FOLIAGE_TINTED_BLOCKS = new Set([
   'minecraft:dark_oak_leaves',
   // Mangrove leaves
   'minecraft:mangrove_leaves',
-  // Azalea leaves
-  'minecraft:azalea_leaves',
-  'minecraft:flowering_azalea_leaves',
-  // Cherry leaves (uses foliage tint in vanilla)
-  'minecraft:cherry_leaves',
   // Vines
   'minecraft:vine',
+  // Ferns (use foliage colormap, not grass)
+  'minecraft:fern',
+  'minecraft:large_fern',
+  'minecraft:potted_fern',
+  // Leaf litter
+  'minecraft:leaf_litter',
+  // Lily pad
+  'minecraft:lily_pad',
 ]);
 
 // Block names with fixed spruce tint

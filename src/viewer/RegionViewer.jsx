@@ -44,6 +44,23 @@ function AdaptivePerformance() {
 }
 
 /**
+ * Dynamic FOV updater - updates camera FOV when prop changes
+ */
+function DynamicFOV({ fov }) {
+  const { camera, invalidate } = useThree();
+  
+  useEffect(() => {
+    if (camera.fov !== fov) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+      invalidate();
+    }
+  }, [camera, fov, invalidate]);
+  
+  return null;
+}
+
+/**
  * Movement regression - lower quality while camera is moving
  * This helps maintain smooth framerates during orbit/pan
  */
@@ -580,6 +597,7 @@ export function RegionViewer({
   spectatorRef = null,
   textureMode = 'solid',
   textureAtlas = null,
+  fov = 60,  // Vertical FOV in degrees (Minecraft also uses vertical FOV internally)
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -589,7 +607,7 @@ export function RegionViewer({
     <Canvas
       style={{ width: '100%', height: '100%', ...style }}
       camera={{ 
-        fov: 60, 
+        fov: fov, 
         near: 0.1, 
         far: 10000, 
         position: [500, 300, 500] 
@@ -606,6 +624,9 @@ export function RegionViewer({
     >
       <color attach="background" args={['#1a1a2e']} />
       <fog attach="fog" args={['#1a1a2e', 1000, 5000]} />
+      
+      {/* Dynamic FOV updater - responds to prop changes */}
+      <DynamicFOV fov={fov} />
       
       {/* Adaptive performance - automatically adjusts quality */}
       {enablePerformanceMonitor && <AdaptivePerformance />}

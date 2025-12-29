@@ -244,6 +244,9 @@ const ROTATABLE_BLOCKS = new Set([
   'bone_block', 'hay_block', 'basalt', 'polished_basalt',
   'deepslate', 'infested_deepslate',
   'muddy_mangrove_roots',
+  
+  // Froglights
+  'ochre_froglight', 'pearlescent_froglight', 'verdant_froglight',
 ]);
 
 /**
@@ -287,6 +290,43 @@ const MULTIFACE_BLOCKS = {
   // Bamboo block
   'bamboo_block': { top: 'block/bamboo_block_top', side: 'block/bamboo_block' },
   'stripped_bamboo_block': { top: 'block/stripped_bamboo_block_top', side: 'block/stripped_bamboo_block' },
+  
+  // Wood blocks (bark on all sides - use log side texture for all faces)
+  'oak_wood': { all: 'block/oak_log' },
+  'spruce_wood': { all: 'block/spruce_log' },
+  'birch_wood': { all: 'block/birch_log' },
+  'jungle_wood': { all: 'block/jungle_log' },
+  'acacia_wood': { all: 'block/acacia_log' },
+  'dark_oak_wood': { all: 'block/dark_oak_log' },
+  'mangrove_wood': { all: 'block/mangrove_log' },
+  'cherry_wood': { all: 'block/cherry_log' },
+  'pale_oak_wood': { all: 'block/pale_oak_log' },
+  
+  // Stripped wood blocks (stripped bark on all sides)
+  'stripped_oak_wood': { all: 'block/stripped_oak_log' },
+  'stripped_spruce_wood': { all: 'block/stripped_spruce_log' },
+  'stripped_birch_wood': { all: 'block/stripped_birch_log' },
+  'stripped_jungle_wood': { all: 'block/stripped_jungle_log' },
+  'stripped_acacia_wood': { all: 'block/stripped_acacia_log' },
+  'stripped_dark_oak_wood': { all: 'block/stripped_dark_oak_log' },
+  'stripped_mangrove_wood': { all: 'block/stripped_mangrove_log' },
+  'stripped_cherry_wood': { all: 'block/stripped_cherry_log' },
+  'stripped_pale_oak_wood': { all: 'block/stripped_pale_oak_log' },
+  
+  // Nether hyphae (bark on all sides - like wood but for nether)
+  'crimson_hyphae': { all: 'block/crimson_stem' },
+  'warped_hyphae': { all: 'block/warped_stem' },
+  'stripped_crimson_hyphae': { all: 'block/stripped_crimson_stem' },
+  'stripped_warped_hyphae': { all: 'block/stripped_warped_stem' },
+  
+  // Mangrove roots
+  'mangrove_roots': { top: 'block/mangrove_roots_top', side: 'block/mangrove_roots_side' },
+  'muddy_mangrove_roots': { top: 'block/muddy_mangrove_roots_top', side: 'block/muddy_mangrove_roots_side' },
+  
+  // Froglights
+  'ochre_froglight': { top: 'block/ochre_froglight_top', side: 'block/ochre_froglight_side' },
+  'pearlescent_froglight': { top: 'block/pearlescent_froglight_top', side: 'block/pearlescent_froglight_side' },
+  'verdant_froglight': { top: 'block/verdant_froglight_top', side: 'block/verdant_froglight_side' },
   
   // Sandstone
   'sandstone': { top: 'block/sandstone_top', side: 'block/sandstone', bottom: 'block/sandstone_bottom' },
@@ -528,6 +568,29 @@ const TEXTURE_MAPPINGS = {
   
   // Glass
   'glass': 'block/glass',
+  
+  // Glass panes - these use the full glass texture for the pane face and glass_pane_top for the edge
+  'glass_pane': 'block/glass',
+  'white_stained_glass_pane': 'block/white_stained_glass',
+  'orange_stained_glass_pane': 'block/orange_stained_glass',
+  'magenta_stained_glass_pane': 'block/magenta_stained_glass',
+  'light_blue_stained_glass_pane': 'block/light_blue_stained_glass',
+  'yellow_stained_glass_pane': 'block/yellow_stained_glass',
+  'lime_stained_glass_pane': 'block/lime_stained_glass',
+  'pink_stained_glass_pane': 'block/pink_stained_glass',
+  'gray_stained_glass_pane': 'block/gray_stained_glass',
+  'light_gray_stained_glass_pane': 'block/light_gray_stained_glass',
+  'cyan_stained_glass_pane': 'block/cyan_stained_glass',
+  'purple_stained_glass_pane': 'block/purple_stained_glass',
+  'blue_stained_glass_pane': 'block/blue_stained_glass',
+  'brown_stained_glass_pane': 'block/brown_stained_glass',
+  'green_stained_glass_pane': 'block/green_stained_glass',
+  'red_stained_glass_pane': 'block/red_stained_glass',
+  'black_stained_glass_pane': 'block/black_stained_glass',
+  
+  // Iron bars - uses iron_bars texture
+  'iron_bars': 'block/iron_bars',
+  
   'white_stained_glass': 'block/white_stained_glass',
   'orange_stained_glass': 'block/orange_stained_glass',
   'magenta_stained_glass': 'block/magenta_stained_glass',
@@ -585,6 +648,36 @@ const TEXTURE_MAPPINGS = {
   'raw_iron_block': 'block/raw_iron_block',
   'raw_copper_block': 'block/raw_copper_block',
   'raw_gold_block': 'block/raw_gold_block',
+  
+  // Chiseled copper variants
+  'chiseled_copper': 'block/chiseled_copper',
+  'exposed_chiseled_copper': 'block/exposed_chiseled_copper',
+  'weathered_chiseled_copper': 'block/weathered_chiseled_copper',
+  'oxidized_chiseled_copper': 'block/oxidized_chiseled_copper',
+  'waxed_chiseled_copper': 'block/chiseled_copper',
+  'waxed_exposed_chiseled_copper': 'block/exposed_chiseled_copper',
+  'waxed_weathered_chiseled_copper': 'block/weathered_chiseled_copper',
+  'waxed_oxidized_chiseled_copper': 'block/oxidized_chiseled_copper',
+  
+  // Copper grate variants
+  'copper_grate': 'block/copper_grate',
+  'exposed_copper_grate': 'block/exposed_copper_grate',
+  'weathered_copper_grate': 'block/weathered_copper_grate',
+  'oxidized_copper_grate': 'block/oxidized_copper_grate',
+  'waxed_copper_grate': 'block/copper_grate',
+  'waxed_exposed_copper_grate': 'block/exposed_copper_grate',
+  'waxed_weathered_copper_grate': 'block/weathered_copper_grate',
+  'waxed_oxidized_copper_grate': 'block/oxidized_copper_grate',
+  
+  // Copper bulb variants (uses default non-lit texture)
+  'copper_bulb': 'block/copper_bulb',
+  'exposed_copper_bulb': 'block/exposed_copper_bulb',
+  'weathered_copper_bulb': 'block/weathered_copper_bulb',
+  'oxidized_copper_bulb': 'block/oxidized_copper_bulb',
+  'waxed_copper_bulb': 'block/copper_bulb',
+  'waxed_exposed_copper_bulb': 'block/exposed_copper_bulb',
+  'waxed_weathered_copper_bulb': 'block/weathered_copper_bulb',
+  'waxed_oxidized_copper_bulb': 'block/oxidized_copper_bulb',
 };
 
 /**

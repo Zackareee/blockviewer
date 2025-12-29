@@ -17,6 +17,9 @@ function App() {
   const [error, setError] = useState(null);
   const [fileName, setFileName] = useState(null);
   
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
   // Build progress for region rendering
   const [buildProgress, setBuildProgress] = useState({ current: 0, total: 0, isBuilding: false, message: '' });
   
@@ -38,6 +41,10 @@ function App() {
   const [debugMode, setDebugMode] = useState(false);
   const [hoveredBlock, setHoveredBlock] = useState(null);
   
+  // Camera FOV (vertical degrees) - Minecraft uses vertical FOV internally
+  // Default 60, but can be adjusted to match specific Minecraft screenshots
+  const [fov, setFov] = useState(60);
+  
   // Camera state for coordinates display (Minecraft spectator mode)
   const [cameraState, setCameraState] = useState({
     x: 0, y: 100, z: 0,
@@ -45,14 +52,6 @@ function App() {
     direction: 'south',
     axis: 'Towards positive Z',
   });
-  
-  // Editable coordinate inputs (separate from live camera state)
-  const [editCoords, setEditCoords] = useState({
-    x: '0', y: '100', z: '0',
-    yaw: '0', pitch: '0',
-  });
-  // Use a ref for editing state to avoid stale closures in callbacks
-  const isEditingCoordsRef = useRef(false);
   
   // Command input for /teleport commands
   const [commandInput, setCommandInput] = useState('');
@@ -191,58 +190,8 @@ function App() {
     if (now - lastCameraUpdateRef.current > 50) { // 20 FPS max for UI updates
       lastCameraUpdateRef.current = now;
       setCameraState(state);
-      
-      // Sync edit fields when not actively editing (use ref to avoid stale closure)
-      if (!isEditingCoordsRef.current) {
-        setEditCoords({
-          x: state.x.toFixed(2),
-          y: state.y.toFixed(2),
-          z: state.z.toFixed(2),
-          yaw: state.yaw.toFixed(1),
-          pitch: state.pitch.toFixed(1),
-        });
-      }
     }
   }, []);
-  
-  // Handle teleport when user submits coordinates
-  const handleTeleport = useCallback(() => {
-    if (!spectatorRef.current) return;
-    
-    const x = parseFloat(editCoords.x) || 0;
-    const y = parseFloat(editCoords.y) || 100;
-    const z = parseFloat(editCoords.z) || 0;
-    const yaw = parseFloat(editCoords.yaw) || 0;
-    const pitch = parseFloat(editCoords.pitch) || 0;
-    
-    spectatorRef.current.teleport(x, y, z, yaw, pitch);
-    isEditingCoordsRef.current = false;
-  }, [editCoords]);
-  
-  // Handle coordinate input changes
-  const handleCoordChange = useCallback((field, value) => {
-    isEditingCoordsRef.current = true;
-    setEditCoords(prev => ({ ...prev, [field]: value }));
-  }, []);
-  
-  // Handle Enter key to teleport
-  const handleCoordKeyDown = useCallback((e) => {
-    if (e.key === 'Enter') {
-      handleTeleport();
-      e.target.blur();
-    } else if (e.key === 'Escape') {
-      isEditingCoordsRef.current = false;
-      // Reset to current camera state
-      setEditCoords({
-        x: cameraState.x.toFixed(2),
-        y: cameraState.y.toFixed(2),
-        z: cameraState.z.toFixed(2),
-        yaw: cameraState.yaw.toFixed(1),
-        pitch: cameraState.pitch.toFixed(1),
-      });
-      e.target.blur();
-    }
-  }, [handleTeleport, cameraState]);
   
   // Handle command input (e.g., /teleport x y z pitch yaw)
   const handleCommandSubmit = useCallback((e) => {
@@ -272,16 +221,6 @@ function App() {
       if (spectatorRef.current) {
         spectatorRef.current.teleport(x, y, z, yaw, pitch);
         setCommandInput('');
-        
-        // Update edit coords to match
-        setEditCoords({
-          x: x.toFixed(2),
-          y: y.toFixed(2),
-          z: z.toFixed(2),
-          yaw: yaw.toFixed(1),
-          pitch: pitch.toFixed(1),
-        });
-        isEditingCoordsRef.current = false;
       }
     } else if (cmd.startsWith('/')) {
       setCommandError('Usage: /teleport x y z [yaw] [pitch]');
@@ -421,6 +360,7 @@ function App() {
             spectatorRef={spectatorRef}
             textureMode={textureMode}
             textureAtlas={textureAtlas}
+            fov={fov}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -431,107 +371,42 @@ function App() {
         )}
       </div>
 
+      {/* Sidebar Toggle Button */}
+      <button 
+        className={`sidebar-toggle ${sidebarCollapsed ? 'collapsed' : ''}`}
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+      >
+        <span className="sidebar-toggle-arrow">›</span>
+      </button>
+
       {/* Control Panel */}
-      <div className="control-panel">
+      <div className={`control-panel ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="panel-header">
           <h1>Block Viewer</h1>
           <span className="version">v2.0</span>
         </div>
 
-        {/* Coordinates Display - Minecraft style (editable) */}
+        {/* Coordinates Display - Minecraft style (read-only) */}
         <section className="panel-section coordinates-section">
           <div className="coordinates-display">
             <div className="coord-row">
               <span className="coord-label">XYZ:</span>
-              <div className="coord-inputs">
-                <input
-                  type="text"
-                  className="coord-input"
-                  value={editCoords.x}
-                  onChange={(e) => handleCoordChange('x', e.target.value)}
-                  onKeyDown={handleCoordKeyDown}
-                  onFocus={() => { isEditingCoordsRef.current = true; }}
-                  placeholder="X"
-                />
-                <span className="coord-separator">/</span>
-                <input
-                  type="text"
-                  className="coord-input"
-                  value={editCoords.y}
-                  onChange={(e) => handleCoordChange('y', e.target.value)}
-                  onKeyDown={handleCoordKeyDown}
-                  onFocus={() => { isEditingCoordsRef.current = true; }}
-                  placeholder="Y"
-                />
-                <span className="coord-separator">/</span>
-                <input
-                  type="text"
-                  className="coord-input"
-                  value={editCoords.z}
-                  onChange={(e) => handleCoordChange('z', e.target.value)}
-                  onKeyDown={handleCoordKeyDown}
-                  onFocus={() => { isEditingCoordsRef.current = true; }}
-                  placeholder="Z"
-                />
-              </div>
+              <span className="coord-value">
+                {cameraState.x.toFixed(3)} / {cameraState.y.toFixed(3)} / {cameraState.z.toFixed(3)}
+              </span>
             </div>
             <div className="coord-row">
               <span className="coord-label">Facing:</span>
-              <div className="coord-facing-info">
-                <span className="coord-direction">{cameraState.direction}</span>
-                <span className="coord-axis">({cameraState.axis})</span>
-              </div>
+              <span className="coord-value">
+                {cameraState.direction} ({cameraState.axis})
+              </span>
             </div>
             <div className="coord-row">
               <span className="coord-label">Rotation:</span>
-              <div className="coord-inputs">
-                <input
-                  type="text"
-                  className="coord-input coord-input-small"
-                  value={editCoords.yaw}
-                  onChange={(e) => handleCoordChange('yaw', e.target.value)}
-                  onKeyDown={handleCoordKeyDown}
-                  onFocus={() => { isEditingCoordsRef.current = true; }}
-                  placeholder="Yaw"
-                  title="Yaw (-180 to 180)"
-                />
-                <span className="coord-separator">/</span>
-                <input
-                  type="text"
-                  className="coord-input coord-input-small"
-                  value={editCoords.pitch}
-                  onChange={(e) => handleCoordChange('pitch', e.target.value)}
-                  onKeyDown={handleCoordKeyDown}
-                  onFocus={() => { isEditingCoordsRef.current = true; }}
-                  placeholder="Pitch"
-                  title="Pitch (-90 to 90)"
-                />
-              </div>
-            </div>
-            <div className="teleport-buttons">
-              <button 
-                className="teleport-button"
-                onClick={handleTeleport}
-                title="Teleport to coordinates (or press Enter)"
-              >
-                ⚡ Teleport
-              </button>
-              <button 
-                className="teleport-button teleport-button-cancel"
-                onClick={() => {
-                  isEditingCoordsRef.current = false;
-                  setEditCoords({
-                    x: cameraState.x.toFixed(2),
-                    y: cameraState.y.toFixed(2),
-                    z: cameraState.z.toFixed(2),
-                    yaw: cameraState.yaw.toFixed(1),
-                    pitch: cameraState.pitch.toFixed(1),
-                  });
-                }}
-                title="Reset to current position (or press Escape)"
-              >
-                ✕ Reset
-              </button>
+              <span className="coord-value">
+                {cameraState.yaw.toFixed(1)} / {cameraState.pitch.toFixed(1)}
+              </span>
             </div>
             
             <div className="command-input-wrapper">
@@ -710,6 +585,26 @@ function App() {
             </span>
             <span className="toggle-hint">Hover to inspect blocks</span>
           </label>
+          
+          {/* FOV Control - for matching Minecraft screenshots */}
+          <div className="fov-control" style={{ marginTop: '0.75rem' }}>
+            <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="toggle-label">
+                <span className="toggle-icon">📷</span>
+                FOV
+              </span>
+              <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{fov}°</span>
+            </div>
+            <input 
+              type="range"
+              min="30"
+              max="110"
+              value={fov}
+              onChange={(e) => setFov(parseInt(e.target.value, 10))}
+              style={{ width: '100%', marginTop: '0.25rem' }}
+            />
+            <span className="toggle-hint">Vertical FOV in degrees (Minecraft default: 70)</span>
+          </div>
         </section>
         
         {/* Debug Info Panel */}

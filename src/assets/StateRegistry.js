@@ -11,6 +11,19 @@ import { getBlockstateResolver } from './BlockstateResolver.js';
 import { getModelResolver } from './ModelResolver.js';
 import { getModelGeometry } from './ModelGeometry.js';
 
+// Blocks that use texture rotation instead of model rotation
+// For these blocks, we only store the base (non-rotated) geometry
+// and apply rotation via the texRotation vertex attribute in the shader
+// NOTE: Only use for FLAT PLANE blocks where UV rotation is equivalent to model rotation
+// Complex models with positioned elements (stems, etc.) need actual model rotation
+const TEXTURE_ROTATION_BLOCKS = new Set([
+  // Position-based random rotation (no facing property)
+  'lily_pad',
+  
+  // Facing-based rotation (flat plane multipart with facing property)
+  'leaf_litter',
+]);
+
 /**
  * Registered block state with cached data
  * @typedef {Object} BlockState
@@ -153,19 +166,40 @@ class StateRegistry {
     await this.resolveVariants(stateId);
     if (!state.variants) return null;
 
+    // Check if this block uses texture rotation instead of model rotation
+    const usesTextureRotation = TEXTURE_ROTATION_BLOCKS.has(state.blockName);
+
+    // Track which model paths we've already processed (for texture rotation blocks)
+    // This prevents duplicate geometries when multiple rotation variants of the same model exist
+    const processedModels = usesTextureRotation ? new Set() : null;
+
     // Compute geometry for each variant
     state.geometry = [];
     state.isFullCube = true;
 
     for (const variant of state.variants) {
+      // For texture rotation blocks, skip duplicate rotation variants of the same model
+      if (usesTextureRotation && processedModels.has(variant.model)) {
+        continue;
+      }
+
       const model = await this.modelResolver.resolve(variant.model);
       if (!model) continue;
 
-      const geom = this.modelGeometry.getGeometry(model, variant.x, variant.y);
+      // For blocks with texture rotation, use base geometry (no model rotation)
+      const rotX = usesTextureRotation ? 0 : variant.x;
+      const rotY = usesTextureRotation ? 0 : variant.y;
+
+      const geom = this.modelGeometry.getGeometry(model, rotX, rotY);
       if (geom) {
         state.geometry.push(geom);
         if (!geom.isFullCube) {
           state.isFullCube = false;
+        }
+
+        // Mark this model as processed
+        if (usesTextureRotation) {
+          processedModels.add(variant.model);
         }
       }
     }

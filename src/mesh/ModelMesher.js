@@ -23,6 +23,72 @@ const FACE_NAME_TO_INDEX = {
   'west': FACE_WEST,
 };
 
+// Blocks that need position-based texture rotation (horizontal planes with random rotation variants)
+// These blocks have multiple Y-rotation variants in their blockstate that are selected based on position hash
+const POSITION_ROTATION_BLOCKS = new Set([
+  'lily_pad',
+]);
+
+// Blocks that use facing-based TEXTURE rotation (simple flat planes only)
+// Complex models with positioned elements (stems, etc.) use model rotation instead
+const FACING_TEXTURE_ROTATION_BLOCKS = new Set([
+  'leaf_litter',
+]);
+
+// Facing direction to rotation value mapping (for blocks using facing property)
+const FACING_TO_ROTATION = {
+  'north': 0,
+  'east': 1,
+  'south': 2,
+  'west': 3,
+};
+
+/**
+ * Compute position-based texture rotation for blocks with random rotation variants
+ * Uses Minecraft's exact position hash algorithm for variant selection
+ * @param {number} x - World X coordinate
+ * @param {number} y - World Y coordinate  
+ * @param {number} z - World Z coordinate
+ * @returns {number} Rotation value 0-3 (0°, 90°, 180°, 270°)
+ */
+function getPositionRotation(x, y, z) {
+  // Minecraft's MathHelper.hashCode:
+  // long l = (long)(x * 3129871) ^ (long)z * 116129781L ^ (long)y;
+  // l = l * l * 42317861L + l * 11L;
+  // return l >> 16;
+  // 
+  // Note: (long)(x * 3129871) does INT multiply first, then casts to long
+  // This matters for overflow behavior!
+  
+  const ix = x | 0;
+  const iy = y | 0;
+  const iz = z | 0;
+  
+  // Match Java's int multiplication with overflow, then cast to long
+  // JavaScript's Math.imul gives us 32-bit signed integer multiplication
+  const xPart = BigInt(Math.imul(ix, 3129871));  // int multiply, then to long
+  const zPart = BigInt(iz) * 116129781n;          // cast to long first, then multiply
+  const yPart = BigInt(iy);
+  
+  let l = xPart ^ zPart ^ yPart;
+  l = l * l * 42317861n + l * 11n;
+  const seed = l >> 16n;
+  
+  // Java Random: seed = (seed ^ 0x5DEECE66DL) & ((1L << 48) - 1)
+  // then nextInt advances and extracts bits
+  const MULT = 0x5DEECE66Dn;
+  const MASK = (1n << 48n) - 1n;
+  
+  let rng = (seed ^ MULT) & MASK;
+  rng = (rng * MULT + 0xBn) & MASK;
+  
+  // next(31) = seed >>> 17, nextInt(4) = (4L * next31) >> 31
+  const next31 = rng >> 17n;
+  const result = (4n * next31) >> 31n;
+  
+  return Number(result & 3n);
+}
+
 // Initial buffer sizes (will grow as needed)
 const INITIAL_VERTEX_COUNT = 50000;
 
@@ -114,6 +180,24 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       // Get neighbor data for face culling (only cull against full opaque cubes)
       const neighbors = getNeighborMask(grid, baseX + lx, baseY + ly, baseZ + lz, registry);
 
+      // Compute texture rotation for blocks that need position-based or facing-based rotation
+      // NOTE: Only apply to flat plane blocks - complex models use model rotation instead
+      let blockTexRotation = 0;
+      const state = stateRegistry.getState(stateId);
+      if (state) {
+        const blockName = state.blockName;
+        if (POSITION_ROTATION_BLOCKS.has(blockName)) {
+          // Position-based rotation for blocks like lily_pad
+          blockTexRotation = getPositionRotation(baseX + lx, baseY + ly, baseZ + lz);
+        } else if (FACING_TEXTURE_ROTATION_BLOCKS.has(blockName) && state.properties && state.properties.facing) {
+          // Facing-based texture rotation for simple flat plane blocks like leaf_litter
+          const facing = state.properties.facing;
+          if (FACING_TO_ROTATION[facing] !== undefined) {
+            blockTexRotation = FACING_TO_ROTATION[facing];
+          }
+        }
+      }
+
       // Add geometry from all variants
       for (const geom of geometries) {
         // Check each face for culling
@@ -184,9 +268,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             colors[ni + 1] = g;
             colors[ni + 2] = b;
             
-            // Texture index and rotation (0 = no rotation for model blocks)
+            // Texture index and rotation
             texIndices[newIdx] = texIdx;
-            texRotations[newIdx] = 0;
+            texRotations[newIdx] = blockTexRotation;
             // Apply tinting based on per-face tintindex from the model:
             // - tintindex >= 0: Apply block's tint type (explicit tinting)
             // - tintindex === -1: No tinting (explicitly disabled in model)
@@ -286,10 +370,11 @@ function growArrayUint(arr, newSize) {
 /**
  * Identify blocks that need model-based rendering
  * These patterns match blocks with non-cube geometry
+ * Note: '_pane' is excluded - glass panes render as cubes in the glass layer
  */
 export const NON_CUBE_PATTERNS = [
   // Slabs, stairs, fences, walls, doors, trapdoors
-  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars',
+  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', 'iron_bars',
   
   // Flowers
   'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',

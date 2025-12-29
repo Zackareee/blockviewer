@@ -55,7 +55,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       if (info.name) {
         if (info.name.includes('water')) isFluid[id] = 1;
         else if (info.name.includes('lava')) isFluid[id] = 2;
-        // Glass and similar transparent blocks (glass, ice, leaves)
+        // Glass and similar transparent blocks (glass, glass panes, ice, leaves)
         else if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('tinted_glass') || info.name.includes('leaves')) {
           isGlass[id] = 1;
         }
