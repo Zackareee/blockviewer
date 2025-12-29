@@ -206,12 +206,16 @@ class ModelGeometry {
           texturePath = this._resolveTextureRef(faceData.texture, model.textures);
         }
 
+        // Get tintindex from face data (-1 means no tinting)
+        const tintindex = faceData.tintindex !== undefined ? faceData.tintindex : -1;
+
         cullFaces.push({
           faceIndex: faceIndex++,
           indexStart: faceStartIndex,
           indexCount: 6,
           cullface: cullface,
           texture: texturePath,
+          tintindex: tintindex,
         });
       }
     }

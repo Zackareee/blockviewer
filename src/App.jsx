@@ -448,9 +448,9 @@ function App() {
             />
             <span className="toggle-label">
               <span className="toggle-icon">{enableModelMeshes ? '🧱' : '◻️'}</span>
-              Model Blocks
+              Partial Blocks
             </span>
-            <span className="toggle-hint">Slabs, stairs, flowers, etc.</span>
+            <span className="toggle-hint">Slabs, stairs, fences, flowers, etc.</span>
           </label>
           <label className="toggle-option" style={{ marginTop: '0.5rem' }}>
             <input 

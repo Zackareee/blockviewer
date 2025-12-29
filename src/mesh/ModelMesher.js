@@ -187,7 +187,19 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             // Texture index and rotation (0 = no rotation for model blocks)
             texIndices[newIdx] = texIdx;
             texRotations[newIdx] = 0;
-            tintTypes[newIdx] = tintTypeLookup[blockId];
+            // Apply tinting based on per-face tintindex from the model:
+            // - tintindex >= 0: Apply block's tint type (explicit tinting)
+            // - tintindex === -1: No tinting (explicitly disabled in model)
+            // - tintindex undefined: Fall back to block-level tinting (backwards compat)
+            let tintType = 0;
+            if (cullInfo.tintindex !== undefined) {
+              // Model explicitly specifies tintindex
+              tintType = cullInfo.tintindex >= 0 ? tintTypeLookup[blockId] : 0;
+            } else {
+              // No tintindex in model - use block-level tinting as fallback
+              tintType = tintTypeLookup[blockId];
+            }
+            tintTypes[newIdx] = tintType;
           }
           
           // Add remapped indices
@@ -414,13 +426,13 @@ export const NON_CUBE_PATTERNS = [
 const EXACT_MATCH_NON_CUBES = new Set([
   'brown_mushroom', 'red_mushroom',  // Small mushrooms (not _block variants)
   'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
-      'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
-      'snow',                              // Snow layers (not snow_block)
-      'chain',                             // Chain item (not chain_command_block)
-      // Small corals (not coral_block variants)
-      'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
-      'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral', 'dead_fire_coral', 'dead_horn_coral',
-    ]);
+  'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
+  'snow',                              // Snow layers (not snow_block)
+  'chain',                             // Chain item (not chain_command_block)
+  // Small corals (not coral_block variants)
+  'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
+  'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral', 'dead_fire_coral', 'dead_horn_coral',
+]);
 
 /**
  * Check if a block name needs model-based rendering

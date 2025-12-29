@@ -39,18 +39,34 @@ varying vec3 vColor;
 varying vec3 vNormal;
 varying float vVisible;
 
+// Snap interpolated normal to nearest axis for consistent per-face shading
+vec3 snapNormal(vec3 n) {
+  vec3 absN = abs(n);
+  if (absN.y >= absN.x && absN.y >= absN.z) {
+    return vec3(0.0, sign(n.y), 0.0);
+  } else if (absN.x >= absN.z) {
+    return vec3(sign(n.x), 0.0, 0.0);
+  } else {
+    return vec3(0.0, 0.0, sign(n.z));
+  }
+}
+
 void main() {
   if (vVisible < 0.5) discard;
   
-  // Simple directional lighting
-  vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-  float diff = max(dot(vNormal, lightDir), 0.0);
+  // Minecraft-style face shading (fixed brightness per face direction)
+  vec3 snappedN = snapNormal(vNormal);
+  float shade = 1.0;
   
-  // Ambient + diffuse with water-specific tinting
-  vec3 ambient = vColor * 0.5;
-  vec3 diffuse = vColor * diff * 0.5;
+  if (abs(snappedN.y) > 0.5) {
+    shade = snappedN.y > 0.0 ? 1.0 : 0.5;
+  } else if (abs(snappedN.x) > 0.5) {
+    shade = 0.6;
+  } else {
+    shade = 0.8;
+  }
   
-  gl_FragColor = vec4(ambient + diffuse, uOpacity);
+  gl_FragColor = vec4(vColor * shade, uOpacity);
 }
 `;
 

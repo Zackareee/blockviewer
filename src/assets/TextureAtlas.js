@@ -183,33 +183,32 @@ class TextureAtlas {
   _buildColormapTexture(packManager) {
     const colormaps = packManager.getColormaps();
     
-    if (!colormaps.grass && !colormaps.foliage) {
-      console.log('[TextureAtlas] No colormaps available, biome tinting disabled');
-      return;
-    }
-    
     // Create a 256x512 canvas (grass on top half, foliage on bottom half)
     const canvas = document.createElement('canvas');
     canvas.width = 256;
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
     
-    // Fill with default green in case colormaps are missing
+    // Fill with default green colors (used when colormaps aren't available)
     ctx.fillStyle = '#5D8C32'; // Default grass green
     ctx.fillRect(0, 0, 256, 256);
     ctx.fillStyle = '#3A8B25'; // Default foliage green
     ctx.fillRect(0, 256, 256, 256);
     
-    // Draw grass colormap to top half (0-255)
+    // Draw grass colormap to top half (0-255) if available
     if (colormaps.grass) {
       ctx.drawImage(colormaps.grass, 0, 0, 256, 256);
       console.log('[TextureAtlas] Added grass colormap');
+    } else {
+      console.log('[TextureAtlas] No grass colormap, using default green');
     }
     
-    // Draw foliage colormap to bottom half (256-511)
+    // Draw foliage colormap to bottom half (256-511) if available
     if (colormaps.foliage) {
       ctx.drawImage(colormaps.foliage, 0, 256, 256, 256);
       console.log('[TextureAtlas] Added foliage colormap');
+    } else {
+      console.log('[TextureAtlas] No foliage colormap, using default green');
     }
     
     // Create Three.js texture
@@ -224,7 +223,8 @@ class TextureAtlas {
     this.colormapTexture.wrapS = THREE.ClampToEdgeWrapping;
     this.colormapTexture.wrapT = THREE.ClampToEdgeWrapping;
     this.colormapTexture.generateMipmaps = false;
-    this.colormapTexture.colorSpace = THREE.SRGBColorSpace;
+    // Use NoColorSpace to prevent any gamma correction
+    this.colormapTexture.colorSpace = THREE.NoColorSpace;
     this.colormapTexture.needsUpdate = true;
     
     console.log('[TextureAtlas] Built colormap texture (256x512)');
@@ -305,7 +305,9 @@ class TextureAtlas {
     this.texture.wrapS = THREE.ClampToEdgeWrapping; // Don't wrap - we handle tiling in shader
     this.texture.wrapT = THREE.ClampToEdgeWrapping;
     this.texture.generateMipmaps = false; // Disable mipmaps - they cause bleeding in atlases
-    this.texture.colorSpace = THREE.SRGBColorSpace;
+    // Use NoColorSpace to prevent any gamma correction - Minecraft textures are
+    // already in the correct color space and we apply shading directly in the shader
+    this.texture.colorSpace = THREE.NoColorSpace;
     this.texture.needsUpdate = true;
   }
 

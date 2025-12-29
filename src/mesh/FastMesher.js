@@ -8,7 +8,7 @@ import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, sectionToWorldY, makeSectionKey
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
 import { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT, AXIS_MASK } from './ChunkDecoder.js';
 import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
-import { buildTintTypeLookup } from '../data/biomeTinting.js';
+import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
 
 const S = 16;
 const S2 = 256;
@@ -39,8 +39,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   const isGlass = new Uint8Array(4096); // Glass and transparent blocks
   const isRotatable = new Uint8Array(4096); // Blocks that support axis rotation
   
-  // Build tint type lookup for biome tinting (grass, leaves, etc.)
-  const tintTypeLookup = buildTintTypeLookup(registry);
+  // Build per-face tint type lookup for biome tinting (grass, leaves, etc.)
+  // This respects tintindex from block models - e.g. grass_block only tints top face
+  const faceTintTypeLookup = buildFaceTintTypeLookup(registry);
   
   for (let id = 0; id < 4096; id++) {
     const info = registry.getBlockInfo(id);
@@ -54,8 +55,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       if (info.name) {
         if (info.name.includes('water')) isFluid[id] = 1;
         else if (info.name.includes('lava')) isFluid[id] = 2;
-        // Glass and similar transparent blocks
-        else if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('tinted_glass')) {
+        // Glass and similar transparent blocks (glass, ice, leaves)
+        else if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('tinted_glass') || info.name.includes('leaves')) {
           isGlass[id] = 1;
         }
         // Check if this block is rotatable (logs, pillars, etc.)
@@ -377,7 +378,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_UP);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_UP);
-          const tintType = tintTypeLookup[bid];
+          const tintType = faceTintTypeLookup[bid * 6 + FACE_UP];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 1; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -461,7 +462,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_DOWN);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_DOWN);
-          const tintType = tintTypeLookup[bid];
+          const tintType = faceTintTypeLookup[bid * 6 + FACE_DOWN];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = -1; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -548,7 +549,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_EAST);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_EAST);
-          const tintType = tintTypeLookup[bid];
+          const tintType = faceTintTypeLookup[bid * 6 + FACE_EAST];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 1; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -634,7 +635,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_WEST);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_WEST);
-          const tintType = tintTypeLookup[bid];
+          const tintType = faceTintTypeLookup[bid * 6 + FACE_WEST];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = -1; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -721,7 +722,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_SOUTH);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_SOUTH);
-          const tintType = tintTypeLookup[bid];
+          const tintType = faceTintTypeLookup[bid * 6 + FACE_SOUTH];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 1;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -807,7 +808,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_NORTH);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_NORTH);
-          const tintType = tintTypeLookup[bid];
+          const tintType = faceTintTypeLookup[bid * 6 + FACE_NORTH];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = -1;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -1134,7 +1135,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
             gTexRot[gVC + v] = 0;
-            gTintType[gVC + v] = tintTypeLookup[bid];
+            gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_UP];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1212,7 +1213,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
             gTexRot[gVC + v] = 0;
-            gTintType[gVC + v] = tintTypeLookup[bid];
+            gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_DOWN];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1292,7 +1293,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
             gTexRot[gVC + v] = 0;
-            gTintType[gVC + v] = tintTypeLookup[bid];
+            gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_EAST];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1372,7 +1373,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
             gTexRot[gVC + v] = 0;
-            gTintType[gVC + v] = tintTypeLookup[bid];
+            gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_WEST];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1452,7 +1453,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
             gTexRot[gVC + v] = 0;
-            gTintType[gVC + v] = tintTypeLookup[bid];
+            gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_SOUTH];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1532,7 +1533,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
             gTexRot[gVC + v] = 0;
-            gTintType[gVC + v] = tintTypeLookup[bid];
+            gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_NORTH];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;

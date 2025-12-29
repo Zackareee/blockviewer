@@ -74,6 +74,11 @@ const FOLIAGE_TINTED_BLOCKS = new Set([
   'minecraft:dark_oak_leaves',
   // Mangrove leaves
   'minecraft:mangrove_leaves',
+  // Azalea leaves
+  'minecraft:azalea_leaves',
+  'minecraft:flowering_azalea_leaves',
+  // Cherry leaves (uses foliage tint in vanilla)
+  'minecraft:cherry_leaves',
   // Vines
   'minecraft:vine',
 ]);
@@ -140,11 +145,76 @@ export function buildTintTypeLookup(registry) {
   const maxId = 4096; // Match FastMesher's assumption
   const lookup = new Uint8Array(maxId);
   
+  // Debug: count tinted blocks
+  let tintedCount = 0;
+  
   for (let id = 0; id < maxId; id++) {
     const info = registry.getBlockInfo(id);
     if (info && info.name) {
-      lookup[id] = getBlockTintType(info.name);
+      const tintType = getBlockTintType(info.name);
+      lookup[id] = tintType;
+      if (tintType > 0) tintedCount++;
     }
+  }
+  
+  console.log(`[biomeTinting] Built block tint lookup: ${tintedCount} tinted blocks`);
+  
+  return lookup;
+}
+
+/**
+ * Build a per-face tint type lookup for the mesher
+ * This respects tintindex from block models - e.g. grass_block only tints top face
+ * @param {Object} registry - BlockRegistry instance
+ * @returns {Uint8Array} Array indexed by (blockId * 6 + faceIndex) containing TINT_TYPE values
+ */
+export function buildFaceTintTypeLookup(registry) {
+  const maxId = 4096;
+  const lookup = new Uint8Array(maxId * 6);
+  
+  // Debug: count tinted blocks
+  let tintedCount = 0;
+  let registeredCount = 0;
+  const tintedBlocks = [];
+  
+  for (let id = 0; id < maxId; id++) {
+    const info = registry.getBlockInfo(id);
+    if (!info || !info.name) continue;
+    registeredCount++;
+    
+    const tintType = getBlockTintType(info.name);
+    const baseIdx = id * 6;
+    
+    // Debug: track tinted blocks
+    if (tintType > 0) {
+      tintedCount++;
+      if (tintedBlocks.length < 20) {
+        tintedBlocks.push({ id, name: info.name, tintType });
+      }
+    }
+    
+    // Special case: grass_block only tints the top face (faceIndex 0)
+    // The side overlay is rendered separately by ModelMesher
+    if (info.name === 'minecraft:grass_block') {
+      lookup[baseIdx + 0] = tintType; // up - tinted
+      lookup[baseIdx + 1] = TINT_TYPE.NONE; // down - not tinted (dirt)
+      lookup[baseIdx + 2] = TINT_TYPE.NONE; // north - not tinted (grass_block_side has no tintindex)
+      lookup[baseIdx + 3] = TINT_TYPE.NONE; // south
+      lookup[baseIdx + 4] = TINT_TYPE.NONE; // east
+      lookup[baseIdx + 5] = TINT_TYPE.NONE; // west
+    } else {
+      // All other blocks: same tint for all faces
+      for (let face = 0; face < 6; face++) {
+        lookup[baseIdx + face] = tintType;
+      }
+    }
+  }
+  
+  console.log(`[biomeTinting] Built face tint lookup: ${registeredCount} blocks in registry, ${tintedCount} tinted blocks found`);
+  if (tintedBlocks.length > 0) {
+    console.log(`[biomeTinting] Sample tinted blocks:`, tintedBlocks);
+  } else if (registeredCount > 0) {
+    console.warn(`[biomeTinting] Warning: No tinted blocks found! This is unexpected.`);
   }
   
   return lookup;
@@ -182,5 +252,6 @@ export default {
   getBlockTintType,
   getBlockTintTypeByShortName,
   buildTintTypeLookup,
+  buildFaceTintTypeLookup,
 };
 

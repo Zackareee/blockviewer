@@ -263,16 +263,23 @@ void main() {
     finalColor = vColor;
   }
   
-  // Simple directional lighting using snapped normal for consistent per-face brightness
+  // Minecraft-style face shading (fixed brightness per face direction)
+  // These values match Minecraft Java Edition's block face lighting
   vec3 snappedN = snapNormal(vNormal);
-  vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-  float diff = max(dot(snappedN, lightDir), 0.0);
+  float shade = 1.0;
   
-  // Ambient + diffuse
-  vec3 ambient = finalColor * 0.4;
-  vec3 diffuse = finalColor * diff * 0.6;
+  if (abs(snappedN.y) > 0.5) {
+    // Top face (Y+) = 1.0, Bottom face (Y-) = 0.5
+    shade = snappedN.y > 0.0 ? 1.0 : 0.5;
+  } else if (abs(snappedN.x) > 0.5) {
+    // East/West faces (X±) = 0.6
+    shade = 0.6;
+  } else {
+    // North/South faces (Z±) = 0.8
+    shade = 0.8;
+  }
   
-  gl_FragColor = vec4(ambient + diffuse, alpha);
+  gl_FragColor = vec4(finalColor * shade, alpha);
 }
 `;
 
@@ -380,10 +387,10 @@ export function createTexturedGlassMaterial(atlasData = null, useTextures = fals
     },
     vertexShader,
     fragmentShader,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
     vertexColors: true,
     transparent: true,
-    depthWrite: false,
+    depthWrite: true, // Enable depth writing - alpha-tested pixels (discarded) won't write anyway
   });
   
   return material;
