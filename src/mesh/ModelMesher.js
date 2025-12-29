@@ -11,6 +11,7 @@ import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, sectionToWorldY, makeSectionKey
 import { CULLFACE_OFFSETS } from '../assets/ModelGeometry.js';
 import { BlockCategory } from './BlockRegistry.js';
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
+import { buildTintTypeLookup } from '../data/biomeTinting.js';
 
 // Map face name to face index constant
 const FACE_NAME_TO_INDEX = {
@@ -51,6 +52,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     colorG[id] = col.g;
     colorB[id] = col.b;
   }
+  
+  // Build tint type lookup for biome tinting
+  const tintTypeLookup = buildTintTypeLookup(registry);
 
   // Growable buffers
   let positions = new Float32Array(INITIAL_VERTEX_COUNT * 3);
@@ -58,6 +62,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let colors = new Float32Array(INITIAL_VERTEX_COUNT * 3);
   let texIndices = new Float32Array(INITIAL_VERTEX_COUNT); // Texture atlas index per vertex
   let texRotations = new Float32Array(INITIAL_VERTEX_COUNT); // Texture rotation per vertex (0 for model blocks)
+  let tintTypes = new Float32Array(INITIAL_VERTEX_COUNT); // Biome tint type per vertex
   let indices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
   
   let vertexCount = 0;
@@ -126,6 +131,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             colors = growArray(colors, capacity * 3);
             texIndices = growArray(texIndices, capacity);
             texRotations = growArray(texRotations, capacity);
+            tintTypes = growArray(tintTypes, capacity);
             indices = growArrayUint(indices, capacity * 2);
           }
 
@@ -181,6 +187,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             // Texture index and rotation (0 = no rotation for model blocks)
             texIndices[newIdx] = texIdx;
             texRotations[newIdx] = 0;
+            tintTypes[newIdx] = tintTypeLookup[blockId];
           }
           
           // Add remapped indices
@@ -209,6 +216,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   if (textureIndexLookup) {
     result.texIndices = texIndices.subarray(0, vertexCount);
     result.texRotations = texRotations.subarray(0, vertexCount);
+    result.tintTypes = tintTypes.subarray(0, vertexCount);
   }
   
   return result;

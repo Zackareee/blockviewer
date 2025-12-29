@@ -31,6 +31,13 @@ class TexturePackManager {
     // Loaded blockstates: Map<blockName, blockstateJSON>
     this.blockstates = new Map();
     
+    // Colormap textures for biome tinting
+    this.colormaps = {
+      grass: null,      // textures/colormap/grass.png
+      foliage: null,    // textures/colormap/foliage.png
+      dryFoliage: null, // textures/colormap/dry_foliage.png (Pale Garden)
+    };
+    
     // Current texture mode
     this.mode = TEXTURE_MODE.SOLID_COLOR;
     
@@ -144,6 +151,22 @@ class TexturePackManager {
       }
     }
     
+    // Load colormap textures for biome tinting
+    const colormapPath = `${minecraftPath}textures/colormap/`;
+    const colormapFiles = {
+      grass: `${colormapPath}grass.png`,
+      foliage: `${colormapPath}foliage.png`,
+      dryFoliage: `${colormapPath}dry_foliage.png`,
+    };
+    
+    for (const [name, filePath] of Object.entries(colormapFiles)) {
+      if (zip.files[filePath]) {
+        texturePromises.push(
+          this._loadColormap(zip.files[filePath], name)
+        );
+      }
+    }
+    
     // Load models (parallel)
     const modelPromises = [];
     const blockModelPath = `${minecraftPath}models/block/`;
@@ -198,6 +221,17 @@ class TexturePackManager {
       this.textures.set(relativePath, imageBitmap);
     } catch (e) {
       // Skip invalid images silently
+    }
+  }
+
+  async _loadColormap(file, colormapName) {
+    try {
+      const blob = await file.async('blob');
+      const imageBitmap = await createImageBitmap(blob);
+      this.colormaps[colormapName] = imageBitmap;
+      console.log(`[TexturePackManager] Loaded colormap: ${colormapName} (${imageBitmap.width}x${imageBitmap.height})`);
+    } catch (e) {
+      console.warn(`[TexturePackManager] Failed to load colormap ${colormapName}:`, e);
     }
   }
 
@@ -321,9 +355,26 @@ class TexturePackManager {
     this.textures.clear();
     this.models.clear();
     this.blockstates.clear();
+    this.colormaps = { grass: null, foliage: null, dryFoliage: null };
     this.isLoaded = false;
     this.packMeta = null;
     this.packName = null;
+  }
+
+  /**
+   * Get colormap textures for biome tinting
+   * @returns {{ grass: ImageBitmap|null, foliage: ImageBitmap|null, dryFoliage: ImageBitmap|null }}
+   */
+  getColormaps() {
+    // Try this pack first
+    if (this.colormaps.grass || this.colormaps.foliage) {
+      return this.colormaps;
+    }
+    // Try fallback
+    if (this.fallbackManager) {
+      return this.fallbackManager.getColormaps();
+    }
+    return this.colormaps;
   }
 
   /**

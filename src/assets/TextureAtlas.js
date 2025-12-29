@@ -40,6 +40,10 @@ class TextureAtlas {
     this.colorLookup = null;
     this.colorLookupTexture = null;
     
+    // Colormap texture for biome tinting (grass + foliage combined into one texture)
+    // Layout: grass colormap (256x256) on top, foliage colormap (256x256) below
+    this.colormapTexture = null;
+    
     // Atlas canvas and context
     this.canvas = null;
     this.ctx = null;
@@ -161,11 +165,69 @@ class TextureAtlas {
 
     // Create Three.js texture
     this._createThreeTexture();
+    
+    // Build colormap texture for biome tinting
+    this._buildColormapTexture(packManager);
 
     this.isBuilt = true;
     console.log(`[TextureAtlas] Built ${this.atlasWidth}x${this.atlasHeight} atlas with ${this.uvLookup.size / 2} textures`);
 
     return true;
+  }
+
+  /**
+   * Build combined colormap texture for biome tinting
+   * Creates a 256x512 texture with grass colormap on top, foliage below
+   * @param {TexturePackManager} packManager
+   */
+  _buildColormapTexture(packManager) {
+    const colormaps = packManager.getColormaps();
+    
+    if (!colormaps.grass && !colormaps.foliage) {
+      console.log('[TextureAtlas] No colormaps available, biome tinting disabled');
+      return;
+    }
+    
+    // Create a 256x512 canvas (grass on top half, foliage on bottom half)
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    
+    // Fill with default green in case colormaps are missing
+    ctx.fillStyle = '#5D8C32'; // Default grass green
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = '#3A8B25'; // Default foliage green
+    ctx.fillRect(0, 256, 256, 256);
+    
+    // Draw grass colormap to top half (0-255)
+    if (colormaps.grass) {
+      ctx.drawImage(colormaps.grass, 0, 0, 256, 256);
+      console.log('[TextureAtlas] Added grass colormap');
+    }
+    
+    // Draw foliage colormap to bottom half (256-511)
+    if (colormaps.foliage) {
+      ctx.drawImage(colormaps.foliage, 0, 256, 256, 256);
+      console.log('[TextureAtlas] Added foliage colormap');
+    }
+    
+    // Create Three.js texture
+    if (this.colormapTexture) {
+      this.colormapTexture.dispose();
+    }
+    
+    this.colormapTexture = new THREE.CanvasTexture(canvas);
+    this.colormapTexture.flipY = false;
+    this.colormapTexture.magFilter = THREE.LinearFilter; // Smooth sampling
+    this.colormapTexture.minFilter = THREE.LinearFilter;
+    this.colormapTexture.wrapS = THREE.ClampToEdgeWrapping;
+    this.colormapTexture.wrapT = THREE.ClampToEdgeWrapping;
+    this.colormapTexture.generateMipmaps = false;
+    this.colormapTexture.colorSpace = THREE.SRGBColorSpace;
+    this.colormapTexture.needsUpdate = true;
+    
+    console.log('[TextureAtlas] Built colormap texture (256x512)');
   }
 
   /**
@@ -418,10 +480,12 @@ class TextureAtlas {
     
     console.log(`[TextureAtlas] Material data: atlas ${this.atlasWidth}x${this.atlasHeight}, tiles ${this.tilesPerRow}x${this.tilesPerCol}`);
     console.log(`[TextureAtlas] UV sizes: tile=${tileUV.x.toFixed(4)}, texture=${textureUV.x.toFixed(4)}, border=${borderUV.x.toFixed(4)}`);
+    console.log(`[TextureAtlas] Colormap texture: ${this.colormapTexture ? 'available' : 'not available'}`);
     
     return {
       atlas: this.texture,
       lookup: this.colorLookupTexture,
+      colormap: this.colormapTexture, // Colormap texture for biome tinting
       size: {
         x: this.tilesPerRow,
         y: this.tilesPerCol,
@@ -535,6 +599,10 @@ class TextureAtlas {
     if (this.colorLookupTexture) {
       this.colorLookupTexture.dispose();
       this.colorLookupTexture = null;
+    }
+    if (this.colormapTexture) {
+      this.colormapTexture.dispose();
+      this.colormapTexture = null;
     }
     this.colorLookup = null;
     this.canvas = null;

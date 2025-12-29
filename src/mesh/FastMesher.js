@@ -8,6 +8,7 @@ import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, sectionToWorldY, makeSectionKey
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
 import { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT, AXIS_MASK } from './ChunkDecoder.js';
 import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
+import { buildTintTypeLookup } from '../data/biomeTinting.js';
 
 const S = 16;
 const S2 = 256;
@@ -37,6 +38,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   const isFluid = new Uint8Array(4096);
   const isGlass = new Uint8Array(4096); // Glass and transparent blocks
   const isRotatable = new Uint8Array(4096); // Blocks that support axis rotation
+  
+  // Build tint type lookup for biome tinting (grass, leaves, etc.)
+  const tintTypeLookup = buildTintTypeLookup(registry);
   
   for (let id = 0; id < 4096; id++) {
     const info = registry.getBlockInfo(id);
@@ -149,6 +153,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   let sCol = new Float32Array(INITIAL_SIZE * 12);
   let sTexIdx = new Float32Array(INITIAL_SIZE * 4); // Texture index per vertex
   let sTexRot = new Float32Array(INITIAL_SIZE * 4); // Texture rotation per vertex (0-3 for 90° increments)
+  let sTintType = new Float32Array(INITIAL_SIZE * 4); // Biome tint type per vertex
   let sIdx = new Uint32Array(INITIAL_SIZE * 6);
   let sVC = 0, sIC = 0;
   let sCapacity = INITIAL_SIZE;
@@ -175,6 +180,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   let gCol = new Float32Array(INITIAL_SIZE * 0.2 * 12);
   let gTexIdx = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Texture index per vertex
   let gTexRot = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Texture rotation per vertex
+  let gTintType = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Biome tint type per vertex
   let gIdx = new Uint32Array(INITIAL_SIZE * 0.2 * 6);
   let gVC = 0, gIC = 0;
   let gCapacity = Math.floor(INITIAL_SIZE * 0.2);
@@ -189,14 +195,16 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         const newCol = new Float32Array(newCap * 12);
         const newTexIdx = new Float32Array(newCap * 4);
         const newTexRot = new Float32Array(newCap * 4);
+        const newTintType = new Float32Array(newCap * 4);
         const newIdx = new Uint32Array(newCap * 6);
         newPos.set(sPos.subarray(0, sVC * 3));
         newNorm.set(sNorm.subarray(0, sVC * 3));
         newCol.set(sCol.subarray(0, sVC * 3));
         newTexIdx.set(sTexIdx.subarray(0, sVC));
         newTexRot.set(sTexRot.subarray(0, sVC));
+        newTintType.set(sTintType.subarray(0, sVC));
         newIdx.set(sIdx.subarray(0, sIC));
-        sPos = newPos; sNorm = newNorm; sCol = newCol; sTexIdx = newTexIdx; sTexRot = newTexRot; sIdx = newIdx;
+        sPos = newPos; sNorm = newNorm; sCol = newCol; sTexIdx = newTexIdx; sTexRot = newTexRot; sTintType = newTintType; sIdx = newIdx;
         sCapacity = newCap;
       } else if (type === 'w') {
         const newCap = Math.floor(wCapacity * GROWTH_FACTOR);
@@ -229,14 +237,16 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         const newCol = new Float32Array(newCap * 12);
         const newTexIdx = new Float32Array(newCap * 4);
         const newTexRot = new Float32Array(newCap * 4);
+        const newTintType = new Float32Array(newCap * 4);
         const newIdx = new Uint32Array(newCap * 6);
         newPos.set(gPos.subarray(0, gVC * 3));
         newNorm.set(gNorm.subarray(0, gVC * 3));
         newCol.set(gCol.subarray(0, gVC * 3));
         newTexIdx.set(gTexIdx.subarray(0, gVC));
         newTexRot.set(gTexRot.subarray(0, gVC));
+        newTintType.set(gTintType.subarray(0, gVC));
         newIdx.set(gIdx.subarray(0, gIC));
-        gPos = newPos; gNorm = newNorm; gCol = newCol; gTexIdx = newTexIdx; gTexRot = newTexRot; gIdx = newIdx;
+        gPos = newPos; gNorm = newNorm; gCol = newCol; gTexIdx = newTexIdx; gTexRot = newTexRot; gTintType = newTintType; gIdx = newIdx;
         gCapacity = newCap;
       }
       return true;
@@ -367,11 +377,13 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_UP);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_UP);
+          const tintType = tintTypeLookup[bid];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 1; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
             sTexIdx[sVC + v] = texIdx;
             sTexRot[sVC + v] = texRot;
+            sTintType[sVC + v] = tintType;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -449,11 +461,13 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_DOWN);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_DOWN);
+          const tintType = tintTypeLookup[bid];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = -1; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
             sTexIdx[sVC + v] = texIdx;
             sTexRot[sVC + v] = texRot;
+            sTintType[sVC + v] = tintType;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -534,11 +548,13 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_EAST);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_EAST);
+          const tintType = tintTypeLookup[bid];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 1; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
             sTexIdx[sVC + v] = texIdx;
             sTexRot[sVC + v] = texRot;
+            sTintType[sVC + v] = tintType;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -618,11 +634,13 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_WEST);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_WEST);
+          const tintType = tintTypeLookup[bid];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = -1; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
             sTexIdx[sVC + v] = texIdx;
             sTexRot[sVC + v] = texRot;
+            sTintType[sVC + v] = tintType;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -703,11 +721,13 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_SOUTH);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_SOUTH);
+          const tintType = tintTypeLookup[bid];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 1;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
             sTexIdx[sVC + v] = texIdx;
             sTexRot[sVC + v] = texRot;
+            sTintType[sVC + v] = tintType;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -787,11 +807,13 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_NORTH);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_NORTH);
+          const tintType = tintTypeLookup[bid];
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = -1;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
             sTexIdx[sVC + v] = texIdx;
             sTexRot[sVC + v] = texRot;
+            sTintType[sVC + v] = tintType;
           }
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
@@ -1111,7 +1133,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 1; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
-            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
+            gTexRot[gVC + v] = 0;
+            gTintType[gVC + v] = tintTypeLookup[bid];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1188,7 +1211,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = -1; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
-            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
+            gTexRot[gVC + v] = 0;
+            gTintType[gVC + v] = tintTypeLookup[bid];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1267,7 +1291,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gNorm[pi + v*3] = 1; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
-            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
+            gTexRot[gVC + v] = 0;
+            gTintType[gVC + v] = tintTypeLookup[bid];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1346,7 +1371,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gNorm[pi + v*3] = -1; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
-            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
+            gTexRot[gVC + v] = 0;
+            gTintType[gVC + v] = tintTypeLookup[bid];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1425,7 +1451,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 1;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
-            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
+            gTexRot[gVC + v] = 0;
+            gTintType[gVC + v] = tintTypeLookup[bid];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1504,7 +1531,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = -1;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
             gTexIdx[gVC + v] = texIdx;
-            gTexRot[gVC + v] = 0; // TODO: get rotation from block state
+            gTexRot[gVC + v] = 0;
+            gTintType[gVC + v] = tintTypeLookup[bid];
           }
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
@@ -1515,7 +1543,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   }
   
   // Trim and return
-  const trimMesh = (pos, norm, col, idx, vc, ic, texIdx = null, texRot = null) => {
+  const trimMesh = (pos, norm, col, idx, vc, ic, texIdx = null, texRot = null, tintType = null) => {
     if (vc === 0) return null;
     const result = {
       positions: pos.subarray(0, vc * 3),
@@ -1531,14 +1559,17 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
     if (texRot) {
       result.texRotations = texRot.subarray(0, vc);
     }
+    if (tintType) {
+      result.tintTypes = tintType.subarray(0, vc);
+    }
     return result;
   };
   
   return {
-    solid: trimMesh(sPos, sNorm, sCol, sIdx, sVC, sIC, sTexIdx, sTexRot),
+    solid: trimMesh(sPos, sNorm, sCol, sIdx, sVC, sIC, sTexIdx, sTexRot, sTintType),
     water: trimMesh(wPos, wNorm, wCol, wIdx, wVC, wIC),
     lava: trimMesh(lPos, lNorm, lCol, lIdx, lVC, lIC),
-    glass: trimMesh(gPos, gNorm, gCol, gIdx, gVC, gIC, gTexIdx, gTexRot),
+    glass: trimMesh(gPos, gNorm, gCol, gIdx, gVC, gIC, gTexIdx, gTexRot, gTintType),
   };
 }
 

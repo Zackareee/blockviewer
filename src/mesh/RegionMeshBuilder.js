@@ -278,6 +278,11 @@ export class RegionMeshBuilder {
       geometry.setAttribute('texRotation', new THREE.BufferAttribute(meshData.texRotations, 1));
     }
     
+    // Add biome tint type attribute if present (for biome tinting in shader)
+    if (meshData.tintTypes) {
+      geometry.setAttribute('tintType', new THREE.BufferAttribute(meshData.tintTypes, 1));
+    }
+    
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
     geometry.computeBoundingSphere();
     

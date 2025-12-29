@@ -19,6 +19,7 @@ uniform float uMaxY;
 
 attribute float texIndex;    // Atlas texture index (0 to tilesPerRow*tilesPerCol-1)
 attribute float texRotation; // Texture rotation (0-3 for 90° increments)
+attribute float tintType;    // Biome tint type (0=none, 1=grass, 2=foliage, 3=spruce, 4=birch, 5=water)
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -26,6 +27,7 @@ varying vec3 vWorldPos;
 varying float vVisible;
 varying float vTexIndex;
 varying float vTexRotation;
+varying float vTintType;
 
 void main() {
   vColor = color;
@@ -33,6 +35,7 @@ void main() {
   vWorldPos = position; // World position for UV calculation
   vTexIndex = texIndex;
   vTexRotation = texRotation;
+  vTintType = tintType;
   
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
@@ -47,11 +50,28 @@ void main() {
 
 const fragmentShader = `
 uniform sampler2D uAtlas;        // The texture atlas
+uniform sampler2D uColormap;     // Biome colormap texture (grass on top, foliage on bottom)
 uniform float uUseTextures;      // 0.0 = vertex colors only, 1.0 = use textures
+uniform float uUseTinting;       // 0.0 = no biome tinting, 1.0 = apply biome tinting
 uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
 uniform vec2 uBorderUV;          // Border offset in UV space (1px)
+
+// Tint type constants (must match TINT_TYPE in biomeTinting.js)
+#define TINT_NONE 0
+#define TINT_GRASS 1
+#define TINT_FOLIAGE 2
+#define TINT_SPRUCE 3
+#define TINT_BIRCH 4
+#define TINT_WATER 5
+#define TINT_DRY_FOLIAGE 7
+
+// Fixed tint colors (RGB 0-1)
+const vec3 SPRUCE_TINT = vec3(0.380, 0.600, 0.380);   // #619961
+const vec3 BIRCH_TINT = vec3(0.502, 0.655, 0.333);    // #80a755
+const vec3 WATER_TINT = vec3(0.247, 0.463, 0.894);    // #3F76E4
+const vec3 DRY_FOLIAGE_TINT = vec3(0.667, 0.580, 0.439); // #AB9470
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -59,6 +79,7 @@ varying vec3 vWorldPos;
 varying float vVisible;
 varying float vTexIndex;
 varying float vTexRotation;
+varying float vTintType;
 
 // Snap interpolated normal to nearest axis to prevent UV instability at sharp angles
 // This is needed because WebGL 1.0 doesn't support 'flat' interpolation
@@ -95,6 +116,42 @@ vec2 rotateUV(vec2 uv, float rotation) {
   
   // Clamp result to valid UV range to prevent any edge case issues
   return clamp(centered + 0.5, 0.0, 1.0);
+}
+
+// Sample the biome colormap to get tint color
+// Colormap is 256x512: grass (0-255), foliage (256-511)
+// UV coordinates: use center of colormap for default "plains" biome look
+vec3 sampleColormap(int tintType) {
+  // Default sampling position (plains-like biome - middle of colormap for nice green)
+  vec2 uv = vec2(0.5, 0.25); // Middle of grass section (top half)
+  
+  if (tintType == TINT_GRASS) {
+    // Grass colormap is in top half (y: 0.0 to 0.5)
+    uv = vec2(0.5, 0.25);
+  } else if (tintType == TINT_FOLIAGE) {
+    // Foliage colormap is in bottom half (y: 0.5 to 1.0)
+    uv = vec2(0.5, 0.75);
+  }
+  
+  return texture2D(uColormap, uv).rgb;
+}
+
+// Get the biome tint color for the current fragment
+vec3 getBiomeTint(int tintType) {
+  if (tintType == TINT_NONE) {
+    return vec3(1.0); // No tinting
+  } else if (tintType == TINT_GRASS || tintType == TINT_FOLIAGE) {
+    return sampleColormap(tintType);
+  } else if (tintType == TINT_SPRUCE) {
+    return SPRUCE_TINT;
+  } else if (tintType == TINT_BIRCH) {
+    return BIRCH_TINT;
+  } else if (tintType == TINT_WATER) {
+    return WATER_TINT;
+  } else if (tintType == TINT_DRY_FOLIAGE) {
+    return DRY_FOLIAGE_TINT;
+  }
+  return vec3(1.0);
 }
 
 // Get UV coordinates for a face based on world position and normal (triplanar)
@@ -189,10 +246,17 @@ void main() {
     // Handle transparency
     if (texColor.a < 0.1) discard;
     
-    // Combine texture with vertex color for biome tinting
-    // For most blocks: mostly texture, subtle color influence for biome variation
-    // vColor is the block's characteristic color which can provide biome tinting
-    finalColor = texColor.rgb * (vColor * 0.3 + 0.7);
+    // Apply biome tinting if enabled
+    int tintType = int(vTintType + 0.5); // Round to nearest int
+    vec3 tintColor = vec3(1.0);
+    
+    if (uUseTinting > 0.5 && tintType > 0) {
+      tintColor = getBiomeTint(tintType);
+    }
+    
+    // Apply tint to texture color
+    // For tinted blocks, the texture is grayscale and we multiply by tint
+    finalColor = texColor.rgb * tintColor;
     alpha = texColor.a;
   } else {
     // Use vertex color fallback (solid color mode)
@@ -232,10 +296,12 @@ const defaultTexture = createDefaultTexture();
  */
 function getAtlasUniforms(atlasData) {
   let atlas = defaultTexture;
+  let colormap = defaultTexture;
   let size = new THREE.Vector2(32, 32);
   let tileUV = new THREE.Vector2(1/32, 1/32);     // Default: 1 tile = 1/32 of atlas
   let textureUV = new THREE.Vector2(1/32, 1/32);  // Same as tileUV for simple case
   let borderUV = new THREE.Vector2(0, 0);         // No border for simple case
+  let hasColormap = false;
   
   if (atlasData) {
     if (atlasData.atlas) {
@@ -247,29 +313,37 @@ function getAtlasUniforms(atlasData) {
       if (atlasData.tileUV) tileUV.set(atlasData.tileUV.x, atlasData.tileUV.y);
       if (atlasData.textureUV) textureUV.set(atlasData.textureUV.x, atlasData.textureUV.y);
       if (atlasData.borderUV) borderUV.set(atlasData.borderUV.x, atlasData.borderUV.y);
+      
+      // Colormap for biome tinting
+      if (atlasData.colormap) {
+        colormap = atlasData.colormap;
+        hasColormap = true;
+      }
     } else if (atlasData.isTexture) {
       // Old format: THREE.Texture
       atlas = atlasData;
     }
   }
   
-  return { atlas, size, tileUV, textureUV, borderUV };
+  return { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV };
 }
 
 /**
  * Create a textured solid block material
- * @param {Object|THREE.Texture} atlasData - Material data { atlas, size, textureIndexLookup, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV } or legacy texture
+ * @param {Object|THREE.Texture} atlasData - Material data { atlas, colormap, size, textureIndexLookup, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV } or legacy texture
  * @param {boolean} useTextures - Whether to use textures (false = vertex colors only)
  */
 export function createTexturedMaterial(atlasData = null, useTextures = false) {
-  const { atlas, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
       uAtlas: { value: atlas },
+      uColormap: { value: colormap },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
+      uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -289,14 +363,16 @@ export function createTexturedMaterial(atlasData = null, useTextures = false) {
  * Create a textured material for transparent blocks (glass, ice)
  */
 export function createTexturedGlassMaterial(atlasData = null, useTextures = false) {
-  const { atlas, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
       uAtlas: { value: atlas },
+      uColormap: { value: colormap },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
+      uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -316,7 +392,7 @@ export function createTexturedGlassMaterial(atlasData = null, useTextures = fals
 /**
  * Update material's texture atlas
  * @param {THREE.ShaderMaterial} material - The material to update
- * @param {Object} atlasData - { atlas: THREE.Texture, size: {x, y}, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV }
+ * @param {Object} atlasData - { atlas: THREE.Texture, colormap: THREE.Texture, size: {x, y}, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV }
  */
 export function updateMaterialAtlas(material, atlasData) {
   if (!material.uniforms) return;
@@ -337,6 +413,11 @@ export function updateMaterialAtlas(material, atlasData) {
     }
     if (atlasData.borderUV && material.uniforms.uBorderUV) {
       material.uniforms.uBorderUV.value.set(atlasData.borderUV.x, atlasData.borderUV.y);
+    }
+    // Update colormap if available
+    if (atlasData.colormap && material.uniforms.uColormap) {
+      material.uniforms.uColormap.value = atlasData.colormap;
+      material.uniforms.uUseTinting.value = 1.0;
     }
   } else if (atlasData instanceof THREE.Texture) {
     // Simple texture update (backward compat)
@@ -361,14 +442,16 @@ export function setMaterialTextureMode(material, useTextures) {
  * Uses polygon offset to prevent z-fighting with full blocks
  */
 export function createTexturedModelMaterial(atlasData = null, useTextures = false) {
-  const { atlas, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
       uAtlas: { value: atlas },
+      uColormap: { value: colormap },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
+      uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
