@@ -12,7 +12,8 @@
 
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, AdaptiveDpr, PerformanceMonitor } from '@react-three/drei';
+import { AdaptiveDpr, PerformanceMonitor } from '@react-three/drei';
+import { SpectatorControls } from './SpectatorControls';
 import { ChunkManager } from './ChunkManager';
 import { getBlockNameFromColor } from '../data/blockColors';
 import * as THREE from 'three';
@@ -284,12 +285,15 @@ function RegionScene({
   onProgress, 
   onComplete,
   onStats,
+  onCameraUpdate,
+  spectatorRef,
   textureMode,
   textureAtlas,
+  initialCameraPosition,
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
-  const controlsRef = useRef(null);
+  const cameraPositionRef = useRef(initialCameraPosition || [0, 100, 0]);
   
   // Create ChunkManager once
   useEffect(() => {
@@ -500,15 +504,13 @@ function RegionScene({
     invalidate(); // Re-render to show/hide model meshes
   }, [enableModelMeshes, invalidate]);
 
-  // Position camera at a specific target
+  // Position camera at a specific target (updates initial position for SpectatorControls)
   const positionCameraAt = useCallback((cx, cy, cz, chunkCount = 100) => {
-    if (controlsRef.current) {
-      controlsRef.current.target.set(cx, cy, cz);
-    }
-    
-    const distance = Math.max(300, Math.sqrt(chunkCount) * 24);
-    camera.position.set(cx + distance * 0.7, cy + distance * 0.4, cz + distance * 0.7);
-    camera.lookAt(cx, cy, cz);
+    // Position camera above and to the side of the center
+    const distance = Math.max(100, Math.sqrt(chunkCount) * 8);
+    const newPos = [cx, cy + distance * 0.3, cz + distance * 0.5];
+    cameraPositionRef.current = newPos;
+    camera.position.set(newPos[0], newPos[1], newPos[2]);
     invalidate();
   }, [camera, invalidate]);
   
@@ -526,14 +528,12 @@ function RegionScene({
   
   return (
     <>
-      <OrbitControls 
-        ref={controlsRef}
-        enableDamping={true}
-        dampingFactor={0.05}
-        minDistance={10}
-        maxDistance={5000}
-        target={[0, 64, 0]}
-        onChange={() => invalidate()} // Re-render on orbit change
+      <SpectatorControls 
+        ref={spectatorRef}
+        initialPosition={cameraPositionRef.current}
+        onCameraUpdate={onCameraUpdate}
+        moveSpeed={50}
+        fastMoveSpeed={150}
       />
       <ambientLight intensity={0.4} />
       <directionalLight position={[50, 100, 30]} intensity={0.8} />
@@ -561,6 +561,8 @@ function RegionScene({
  * - enablePerformanceMonitor: Enable adaptive DPR based on performance (default: true)
  * - debugMode: Enable debug mode for block inspection on hover (default: false)
  * - onBlockHover: Callback when hovering over a block (receives block info or null)
+ * - onCameraUpdate: Callback for camera position/rotation updates (Minecraft spectator mode)
+ * - spectatorRef: Ref to access spectator controls (for teleport function)
  * - textureMode: 'solid' | 'default' | 'custom' - Which texture mode to use
  * - textureAtlas: THREE.Texture - The texture atlas for textured rendering
  */
@@ -574,6 +576,8 @@ export function RegionViewer({
   enablePerformanceMonitor = true,
   debugMode = false,
   onBlockHover = null,
+  onCameraUpdate = null,
+  spectatorRef = null,
   textureMode = 'solid',
   textureAtlas = null,
   style = {}
@@ -614,6 +618,8 @@ export function RegionViewer({
         enableModelMeshes={enableModelMeshes}
         debugMode={debugMode}
         onBlockHover={onBlockHover}
+        onCameraUpdate={onCameraUpdate}
+        spectatorRef={spectatorRef}
         onProgress={onBuildProgress}
         onComplete={() => console.log('[RegionViewer] Load complete')}
         onStats={handleStats}

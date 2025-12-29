@@ -50,7 +50,7 @@ class TexturePackManager {
     this.loading = null;
     
     // Default pack path
-    this.defaultPackPath = '/textures/1.21.11+Template.zip';
+    this.defaultPackPath = '/textures/minecraft.zip';
     
     // Fallback manager (for cascading lookups)
     this.fallbackManager = null;
@@ -81,7 +81,7 @@ class TexturePackManager {
       }
       
       const blob = await response.blob();
-      await this.loadFromZip(blob, 'Default 1.21.11');
+      await this.loadFromZip(blob, 'Minecraft Default');
       this.mode = TEXTURE_MODE.DEFAULT_PACK;
       
       console.log(`[TexturePackManager] Default pack loaded: ${this.textures.size} textures`);

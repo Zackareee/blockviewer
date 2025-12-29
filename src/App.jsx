@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { RegionViewer } from './viewer';
 import { parseMCAFile } from './utils/mcaParser';
 import { 
@@ -37,6 +37,29 @@ function App() {
   // Debug mode - shows block info on hover
   const [debugMode, setDebugMode] = useState(false);
   const [hoveredBlock, setHoveredBlock] = useState(null);
+  
+  // Camera state for coordinates display (Minecraft spectator mode)
+  const [cameraState, setCameraState] = useState({
+    x: 0, y: 100, z: 0,
+    pitch: 0, yaw: 0,
+    direction: 'south',
+    axis: 'Towards positive Z',
+  });
+  
+  // Editable coordinate inputs (separate from live camera state)
+  const [editCoords, setEditCoords] = useState({
+    x: '0', y: '100', z: '0',
+    yaw: '0', pitch: '0',
+  });
+  // Use a ref for editing state to avoid stale closures in callbacks
+  const isEditingCoordsRef = useRef(false);
+  
+  // Command input for /teleport commands
+  const [commandInput, setCommandInput] = useState('');
+  const [commandError, setCommandError] = useState(null);
+  
+  // Ref for spectator controls teleport function
+  const spectatorRef = useRef(null);
   
   // Texture pack state
   const [textureMode, setTextureMode] = useState(TEXTURE_MODE.SOLID_COLOR);
@@ -160,6 +183,114 @@ function App() {
   const handleBuildProgress = useCallback((current, total, isBuilding, message = '') => {
     setBuildProgress({ current, total, isBuilding, message });
   }, []);
+
+  // Throttle camera updates to avoid excessive re-renders
+  const lastCameraUpdateRef = useRef(0);
+  const handleCameraUpdate = useCallback((state) => {
+    const now = Date.now();
+    if (now - lastCameraUpdateRef.current > 50) { // 20 FPS max for UI updates
+      lastCameraUpdateRef.current = now;
+      setCameraState(state);
+      
+      // Sync edit fields when not actively editing (use ref to avoid stale closure)
+      if (!isEditingCoordsRef.current) {
+        setEditCoords({
+          x: state.x.toFixed(2),
+          y: state.y.toFixed(2),
+          z: state.z.toFixed(2),
+          yaw: state.yaw.toFixed(1),
+          pitch: state.pitch.toFixed(1),
+        });
+      }
+    }
+  }, []);
+  
+  // Handle teleport when user submits coordinates
+  const handleTeleport = useCallback(() => {
+    if (!spectatorRef.current) return;
+    
+    const x = parseFloat(editCoords.x) || 0;
+    const y = parseFloat(editCoords.y) || 100;
+    const z = parseFloat(editCoords.z) || 0;
+    const yaw = parseFloat(editCoords.yaw) || 0;
+    const pitch = parseFloat(editCoords.pitch) || 0;
+    
+    spectatorRef.current.teleport(x, y, z, yaw, pitch);
+    isEditingCoordsRef.current = false;
+  }, [editCoords]);
+  
+  // Handle coordinate input changes
+  const handleCoordChange = useCallback((field, value) => {
+    isEditingCoordsRef.current = true;
+    setEditCoords(prev => ({ ...prev, [field]: value }));
+  }, []);
+  
+  // Handle Enter key to teleport
+  const handleCoordKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      handleTeleport();
+      e.target.blur();
+    } else if (e.key === 'Escape') {
+      isEditingCoordsRef.current = false;
+      // Reset to current camera state
+      setEditCoords({
+        x: cameraState.x.toFixed(2),
+        y: cameraState.y.toFixed(2),
+        z: cameraState.z.toFixed(2),
+        yaw: cameraState.yaw.toFixed(1),
+        pitch: cameraState.pitch.toFixed(1),
+      });
+      e.target.blur();
+    }
+  }, [handleTeleport, cameraState]);
+  
+  // Handle command input (e.g., /teleport x y z pitch yaw)
+  const handleCommandSubmit = useCallback((e) => {
+    if (e.key !== 'Enter') return;
+    
+    const cmd = commandInput.trim();
+    if (!cmd) return;
+    
+    setCommandError(null);
+    
+    // Parse /teleport or /tp command
+    const teleportMatch = cmd.match(/^\/(teleport|tp)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)(?:\s+(-?[\d.]+))?(?:\s+(-?[\d.]+))?$/i);
+    
+    if (teleportMatch) {
+      const x = parseFloat(teleportMatch[2]);
+      const y = parseFloat(teleportMatch[3]);
+      const z = parseFloat(teleportMatch[4]);
+      // Minecraft format: /tp x y z yaw pitch (yaw comes first!)
+      const yaw = teleportMatch[5] !== undefined ? parseFloat(teleportMatch[5]) : cameraState.yaw;
+      const pitch = teleportMatch[6] !== undefined ? parseFloat(teleportMatch[6]) : cameraState.pitch;
+      
+      if (isNaN(x) || isNaN(y) || isNaN(z)) {
+        setCommandError('Invalid coordinates');
+        return;
+      }
+      
+      if (spectatorRef.current) {
+        spectatorRef.current.teleport(x, y, z, yaw, pitch);
+        setCommandInput('');
+        
+        // Update edit coords to match
+        setEditCoords({
+          x: x.toFixed(2),
+          y: y.toFixed(2),
+          z: z.toFixed(2),
+          yaw: yaw.toFixed(1),
+          pitch: pitch.toFixed(1),
+        });
+        isEditingCoordsRef.current = false;
+      }
+    } else if (cmd.startsWith('/')) {
+      setCommandError('Usage: /teleport x y z [yaw] [pitch]');
+    } else {
+      setCommandError('Commands start with /');
+    }
+    
+    e.target.blur();
+  }, [commandInput, cameraState]);
 
   // Parse region coordinates from filename (e.g., "r.-1.2.mca" -> { x: -1, z: 2 })
   const parseRegionCoords = useCallback((filename) => {
@@ -286,6 +417,8 @@ function App() {
             enableModelMeshes={enableModelMeshes}
             debugMode={debugMode}
             onBlockHover={debugMode ? setHoveredBlock : null}
+            onCameraUpdate={handleCameraUpdate}
+            spectatorRef={spectatorRef}
             textureMode={textureMode}
             textureAtlas={textureAtlas}
           />
@@ -304,6 +437,119 @@ function App() {
           <h1>Block Viewer</h1>
           <span className="version">v2.0</span>
         </div>
+
+        {/* Coordinates Display - Minecraft style (editable) */}
+        <section className="panel-section coordinates-section">
+          <div className="coordinates-display">
+            <div className="coord-row">
+              <span className="coord-label">XYZ:</span>
+              <div className="coord-inputs">
+                <input
+                  type="text"
+                  className="coord-input"
+                  value={editCoords.x}
+                  onChange={(e) => handleCoordChange('x', e.target.value)}
+                  onKeyDown={handleCoordKeyDown}
+                  onFocus={() => { isEditingCoordsRef.current = true; }}
+                  placeholder="X"
+                />
+                <span className="coord-separator">/</span>
+                <input
+                  type="text"
+                  className="coord-input"
+                  value={editCoords.y}
+                  onChange={(e) => handleCoordChange('y', e.target.value)}
+                  onKeyDown={handleCoordKeyDown}
+                  onFocus={() => { isEditingCoordsRef.current = true; }}
+                  placeholder="Y"
+                />
+                <span className="coord-separator">/</span>
+                <input
+                  type="text"
+                  className="coord-input"
+                  value={editCoords.z}
+                  onChange={(e) => handleCoordChange('z', e.target.value)}
+                  onKeyDown={handleCoordKeyDown}
+                  onFocus={() => { isEditingCoordsRef.current = true; }}
+                  placeholder="Z"
+                />
+              </div>
+            </div>
+            <div className="coord-row">
+              <span className="coord-label">Facing:</span>
+              <div className="coord-facing-info">
+                <span className="coord-direction">{cameraState.direction}</span>
+                <span className="coord-axis">({cameraState.axis})</span>
+              </div>
+            </div>
+            <div className="coord-row">
+              <span className="coord-label">Rotation:</span>
+              <div className="coord-inputs">
+                <input
+                  type="text"
+                  className="coord-input coord-input-small"
+                  value={editCoords.yaw}
+                  onChange={(e) => handleCoordChange('yaw', e.target.value)}
+                  onKeyDown={handleCoordKeyDown}
+                  onFocus={() => { isEditingCoordsRef.current = true; }}
+                  placeholder="Yaw"
+                  title="Yaw (-180 to 180)"
+                />
+                <span className="coord-separator">/</span>
+                <input
+                  type="text"
+                  className="coord-input coord-input-small"
+                  value={editCoords.pitch}
+                  onChange={(e) => handleCoordChange('pitch', e.target.value)}
+                  onKeyDown={handleCoordKeyDown}
+                  onFocus={() => { isEditingCoordsRef.current = true; }}
+                  placeholder="Pitch"
+                  title="Pitch (-90 to 90)"
+                />
+              </div>
+            </div>
+            <div className="teleport-buttons">
+              <button 
+                className="teleport-button"
+                onClick={handleTeleport}
+                title="Teleport to coordinates (or press Enter)"
+              >
+                ⚡ Teleport
+              </button>
+              <button 
+                className="teleport-button teleport-button-cancel"
+                onClick={() => {
+                  isEditingCoordsRef.current = false;
+                  setEditCoords({
+                    x: cameraState.x.toFixed(2),
+                    y: cameraState.y.toFixed(2),
+                    z: cameraState.z.toFixed(2),
+                    yaw: cameraState.yaw.toFixed(1),
+                    pitch: cameraState.pitch.toFixed(1),
+                  });
+                }}
+                title="Reset to current position (or press Escape)"
+              >
+                ✕ Reset
+              </button>
+            </div>
+            
+            <div className="command-input-wrapper">
+              <input
+                type="text"
+                className="command-input"
+                value={commandInput}
+                onChange={(e) => setCommandInput(e.target.value)}
+                onKeyDown={handleCommandSubmit}
+                placeholder="/teleport x y z [yaw] [pitch]"
+                spellCheck={false}
+              />
+              {commandError && (
+                <div className="command-error">{commandError}</div>
+              )}
+            </div>
+          </div>
+        </section>
 
         {/* File Upload */}
         <section className="panel-section">
@@ -521,10 +767,14 @@ function App() {
         {/* Instructions */}
         <section className="panel-section instructions">
           <h3>Controls</h3>
+          <p className="controls-hint">Click on viewer to enable controls</p>
           <ul>
-            <li><kbd>Drag</kbd> Rotate view</li>
-            <li><kbd>Scroll</kbd> Zoom in/out</li>
-            <li><kbd>Right Drag</kbd> Pan view</li>
+            <li><kbd>Mouse</kbd> Look around</li>
+            <li><kbd>W A S D</kbd> Move forward/left/back/right</li>
+            <li><kbd>Space</kbd> Move up</li>
+            <li><kbd>Shift</kbd> Move down</li>
+            <li><kbd>Ctrl</kbd> Move faster</li>
+            <li><kbd>Esc</kbd> Release mouse</li>
           </ul>
         </section>
       </div>
