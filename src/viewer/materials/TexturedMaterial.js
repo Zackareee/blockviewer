@@ -29,7 +29,7 @@ varying float vTexRotation;
 
 void main() {
   vColor = color;
-  vNormal = normalize(normalMatrix * normal);
+  vNormal = normal; // Pass object-space normal (will be snapped in fragment shader)
   vWorldPos = position; // World position for UV calculation
   vTexIndex = texIndex;
   vTexRotation = texRotation;
@@ -60,6 +60,20 @@ varying float vVisible;
 varying float vTexIndex;
 varying float vTexRotation;
 
+// Snap interpolated normal to nearest axis to prevent UV instability at sharp angles
+// This is needed because WebGL 1.0 doesn't support 'flat' interpolation
+vec3 snapNormal(vec3 n) {
+  vec3 absN = abs(n);
+  // Find dominant axis and return axis-aligned normal
+  if (absN.y >= absN.x && absN.y >= absN.z) {
+    return vec3(0.0, sign(n.y), 0.0);
+  } else if (absN.x >= absN.z) {
+    return vec3(sign(n.x), 0.0, 0.0);
+  } else {
+    return vec3(0.0, 0.0, sign(n.z));
+  }
+}
+
 // Rotate UV coordinates by 90-degree increments (0=0°, 1=90°, 2=180°, 3=270°)
 // Returns UV clamped to [0, 1] range
 vec2 rotateUV(vec2 uv, float rotation) {
@@ -85,8 +99,11 @@ vec2 rotateUV(vec2 uv, float rotation) {
 
 // Get UV coordinates for a face based on world position and normal (triplanar)
 // Ensures consistent texture orientation: textures appear right-side up on all faces
+// Uses snapped normal to prevent interpolation artifacts at sharp viewing angles
 vec2 getTriplanarUV(vec3 worldPos, vec3 normal) {
-  vec3 absNormal = abs(normal);
+  // Snap normal to nearest axis - critical for preventing smearing at sharp angles
+  vec3 snapped = snapNormal(normal);
+  vec3 absNormal = abs(snapped);
   
   vec2 uv;
   bool flipV = false;
@@ -96,7 +113,7 @@ vec2 getTriplanarUV(vec3 worldPos, vec3 normal) {
     // Looking down: X goes right, Z goes forward
     uv = vec2(worldPos.x, worldPos.z);
     // Flip V for bottom face
-    if (normal.y < 0.0) {
+    if (snapped.y < 0.0) {
       flipV = true;
     }
   }
@@ -182,9 +199,10 @@ void main() {
     finalColor = vColor;
   }
   
-  // Simple directional lighting
+  // Simple directional lighting using snapped normal for consistent per-face brightness
+  vec3 snappedN = snapNormal(vNormal);
   vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-  float diff = max(dot(vNormal, lightDir), 0.0);
+  float diff = max(dot(snappedN, lightDir), 0.0);
   
   // Ambient + diffuse
   vec3 ambient = finalColor * 0.4;
