@@ -586,6 +586,25 @@ function App() {
             <span className="toggle-hint">Hover to inspect blocks</span>
           </label>
           
+          {/* Debug Page Link */}
+          <a 
+            href="#debug" 
+            style={{ 
+              display: 'block',
+              marginTop: '0.5rem',
+              padding: '0.5rem 0.75rem',
+              background: 'rgba(96, 165, 250, 0.15)',
+              border: '1px solid rgba(96, 165, 250, 0.3)',
+              borderRadius: '4px',
+              color: '#60a5fa',
+              textDecoration: 'none',
+              fontSize: '0.85rem',
+              textAlign: 'center'
+            }}
+          >
+            🧪 Partial Block Debug Page
+          </a>
+          
           {/* FOV Control - for matching Minecraft screenshots */}
           <div className="fov-control" style={{ marginTop: '0.75rem' }}>
             <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

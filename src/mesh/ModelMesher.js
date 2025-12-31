@@ -43,6 +43,55 @@ const FACING_TO_ROTATION = {
   'west': 3,
 };
 
+// LOD Level definitions for partial blocks
+// LOD 0 = full detail (all blocks)
+// LOD 1 = skip small decorative blocks (flowers, grass, small plants)
+// LOD 2 = skip more blocks (add vines, saplings, crops)
+// LOD 3 = skip most non-structural (only keep slabs, stairs, walls)
+
+// Decorative blocks to skip at LOD level 1+ (patterns)
+const LOD1_SKIP_PATTERNS = [
+  // Flowers
+  'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',
+  'cornflower', 'lily_of_the_valley', 'wither_rose', 'sunflower', 'lilac', 'rose_bush',
+  'peony', 'torchflower', 'pitcher', 'pink_petals', 'spore_blossom', 'cactus_flower',
+  'eyeblossom', 'wildflowers',
+  // Grass and small plants
+  'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'bush',
+  'nether_sprouts', 'hanging_roots', 'short_dry_grass', 'tall_dry_grass', 'leaf_litter',
+];
+
+// Additional blocks to skip at LOD level 2+ (patterns)
+const LOD2_SKIP_PATTERNS = [
+  ...LOD1_SKIP_PATTERNS,
+  // Vines and climbing plants
+  'vine', 'weeping_vines', 'twisting_vines', 'cave_vines', 'glow_lichen',
+  'pale_hanging_moss', 'firefly_bush',
+  // Saplings
+  '_sapling', 'mangrove_propagule',
+  // Crops
+  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush', 'nether_wart',
+  'melon_stem', 'pumpkin_stem', 'cocoa',
+  // Candles and small items
+  'candle', 'sea_pickle', 'lily_pad',
+];
+
+// Additional blocks to skip at LOD level 3+ (patterns)
+const LOD3_SKIP_PATTERNS = [
+  ...LOD2_SKIP_PATTERNS,
+  // Fences and bars
+  '_fence', 'iron_bars',
+  // Rails
+  'rail',
+  // Torches
+  'torch', 'soul_torch', 'redstone_torch',
+  // Signs
+  '_sign',
+  // Small redstone
+  'lever', 'tripwire', 'tripwire_hook', 'redstone_wire',
+  '_button', '_pressure_plate',
+];
+
 /**
  * Compute position-based texture rotation for blocks with random rotation variants
  * Uses Minecraft's exact position hash algorithm for variant selection
@@ -102,30 +151,112 @@ const INITIAL_VERTEX_COUNT = 50000;
  * @param {Object} offset - World offset {x, y, z}
  * @param {Object} options - Optional parameters
  * @param {TextureIndexLookup} options.textureIndexLookup - Texture atlas index lookup
+ * @param {number} options.lodLevel - LOD level (0=full, 1-3=reduced detail)
  * @returns {Object} Mesh data {positions, normals, colors, indices, texIndices}
  */
 export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
-  const { textureIndexLookup = null } = options;
+  const { textureIndexLookup = null, lodLevel = 0 } = options;
   
-  // Build lookup tables for colors
+  // Select skip patterns based on LOD level
+  let skipPatterns = null;
+  if (lodLevel >= 3) {
+    skipPatterns = LOD3_SKIP_PATTERNS;
+  } else if (lodLevel >= 2) {
+    skipPatterns = LOD2_SKIP_PATTERNS;
+  } else if (lodLevel >= 1) {
+    skipPatterns = LOD1_SKIP_PATTERNS;
+  }
+  
+  // Build lookup tables for colors and full opaque cube detection
   const colorR = new Float32Array(4096);
   const colorG = new Float32Array(4096);
   const colorB = new Float32Array(4096);
+  const isFullOpaqueCube = new Uint8Array(4096); // Pre-compute for fast neighbor checks
   
   for (let id = 0; id < 4096; id++) {
     const col = registry.getColor(id);
     colorR[id] = col.r;
     colorG[id] = col.g;
     colorB[id] = col.b;
+    
+    // Pre-compute "is full opaque cube" for neighbor culling
+    const info = registry.getBlockInfo(id);
+    if (info && info.category === BlockCategory.SOLID && info.isOpaque) {
+      isFullOpaqueCube[id] = 1;
+    }
   }
   
   // Build tint type lookup for biome tinting
   const tintTypeLookup = buildTintTypeLookup(registry);
 
+  // ========================================================================
+  // PRE-CACHE: Collect all unique state IDs and pre-compute their metadata
+  // This avoids repeated Map lookups and object property access in the hot loop
+  // ========================================================================
+  const maxStateId = stateRegistry.nextId || 4096;
+  
+  // Pre-cache arrays indexed by stateId for O(1) lookup
+  // Using arrays instead of Maps for faster indexed access
+  const stateGeometries = new Array(maxStateId);     // stateId → geometry array or null
+  const stateRotationType = new Uint8Array(maxStateId); // 0=none, 1=position-based, 2=facing-based
+  const stateFacingRotation = new Uint8Array(maxStateId); // Pre-computed facing rotation for facing-based blocks
+  
+  // Slab optimization: track slab types for enhanced face culling
+  // 0 = not a slab, 1 = bottom slab, 2 = top slab, 3 = double slab
+  const stateSlabType = new Uint8Array(maxStateId);
+  
+  // Collect unique state IDs from the grid
+  for (const [, stateSection] of stateGrid.sections) {
+    for (let i = 0; i < 4096; i++) {
+      const stateId = stateSection[i];
+      if (stateId === 0 || stateGeometries[stateId] !== undefined) continue;
+      
+      // Get state info first for LOD check
+      const state = stateRegistry.getState(stateId);
+      const blockName = state ? state.blockName : '';
+      
+      // LOD optimization: skip decorative blocks based on LOD level
+      if (skipPatterns && blockName) {
+        const shouldSkip = skipPatterns.some(pattern => blockName.includes(pattern));
+        if (shouldSkip) {
+          stateGeometries[stateId] = null; // Mark as skipped
+          continue;
+        }
+      }
+      
+      // Mark as processed (even if null)
+      const geometries = stateRegistry.getGeometrySync(stateId);
+      stateGeometries[stateId] = geometries && geometries.length > 0 ? geometries : null;
+      
+      // Pre-compute rotation type and slab type
+      if (state) {
+        if (POSITION_ROTATION_BLOCKS.has(blockName)) {
+          stateRotationType[stateId] = 1; // Position-based
+        } else if (FACING_TEXTURE_ROTATION_BLOCKS.has(blockName)) {
+          stateRotationType[stateId] = 2; // Facing-based
+          // Pre-compute facing rotation
+          if (state.properties && state.properties.facing) {
+            const rot = FACING_TO_ROTATION[state.properties.facing];
+            stateFacingRotation[stateId] = rot !== undefined ? rot : 0;
+          }
+        }
+        
+        // Detect slab type for enhanced face culling
+        if (blockName.includes('_slab') && state.properties) {
+          const slabType = state.properties.type;
+          if (slabType === 'bottom') stateSlabType[stateId] = 1;
+          else if (slabType === 'top') stateSlabType[stateId] = 2;
+          else if (slabType === 'double') stateSlabType[stateId] = 3;
+        }
+      }
+    }
+  }
+
   // Growable buffers
   let positions = new Float32Array(INITIAL_VERTEX_COUNT * 3);
   let normals = new Float32Array(INITIAL_VERTEX_COUNT * 3);
   let colors = new Float32Array(INITIAL_VERTEX_COUNT * 3);
+  let modelUVs = new Float32Array(INITIAL_VERTEX_COUNT * 2); // Model UV coordinates per vertex
   let texIndices = new Float32Array(INITIAL_VERTEX_COUNT); // Texture atlas index per vertex
   let texRotations = new Float32Array(INITIAL_VERTEX_COUNT); // Texture rotation per vertex (0 for model blocks)
   let tintTypes = new Float32Array(INITIAL_VERTEX_COUNT); // Biome tint type per vertex
@@ -148,24 +279,32 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     const blockSection = grid.getSection(chunkX, chunkZ, sectionY);
     if (!blockSection) continue;
 
+    // Pre-fetch all 6 neighbor sections once per section (avoids repeated Map lookups)
+    const secTop = grid.getSection(chunkX, chunkZ, sectionY + 1);
+    const secBot = grid.getSection(chunkX, chunkZ, sectionY - 1);
+    const secPosX = grid.getSection(chunkX + 1, chunkZ, sectionY);
+    const secNegX = grid.getSection(chunkX - 1, chunkZ, sectionY);
+    const secPosZ = grid.getSection(chunkX, chunkZ + 1, sectionY);
+    const secNegZ = grid.getSection(chunkX, chunkZ - 1, sectionY);
+
     // Process each block with state data
     for (let i = 0; i < 4096; i++) {
       const stateId = stateSection[i];
       if (stateId === 0) continue;
 
+      // Fast array lookup instead of Map lookup
+      const geometries = stateGeometries[stateId];
+      if (!geometries) continue;
+
       const blockValue = blockSection[i];
       if (blockValue === 0) continue;
 
       const blockId = blockValue & BLOCK_ID_MASK;
-      
-      // Get pre-computed geometry
-      const geometries = stateRegistry.getGeometrySync(stateId);
-      if (!geometries || geometries.length === 0) continue;
 
-      // Local coordinates
-      const lx = i % 16;
-      const lz = Math.floor(i / 16) % 16;
-      const ly = Math.floor(i / 256);
+      // Local coordinates (bitwise ops are faster than modulo/floor)
+      const lx = i & 15;           // i % 16
+      const lz = (i >> 4) & 15;    // Math.floor(i / 16) % 16
+      const ly = i >> 8;           // Math.floor(i / 256)
 
       // World position
       const wx = baseX + lx - ox;
@@ -177,33 +316,94 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       const g = colorG[blockId];
       const b = colorB[blockId];
 
-      // Get neighbor data for face culling (only cull against full opaque cubes)
-      const neighbors = getNeighborMask(grid, baseX + lx, baseY + ly, baseZ + lz, registry);
-
-      // Compute texture rotation for blocks that need position-based or facing-based rotation
-      // NOTE: Only apply to flat plane blocks - complex models use model rotation instead
-      let blockTexRotation = 0;
-      const state = stateRegistry.getState(stateId);
-      if (state) {
-        const blockName = state.blockName;
-        if (POSITION_ROTATION_BLOCKS.has(blockName)) {
-          // Position-based rotation for blocks like lily_pad
-          blockTexRotation = getPositionRotation(baseX + lx, baseY + ly, baseZ + lz);
-        } else if (FACING_TEXTURE_ROTATION_BLOCKS.has(blockName) && state.properties && state.properties.facing) {
-          // Facing-based texture rotation for simple flat plane blocks like leaf_litter
-          const facing = state.properties.facing;
-          if (FACING_TO_ROTATION[facing] !== undefined) {
-            blockTexRotation = FACING_TO_ROTATION[facing];
+      // ========================================================================
+      // FAST NEIGHBOR LOOKUP: Direct array access instead of getBlockId() calls
+      // Uses pre-fetched sections and pre-computed isFullOpaqueCube lookup
+      // ========================================================================
+      let nUp = 0, nDown = 0, nNorth = 0, nSouth = 0, nWest = 0, nEast = 0;
+      
+      // Current block's slab type for enhanced culling
+      const mySlabType = stateSlabType[stateId];
+      
+      // +Y neighbor (up)
+      if (ly < 15) {
+        nUp = isFullOpaqueCube[blockSection[i + 256] & BLOCK_ID_MASK];
+        // Slab optimization: bottom slab's top face is covered by top slab above
+        if (!nUp && mySlabType === 1) { // Current is bottom slab
+          const neighborStateId = stateSection[i + 256];
+          if (neighborStateId && stateSlabType[neighborStateId] === 2) { // Neighbor is top slab
+            nUp = 1; // Cull the up face
           }
         }
+      } else if (secTop) {
+        nUp = isFullOpaqueCube[secTop[lz * 16 + lx] & BLOCK_ID_MASK];
+      }
+      
+      // -Y neighbor (down)
+      if (ly > 0) {
+        nDown = isFullOpaqueCube[blockSection[i - 256] & BLOCK_ID_MASK];
+        // Slab optimization: top slab's bottom face is covered by bottom slab below
+        if (!nDown && mySlabType === 2) { // Current is top slab
+          const neighborStateId = stateSection[i - 256];
+          if (neighborStateId && stateSlabType[neighborStateId] === 1) { // Neighbor is bottom slab
+            nDown = 1; // Cull the down face
+          }
+        }
+      } else if (secBot) {
+        nDown = isFullOpaqueCube[secBot[15 * 256 + lz * 16 + lx] & BLOCK_ID_MASK];
+      }
+      
+      // +Z neighbor (south)
+      if (lz < 15) {
+        nSouth = isFullOpaqueCube[blockSection[i + 16] & BLOCK_ID_MASK];
+      } else if (secPosZ) {
+        nSouth = isFullOpaqueCube[secPosZ[ly * 256 + lx] & BLOCK_ID_MASK];
+      }
+      
+      // -Z neighbor (north)
+      if (lz > 0) {
+        nNorth = isFullOpaqueCube[blockSection[i - 16] & BLOCK_ID_MASK];
+      } else if (secNegZ) {
+        nNorth = isFullOpaqueCube[secNegZ[ly * 256 + 15 * 16 + lx] & BLOCK_ID_MASK];
+      }
+      
+      // +X neighbor (east)
+      if (lx < 15) {
+        nEast = isFullOpaqueCube[blockSection[i + 1] & BLOCK_ID_MASK];
+      } else if (secPosX) {
+        nEast = isFullOpaqueCube[secPosX[ly * 256 + lz * 16] & BLOCK_ID_MASK];
+      }
+      
+      // -X neighbor (west)
+      if (lx > 0) {
+        nWest = isFullOpaqueCube[blockSection[i - 1] & BLOCK_ID_MASK];
+      } else if (secNegX) {
+        nWest = isFullOpaqueCube[secNegX[ly * 256 + lz * 16 + 15] & BLOCK_ID_MASK];
+      }
+
+      // Compute texture rotation using pre-cached rotation type
+      let blockTexRotation = 0;
+      const rotType = stateRotationType[stateId];
+      if (rotType === 1) {
+        // Position-based rotation for blocks like lily_pad
+        blockTexRotation = getPositionRotation(baseX + lx, baseY + ly, baseZ + lz);
+      } else if (rotType === 2) {
+        // Pre-computed facing-based rotation
+        blockTexRotation = stateFacingRotation[stateId];
       }
 
       // Add geometry from all variants
       for (const geom of geometries) {
         // Check each face for culling
         for (const cullInfo of geom.cullFaces) {
-          if (cullInfo.cullface && shouldCullFace(cullInfo.cullface, neighbors)) {
-            continue; // Skip this face
+          // Fast inline face culling using pre-computed neighbor data
+          if (cullInfo.cullface) {
+            const cf = cullInfo.cullface;
+            if ((cf === 'up' && nUp) || (cf === 'down' && nDown) ||
+                (cf === 'north' && nNorth) || (cf === 'south' && nSouth) ||
+                (cf === 'west' && nWest) || (cf === 'east' && nEast)) {
+              continue; // Skip this face - neighbor is full opaque cube
+            }
           }
 
           // Ensure capacity
@@ -213,6 +413,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             positions = growArray(positions, capacity * 3);
             normals = growArray(normals, capacity * 3);
             colors = growArray(colors, capacity * 3);
+            modelUVs = growArray(modelUVs, capacity * 2);
             texIndices = growArray(texIndices, capacity);
             texRotations = growArray(texRotations, capacity);
             tintTypes = growArray(tintTypes, capacity);
@@ -236,22 +437,32 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             }
           }
 
-          // Copy vertices for this face
-          const startIdx = cullInfo.indexStart;
-          const endIdx = startIdx + cullInfo.indexCount;
+          // Copy vertices for this face (4 vertices per quad)
+          // Each face uses a fixed quad pattern: vertices sv, sv+1, sv+2, sv+3
+          // Indices pattern: sv, sv+2, sv+1, sv, sv+3, sv+2
           
-          // Find unique vertices used by these indices
-          const faceIndices = geom.indices.subarray(startIdx, endIdx);
-          const vertMap = new Map(); // old index → new index
+          // Get the first source vertex index from the geometry
+          // The first index in the face's indices tells us where the quad starts
+          const srcVertexStart = geom.indices[cullInfo.indexStart];
+          const dstVertexStart = vertexCount;
           
-          for (const oldIdx of faceIndices) {
-            if (vertMap.has(oldIdx)) continue;
+          // Compute tint type once per face
+          let tintType = 0;
+          if (cullInfo.tintindex !== undefined) {
+            tintType = cullInfo.tintindex >= 0 ? tintTypeLookup[blockId] : 0;
+          } else {
+            tintType = tintTypeLookup[blockId];
+          }
+          
+          // Copy all 4 vertices directly (no Map needed)
+          for (let v = 0; v < 4; v++) {
+            const srcIdx = srcVertexStart + v;
+            const dstIdx = vertexCount++;
             
-            const newIdx = vertexCount++;
-            vertMap.set(oldIdx, newIdx);
-            
-            const pi = oldIdx * 3;
-            const ni = newIdx * 3;
+            const pi = srcIdx * 3;
+            const ni = dstIdx * 3;
+            const ui = srcIdx * 2;
+            const uo = dstIdx * 2;
             
             // Position (offset to world coords)
             positions[ni] = geom.positions[pi] + wx;
@@ -268,28 +479,25 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             colors[ni + 1] = g;
             colors[ni + 2] = b;
             
-            // Texture index and rotation
-            texIndices[newIdx] = texIdx;
-            texRotations[newIdx] = blockTexRotation;
-            // Apply tinting based on per-face tintindex from the model:
-            // - tintindex >= 0: Apply block's tint type (explicit tinting)
-            // - tintindex === -1: No tinting (explicitly disabled in model)
-            // - tintindex undefined: Fall back to block-level tinting (backwards compat)
-            let tintType = 0;
-            if (cullInfo.tintindex !== undefined) {
-              // Model explicitly specifies tintindex
-              tintType = cullInfo.tintindex >= 0 ? tintTypeLookup[blockId] : 0;
-            } else {
-              // No tintindex in model - use block-level tinting as fallback
-              tintType = tintTypeLookup[blockId];
+            // Model UV coordinates (from pre-computed geometry)
+            if (geom.uvs) {
+              modelUVs[uo] = geom.uvs[ui];
+              modelUVs[uo + 1] = geom.uvs[ui + 1];
             }
-            tintTypes[newIdx] = tintType;
+            
+            // Texture index, rotation, and tint
+            texIndices[dstIdx] = texIdx;
+            texRotations[dstIdx] = blockTexRotation;
+            tintTypes[dstIdx] = tintType;
           }
           
-          // Add remapped indices
-          for (const oldIdx of faceIndices) {
-            indices[indexCount++] = vertMap.get(oldIdx);
-          }
+          // Emit indices using fixed quad pattern: 0,2,1, 0,3,2
+          indices[indexCount++] = dstVertexStart;
+          indices[indexCount++] = dstVertexStart + 2;
+          indices[indexCount++] = dstVertexStart + 1;
+          indices[indexCount++] = dstVertexStart;
+          indices[indexCount++] = dstVertexStart + 3;
+          indices[indexCount++] = dstVertexStart + 2;
         }
       }
     }
@@ -303,6 +511,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     positions: positions.subarray(0, vertexCount * 3),
     normals: normals.subarray(0, vertexCount * 3),
     colors: colors.subarray(0, vertexCount * 3),
+    modelUVs: modelUVs.subarray(0, vertexCount * 2), // Model UV coordinates
     indices: indices.subarray(0, indexCount),
     vertexCount,
     triangleCount: indexCount / 3,
@@ -316,37 +525,6 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   }
   
   return result;
-}
-
-/**
- * Get neighbor occupancy mask for face culling
- * Returns object with boolean for each direction
- * Only returns true if neighbor is a full opaque cube (not air, transparent, or non-cube)
- */
-function getNeighborMask(grid, wx, wy, wz, registry) {
-  const isFullOpaqueCube = (id) => {
-    if (id === 0) return false;
-    const info = registry.getBlockInfo(id);
-    if (!info) return false;
-    // Only cull if neighbor is SOLID category (full opaque cubes)
-    return info.category === BlockCategory.SOLID && info.isOpaque;
-  };
-  
-  return {
-    up: isFullOpaqueCube(grid.getBlockId(wx, wy + 1, wz)),
-    down: isFullOpaqueCube(grid.getBlockId(wx, wy - 1, wz)),
-    north: isFullOpaqueCube(grid.getBlockId(wx, wy, wz - 1)),
-    south: isFullOpaqueCube(grid.getBlockId(wx, wy, wz + 1)),
-    west: isFullOpaqueCube(grid.getBlockId(wx - 1, wy, wz)),
-    east: isFullOpaqueCube(grid.getBlockId(wx + 1, wy, wz)),
-  };
-}
-
-/**
- * Check if a face should be culled based on neighbor
- */
-function shouldCullFace(cullface, neighbors) {
-  return neighbors[cullface] === true;
 }
 
 /**

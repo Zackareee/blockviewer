@@ -268,6 +268,11 @@ export class RegionMeshBuilder {
     geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
     
+    // Add model UV attribute if present (for non-triplanar UV mapping)
+    if (meshData.modelUVs) {
+      geometry.setAttribute('modelUV', new THREE.BufferAttribute(meshData.modelUVs, 2));
+    }
+    
     // Add texture index attribute if present (for texture atlas lookup in shader)
     if (meshData.texIndices) {
       geometry.setAttribute('texIndex', new THREE.BufferAttribute(meshData.texIndices, 1));

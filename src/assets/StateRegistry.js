@@ -183,14 +183,16 @@ class StateRegistry {
         continue;
       }
 
-      const model = await this.modelResolver.resolve(variant.model);
+      const modelPath = variant.model.replace('minecraft:', '');
+      const model = await this.modelResolver.resolve(modelPath);
       if (!model) continue;
 
       // For blocks with texture rotation, use base geometry (no model rotation)
       const rotX = usesTextureRotation ? 0 : variant.x;
       const rotY = usesTextureRotation ? 0 : variant.y;
 
-      const geom = this.modelGeometry.getGeometry(model, rotX, rotY);
+      // Pass model path for proper caching
+      const geom = this.modelGeometry.getGeometry(model, rotX, rotY, modelPath);
       if (geom) {
         state.geometry.push(geom);
         if (!geom.isFullCube) {

@@ -444,8 +444,206 @@ export function setMaterialTextureMode(material, useTextures) {
   }
 }
 
+// ============================================================================
+// Model Material - Uses model UVs instead of triplanar mapping
+// For partial blocks like flowers, grass, stairs, slabs, etc.
+// ============================================================================
+
+const modelVertexShader = `
+uniform float uMinY;
+uniform float uMaxY;
+
+attribute vec2 modelUV;      // Model UV coordinates (from Minecraft model data)
+attribute float texIndex;    // Atlas texture index (0 to tilesPerRow*tilesPerCol-1)
+attribute float texRotation; // Texture rotation (0-3 for 90° increments)
+attribute float tintType;    // Biome tint type (0=none, 1=grass, 2=foliage, 3=spruce, 4=birch, 5=water)
+
+varying vec3 vColor;
+varying vec3 vNormal;
+varying vec2 vModelUV;
+varying float vVisible;
+varying float vTexIndex;
+varying float vTexRotation;
+varying float vTintType;
+
+void main() {
+  vColor = color;
+  vNormal = normal;
+  vModelUV = modelUV; // Pass model UV directly
+  vTexIndex = texIndex;
+  vTexRotation = texRotation;
+  vTintType = tintType;
+  
+  // Check if vertex is within Y range
+  if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
+    gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
+    vVisible = 0.0;
+  } else {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vVisible = 1.0;
+  }
+}
+`;
+
+const modelFragmentShader = `
+uniform sampler2D uAtlas;        // The texture atlas
+uniform sampler2D uColormap;     // Biome colormap texture (grass on top, foliage on bottom)
+uniform float uUseTextures;      // 0.0 = vertex colors only, 1.0 = use textures
+uniform float uUseTinting;       // 0.0 = no biome tinting, 1.0 = apply biome tinting
+uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
+uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
+uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
+uniform vec2 uBorderUV;          // Border offset in UV space (1px)
+
+// Tint type constants
+#define TINT_NONE 0
+#define TINT_GRASS 1
+#define TINT_FOLIAGE 2
+#define TINT_SPRUCE 3
+#define TINT_BIRCH 4
+#define TINT_WATER 5
+#define TINT_DRY_FOLIAGE 7
+
+// Fixed tint colors
+const vec3 SPRUCE_TINT = vec3(0.380, 0.600, 0.380);
+const vec3 BIRCH_TINT = vec3(0.502, 0.655, 0.333);
+const vec3 WATER_TINT = vec3(0.247, 0.463, 0.894);
+const vec3 DRY_FOLIAGE_TINT = vec3(0.667, 0.580, 0.439);
+
+varying vec3 vColor;
+varying vec3 vNormal;
+varying vec2 vModelUV;
+varying float vVisible;
+varying float vTexIndex;
+varying float vTexRotation;
+varying float vTintType;
+
+// Snap normal for face shading
+vec3 snapNormal(vec3 n) {
+  vec3 absN = abs(n);
+  if (absN.y >= absN.x && absN.y >= absN.z) {
+    return vec3(0.0, sign(n.y), 0.0);
+  } else if (absN.x >= absN.z) {
+    return vec3(sign(n.x), 0.0, 0.0);
+  } else {
+    return vec3(0.0, 0.0, sign(n.z));
+  }
+}
+
+// Rotate UV by 90-degree increments
+vec2 rotateUV(vec2 uv, float rotation) {
+  vec2 centered = uv - 0.5;
+  int rot = int(mod(rotation + 0.5, 4.0));
+  
+  if (rot == 1) {
+    centered = vec2(centered.y, -centered.x);
+  } else if (rot == 2) {
+    centered = vec2(-centered.x, -centered.y);
+  } else if (rot == 3) {
+    centered = vec2(-centered.y, centered.x);
+  }
+  
+  return clamp(centered + 0.5, 0.0, 1.0);
+}
+
+// Sample biome colormap
+vec3 sampleColormap(int tintType) {
+  vec2 uv = vec2(0.5, 0.25);
+  if (tintType == TINT_GRASS) {
+    uv = vec2(0.5, 0.25);
+  } else if (tintType == TINT_FOLIAGE) {
+    uv = vec2(0.5, 0.75);
+  }
+  return texture2D(uColormap, uv).rgb;
+}
+
+// Get biome tint color
+vec3 getBiomeTint(int tintType) {
+  if (tintType == TINT_NONE) {
+    return vec3(1.0);
+  } else if (tintType == TINT_GRASS || tintType == TINT_FOLIAGE) {
+    return sampleColormap(tintType);
+  } else if (tintType == TINT_SPRUCE) {
+    return SPRUCE_TINT;
+  } else if (tintType == TINT_BIRCH) {
+    return BIRCH_TINT;
+  } else if (tintType == TINT_WATER) {
+    return WATER_TINT;
+  } else if (tintType == TINT_DRY_FOLIAGE) {
+    return DRY_FOLIAGE_TINT;
+  }
+  return vec3(1.0);
+}
+
+void main() {
+  if (vVisible < 0.5) discard;
+  
+  vec3 finalColor;
+  float alpha = 1.0;
+  
+  if (uUseTextures > 0.5) {
+    // Use model UV directly (not triplanar)
+    vec2 localUV = vModelUV;
+    
+    // Apply texture rotation if needed
+    if (vTexRotation > 0.5 && vTexRotation < 3.5) {
+      float safeRotation = floor(vTexRotation + 0.5);
+      localUV = rotateUV(localUV, safeRotation);
+    }
+    
+    // Clamp UV to valid range
+    localUV = clamp(localUV, 0.0, 1.0);
+    
+    // Calculate tile position from texture index
+    float tilesPerRow = uAtlasSize.x;
+    float col = mod(vTexIndex, tilesPerRow);
+    float row = floor(vTexIndex / tilesPerRow);
+    
+    // Calculate atlas UV
+    vec2 atlasOffset = vec2(col, row) * uTileUV;
+    vec2 inset = uTextureUV * 0.02;
+    vec2 atlasUV = atlasOffset + uBorderUV + inset + localUV * (uTextureUV - inset * 2.0);
+    
+    // Sample texture
+    vec4 texColor = texture2D(uAtlas, atlasUV);
+    
+    // Handle transparency
+    if (texColor.a < 0.1) discard;
+    
+    // Apply biome tinting
+    int tintType = int(vTintType + 0.5);
+    vec3 tintColor = vec3(1.0);
+    
+    if (uUseTinting > 0.5 && tintType > 0) {
+      tintColor = getBiomeTint(tintType);
+    }
+    
+    finalColor = texColor.rgb * tintColor;
+    alpha = texColor.a;
+  } else {
+    // Use vertex color fallback
+    finalColor = vColor;
+  }
+  
+  // Minecraft-style face shading
+  vec3 snappedN = snapNormal(vNormal);
+  float shade = 1.0;
+  
+  if (abs(snappedN.y) > 0.5) {
+    shade = snappedN.y > 0.0 ? 1.0 : 0.5;
+  } else if (abs(snappedN.x) > 0.5) {
+    shade = 0.6;
+  } else {
+    shade = 0.8;
+  }
+  
+  gl_FragColor = vec4(finalColor * shade, alpha);
+}
+`;
+
 /**
  * Create a textured material for model blocks (slabs, stairs, etc.)
+ * Uses model UVs instead of triplanar mapping for correct texture on diagonal faces
  * Uses polygon offset to prevent z-fighting with full blocks
  */
 export function createTexturedModelMaterial(atlasData = null, useTextures = false) {
@@ -464,9 +662,9 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
     },
-    vertexShader,
-    fragmentShader,
-    side: THREE.FrontSide,
+    vertexShader: modelVertexShader,
+    fragmentShader: modelFragmentShader,
+    side: THREE.DoubleSide, // Model blocks often have visible back faces
     vertexColors: true,
     transparent: false,
     polygonOffset: true,
