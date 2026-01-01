@@ -58,6 +58,9 @@ export class TextureIndexLookup {
     
     // Default texture index for missing textures
     this.defaultIndex = 0;
+    
+    // Track blocks with missing textures (log once per unique block type)
+    this.missingTextureBlocks = new Set();
   }
   
   /**
@@ -101,6 +104,7 @@ export class TextureIndexLookup {
     const faces = ['up', 'down', 'north', 'south', 'east', 'west'];
     
     let foundAny = false;
+    let missingFaces = [];
     const debugInfo = debug ? { blockId, blockName: name, faces: {} } : null;
     
     for (let i = 0; i < faces.length; i++) {
@@ -130,6 +134,7 @@ export class TextureIndexLookup {
       // Use default if not found
       if (atlasIndex === undefined) {
         atlasIndex = this.defaultIndex;
+        missingFaces.push({ face, requestedPath: texturePath });
       }
       
       if (debug) {
@@ -147,6 +152,20 @@ export class TextureIndexLookup {
     
     if (debug) {
       console.log(`[TextureIndexLookup] Block ${name} (id=${blockId}):`, debugInfo);
+    }
+    
+    // Log missing textures (once per unique block type)
+    // Skip invisible/non-rendered blocks that intentionally don't have textures
+    const INVISIBLE_BLOCKS = new Set([
+      'air', 'cave_air', 'void_air', 'light', 'barrier', 'structure_void',
+      'moving_piston', 'bubble_column', 'fire', 'soul_fire', 'water', 'lava',
+      'end_gateway', 'end_portal', 'nether_portal', 'tripwire'
+    ]);
+    
+    if (!foundAny && !this.missingTextureBlocks.has(name) && !INVISIBLE_BLOCKS.has(name)) {
+      this.missingTextureBlocks.add(name);
+      const triedPaths = missingFaces.length > 0 ? missingFaces[0].requestedPath : 'unknown';
+      console.warn(`[TextureIndexLookup] Missing texture for block '${name}' - tried path: '${triedPaths}' (using fallback)`);
     }
     
     this.registeredBlocks.add(blockId);
@@ -202,6 +221,12 @@ export class TextureIndexLookup {
       if (idx !== undefined) {
         return idx;
       }
+    }
+    
+    // Log missing texture path (once per unique path)
+    if (!this.missingTextureBlocks.has(normalized)) {
+      this.missingTextureBlocks.add(normalized);
+      console.warn(`[TextureIndexLookup] Missing texture path '${normalized}' (using fallback)`);
     }
     
     return this.defaultIndex;

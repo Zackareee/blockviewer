@@ -59,6 +59,11 @@ function getDerivedBlockTexture(name) {
         return TEXTURE_MAPPINGS[baseName];
       }
       
+      // Check special cases BEFORE stone types (for plural forms like stone_bricks)
+      if (PARTIAL_BLOCK_TEXTURES[baseName]) {
+        return PARTIAL_BLOCK_TEXTURES[baseName];
+      }
+      
       // Check for planks-based blocks
       if (WOOD_TYPES.has(baseName)) {
         return `block/${baseName}_planks`;
@@ -67,11 +72,6 @@ function getDerivedBlockTexture(name) {
       // Check for stone variants
       if (STONE_TYPES.has(baseName)) {
         return `block/${baseName}`;
-      }
-      
-      // Check special cases
-      if (PARTIAL_BLOCK_TEXTURES[baseName]) {
-        return PARTIAL_BLOCK_TEXTURES[baseName];
       }
       
       // Default: assume base name is the texture
@@ -118,6 +118,14 @@ const PARTIAL_BLOCK_TEXTURES = {
   'cut_sandstone': 'block/cut_sandstone',
   'cut_red_sandstone': 'block/cut_red_sandstone',
   'brick': 'block/bricks',
+  // Smooth sandstone uses the top texture
+  'smooth_sandstone': 'block/sandstone_top',
+  'smooth_red_sandstone': 'block/red_sandstone_top',
+  // Petrified oak uses regular oak planks
+  'petrified_oak': 'block/oak_planks',
+  // Resin bricks
+  'resin_brick': 'block/resin_bricks',
+  // Copper variants
   'copper': 'block/copper_block',
   'exposed_copper': 'block/exposed_copper',
   'weathered_copper': 'block/weathered_copper',
@@ -464,8 +472,10 @@ const TEXTURE_MAPPINGS = {
   'big_dripleaf_stem': 'block/big_dripleaf_stem',
   'small_dripleaf': 'block/small_dripleaf_top',
   
-  // Snow layers
+  // Snow
   'snow': 'block/snow',
+  'snow_block': 'block/snow',
+  'powder_snow': 'block/powder_snow',
   
   // Moss
   'moss_carpet': 'block/moss_block',
@@ -679,6 +689,470 @@ const TEXTURE_MAPPINGS = {
   'waxed_exposed_copper_bulb': 'block/exposed_copper_bulb',
   'waxed_weathered_copper_bulb': 'block/weathered_copper_bulb',
   'waxed_oxidized_copper_bulb': 'block/oxidized_copper_bulb',
+  
+  // Copper doors (use top texture as main)
+  'copper_door': 'block/copper_door_top',
+  'exposed_copper_door': 'block/exposed_copper_door_top',
+  'weathered_copper_door': 'block/weathered_copper_door_top',
+  'oxidized_copper_door': 'block/oxidized_copper_door_top',
+  'waxed_copper_door': 'block/copper_door_top',
+  'waxed_exposed_copper_door': 'block/exposed_copper_door_top',
+  'waxed_weathered_copper_door': 'block/weathered_copper_door_top',
+  'waxed_oxidized_copper_door': 'block/oxidized_copper_door_top',
+  
+  // Copper trapdoors
+  'copper_trapdoor': 'block/copper_trapdoor',
+  'exposed_copper_trapdoor': 'block/exposed_copper_trapdoor',
+  'weathered_copper_trapdoor': 'block/weathered_copper_trapdoor',
+  'oxidized_copper_trapdoor': 'block/oxidized_copper_trapdoor',
+  'waxed_copper_trapdoor': 'block/copper_trapdoor',
+  'waxed_exposed_copper_trapdoor': 'block/exposed_copper_trapdoor',
+  'waxed_weathered_copper_trapdoor': 'block/weathered_copper_trapdoor',
+  'waxed_oxidized_copper_trapdoor': 'block/oxidized_copper_trapdoor',
+  
+  // Copper lanterns
+  'copper_lantern': 'block/copper_lantern',
+  'exposed_copper_lantern': 'block/exposed_copper_lantern',
+  'weathered_copper_lantern': 'block/weathered_copper_lantern',
+  'oxidized_copper_lantern': 'block/oxidized_copper_lantern',
+  'waxed_copper_lantern': 'block/copper_lantern',
+  'waxed_exposed_copper_lantern': 'block/exposed_copper_lantern',
+  'waxed_weathered_copper_lantern': 'block/weathered_copper_lantern',
+  'waxed_oxidized_copper_lantern': 'block/oxidized_copper_lantern',
+  
+  // Copper chains
+  'copper_chain': 'block/copper_chain',
+  'exposed_copper_chain': 'block/exposed_copper_chain',
+  'weathered_copper_chain': 'block/weathered_copper_chain',
+  'oxidized_copper_chain': 'block/oxidized_copper_chain',
+  'waxed_copper_chain': 'block/copper_chain',
+  'waxed_exposed_copper_chain': 'block/exposed_copper_chain',
+  'waxed_weathered_copper_chain': 'block/weathered_copper_chain',
+  'waxed_oxidized_copper_chain': 'block/oxidized_copper_chain',
+  
+  // Copper bars
+  'copper_bars': 'block/copper_bars',
+  'exposed_copper_bars': 'block/exposed_copper_bars',
+  'weathered_copper_bars': 'block/weathered_copper_bars',
+  'oxidized_copper_bars': 'block/oxidized_copper_bars',
+  'waxed_copper_bars': 'block/copper_bars',
+  'waxed_exposed_copper_bars': 'block/exposed_copper_bars',
+  'waxed_weathered_copper_bars': 'block/weathered_copper_bars',
+  'waxed_oxidized_copper_bars': 'block/oxidized_copper_bars',
+  
+  // Lightning rods (weathering variants)
+  'lightning_rod': 'block/lightning_rod',
+  'exposed_lightning_rod': 'block/exposed_lightning_rod',
+  'weathered_lightning_rod': 'block/weathered_lightning_rod',
+  'oxidized_lightning_rod': 'block/oxidized_lightning_rod',
+  
+  // Copper torch
+  'copper_torch': 'block/copper_torch',
+  'copper_wall_torch': 'block/copper_torch',
+  
+  // Waxed copper full blocks (map to non-waxed textures)
+  'waxed_copper_block': 'block/copper_block',
+  'waxed_exposed_copper': 'block/exposed_copper',
+  'waxed_weathered_copper': 'block/weathered_copper',
+  'waxed_oxidized_copper': 'block/oxidized_copper',
+  'waxed_cut_copper': 'block/cut_copper',
+  'waxed_exposed_cut_copper': 'block/exposed_cut_copper',
+  'waxed_weathered_cut_copper': 'block/weathered_cut_copper',
+  'waxed_oxidized_cut_copper': 'block/oxidized_cut_copper',
+  
+  // Waxed lightning rods (map to non-waxed textures)
+  'waxed_lightning_rod': 'block/lightning_rod',
+  'waxed_exposed_lightning_rod': 'block/exposed_lightning_rod',
+  'waxed_weathered_lightning_rod': 'block/weathered_lightning_rod',
+  'waxed_oxidized_lightning_rod': 'block/oxidized_lightning_rod',
+  
+  // Copper chests (entity-based but need a fallback)
+  'copper_chest': 'block/copper_block',
+  'exposed_copper_chest': 'block/exposed_copper',
+  'weathered_copper_chest': 'block/weathered_copper',
+  'oxidized_copper_chest': 'block/oxidized_copper',
+  'waxed_copper_chest': 'block/copper_block',
+  'waxed_exposed_copper_chest': 'block/exposed_copper',
+  'waxed_weathered_copper_chest': 'block/weathered_copper',
+  'waxed_oxidized_copper_chest': 'block/oxidized_copper',
+  
+  // Copper golem statues (entity-based but need a fallback)
+  'copper_golem_statue': 'block/copper_block',
+  'exposed_copper_golem_statue': 'block/exposed_copper',
+  'weathered_copper_golem_statue': 'block/weathered_copper',
+  'oxidized_copper_golem_statue': 'block/oxidized_copper',
+  'waxed_copper_golem_statue': 'block/copper_block',
+  'waxed_exposed_copper_golem_statue': 'block/exposed_copper',
+  'waxed_weathered_copper_golem_statue': 'block/weathered_copper',
+  'waxed_oxidized_copper_golem_statue': 'block/oxidized_copper',
+  
+  // Infested blocks (use same texture as non-infested)
+  'infested_stone': 'block/stone',
+  'infested_cobblestone': 'block/cobblestone',
+  'infested_stone_bricks': 'block/stone_bricks',
+  'infested_mossy_stone_bricks': 'block/mossy_stone_bricks',
+  'infested_cracked_stone_bricks': 'block/cracked_stone_bricks',
+  'infested_chiseled_stone_bricks': 'block/chiseled_stone_bricks',
+  'infested_deepslate': 'block/deepslate',
+  
+  // Reinforced deepslate
+  'reinforced_deepslate': 'block/reinforced_deepslate_side',
+  
+  // Suspicious blocks (use regular texture, animation handled separately)
+  'suspicious_sand': 'block/suspicious_sand_0',
+  'suspicious_gravel': 'block/suspicious_gravel_0',
+  
+  // Wood doors (use door_top texture)
+  'oak_door': 'block/oak_door_top',
+  'spruce_door': 'block/spruce_door_top',
+  'birch_door': 'block/birch_door_top',
+  'jungle_door': 'block/jungle_door_top',
+  'acacia_door': 'block/acacia_door_top',
+  'dark_oak_door': 'block/dark_oak_door_top',
+  'mangrove_door': 'block/mangrove_door_top',
+  'cherry_door': 'block/cherry_door_top',
+  'bamboo_door': 'block/bamboo_door_top',
+  'crimson_door': 'block/crimson_door_top',
+  'warped_door': 'block/warped_door_top',
+  'pale_oak_door': 'block/pale_oak_door_top',
+  'iron_door': 'block/iron_door_top',
+  
+  // Wood trapdoors
+  'oak_trapdoor': 'block/oak_trapdoor',
+  'spruce_trapdoor': 'block/spruce_trapdoor',
+  'birch_trapdoor': 'block/birch_trapdoor',
+  'jungle_trapdoor': 'block/jungle_trapdoor',
+  'acacia_trapdoor': 'block/acacia_trapdoor',
+  'dark_oak_trapdoor': 'block/dark_oak_trapdoor',
+  'mangrove_trapdoor': 'block/mangrove_trapdoor',
+  'cherry_trapdoor': 'block/cherry_trapdoor',
+  'bamboo_trapdoor': 'block/bamboo_trapdoor',
+  'crimson_trapdoor': 'block/crimson_trapdoor',
+  'warped_trapdoor': 'block/warped_trapdoor',
+  'pale_oak_trapdoor': 'block/pale_oak_trapdoor',
+  'iron_trapdoor': 'block/iron_trapdoor',
+  
+  // Wood signs (use planks texture as fallback)
+  'oak_sign': 'block/oak_planks',
+  'oak_wall_sign': 'block/oak_planks',
+  'oak_hanging_sign': 'block/oak_planks',
+  'oak_wall_hanging_sign': 'block/oak_planks',
+  'spruce_sign': 'block/spruce_planks',
+  'spruce_wall_sign': 'block/spruce_planks',
+  'spruce_hanging_sign': 'block/spruce_planks',
+  'spruce_wall_hanging_sign': 'block/spruce_planks',
+  'birch_sign': 'block/birch_planks',
+  'birch_wall_sign': 'block/birch_planks',
+  'birch_hanging_sign': 'block/birch_planks',
+  'birch_wall_hanging_sign': 'block/birch_planks',
+  'jungle_sign': 'block/jungle_planks',
+  'jungle_wall_sign': 'block/jungle_planks',
+  'jungle_hanging_sign': 'block/jungle_planks',
+  'jungle_wall_hanging_sign': 'block/jungle_planks',
+  'acacia_sign': 'block/acacia_planks',
+  'acacia_wall_sign': 'block/acacia_planks',
+  'acacia_hanging_sign': 'block/acacia_planks',
+  'acacia_wall_hanging_sign': 'block/acacia_planks',
+  'dark_oak_sign': 'block/dark_oak_planks',
+  'dark_oak_wall_sign': 'block/dark_oak_planks',
+  'dark_oak_hanging_sign': 'block/dark_oak_planks',
+  'dark_oak_wall_hanging_sign': 'block/dark_oak_planks',
+  'mangrove_sign': 'block/mangrove_planks',
+  'mangrove_wall_sign': 'block/mangrove_planks',
+  'mangrove_hanging_sign': 'block/mangrove_planks',
+  'mangrove_wall_hanging_sign': 'block/mangrove_planks',
+  'cherry_sign': 'block/cherry_planks',
+  'cherry_wall_sign': 'block/cherry_planks',
+  'cherry_hanging_sign': 'block/cherry_planks',
+  'cherry_wall_hanging_sign': 'block/cherry_planks',
+  'bamboo_sign': 'block/bamboo_planks',
+  'bamboo_wall_sign': 'block/bamboo_planks',
+  'bamboo_hanging_sign': 'block/bamboo_planks',
+  'bamboo_wall_hanging_sign': 'block/bamboo_planks',
+  'crimson_sign': 'block/crimson_planks',
+  'crimson_wall_sign': 'block/crimson_planks',
+  'crimson_hanging_sign': 'block/crimson_planks',
+  'crimson_wall_hanging_sign': 'block/crimson_planks',
+  'warped_sign': 'block/warped_planks',
+  'warped_wall_sign': 'block/warped_planks',
+  'warped_hanging_sign': 'block/warped_planks',
+  'warped_wall_hanging_sign': 'block/warped_planks',
+  'pale_oak_sign': 'block/pale_oak_planks',
+  'pale_oak_wall_sign': 'block/pale_oak_planks',
+  'pale_oak_hanging_sign': 'block/pale_oak_planks',
+  'pale_oak_wall_hanging_sign': 'block/pale_oak_planks',
+  
+  // Carpets (use wool texture)
+  'white_carpet': 'block/white_wool',
+  'orange_carpet': 'block/orange_wool',
+  'magenta_carpet': 'block/magenta_wool',
+  'light_blue_carpet': 'block/light_blue_wool',
+  'yellow_carpet': 'block/yellow_wool',
+  'lime_carpet': 'block/lime_wool',
+  'pink_carpet': 'block/pink_wool',
+  'gray_carpet': 'block/gray_wool',
+  'light_gray_carpet': 'block/light_gray_wool',
+  'cyan_carpet': 'block/cyan_wool',
+  'purple_carpet': 'block/purple_wool',
+  'blue_carpet': 'block/blue_wool',
+  'brown_carpet': 'block/brown_wool',
+  'green_carpet': 'block/green_wool',
+  'red_carpet': 'block/red_wool',
+  'black_carpet': 'block/black_wool',
+  
+  // Beds (entity-rendered, use wool texture as fallback)
+  'white_bed': 'block/white_wool',
+  'orange_bed': 'block/orange_wool',
+  'magenta_bed': 'block/magenta_wool',
+  'light_blue_bed': 'block/light_blue_wool',
+  'yellow_bed': 'block/yellow_wool',
+  'lime_bed': 'block/lime_wool',
+  'pink_bed': 'block/pink_wool',
+  'gray_bed': 'block/gray_wool',
+  'light_gray_bed': 'block/light_gray_wool',
+  'cyan_bed': 'block/cyan_wool',
+  'purple_bed': 'block/purple_wool',
+  'blue_bed': 'block/blue_wool',
+  'brown_bed': 'block/brown_wool',
+  'green_bed': 'block/green_wool',
+  'red_bed': 'block/red_wool',
+  'black_bed': 'block/black_wool',
+  
+  // Banners (entity-rendered, use wool texture as fallback)
+  'white_banner': 'block/white_wool',
+  'white_wall_banner': 'block/white_wool',
+  'orange_banner': 'block/orange_wool',
+  'orange_wall_banner': 'block/orange_wool',
+  'magenta_banner': 'block/magenta_wool',
+  'magenta_wall_banner': 'block/magenta_wool',
+  'light_blue_banner': 'block/light_blue_wool',
+  'light_blue_wall_banner': 'block/light_blue_wool',
+  'yellow_banner': 'block/yellow_wool',
+  'yellow_wall_banner': 'block/yellow_wool',
+  'lime_banner': 'block/lime_wool',
+  'lime_wall_banner': 'block/lime_wool',
+  'pink_banner': 'block/pink_wool',
+  'pink_wall_banner': 'block/pink_wool',
+  'gray_banner': 'block/gray_wool',
+  'gray_wall_banner': 'block/gray_wool',
+  'light_gray_banner': 'block/light_gray_wool',
+  'light_gray_wall_banner': 'block/light_gray_wool',
+  'cyan_banner': 'block/cyan_wool',
+  'cyan_wall_banner': 'block/cyan_wool',
+  'purple_banner': 'block/purple_wool',
+  'purple_wall_banner': 'block/purple_wool',
+  'blue_banner': 'block/blue_wool',
+  'blue_wall_banner': 'block/blue_wool',
+  'brown_banner': 'block/brown_wool',
+  'brown_wall_banner': 'block/brown_wool',
+  'green_banner': 'block/green_wool',
+  'green_wall_banner': 'block/green_wool',
+  'red_banner': 'block/red_wool',
+  'red_wall_banner': 'block/red_wool',
+  'black_banner': 'block/black_wool',
+  'black_wall_banner': 'block/black_wool',
+  
+  // Candle cakes (use cake texture)
+  'candle_cake': 'block/cake_side',
+  'white_candle_cake': 'block/cake_side',
+  'orange_candle_cake': 'block/cake_side',
+  'magenta_candle_cake': 'block/cake_side',
+  'light_blue_candle_cake': 'block/cake_side',
+  'yellow_candle_cake': 'block/cake_side',
+  'lime_candle_cake': 'block/cake_side',
+  'pink_candle_cake': 'block/cake_side',
+  'gray_candle_cake': 'block/cake_side',
+  'light_gray_candle_cake': 'block/cake_side',
+  'cyan_candle_cake': 'block/cake_side',
+  'purple_candle_cake': 'block/cake_side',
+  'blue_candle_cake': 'block/cake_side',
+  'brown_candle_cake': 'block/cake_side',
+  'green_candle_cake': 'block/cake_side',
+  'red_candle_cake': 'block/cake_side',
+  'black_candle_cake': 'block/cake_side',
+  
+  // Special blocks
+  'bamboo_sapling': 'block/bamboo_stage0',
+  'respawn_anchor': 'block/respawn_anchor_side0',
+  'end_portal_frame': 'block/end_portal_frame_side',
+  'frosted_ice': 'block/frosted_ice_0',
+  
+  // Coral wall fans (use coral fan texture)
+  'tube_coral_wall_fan': 'block/tube_coral_fan',
+  'brain_coral_wall_fan': 'block/brain_coral_fan',
+  'bubble_coral_wall_fan': 'block/bubble_coral_fan',
+  'fire_coral_wall_fan': 'block/fire_coral_fan',
+  'horn_coral_wall_fan': 'block/horn_coral_fan',
+  'dead_tube_coral_wall_fan': 'block/dead_tube_coral_fan',
+  'dead_brain_coral_wall_fan': 'block/dead_brain_coral_fan',
+  'dead_bubble_coral_wall_fan': 'block/dead_bubble_coral_fan',
+  'dead_fire_coral_wall_fan': 'block/dead_fire_coral_fan',
+  'dead_horn_coral_wall_fan': 'block/dead_horn_coral_fan',
+  
+  // Coral fans (regular)
+  'tube_coral_fan': 'block/tube_coral_fan',
+  'brain_coral_fan': 'block/brain_coral_fan',
+  'bubble_coral_fan': 'block/bubble_coral_fan',
+  'fire_coral_fan': 'block/fire_coral_fan',
+  'horn_coral_fan': 'block/horn_coral_fan',
+  'dead_tube_coral_fan': 'block/dead_tube_coral_fan',
+  'dead_brain_coral_fan': 'block/dead_brain_coral_fan',
+  'dead_bubble_coral_fan': 'block/dead_bubble_coral_fan',
+  'dead_fire_coral_fan': 'block/dead_fire_coral_fan',
+  'dead_horn_coral_fan': 'block/dead_horn_coral_fan',
+  
+  // Crops
+  'torchflower_crop': 'block/torchflower',
+  'pitcher_crop': 'block/pitcher_crop_top',
+  'cocoa': 'block/cocoa_stage2',
+  
+  // Kelp and aquatic
+  'dried_kelp_block': 'block/dried_kelp_side',
+  
+  // Azalea
+  'flowering_azalea': 'block/flowering_azalea_side',
+  
+  // Honey
+  'honey_block': 'block/honey_block_side',
+  
+  // Dripstone
+  'pointed_dripstone': 'block/pointed_dripstone_up_tip',
+  
+  // Sculk blocks
+  'sculk_catalyst': 'block/sculk_catalyst_side',
+  'sculk_sensor': 'block/sculk_sensor_side',
+  'sculk_shrieker': 'block/sculk_shrieker_side',
+  'calibrated_sculk_sensor': 'block/sculk_sensor_side',
+  
+  // Workstation blocks
+  'loom': 'block/loom_front',
+  'cartography_table': 'block/cartography_table_side1',
+  'fletching_table': 'block/fletching_table_side',
+  'smithing_table': 'block/smithing_table_side',
+  'grindstone': 'block/grindstone_side',
+  'stonecutter': 'block/stonecutter_side',
+  'chiseled_bookshelf': 'block/chiseled_bookshelf_side',
+  'lectern': 'block/lectern_front',
+  
+  // Anvils
+  'chipped_anvil': 'block/anvil_top',
+  'damaged_anvil': 'block/anvil_top',
+  
+  // Enchanting and utility
+  'enchanting_table': 'block/enchanting_table_side',
+  'jukebox': 'block/jukebox_side',
+  'bell': 'block/bell_side',
+  'lodestone': 'block/lodestone_side',
+  'crafter': 'block/crafter_south',
+  'target': 'block/target_side',
+  
+  // Cauldrons
+  'cauldron': 'block/cauldron_side',
+  'water_cauldron': 'block/cauldron_side',
+  'lava_cauldron': 'block/cauldron_side',
+  'powder_snow_cauldron': 'block/cauldron_side',
+  
+  // Chests (entity-rendered)
+  'chest': 'block/oak_planks',
+  'trapped_chest': 'block/oak_planks',
+  'ender_chest': 'block/obsidian',
+  
+  // Redstone components
+  'redstone_wall_torch': 'block/redstone_torch',
+  'daylight_detector': 'block/daylight_detector_side',
+  'observer': 'block/observer_side',
+  'piston': 'block/piston_side',
+  'sticky_piston': 'block/piston_side',
+  'piston_head': 'block/piston_top',
+  
+  // Command blocks
+  'command_block': 'block/command_block_side',
+  'chain_command_block': 'block/chain_command_block_side',
+  'repeating_command_block': 'block/repeating_command_block_side',
+  'jigsaw': 'block/jigsaw_side',
+  
+  // Trial chambers
+  'trial_spawner': 'block/trial_spawner_side_inactive',
+  'vault': 'block/vault_side_off',
+  
+  // Pressure plates
+  'light_weighted_pressure_plate': 'block/gold_block',
+  'heavy_weighted_pressure_plate': 'block/iron_block',
+  
+  // Skulls/Heads (entity-rendered, use bone block as fallback)
+  'skeleton_skull': 'block/bone_block_side',
+  'skeleton_wall_skull': 'block/bone_block_side',
+  'wither_skeleton_skull': 'block/coal_block',
+  'wither_skeleton_wall_skull': 'block/coal_block',
+  'zombie_head': 'block/green_terracotta',
+  'zombie_wall_head': 'block/green_terracotta',
+  'player_head': 'block/oak_planks',
+  'player_wall_head': 'block/oak_planks',
+  'creeper_head': 'block/lime_terracotta',
+  'creeper_wall_head': 'block/lime_terracotta',
+  'dragon_head': 'block/purple_terracotta',
+  'dragon_wall_head': 'block/purple_terracotta',
+  'piglin_head': 'block/gold_block',
+  'piglin_wall_head': 'block/gold_block',
+  
+  // Torches
+  'wall_torch': 'block/torch',
+  'soul_wall_torch': 'block/soul_torch',
+  
+  // Campfires
+  'campfire': 'block/campfire_log',
+  'soul_campfire': 'block/campfire_log',
+  
+  // Sniffer egg
+  'sniffer_egg': 'block/sniffer_egg_not_cracked_top',
+  
+  // Potted plants (use the plant's texture)
+  'potted_oak_sapling': 'block/oak_sapling',
+  'potted_spruce_sapling': 'block/spruce_sapling',
+  'potted_birch_sapling': 'block/birch_sapling',
+  'potted_jungle_sapling': 'block/jungle_sapling',
+  'potted_acacia_sapling': 'block/acacia_sapling',
+  'potted_dark_oak_sapling': 'block/dark_oak_sapling',
+  'potted_cherry_sapling': 'block/cherry_sapling',
+  'potted_mangrove_propagule': 'block/mangrove_propagule',
+  'potted_pale_oak_sapling': 'block/pale_oak_sapling',
+  'potted_fern': 'block/fern',
+  'potted_dead_bush': 'block/dead_bush',
+  'potted_dandelion': 'block/dandelion',
+  'potted_poppy': 'block/poppy',
+  'potted_blue_orchid': 'block/blue_orchid',
+  'potted_allium': 'block/allium',
+  'potted_azure_bluet': 'block/azure_bluet',
+  'potted_red_tulip': 'block/red_tulip',
+  'potted_orange_tulip': 'block/orange_tulip',
+  'potted_white_tulip': 'block/white_tulip',
+  'potted_pink_tulip': 'block/pink_tulip',
+  'potted_oxeye_daisy': 'block/oxeye_daisy',
+  'potted_cornflower': 'block/cornflower',
+  'potted_lily_of_the_valley': 'block/lily_of_the_valley',
+  'potted_wither_rose': 'block/wither_rose',
+  'potted_brown_mushroom': 'block/brown_mushroom',
+  'potted_red_mushroom': 'block/red_mushroom',
+  'potted_crimson_fungus': 'block/crimson_fungus',
+  'potted_warped_fungus': 'block/warped_fungus',
+  'potted_crimson_roots': 'block/crimson_roots',
+  'potted_warped_roots': 'block/warped_roots',
+  'potted_azalea_bush': 'block/potted_azalea_bush_plant',
+  'potted_flowering_azalea_bush': 'block/potted_flowering_azalea_bush_plant',
+  'potted_bamboo': 'block/bamboo_stalk',
+  'potted_cactus': 'block/cactus_side',
+  'potted_torchflower': 'block/torchflower',
+  'potted_open_eyeblossom': 'block/open_eyeblossom',
+  'potted_closed_eyeblossom': 'block/closed_eyeblossom',
+  
+  // Decorated pot (entity-rendered, use terracotta as fallback)
+  'decorated_pot': 'block/terracotta',
+  
+  // Dried ghast (new block)
+  'dried_ghast': 'block/dried_ghast_hydration_0_top',
+  
+  // Test block (debug/development block)
+  'test_block': 'block/test_block_start',
 };
 
 /**

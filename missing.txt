@@ -1,0 +1,133 @@
+[TextureIndexLookup] Looking for 'stone': TextureIndexLookup.js:294:15
+  ✓ Found at 'block/stone' -> index 618 TextureIndexLookup.js:298:19
+  ✓ Found at 'textures/block/stone.png' -> index 618 TextureIndexLookup.js:298:19
+[TextureIndexLookup] Looking for 'dirt': TextureIndexLookup.js:294:15
+  ✓ Found at 'block/dirt' -> index 202 TextureIndexLookup.js:298:19
+  ✓ Found at 'textures/block/dirt.png' -> index 202 TextureIndexLookup.js:298:19
+[TextureIndexLookup] Looking for 'grass_block_top': TextureIndexLookup.js:294:15
+  ✓ Found at 'block/grass_block_top' -> index 924 TextureIndexLookup.js:298:19
+  ✓ Found at 'textures/block/grass_block_top.png' -> index 924 TextureIndexLookup.js:298:19
+[TextureIndexLookup] Looking for 'oak_planks': TextureIndexLookup.js:294:15
+  ✓ Found at 'block/oak_planks' -> index 851 TextureIndexLookup.js:298:19
+  ✓ Found at 'textures/block/oak_planks.png' -> index 851 TextureIndexLookup.js:298:19
+[TextureIndexLookup] Looking for 'cobblestone': TextureIndexLookup.js:294:15
+  ✓ Found at 'block/cobblestone' -> index 493 TextureIndexLookup.js:298:19
+  ✓ Found at 'textures/block/cobblestone.png' -> index 493 TextureIndexLookup.js:298:19
+[TextureAtlas] Default texture: 'block/stone' -> index 618 TextureAtlas.js:424:13
+[TextureAtlas] BlockRegistry has 1165 entries TextureAtlas.js:428:13
+[TextureIndexLookup] Block stone (id=6): 
+Object { blockId: 6, blockName: "stone", faces: {…} }
+TextureIndexLookup.js:154:15
+[TextureIndexLookup] Block dirt (id=95): 
+Object { blockId: 95, blockName: "dirt", faces: {…} }
+TextureIndexLookup.js:154:15
+[TextureIndexLookup] Block grass_block (id=98): 
+Object { blockId: 98, blockName: "grass_block", faces: {…} }
+TextureIndexLookup.js:154:15
+[TextureIndexLookup] Block oak_planks (id=301): 
+Object { blockId: 301, blockName: "oak_planks", faces: {…} }
+TextureIndexLookup.js:154:15
+[TextureIndexLookup] Missing texture for block 'torchflower_crop' - tried path: 'block/torchflower_crop' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'pitcher_crop' - tried path: 'block/pitcher_crop' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'dried_kelp_block' - tried path: 'block/dried_kelp_block' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'flowering_azalea' - tried path: 'block/flowering_azalea' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'cocoa' - tried path: 'block/cocoa' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'chiseled_bookshelf' - tried path: 'block/chiseled_bookshelf' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'lectern' - tried path: 'block/lectern' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'target' - tried path: 'block/target' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'honey_block' - tried path: 'block/honey_block' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'pointed_dripstone' - tried path: 'block/pointed_dripstone' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'sculk_catalyst' - tried path: 'block/sculk_catalyst' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'sculk_sensor' - tried path: 'block/sculk_sensor' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'sculk_shrieker' - tried path: 'block/sculk_shrieker' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'calibrated_sculk_sensor' - tried path: 'block/calibrated_sculk_sensor' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'resin_brick_slab' - tried path: 'block/resin_brick' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'resin_brick_stairs' - tried path: 'block/resin_brick' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'resin_brick_wall' - tried path: 'block/resin_brick' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'loom' - tried path: 'block/loom' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'cartography_table' - tried path: 'block/cartography_table' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'fletching_table' - tried path: 'block/fletching_table' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'smithing_table' - tried path: 'block/smithing_table' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'grindstone' - tried path: 'block/grindstone' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'stonecutter' - tried path: 'block/stonecutter' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'chipped_anvil' - tried path: 'block/chipped_anvil' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'damaged_anvil' - tried path: 'block/damaged_anvil' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'enchanting_table' - tried path: 'block/enchanting_table' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'cauldron' - tried path: 'block/cauldron' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'water_cauldron' - tried path: 'block/water_cauldron' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'lava_cauldron' - tried path: 'block/lava_cauldron' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'powder_snow_cauldron' - tried path: 'block/powder_snow_cauldron' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'chest' - tried path: 'block/chest' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'trapped_chest' - tried path: 'block/trapped_chest' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'ender_chest' - tried path: 'block/ender_chest' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'jukebox' - tried path: 'block/jukebox' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'bell' - tried path: 'block/bell' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'lodestone' - tried path: 'block/lodestone' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'crafter' - tried path: 'block/crafter' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'redstone_wall_torch' - tried path: 'block/redstone_wall_torch' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'daylight_detector' - tried path: 'block/daylight_detector' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'light_weighted_pressure_plate' - tried path: 'block/light_weighted' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'heavy_weighted_pressure_plate' - tried path: 'block/heavy_weighted' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'observer' - tried path: 'block/observer' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'piston' - tried path: 'block/piston' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'sticky_piston' - tried path: 'block/sticky_piston' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'piston_head' - tried path: 'block/piston_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'command_block' - tried path: 'block/command_block' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'chain_command_block' - tried path: 'block/chain_command_block' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'repeating_command_block' - tried path: 'block/repeating_command_block' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'jigsaw' - tried path: 'block/jigsaw' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'trial_spawner' - tried path: 'block/trial_spawner' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'vault' - tried path: 'block/vault' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'skeleton_skull' - tried path: 'block/skeleton_skull' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'skeleton_wall_skull' - tried path: 'block/skeleton_wall_skull' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'wither_skeleton_skull' - tried path: 'block/wither_skeleton_skull' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'wither_skeleton_wall_skull' - tried path: 'block/wither_skeleton_wall_skull' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'zombie_head' - tried path: 'block/zombie_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'zombie_wall_head' - tried path: 'block/zombie_wall_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'player_head' - tried path: 'block/player_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'player_wall_head' - tried path: 'block/player_wall_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'creeper_head' - tried path: 'block/creeper_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'creeper_wall_head' - tried path: 'block/creeper_wall_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'dragon_head' - tried path: 'block/dragon_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'dragon_wall_head' - tried path: 'block/dragon_wall_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'piglin_head' - tried path: 'block/piglin_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'piglin_wall_head' - tried path: 'block/piglin_wall_head' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'wall_torch' - tried path: 'block/wall_torch' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'soul_wall_torch' - tried path: 'block/soul_wall_torch' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'campfire' - tried path: 'block/campfire' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'soul_campfire' - tried path: 'block/soul_campfire' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'sniffer_egg' - tried path: 'block/sniffer_egg' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_oak_sapling' - tried path: 'block/potted_oak_sapling' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_spruce_sapling' - tried path: 'block/potted_spruce_sapling' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_birch_sapling' - tried path: 'block/potted_birch_sapling' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_jungle_sapling' - tried path: 'block/potted_jungle_sapling' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_acacia_sapling' - tried path: 'block/potted_acacia_sapling' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_dark_oak_sapling' - tried path: 'block/potted_dark_oak_sapling' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_cherry_sapling' - tried path: 'block/potted_cherry_sapling' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_mangrove_propagule' - tried path: 'block/potted_mangrove_propagule' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_pale_oak_sapling' - tried path: 'block/potted_pale_oak_sapling' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_fern' - tried path: 'block/potted_fern' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_dead_bush' - tried path: 'block/potted_dead_bush' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_dandelion' - tried path: 'block/potted_dandelion' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_poppy' - tried path: 'block/potted_poppy' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_blue_orchid' - tried path: 'block/potted_blue_orchid' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_allium' - tried path: 'block/potted_allium' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_azure_bluet' - tried path: 'block/potted_azure_bluet' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_red_tulip' - tried path: 'block/potted_red_tulip' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_orange_tulip' - tried path: 'block/potted_orange_tulip' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_white_tulip' - tried path: 'block/potted_white_tulip' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_pink_tulip' - tried path: 'block/potted_pink_tulip' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_oxeye_daisy' - tried path: 'block/potted_oxeye_daisy' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_cornflower' - tried path: 'block/potted_cornflower' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_lily_of_the_valley' - tried path: 'block/potted_lily_of_the_valley' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_wither_rose' - tried path: 'block/potted_wither_rose' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_brown_mushroom' - tried path: 'block/potted_brown_mushroom' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_red_mushroom' - tried path: 'block/potted_red_mushroom' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_crimson_fungus' - tried path: 'block/potted_crimson_fungus' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_warped_fungus' - tried path: 'block/potted_warped_fungus' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_crimson_roots' - tried path: 'block/potted_crimson_roots' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_warped_roots' - tried path: 'block/potted_warped_roots' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_azalea_bush' - tried path: 'block/potted_azalea_bush' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_flowering_azalea_bush' - tried path: 'block/potted_flowering_azalea_bush' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_bamboo' - tried path: 'block/potted_bamboo' (using fallback) TextureIndexLookup.js:168:15
+[TextureIndexLookup] Missing texture for block 'potted_cactus' - tried path: 'block/potted_cactus' (using fallback) TextureIndexLookup.js:168:15
