@@ -30,7 +30,7 @@ export { ChunkDecoder, decodeChunk, decodeRegion } from './ChunkDecoder.js';
 // Meshing
 export { buildGridMeshes } from './FastMesher.js';
 export { buildGridMeshesParallel } from './ParallelMesher.js';
-export { buildModelMeshes, isNonCubeBlock, NON_CUBE_PATTERNS } from './ModelMesher.js';
+export { buildModelMeshes, isNonCubeBlock, NON_CUBE_PATTERNS, isTransparentModelBlock, TRANSPARENT_MODEL_PATTERNS } from './ModelMesher.js';
 
 // Pipeline
 export { RegionMeshBuilder, buildRegionMeshes } from './RegionMeshBuilder.js';

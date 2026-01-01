@@ -43,6 +43,10 @@ const FACING_TO_ROTATION = {
   'west': 3,
 };
 
+// Patterns for transparent partial blocks that need special rendering
+// These blocks use single-sided rendering with transparency (defined here for use in buildModelMeshes)
+const TRANSPARENT_MODEL_PATTERNS = ['_pane', 'iron_bars'];
+
 // LOD Level definitions for partial blocks
 // LOD 0 = full detail (all blocks)
 // LOD 1 = skip small decorative blocks (flowers, grass, small plants)
@@ -205,6 +209,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   // 0 = not a slab, 1 = bottom slab, 2 = top slab, 3 = double slab
   const stateSlabType = new Uint8Array(maxStateId);
   
+  // Transparent model detection: glass panes, iron bars, etc.
+  const stateIsTransparent = new Uint8Array(maxStateId);
+  
   // Collect unique state IDs from the grid
   for (const [, stateSection] of stateGrid.sections) {
     for (let i = 0; i < 4096; i++) {
@@ -248,11 +255,16 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
           else if (slabType === 'top') stateSlabType[stateId] = 2;
           else if (slabType === 'double') stateSlabType[stateId] = 3;
         }
+        
+        // Detect transparent model blocks (glass panes, iron bars)
+        if (TRANSPARENT_MODEL_PATTERNS.some(pattern => blockName.includes(pattern))) {
+          stateIsTransparent[stateId] = 1;
+        }
       }
     }
   }
 
-  // Growable buffers
+  // Growable buffers for OPAQUE models
   let positions = new Float32Array(INITIAL_VERTEX_COUNT * 3);
   let normals = new Float32Array(INITIAL_VERTEX_COUNT * 3);
   let colors = new Float32Array(INITIAL_VERTEX_COUNT * 3);
@@ -265,6 +277,20 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let vertexCount = 0;
   let indexCount = 0;
   let capacity = INITIAL_VERTEX_COUNT;
+
+  // Growable buffers for TRANSPARENT models (glass panes, iron bars)
+  let tPositions = new Float32Array(INITIAL_VERTEX_COUNT * 3);
+  let tNormals = new Float32Array(INITIAL_VERTEX_COUNT * 3);
+  let tColors = new Float32Array(INITIAL_VERTEX_COUNT * 3);
+  let tModelUVs = new Float32Array(INITIAL_VERTEX_COUNT * 2);
+  let tTexIndices = new Float32Array(INITIAL_VERTEX_COUNT);
+  let tTexRotations = new Float32Array(INITIAL_VERTEX_COUNT);
+  let tTintTypes = new Float32Array(INITIAL_VERTEX_COUNT);
+  let tIndices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
+  
+  let tVertexCount = 0;
+  let tIndexCount = 0;
+  let tCapacity = INITIAL_VERTEX_COUNT;
 
   const ox = offset.x, oy = offset.y, oz = offset.z;
 
@@ -392,6 +418,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         blockTexRotation = stateFacingRotation[stateId];
       }
 
+      // Determine if this block uses transparent or opaque buffer
+      const isTransparent = stateIsTransparent[stateId];
+
       // Add geometry from all variants
       for (const geom of geometries) {
         // Check each face for culling
@@ -404,20 +433,6 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
                 (cf === 'west' && nWest) || (cf === 'east' && nEast)) {
               continue; // Skip this face - neighbor is full opaque cube
             }
-          }
-
-          // Ensure capacity
-          const faceverts = cullInfo.indexCount / 6 * 4; // 4 verts per quad
-          if (vertexCount + faceverts > capacity) {
-            capacity = Math.ceil(capacity * 1.5);
-            positions = growArray(positions, capacity * 3);
-            normals = growArray(normals, capacity * 3);
-            colors = growArray(colors, capacity * 3);
-            modelUVs = growArray(modelUVs, capacity * 2);
-            texIndices = growArray(texIndices, capacity);
-            texRotations = growArray(texRotations, capacity);
-            tintTypes = growArray(tintTypes, capacity);
-            indices = growArrayUint(indices, capacity * 2);
           }
 
           // Get texture index for this face
@@ -437,14 +452,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             }
           }
 
-          // Copy vertices for this face (4 vertices per quad)
-          // Each face uses a fixed quad pattern: vertices sv, sv+1, sv+2, sv+3
-          // Indices pattern: sv, sv+2, sv+1, sv, sv+3, sv+2
-          
           // Get the first source vertex index from the geometry
-          // The first index in the face's indices tells us where the quad starts
           const srcVertexStart = geom.indices[cullInfo.indexStart];
-          const dstVertexStart = vertexCount;
           
           // Compute tint type once per face
           let tintType = 0;
@@ -454,77 +463,170 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             tintType = tintTypeLookup[blockId];
           }
           
-          // Copy all 4 vertices directly (no Map needed)
-          for (let v = 0; v < 4; v++) {
-            const srcIdx = srcVertexStart + v;
-            const dstIdx = vertexCount++;
+          // Route to appropriate buffer set based on transparency
+          if (isTransparent) {
+            // Ensure capacity for transparent buffers
+            const faceverts = cullInfo.indexCount / 6 * 4; // 4 verts per quad
+            if (tVertexCount + faceverts > tCapacity) {
+              tCapacity = Math.ceil(tCapacity * 1.5);
+              tPositions = growArray(tPositions, tCapacity * 3);
+              tNormals = growArray(tNormals, tCapacity * 3);
+              tColors = growArray(tColors, tCapacity * 3);
+              tModelUVs = growArray(tModelUVs, tCapacity * 2);
+              tTexIndices = growArray(tTexIndices, tCapacity);
+              tTexRotations = growArray(tTexRotations, tCapacity);
+              tTintTypes = growArray(tTintTypes, tCapacity);
+              tIndices = growArrayUint(tIndices, tCapacity * 2);
+            }
+
+            const dstVertexStart = tVertexCount;
             
-            const pi = srcIdx * 3;
-            const ni = dstIdx * 3;
-            const ui = srcIdx * 2;
-            const uo = dstIdx * 2;
-            
-            // Position (offset to world coords)
-            positions[ni] = geom.positions[pi] + wx;
-            positions[ni + 1] = geom.positions[pi + 1] + wy;
-            positions[ni + 2] = geom.positions[pi + 2] + wz;
-            
-            // Normal
-            normals[ni] = geom.normals[pi];
-            normals[ni + 1] = geom.normals[pi + 1];
-            normals[ni + 2] = geom.normals[pi + 2];
-            
-            // Color
-            colors[ni] = r;
-            colors[ni + 1] = g;
-            colors[ni + 2] = b;
-            
-            // Model UV coordinates (from pre-computed geometry)
-            if (geom.uvs) {
-              modelUVs[uo] = geom.uvs[ui];
-              modelUVs[uo + 1] = geom.uvs[ui + 1];
+            // Copy all 4 vertices to transparent buffer
+            for (let v = 0; v < 4; v++) {
+              const srcIdx = srcVertexStart + v;
+              const dstIdx = tVertexCount++;
+              
+              const pi = srcIdx * 3;
+              const ni = dstIdx * 3;
+              const ui = srcIdx * 2;
+              const uo = dstIdx * 2;
+              
+              tPositions[ni] = geom.positions[pi] + wx;
+              tPositions[ni + 1] = geom.positions[pi + 1] + wy;
+              tPositions[ni + 2] = geom.positions[pi + 2] + wz;
+              
+              tNormals[ni] = geom.normals[pi];
+              tNormals[ni + 1] = geom.normals[pi + 1];
+              tNormals[ni + 2] = geom.normals[pi + 2];
+              
+              tColors[ni] = r;
+              tColors[ni + 1] = g;
+              tColors[ni + 2] = b;
+              
+              if (geom.uvs) {
+                tModelUVs[uo] = geom.uvs[ui];
+                tModelUVs[uo + 1] = geom.uvs[ui + 1];
+              }
+              
+              tTexIndices[dstIdx] = texIdx;
+              tTexRotations[dstIdx] = blockTexRotation;
+              tTintTypes[dstIdx] = tintType;
             }
             
-            // Texture index, rotation, and tint
-            texIndices[dstIdx] = texIdx;
-            texRotations[dstIdx] = blockTexRotation;
-            tintTypes[dstIdx] = tintType;
+            // Emit indices for transparent mesh
+            tIndices[tIndexCount++] = dstVertexStart;
+            tIndices[tIndexCount++] = dstVertexStart + 2;
+            tIndices[tIndexCount++] = dstVertexStart + 1;
+            tIndices[tIndexCount++] = dstVertexStart;
+            tIndices[tIndexCount++] = dstVertexStart + 3;
+            tIndices[tIndexCount++] = dstVertexStart + 2;
+          } else {
+            // Ensure capacity for opaque buffers
+            const faceverts = cullInfo.indexCount / 6 * 4; // 4 verts per quad
+            if (vertexCount + faceverts > capacity) {
+              capacity = Math.ceil(capacity * 1.5);
+              positions = growArray(positions, capacity * 3);
+              normals = growArray(normals, capacity * 3);
+              colors = growArray(colors, capacity * 3);
+              modelUVs = growArray(modelUVs, capacity * 2);
+              texIndices = growArray(texIndices, capacity);
+              texRotations = growArray(texRotations, capacity);
+              tintTypes = growArray(tintTypes, capacity);
+              indices = growArrayUint(indices, capacity * 2);
+            }
+
+            const dstVertexStart = vertexCount;
+            
+            // Copy all 4 vertices to opaque buffer
+            for (let v = 0; v < 4; v++) {
+              const srcIdx = srcVertexStart + v;
+              const dstIdx = vertexCount++;
+              
+              const pi = srcIdx * 3;
+              const ni = dstIdx * 3;
+              const ui = srcIdx * 2;
+              const uo = dstIdx * 2;
+              
+              positions[ni] = geom.positions[pi] + wx;
+              positions[ni + 1] = geom.positions[pi + 1] + wy;
+              positions[ni + 2] = geom.positions[pi + 2] + wz;
+              
+              normals[ni] = geom.normals[pi];
+              normals[ni + 1] = geom.normals[pi + 1];
+              normals[ni + 2] = geom.normals[pi + 2];
+              
+              colors[ni] = r;
+              colors[ni + 1] = g;
+              colors[ni + 2] = b;
+              
+              if (geom.uvs) {
+                modelUVs[uo] = geom.uvs[ui];
+                modelUVs[uo + 1] = geom.uvs[ui + 1];
+              }
+              
+              texIndices[dstIdx] = texIdx;
+              texRotations[dstIdx] = blockTexRotation;
+              tintTypes[dstIdx] = tintType;
+            }
+            
+            // Emit indices for opaque mesh
+            indices[indexCount++] = dstVertexStart;
+            indices[indexCount++] = dstVertexStart + 2;
+            indices[indexCount++] = dstVertexStart + 1;
+            indices[indexCount++] = dstVertexStart;
+            indices[indexCount++] = dstVertexStart + 3;
+            indices[indexCount++] = dstVertexStart + 2;
           }
-          
-          // Emit indices using fixed quad pattern: 0,2,1, 0,3,2
-          indices[indexCount++] = dstVertexStart;
-          indices[indexCount++] = dstVertexStart + 2;
-          indices[indexCount++] = dstVertexStart + 1;
-          indices[indexCount++] = dstVertexStart;
-          indices[indexCount++] = dstVertexStart + 3;
-          indices[indexCount++] = dstVertexStart + 2;
         }
       }
     }
   }
 
-  if (vertexCount === 0) {
-    return null;
-  }
-
-  const result = {
+  // Build result object with opaque and transparent meshes
+  const opaqueResult = vertexCount > 0 ? {
     positions: positions.subarray(0, vertexCount * 3),
     normals: normals.subarray(0, vertexCount * 3),
     colors: colors.subarray(0, vertexCount * 3),
-    modelUVs: modelUVs.subarray(0, vertexCount * 2), // Model UV coordinates
+    modelUVs: modelUVs.subarray(0, vertexCount * 2),
     indices: indices.subarray(0, indexCount),
     vertexCount,
     triangleCount: indexCount / 3,
-  };
+  } : null;
   
-  // Include texture indices and rotations if texture lookup is available
+  const transparentResult = tVertexCount > 0 ? {
+    positions: tPositions.subarray(0, tVertexCount * 3),
+    normals: tNormals.subarray(0, tVertexCount * 3),
+    colors: tColors.subarray(0, tVertexCount * 3),
+    modelUVs: tModelUVs.subarray(0, tVertexCount * 2),
+    indices: tIndices.subarray(0, tIndexCount),
+    vertexCount: tVertexCount,
+    triangleCount: tIndexCount / 3,
+  } : null;
+  
+  // Add texture data if available
   if (textureIndexLookup) {
-    result.texIndices = texIndices.subarray(0, vertexCount);
-    result.texRotations = texRotations.subarray(0, vertexCount);
-    result.tintTypes = tintTypes.subarray(0, vertexCount);
+    if (opaqueResult) {
+      opaqueResult.texIndices = texIndices.subarray(0, vertexCount);
+      opaqueResult.texRotations = texRotations.subarray(0, vertexCount);
+      opaqueResult.tintTypes = tintTypes.subarray(0, vertexCount);
+    }
+    if (transparentResult) {
+      transparentResult.texIndices = tTexIndices.subarray(0, tVertexCount);
+      transparentResult.texRotations = tTexRotations.subarray(0, tVertexCount);
+      transparentResult.tintTypes = tTintTypes.subarray(0, tVertexCount);
+    }
   }
   
-  return result;
+  // Return null if no geometry was generated
+  if (!opaqueResult && !transparentResult) {
+    return null;
+  }
+  
+  // Return split meshes for opaque and transparent models
+  return {
+    opaque: opaqueResult,
+    transparent: transparentResult,
+  };
 }
 
 /**
@@ -548,11 +650,11 @@ function growArrayUint(arr, newSize) {
 /**
  * Identify blocks that need model-based rendering
  * These patterns match blocks with non-cube geometry
- * Note: '_pane' is excluded - glass panes render as cubes in the glass layer
+ * Glass panes and iron bars are included - they use multipart model rendering
  */
 export const NON_CUBE_PATTERNS = [
-  // Slabs, stairs, fences, walls, doors, trapdoors
-  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', 'iron_bars',
+  // Slabs, stairs, fences, walls, doors, trapdoors, panes
+  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars',
   
   // Flowers
   'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',
@@ -714,3 +816,13 @@ export function isNonCubeBlock(blockName) {
 
 export default buildModelMeshes;
 
+// Re-export transparent patterns for external use
+export { TRANSPARENT_MODEL_PATTERNS };
+
+/**
+ * Check if a block is a transparent model block (glass panes, iron bars, etc.)
+ */
+export function isTransparentModelBlock(blockName) {
+  const name = blockName.replace('minecraft:', '');
+  return TRANSPARENT_MODEL_PATTERNS.some(pattern => name.includes(pattern));
+}

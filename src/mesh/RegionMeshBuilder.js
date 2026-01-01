@@ -170,6 +170,7 @@ export class RegionMeshBuilder {
     
     // Phase 2b: Build model meshes for non-cube blocks (if enabled)
     let modelMesh = null;
+    let transparentModelMesh = null;
     if (enableModelMeshes && stateGrid && stateGrid.stateCount > 0) {
       this.onProgress?.('modelMeshing', 0, 100, 'Building model meshes...');
       const modelStart = performance.now();
@@ -182,13 +183,21 @@ export class RegionMeshBuilder {
         const modelOptions = {
           textureIndexLookup: this.textureIndexLookup,
         };
-        modelMesh = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
+        const modelResult = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
+        
+        // Extract opaque and transparent meshes from result
+        if (modelResult) {
+          modelMesh = modelResult.opaque;
+          transparentModelMesh = modelResult.transparent;
+        }
         
         stats.modelMeshTimeMs = performance.now() - modelStart;
-        stats.modelTriangles = modelMesh?.triangleCount || 0;
+        stats.modelTriangles = (modelMesh?.triangleCount || 0) + (transparentModelMesh?.triangleCount || 0);
+        stats.opaqueModelTriangles = modelMesh?.triangleCount || 0;
+        stats.transparentModelTriangles = transparentModelMesh?.triangleCount || 0;
         
         if (stats.modelTriangles > 0) {
-          console.log(`[RegionMeshBuilder] Model meshes: ${stats.modelTriangles.toLocaleString()} triangles in ${stats.modelMeshTimeMs.toFixed(0)}ms`);
+          console.log(`[RegionMeshBuilder] Model meshes: ${stats.modelTriangles.toLocaleString()} triangles (${stats.opaqueModelTriangles.toLocaleString()} opaque, ${stats.transparentModelTriangles.toLocaleString()} transparent) in ${stats.modelMeshTimeMs.toFixed(0)}ms`);
         }
       } catch (err) {
         console.warn('[RegionMeshBuilder] Model mesh generation failed:', err.message);
@@ -246,8 +255,9 @@ export class RegionMeshBuilder {
       solidMesh,
       waterMesh,
       lavaMesh,
-      glassMesh, // Glass and transparent block geometry
-      modelMesh, // Non-cube block geometry (slabs, stairs, flowers, etc.)
+      glassMesh, // Glass and transparent block geometry (full cubes)
+      modelMesh, // Opaque non-cube block geometry (slabs, stairs, flowers, etc.)
+      transparentModelMesh, // Transparent non-cube block geometry (glass panes, iron bars)
       lodMeshes,
       offset,
       bounds,

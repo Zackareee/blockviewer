@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { createGlassMaterial } from './materials/GlassMaterial';
-import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, updateMaterialAtlas, setMaterialTextureMode } from './materials/TexturedMaterial';
+import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, updateMaterialAtlas, setMaterialTextureMode } from './materials/TexturedMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
@@ -61,16 +61,19 @@ export class ChunkManager {
     this.waterGroup = new THREE.Group();
     this.lavaGroup = new THREE.Group();
     this.glassGroup = new THREE.Group(); // Glass and transparent blocks
-    this.modelGroup = new THREE.Group(); // Non-cube blocks (slabs, stairs, flowers, etc.)
+    this.modelGroup = new THREE.Group(); // Opaque non-cube blocks (slabs, stairs, flowers, etc.)
+    this.transparentModelGroup = new THREE.Group(); // Transparent non-cube blocks (glass panes, iron bars)
     this.waterGroup.renderOrder = 1;
     this.lavaGroup.renderOrder = 2;
     this.glassGroup.renderOrder = 3; // Glass renders after water/lava
+    this.transparentModelGroup.renderOrder = 4; // Transparent models render after glass
     this.modelGroup.renderOrder = 0; // Same as solid
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
     scene.add(this.lavaGroup);
     scene.add(this.glassGroup);
     scene.add(this.modelGroup);
+    scene.add(this.transparentModelGroup);
     
     // Create materials based on texture mode
     // When textures are enabled, use textured materials that can fall back to vertex colors
@@ -82,14 +85,16 @@ export class ChunkManager {
     this.waterMaterial = createWaterMaterial(); // Water uses its own animated shader
     this.lavaMaterial = createLavaMaterial(); // Lava uses its own animated shader
     this.glassMaterial = createTexturedGlassMaterial(this.textureAtlas, useTextures);
-    this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures); // Non-cube blocks with polygon offset
+    this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures); // Opaque non-cube blocks
+    this.transparentModelMaterial = createTransparentModelMaterial(this.textureAtlas, useTextures); // Transparent non-cube blocks (glass panes, iron bars)
     
     // Current meshes (arrays to support split meshes)
     this.solidMeshes = [];
     this.waterMeshes = [];
     this.lavaMeshes = [];
     this.glassMeshes = []; // Glass and transparent block meshes
-    this.modelMeshes = []; // Non-cube block meshes
+    this.modelMeshes = []; // Opaque non-cube block meshes
+    this.transparentModelMeshes = []; // Transparent non-cube block meshes (glass panes, iron bars)
     
     // Stats
     this.totalBlocks = 0;
@@ -139,6 +144,10 @@ export class ChunkManager {
     // Update model material (slabs, stairs, etc.)
     updateMaterialAtlas(this.modelMaterial, atlasData);
     setMaterialTextureMode(this.modelMaterial, useTextures);
+    
+    // Update transparent model material (glass panes, iron bars)
+    updateMaterialAtlas(this.transparentModelMaterial, atlasData);
+    setMaterialTextureMode(this.transparentModelMaterial, useTextures);
     
     console.log(`[ChunkManager] Texture mode: ${mode}, using textures: ${useTextures}`);
   }
@@ -231,6 +240,8 @@ export class ChunkManager {
     this.glassMaterial.uniforms.uMaxY.value = maxY;
     this.modelMaterial.uniforms.uMinY.value = minY;
     this.modelMaterial.uniforms.uMaxY.value = maxY;
+    this.transparentModelMaterial.uniforms.uMinY.value = minY;
+    this.transparentModelMaterial.uniforms.uMaxY.value = maxY;
   }
 
   /**
@@ -479,7 +490,7 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, stats, _grid } = result;
       
       // Merge grid for debug lookups
       if (_grid && this.debugGrid) {
@@ -491,13 +502,14 @@ export class ChunkManager {
       if (lavaMesh) this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
       if (glassMesh) this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes);
       if (modelMesh) this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+      if (transparentModelMesh) this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
       
       this.totalBlocks = stats.totalBlocks;
       this.loadedChunks = stats.chunksProcessed;
       this.loadedRegions = 1;
       
       const totalTime = performance.now() - startTime;
-      const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.glassMeshes.length + this.modelMeshes.length;
+      const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.glassMeshes.length + this.modelMeshes.length + this.transparentModelMeshes.length;
       
       console.log(
         `[ChunkManager] Loaded ${chunks.length} chunks, ` +
@@ -598,7 +610,7 @@ export class ChunkManager {
         }
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, lodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, lodMeshes, stats } = result;
 
         let drawCalls = 0;
         let meshCenter = null;
@@ -645,6 +657,11 @@ export class ChunkManager {
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         if (modelMesh) {
           drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+        }
+        
+        // Add transparent model meshes (glass panes, iron bars)
+        if (transparentModelMesh) {
+          drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
         }
         
         // Clean up builder immediately to free memory
@@ -808,7 +825,7 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, lodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, lodMeshes, stats } = result;
         
         let drawCalls = 0;
         let meshCenter = null;
@@ -855,6 +872,11 @@ export class ChunkManager {
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         if (modelMesh) {
           drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+        }
+        
+        // Add transparent model meshes (glass panes, iron bars)
+        if (transparentModelMesh) {
+          drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
         }
         
         meshBuilder.dispose();
@@ -1438,6 +1460,12 @@ export class ChunkManager {
     }
     this.modelMeshes = [];
     
+    for (const mesh of this.transparentModelMeshes) {
+      this.transparentModelGroup.remove(mesh);
+      this._disposeMeshOrLOD(mesh);
+    }
+    this.transparentModelMeshes = [];
+    
     this.totalBlocks = 0;
     this.loadedChunks = 0;
     this.loadedRegions = 0;
@@ -1464,11 +1492,13 @@ export class ChunkManager {
     this.waterMaterial.dispose();
     this.lavaMaterial.dispose();
     this.modelMaterial.dispose();
+    this.transparentModelMaterial.dispose();
     
     this.scene.remove(this.solidGroup);
     this.scene.remove(this.waterGroup);
     this.scene.remove(this.lavaGroup);
     this.scene.remove(this.modelGroup);
+    this.scene.remove(this.transparentModelGroup);
   }
 
   /**
@@ -1493,13 +1523,17 @@ export class ChunkManager {
       const idx = mesh.geometry?.getIndex();
       if (idx) triangleCount += idx.count / 3;
     }
+    for (const mesh of this.transparentModelMeshes) {
+      const idx = mesh.geometry?.getIndex();
+      if (idx) triangleCount += idx.count / 3;
+    }
     
     return {
       regionsLoaded: this.loadedRegions,
       chunksLoaded: this.loadedChunks,
       totalBlocks: this.totalBlocks,
       triangleCount,
-      meshCount: this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.modelMeshes.length,
+      meshCount: this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.modelMeshes.length + this.transparentModelMeshes.length,
     };
   }
 }

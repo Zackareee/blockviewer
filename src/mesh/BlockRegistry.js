@@ -62,10 +62,10 @@ export const BlockCategory = {
 import { getBlockColorsNumeric, COLOR_PATTERNS_NUMERIC } from '../data/blockColors.js';
 
 // Non-cube block patterns (blocks that need model-based rendering, not greedy meshing)
-// Note: '_pane' is excluded - glass panes render as cubes in the glass layer
+// Glass panes and iron bars are included - they use multipart model rendering
 const NON_CUBE_PATTERNS = [
   // Slabs, stairs, fences, walls, doors, trapdoors
-  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', 'iron_bars',
+  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars',
   
   // Flowers
   'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',

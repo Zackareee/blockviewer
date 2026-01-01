@@ -664,12 +664,42 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
     },
     vertexShader: modelVertexShader,
     fragmentShader: modelFragmentShader,
-    side: THREE.DoubleSide, // Model blocks often have visible back faces
+    side: THREE.DoubleSide, // Model blocks (flowers, plants) need visible back faces
     vertexColors: true,
-    transparent: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
+    transparent: false,    // Opaque models don't need transparency
+    depthWrite: true,
+  });
+  
+  return material;
+}
+
+/**
+ * Create a textured material for transparent model blocks (glass panes, iron bars)
+ * Uses single-sided rendering (FrontSide) to prevent back faces from being visible
+ * through the transparent surfaces
+ */
+export function createTransparentModelMaterial(atlasData = null, useTextures = false) {
+  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uMinY: { value: -64 },
+      uMaxY: { value: 320 },
+      uAtlas: { value: atlas },
+      uColormap: { value: colormap },
+      uUseTextures: { value: useTextures ? 1.0 : 0.0 },
+      uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
+      uAtlasSize: { value: size },
+      uTileUV: { value: tileUV },
+      uTextureUV: { value: textureUV },
+      uBorderUV: { value: borderUV },
+    },
+    vertexShader: modelVertexShader,
+    fragmentShader: modelFragmentShader,
+    side: THREE.FrontSide, // Single-sided to hide back faces through transparent surfaces
+    vertexColors: true,
+    transparent: true,     // Enable transparency/alpha blending
+    depthWrite: true,      // Still write to depth buffer to maintain proper ordering
   });
   
   return material;
