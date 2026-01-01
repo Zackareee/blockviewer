@@ -1206,10 +1206,10 @@ const TEXTURE_MAPPINGS = {
   'sunflower': 'block/sunflower_front',
   'large_fern': 'block/large_fern_top',
   'tall_grass': 'block/tall_grass_top',
-  'pitcher_plant': 'block/pitcher_plant_top',
+  'pitcher_plant': 'block/pitcher_crop_top_stage_4',
   'tall_seagrass': 'block/tall_seagrass_top',
   'short_dry_grass': 'block/short_dry_grass',
-  'tall_dry_grass': 'block/tall_dry_grass_top',
+  'tall_dry_grass': 'block/tall_dry_grass',
   
   // Mushrooms
   'brown_mushroom': 'block/brown_mushroom',
