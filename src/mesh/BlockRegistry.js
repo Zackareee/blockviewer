@@ -65,7 +65,7 @@ import { getBlockColorsNumeric, COLOR_PATTERNS_NUMERIC } from '../data/blockColo
 // Glass panes and iron bars are included - they use multipart model rendering
 const NON_CUBE_PATTERNS = [
   // Slabs, stairs, fences, walls, doors, trapdoors
-  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars',
+  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars', 'copper_bars',
   
   // Flowers
   'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',

@@ -112,7 +112,7 @@ const LOD2_SKIP_PATTERNS = [
 const LOD3_SKIP_PATTERNS = [
   ...LOD2_SKIP_PATTERNS,
   // Fences and bars
-  '_fence', 'iron_bars',
+  '_fence', 'iron_bars', 'copper_bars',
   // Rails
   'rail',
   // Torches
@@ -1296,7 +1296,7 @@ function growArrayUint(arr, newSize) {
  */
 export const NON_CUBE_PATTERNS = [
   // Slabs, stairs, fences, walls, doors, trapdoors, panes
-  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars',
+  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars', 'copper_bars',
   
   // Flowers
   'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',
