@@ -261,9 +261,9 @@ void main() {
     vec2 atlasOffset = vec2(col, row) * uTileUV;
     
     // Add border offset to get to the actual texture area
-    // Then map localUV (0-1) to the texture area with a small inset to prevent bleeding
-    vec2 inset = uTextureUV * 0.02; // 2% inset to prevent edge bleeding
-    vec2 atlasUV = atlasOffset + uBorderUV + inset + localUV * (uTextureUV - inset * 2.0);
+    // The atlas has 1-pixel borders around each tile to prevent bleeding, so we just
+    // offset by the border and use the full texture area
+    vec2 atlasUV = atlasOffset + uBorderUV + localUV * uTextureUV;
     
     // Sample the texture
     vec4 texColor = texture2D(uAtlas, atlasUV);
@@ -640,9 +640,9 @@ void main() {
     float row = floor(vTexIndex / tilesPerRow);
     
     // Calculate atlas UV
+    // The atlas has 1-pixel borders around each tile to prevent bleeding
     vec2 atlasOffset = vec2(col, row) * uTileUV;
-    vec2 inset = uTextureUV * 0.02;
-    vec2 atlasUV = atlasOffset + uBorderUV + inset + localUV * (uTextureUV - inset * 2.0);
+    vec2 atlasUV = atlasOffset + uBorderUV + localUV * uTextureUV;
     
     // Sample texture
     vec4 texColor = texture2D(uAtlas, atlasUV);
