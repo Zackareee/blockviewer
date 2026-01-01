@@ -1187,8 +1187,10 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
     // ===== GLASS BLOCKS: Build all 6 faces with greedy meshing =====
     // Glass blocks are transparent cubes that need all faces rendered
     
-    // Helper function to check if neighbor blocks glass face (glass-to-glass faces are hidden)
-    const blocksGlassFace = (nid) => isOpaque[nid] || isGlass[nid];
+    // Helper function to check if neighbor blocks glass face
+    // Glass-to-glass faces are hidden (and same for leaves-to-leaves)
+    // Partial blocks (stairs, slabs, etc.) do NOT block glass/leaf faces - they don't fully cover
+    const blocksGlassFace = (nid) => (isOpaque[nid] && !isNonCube[nid]) || isGlass[nid];
     
     // Glass Face 0: Top (+Y)
     for (let ly = 0; ly < S; ly++) {
