@@ -155,55 +155,55 @@ vec3 getBiomeTint(int tintType) {
 }
 
 // Get UV coordinates for a face based on world position and normal (triplanar)
-// Ensures consistent texture orientation: textures appear right-side up on all faces
-// Uses snapped normal to prevent interpolation artifacts at sharp viewing angles
+// Matches Minecraft's default UV mapping for cube models exactly.
+// 
+// After tracing through ModelGeometry's FACE_VERTICES + FACE_UV_MAPPING:
+// - NORTH (-Z): U = X, V = (1-Y)
+// - SOUTH (+Z): U = X, V = (1-Y)
+// - EAST (+X): U = (1-Z), V = (1-Y)
+// - WEST (-X): U = (1-Z), V = (1-Y)
+// - UP (+Y): U = X, V = Z
+// - DOWN (-Y): U = X, V = (1-Z)
+//
+// Note: NORTH/SOUTH share the same UV mapping (looking through the cube),
+// and EAST/WEST share the same UV mapping. This is intentional in Minecraft.
 vec2 getTriplanarUV(vec3 worldPos, vec3 normal) {
   // Snap normal to nearest axis - critical for preventing smearing at sharp angles
   vec3 snapped = snapNormal(normal);
   vec3 absNormal = abs(snapped);
   
   vec2 uv;
-  bool flipV = false;
   
   // Top/bottom faces (Y-axis dominant)
   if (absNormal.y >= absNormal.x && absNormal.y >= absNormal.z) {
-    // Looking down: X goes right, Z goes forward
-    uv = vec2(worldPos.x, worldPos.z);
-    // Flip V for bottom face
-    if (snapped.y < 0.0) {
-      flipV = true;
+    if (snapped.y > 0.0) {
+      // TOP face (+Y): U = X, V = Z
+      uv = vec2(worldPos.x, worldPos.z);
+      uv = fract(uv);
+      return clamp(uv, 0.0, 1.0);
+    } else {
+      // BOTTOM face (-Y): U = X, V = (1-Z)
+      uv = vec2(worldPos.x, worldPos.z);
+      uv = fract(uv);
+      uv.y = 1.0 - uv.y;
+      return clamp(uv, 0.0, 1.0);
     }
   }
-  // East/West faces (X-axis dominant)
+  // East/West faces (X-axis dominant) - both use U = (1-Z), V = (1-Y)
   else if (absNormal.x >= absNormal.z) {
-    // For X-facing faces: Z horizontal, Y vertical
     uv = vec2(worldPos.z, worldPos.y);
-    // Texture needs to be flipped vertically (V=0 at top, world Y goes up)
-    flipV = true;
+    uv = fract(uv);
+    uv.x = 1.0 - uv.x; // U = (1-Z)
+    uv.y = 1.0 - uv.y; // V = (1-Y)
+    return clamp(uv, 0.0, 1.0);
   }
-  // North/South faces (Z-axis dominant)
+  // North/South faces (Z-axis dominant) - both use U = X, V = (1-Y)
   else {
-    // For Z-facing faces: X horizontal, Y vertical
     uv = vec2(worldPos.x, worldPos.y);
-    // Texture needs to be flipped vertically
-    flipV = true;
+    uv = fract(uv);
+    uv.y = 1.0 - uv.y; // V = (1-Y)
+    return clamp(uv, 0.0, 1.0);
   }
-  
-  // Get per-block fractional UV (0-1 range per block)
-  // fract() gives us a value in [0, 1) for any input
-  uv = fract(uv);
-  
-  // Apply vertical flip for side faces and bottom face
-  // Minecraft textures have V=0 at top, world Y increases upward
-  // We need to invert V so the texture appears right-side up
-  if (flipV) {
-    // Direct subtraction: 0.0 -> 1.0, 0.5 -> 0.5, 0.999 -> 0.001
-    uv.y = 1.0 - uv.y;
-  }
-  
-  // Clamp to valid UV range [0, 1] to prevent any edge case smearing
-  // This handles floating point precision issues at block boundaries
-  return clamp(uv, 0.0, 1.0);
 }
 
 void main() {

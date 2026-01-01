@@ -70,40 +70,70 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   
   /**
    * Calculate texture rotation for a rotated block face
+   * Matches Minecraft's cube_column model UV behavior
+   * 
+   * In Minecraft's cube model, each face has specific UV mappings that account for
+   * the face's orientation. Our triplanar projection needs rotation to match.
+   * 
    * @param {number} axis - Block axis: 0=y, 1=x, 2=z
    * @param {number} faceDir - Face direction constant (FACE_UP, FACE_NORTH, etc.)
    * @returns {number} UV rotation: 0=0°, 1=90°, 2=180°, 3=270°
    */
   function getTextureRotation(axis, faceDir) {
     if (axis === AXIS_Y) {
-      return 0; // No rotation for default vertical orientation
+      // Vertical logs: no rotation needed
+      // The triplanar UV mapping naturally aligns the texture correctly
+      return 0;
     }
+    
+    // For horizontal logs, we need to match the UV rotations from cube_column_horizontal
+    // after block-level X and Y rotations are applied
+    //
+    // cube_column_horizontal has: UP face = end texture with 180° rotation
+    // 
+    // axis=z (X=90 rotation):
+    //   Original UP (with 180°) → SOUTH
+    //   Original EAST/WEST → stay in place but rotate 90° internally
+    //   Original NORTH → UP, Original SOUTH → DOWN
+    //
+    // axis=x (X=90, Y=90 rotation):
+    //   Original UP (with 180°) → EAST  
+    //   Original DOWN → WEST
+    //   Original NORTH → UP, Original SOUTH → DOWN
+    //   Original EAST → NORTH, Original WEST → SOUTH
     
     if (axis === AXIS_X) {
       // Block is horizontal along X axis (east-west)
-      // East/West faces show the end texture (no rotation)
-      // Top/Bottom/North/South faces show side texture rotated 90°
-      if (faceDir === FACE_EAST || faceDir === FACE_WEST) {
-        return 0;
-      } else if (faceDir === FACE_UP || faceDir === FACE_DOWN) {
-        return 1; // 90° rotation
-      } else {
-        return 1; // North/South sides also rotated
+      // EAST face was original UP (had 180° rotation in model)
+      if (faceDir === FACE_EAST) {
+        return 2; // 180° rotation (from model's UP face rotation)
       }
+      // WEST face was original DOWN (no rotation)
+      if (faceDir === FACE_WEST) {
+        return 0;
+      }
+      // All bark faces (UP, DOWN, NORTH, SOUTH) need 90° rotation
+      // because the texture "up" direction rotated with the model
+      return 1;
     }
     
     if (axis === AXIS_Z) {
       // Block is horizontal along Z axis (north-south)
-      // North/South faces show the end texture (no rotation)
-      // Top/Bottom faces show side texture (no rotation needed)
-      // East/West faces show side texture rotated 90°
-      if (faceDir === FACE_NORTH || faceDir === FACE_SOUTH) {
-        return 0;
-      } else if (faceDir === FACE_EAST || faceDir === FACE_WEST) {
-        return 1; // 90° rotation
-      } else {
-        return 0; // Top/Bottom
+      // SOUTH face was original UP (had 180° rotation in model)
+      if (faceDir === FACE_SOUTH) {
+        return 2; // 180° rotation
       }
+      // NORTH face was original DOWN (no rotation)
+      if (faceDir === FACE_NORTH) {
+        return 0;
+      }
+      // EAST/WEST bark faces need 90° rotation
+      if (faceDir === FACE_EAST || faceDir === FACE_WEST) {
+        return 1;
+      }
+      // TOP/BOTTOM bark faces - no rotation needed
+      // (the model's NORTH/SOUTH faces became UP/DOWN without internal rotation)
+      return 0;
     }
     
     return 0;
