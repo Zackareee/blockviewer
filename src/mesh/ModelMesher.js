@@ -1194,6 +1194,18 @@ export const NON_CUBE_PATTERNS = [
   'anvil', 'bell', 'grindstone', 'brewing_stand', 'cauldron', 'end_rod', 'lightning_rod',
   'stonecutter', 'heavy_core', 'dried_ghast',
   
+  // Portals (thin panels, not full cubes)
+  'nether_portal', 'end_portal', 'end_gateway',
+  
+  // Path blocks (15 blocks tall, not 16)
+  'farmland', 'dirt_path',
+  
+  // Fire (cross pattern)
+  'fire', 'soul_fire',
+  
+  // Special blocks with inner elements (not simple cubes)
+  'slime_block', 'honey_block', 'powder_snow', 'mangrove_roots',
+  
   // Dripstone and amethyst
   'pointed_dripstone', 'amethyst_cluster', 'amethyst_bud',
   
