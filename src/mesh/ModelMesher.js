@@ -794,6 +794,7 @@ const EXACT_MATCH_NON_CUBES = new Set([
   'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
   'snow',                              // Snow layers (not snow_block)
   'chain',                             // Chain item (not chain_command_block)
+  'beacon',                            // Multi-element block (glass shell, obsidian base, beacon core)
   // Small corals (not coral_block variants)
   'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
   'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral', 'dead_fire_coral', 'dead_horn_coral',
