@@ -233,9 +233,24 @@ const FLUID_BLOCKS = new Set([
   'minecraft:lava', 'minecraft:flowing_lava',
 ]);
 
-// Transparent blocks (not fully opaque)
+// Transparent blocks (not fully opaque) - these use alpha blending
+// TRANSLUCENT blocks: have partial transparency (alpha < 1)
+// Note: These are pattern-based matches (includes check, not exact match)
 const TRANSPARENT_BLOCKS = new Set([
-  'glass', 'ice', 'leaves', 'tinted_glass',
+  // Glass (all types)
+  'glass',           // Matches glass, stained_glass, glass_pane, etc.
+  'tinted_glass',
+  
+  // Ice (regular ice, not packed_ice or blue_ice which are opaque)
+  'ice',            // Note: packed_ice and blue_ice are opaque
+  'frosted_ice',
+  
+  // Leaves (use cutout but also need transparency for proper rendering)
+  'leaves',
+  
+  // Slime and honey (translucent with inner cube)
+  'slime_block',
+  'honey_block',
 ]);
 
 /**
@@ -509,7 +524,11 @@ export class BlockRegistry {
     // Check for known transparent patterns
     if (name.includes('glass')) return false;
     if (name.includes('leaves')) return false;
-    if (name.includes('ice') && !name.includes('packed')) return false;
+    if (name.includes('ice') && !name.includes('packed') && !name.includes('blue')) return false;
+    
+    // Translucent blocks
+    if (name === 'slime_block' || name === 'honey_block') return false;
+    if (name === 'frosted_ice') return false;
     
     return true;
   }

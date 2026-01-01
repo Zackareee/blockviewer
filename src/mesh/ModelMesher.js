@@ -43,9 +43,19 @@ const FACING_TO_ROTATION = {
   'west': 3,
 };
 
-// Patterns for transparent partial blocks that need special rendering
+// Patterns for transparent PARTIAL blocks that need special rendering
 // These blocks use single-sided rendering with transparency (defined here for use in buildModelMeshes)
-const TRANSPARENT_MODEL_PATTERNS = ['_pane', 'iron_bars'];
+// Note: Full cube transparent blocks (ice, glass) are handled by FastMesher, not here
+const TRANSPARENT_MODEL_PATTERNS = [
+  '_pane',           // Glass panes (all stained variants)
+  'iron_bars',       // Iron bars
+  'copper_bars',     // Copper bars
+  'slime_block',     // Translucent with inner cube
+  'honey_block',     // Translucent with inner cube
+  'nether_portal',   // Portal effect
+  'powder_snow',     // Hollow translucent block
+  'mangrove_roots',  // See-through roots
+];
 
 // Edge threshold for determining if a face is at the block boundary
 const EDGE_THRESHOLD = 0.01;
@@ -339,8 +349,10 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
           stateFenceType[stateId] = fenceTypeMap.get(blockName);
         }
         
-        // Detect transparent model blocks (glass panes, iron bars)
-        if (TRANSPARENT_MODEL_PATTERNS.some(pattern => blockName.includes(pattern))) {
+        // Detect transparent model blocks (glass panes, iron bars, slime, honey, etc.)
+        // Note: packed_ice and blue_ice are OPAQUE, not transparent
+        const isPackedOrBlueIce = blockName.includes('packed_ice') || blockName.includes('blue_ice');
+        if (!isPackedOrBlueIce && TRANSPARENT_MODEL_PATTERNS.some(pattern => blockName.includes(pattern))) {
           stateIsTransparent[stateId] = 1;
         }
       }
