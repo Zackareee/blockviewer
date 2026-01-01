@@ -1192,6 +1192,7 @@ export const NON_CUBE_PATTERNS = [
   
   // Utility blocks with custom models
   'anvil', 'bell', 'grindstone', 'brewing_stand', 'cauldron', 'end_rod', 'lightning_rod',
+  'stonecutter', 'heavy_core', 'dried_ghast',
   
   // Dripstone and amethyst
   'pointed_dripstone', 'amethyst_cluster', 'amethyst_bud',
