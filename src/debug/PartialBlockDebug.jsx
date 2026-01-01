@@ -22,6 +22,21 @@ const TEST_BLOCKS = [
   { name: 'carpet', texture: 'white_wool', label: 'White Carpet' },
 ];
 
+// Stair orientations based on oak_stairs.json blockstate
+// Each entry: { facing, half, rotX, rotY }
+const STAIR_VARIANTS = [
+  // Bottom half (right-side up) - all 4 directions
+  { facing: 'east',  half: 'bottom', rotX: 0,   rotY: 0,   label: 'Stair East ↓' },
+  { facing: 'south', half: 'bottom', rotX: 0,   rotY: 90,  label: 'Stair South ↓' },
+  { facing: 'west',  half: 'bottom', rotX: 0,   rotY: 180, label: 'Stair West ↓' },
+  { facing: 'north', half: 'bottom', rotX: 0,   rotY: 270, label: 'Stair North ↓' },
+  // Top half (upside-down) - all 4 directions
+  { facing: 'east',  half: 'top',    rotX: 180, rotY: 0,   label: 'Stair East ↑' },
+  { facing: 'south', half: 'top',    rotX: 180, rotY: 90,  label: 'Stair South ↑' },
+  { facing: 'west',  half: 'top',    rotX: 180, rotY: 180, label: 'Stair West ↑' },
+  { facing: 'north', half: 'top',    rotX: 180, rotY: 270, label: 'Stair North ↑' },
+];
+
 export default function PartialBlockDebug() {
   const containerRef = useRef(null);
   const [status, setStatus] = useState('Loading...');
@@ -56,10 +71,10 @@ export default function PartialBlockDebug() {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
 
-    // Camera
+    // Camera - positioned to see stairs section
     const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
-    camera.position.set(5, 4, 8);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(6, 8, 28);
+    camera.lookAt(3, 0, 12);
 
     // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -79,8 +94,8 @@ export default function PartialBlockDebug() {
     directionalLight.position.set(5, 10, 5);
     scene.add(directionalLight);
 
-    // Grid helper
-    const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x333333);
+    // Grid helper - larger to accommodate stairs
+    const gridHelper = new THREE.GridHelper(30, 30, 0x444444, 0x333333);
     scene.add(gridHelper);
 
     // Axes helper
@@ -97,8 +112,8 @@ export default function PartialBlockDebug() {
       await createBlock(position, 'block/cross', label, 0x4a9c4a, 0x00ff00);
     }
 
-    // Create a block from model path
-    async function createBlock(position, modelPath, label, color = 0x888888, wireColor = 0x00ff00) {
+    // Create a block from model path with optional rotation
+    async function createBlock(position, modelPath, label, color = 0x888888, wireColor = 0x00ff00, rotX = 0, rotY = 0) {
       try {
         const model = await modelResolver.resolve(modelPath);
         if (!model) {
@@ -107,7 +122,8 @@ export default function PartialBlockDebug() {
           return;
         }
 
-        const geom = modelGeometry.getGeometry(model, 0, 0);
+        console.log(`[Debug] Creating ${label}: model=${modelPath}, rotX=${rotX}, rotY=${rotY}`);
+        const geom = modelGeometry.getGeometry(model, rotX, rotY, modelPath);
         if (!geom) {
           console.warn(`Could not compute geometry for: ${modelPath}`);
           addLabel(`${label} (NO GEOM)`, position.clone().add(new THREE.Vector3(0.5, 1.5, 0.5)));
@@ -216,6 +232,33 @@ export default function PartialBlockDebug() {
       await createBlock(new THREE.Vector3(0, 0, 12), 'block/template_rail_raised_ne', 'Rail Diagonal', 0x8b4513, 0xff6600);
       await createBlock(new THREE.Vector3(2.5, 0, 12), 'block/sunflower_top', 'Sunflower', 0xffcc00, 0xff6600);
       await createBlock(new THREE.Vector3(5, 0, 12), 'block/flowerbed_1', 'Pink Petals', 0xff69b4, 0xff00ff);
+
+      // Row 5: Stairs - Bottom half (right-side up) - all 4 directions
+      // Using oak_stairs model with rotations from blockstate
+      await createBlock(new THREE.Vector3(0, 0, 15), 'block/oak_stairs', 'Stair East ↓', 0xba9862, 0x00ffff, 0, 0);
+      await createBlock(new THREE.Vector3(2.5, 0, 15), 'block/oak_stairs', 'Stair South ↓', 0xba9862, 0x00ffff, 0, 90);
+      await createBlock(new THREE.Vector3(5, 0, 15), 'block/oak_stairs', 'Stair West ↓', 0xba9862, 0x00ffff, 0, 180);
+      await createBlock(new THREE.Vector3(7.5, 0, 15), 'block/oak_stairs', 'Stair North ↓', 0xba9862, 0x00ffff, 0, 270);
+
+      // Row 6: Stairs - Top half (upside-down) - all 4 directions
+      await createBlock(new THREE.Vector3(0, 0, 18), 'block/oak_stairs', 'Stair East ↑', 0xc9a872, 0xff00ff, 180, 0);
+      await createBlock(new THREE.Vector3(2.5, 0, 18), 'block/oak_stairs', 'Stair South ↑', 0xc9a872, 0xff00ff, 180, 90);
+      await createBlock(new THREE.Vector3(5, 0, 18), 'block/oak_stairs', 'Stair West ↑', 0xc9a872, 0xff00ff, 180, 180);
+      await createBlock(new THREE.Vector3(7.5, 0, 18), 'block/oak_stairs', 'Stair North ↑', 0xc9a872, 0xff00ff, 180, 270);
+
+      // Row 7: Trapdoors - open, all 4 directions
+      // Using dark_oak_trapdoor_open model with rotations from blockstate
+      await createBlock(new THREE.Vector3(0, 0, 21), 'block/dark_oak_trapdoor_open', 'Trapdoor North', 0x4a3314, 0x00ffff, 0, 0);
+      await createBlock(new THREE.Vector3(2.5, 0, 21), 'block/dark_oak_trapdoor_open', 'Trapdoor East', 0x4a3314, 0x00ffff, 0, 90);
+      await createBlock(new THREE.Vector3(5, 0, 21), 'block/dark_oak_trapdoor_open', 'Trapdoor South', 0x4a3314, 0x00ffff, 0, 180);
+      await createBlock(new THREE.Vector3(7.5, 0, 21), 'block/dark_oak_trapdoor_open', 'Trapdoor West', 0x4a3314, 0x00ffff, 0, 270);
+
+      // Row 8: Beacon - multi-element block with glass shell, obsidian base, beacon core
+      await createBlock(new THREE.Vector3(0, 0, 24), 'block/beacon', 'Beacon', 0x7ec8e3, 0x00ffff, 0, 0);
+
+      // Add compass reference for orientation
+      addLabel('← West (-X)    North (-Z) ↑', new THREE.Vector3(3.5, 2, -2));
+      addLabel('→ East (+X)    South (+Z) ↓', new THREE.Vector3(3.5, 1.5, -2));
     }
 
     createTestBlocks();

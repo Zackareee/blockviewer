@@ -423,12 +423,12 @@ class ModelGeometry {
     const cosX = Math.cos(radX), sinX = Math.sin(radX);
     const cosY = Math.cos(radY), sinY = Math.sin(radY);
 
-    // Combined rotation: Y first, then X
-    // This matches Minecraft's rotation order
+    // Combined rotation: X first, then Y (Minecraft's actual order)
+    // Matrix = Y * X (matrix multiplication is reverse of application order)
     return [
-      cosY,          0,      sinY,
-      sinX * sinY,   cosX,  -sinX * cosY,
-      -cosX * sinY,  sinX,   cosX * cosY,
+      cosY,   sinX * sinY,   cosX * sinY,
+      0,      cosX,         -sinX,
+      -sinY,  sinX * cosY,   cosX * cosY,
     ];
   }
 
@@ -518,24 +518,24 @@ class ModelGeometry {
     // Map cullface to direction vector
     const dir = [...CULLFACE_OFFSETS[cullface]];
     
-    // Apply rotation (negate angles for Minecraft's clockwise convention)
+    // Apply rotation: X first, then Y (Minecraft's order)
     const radX = (-rotX * Math.PI) / 180;
     const radY = (-rotY * Math.PI) / 180;
     
-    // Rotate Y first
-    if (rotY !== 0) {
-      const cosY = Math.cos(radY), sinY = Math.sin(radY);
-      const x = dir[0], z = dir[2];
-      dir[0] = Math.round(cosY * x + sinY * z);
-      dir[2] = Math.round(-sinY * x + cosY * z);
-    }
-    
-    // Rotate X second
+    // Rotate X first
     if (rotX !== 0) {
       const cosX = Math.cos(radX), sinX = Math.sin(radX);
       const y = dir[1], z = dir[2];
       dir[1] = Math.round(cosX * y - sinX * z);
       dir[2] = Math.round(sinX * y + cosX * z);
+    }
+    
+    // Rotate Y second
+    if (rotY !== 0) {
+      const cosY = Math.cos(radY), sinY = Math.sin(radY);
+      const x = dir[0], z = dir[2];
+      dir[0] = Math.round(cosY * x + sinY * z);
+      dir[2] = Math.round(-sinY * x + cosY * z);
     }
 
     // Map back to cullface name

@@ -293,6 +293,22 @@ class StateRegistry {
     this.byBlock.clear();
     this.nextId = 0;
   }
+
+  /**
+   * Reset all cached geometry (forces recomputation on next access)
+   * Call this after rotation code changes
+   */
+  resetGeometry() {
+    for (const state of this.states) {
+      state.geometry = null;
+      state.variants = null;
+    }
+    // Also clear the ModelGeometry cache
+    if (this.modelGeometry) {
+      this.modelGeometry.clearCache();
+    }
+    console.log('[StateRegistry] Geometry cache cleared');
+  }
 }
 
 // Singleton
