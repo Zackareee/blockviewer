@@ -78,6 +78,8 @@ const NON_CUBE_PATTERNS = [
   'seagrass', 'tall_seagrass', 'kelp', 'sugar_cane', 'cactus', 'lily_pad',
   'nether_sprouts', 'hanging_roots', 'short_dry_grass', 'tall_dry_grass', 'leaf_litter',
   'pale_hanging_moss', 'firefly_bush',
+  'crimson_roots', 'warped_roots', 'crimson_fungus', 'warped_fungus', // Nether cross-model plants
+  'twisting_vines', 'weeping_vines', 'cave_vines', // Vine plants (use cross model)
   
   // Saplings
   '_sapling', 'mangrove_propagule',

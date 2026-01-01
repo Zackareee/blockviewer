@@ -80,6 +80,7 @@ const LOD1_SKIP_PATTERNS = [
   // Grass and small plants
   'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'bush',
   'nether_sprouts', 'hanging_roots', 'short_dry_grass', 'tall_dry_grass', 'leaf_litter',
+  'crimson_roots', 'warped_roots', 'crimson_fungus', 'warped_fungus', // Nether cross-model plants
 ];
 
 // Additional blocks to skip at LOD level 2+ (patterns)
@@ -1135,6 +1136,8 @@ export const NON_CUBE_PATTERNS = [
   'seagrass', 'tall_seagrass', 'kelp', 'sugar_cane', 'cactus', 'lily_pad',
   'nether_sprouts', 'hanging_roots', 'short_dry_grass', 'tall_dry_grass', 'leaf_litter',
   'pale_hanging_moss', 'firefly_bush',
+  'crimson_roots', 'warped_roots', 'crimson_fungus', 'warped_fungus', // Nether cross-model plants
+  'twisting_vines', 'weeping_vines', 'cave_vines', // Vine plants
   
   // Saplings
   '_sapling', 'mangrove_propagule',
