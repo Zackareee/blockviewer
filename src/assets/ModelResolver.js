@@ -9,6 +9,13 @@
 // Base path to assets
 const ASSETS_BASE = '/textures/1.21.11+Template/assets/minecraft';
 
+// Legacy block names that were renamed in Minecraft 1.21+
+// Maps old model paths to new model paths
+const LEGACY_MODEL_RENAMES = {
+  'block/chain': 'block/iron_chain',
+  'block/grass': 'block/short_grass',
+};
+
 /**
  * Resolved model with all parent data merged
  * @typedef {Object} ResolvedModel
@@ -71,7 +78,12 @@ class ModelResolver {
    */
   async getRawModel(modelPath) {
     // Normalize path: "minecraft:block/stone" → "block/stone"
-    const normalized = modelPath.replace('minecraft:', '');
+    let normalized = modelPath.replace('minecraft:', '');
+    
+    // Apply legacy renames for blocks renamed in Minecraft 1.21+
+    if (LEGACY_MODEL_RENAMES[normalized]) {
+      normalized = LEGACY_MODEL_RENAMES[normalized];
+    }
     
     if (this.rawModels.has(normalized)) {
       return this.rawModels.get(normalized);

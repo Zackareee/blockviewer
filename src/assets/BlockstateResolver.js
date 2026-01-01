@@ -8,6 +8,13 @@
 
 const ASSETS_BASE = '/textures/1.21.11+Template/assets/minecraft';
 
+// Legacy block names that were renamed in Minecraft 1.21+
+// Maps old block names to new block names
+const LEGACY_BLOCK_RENAMES = {
+  'chain': 'iron_chain',
+  'grass': 'short_grass',
+};
+
 /**
  * Model variant with rotation info
  * @typedef {Object} ModelVariant
@@ -133,7 +140,13 @@ class BlockstateResolver {
    * @returns {ModelVariant[]} Array of model variants to apply
    */
   resolve(blockName, properties = {}) {
-    const normalized = blockName.replace('minecraft:', '');
+    let normalized = blockName.replace('minecraft:', '');
+    
+    // Apply legacy renames for blocks renamed in Minecraft 1.21+
+    if (LEGACY_BLOCK_RENAMES[normalized]) {
+      normalized = LEGACY_BLOCK_RENAMES[normalized];
+    }
+    
     const lookup = this.compiled.get(normalized);
     
     if (!lookup) {

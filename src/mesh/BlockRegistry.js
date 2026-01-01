@@ -95,7 +95,7 @@ const NON_CUBE_PATTERNS = [
   // Torches and lighting
   'torch', 'soul_torch', 'redstone_torch', 'lantern', 'soul_lantern',
   
-  // Note: 'chain' is handled as exact match to avoid matching chain_command_block
+  // Note: 'iron_chain' and variants - renamed from 'chain' in Minecraft 1.21
   
   // Carpets and thin layers (note: 'snow' is exact match to avoid snow_block)
   '_carpet', 'moss_carpet',
@@ -434,7 +434,15 @@ export class BlockRegistry {
       'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
       'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
       'snow',                              // Snow layers (not snow_block)
-      'chain',                             // Chain item (not chain_command_block)
+      'iron_chain',                        // Iron chain (renamed from 'chain' in 1.21)
+      'copper_chain',                      // Copper chain variants
+      'exposed_copper_chain',
+      'weathered_copper_chain',
+      'oxidized_copper_chain',
+      'waxed_copper_chain',
+      'waxed_exposed_copper_chain',
+      'waxed_weathered_copper_chain',
+      'waxed_oxidized_copper_chain',
       'beacon',                            // Multi-element block (glass shell, obsidian base, beacon core)
       // Small corals (not coral_block variants)
       'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
