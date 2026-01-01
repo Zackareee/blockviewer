@@ -1,7 +1,0 @@
-[TextureIndexLookup] Block oak_planks (id=301): 
-Object { blockId: 301, blockName: "oak_planks", faces: {…} }
-TextureIndexLookup.js:154:15
-[TextureIndexLookup] Missing texture for block 'decorated_pot' - tried path: 'block/decorated_pot_side' (using fallback) TextureIndexLookup.js:168:15
-[TextureIndexLookup] Missing texture for block 'dried_ghast' - tried path: 'block/dried_ghast' (using fallback) TextureIndexLookup.js:168:15
-[TextureIndexLookup] Missing texture for block 'test_block' - tried path: 'block/test_block' (using fallback) TextureIndexLookup.js:168:15
-[TextureAtlas] Built texture index lookup: 1165 blocks registered, 1148 found textures, 2222 atlas textures TextureAtlas.js:448:13
