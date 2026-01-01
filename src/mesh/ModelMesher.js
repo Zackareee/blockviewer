@@ -47,6 +47,23 @@ const FACING_TO_ROTATION = {
 // These blocks use single-sided rendering with transparency (defined here for use in buildModelMeshes)
 const TRANSPARENT_MODEL_PATTERNS = ['_pane', 'iron_bars'];
 
+// Edge threshold for determining if a face is at the block boundary
+const EDGE_THRESHOLD = 0.01;
+
+// Coverage regions for partial blocks - defines which portions of a block are "solid"
+// Each entry is [minY, maxY] representing the Y range covered (0-1)
+// For same-half stairs/slabs adjacent horizontally, if their Y coverage overlaps, cull the shared face
+const SLAB_COVERAGE = {
+  bottom: { minY: 0, maxY: 0.5 },
+  top: { minY: 0.5, maxY: 1.0 },
+  double: { minY: 0, maxY: 1.0 },
+};
+
+// For stairs, coverage depends on facing and whether we're looking at the "full" or "step" side
+// Full side (back) covers full height for half the block
+// Step side covers half height for the other half
+// For simplicity, we treat same-half same-facing stairs as fully covering shared faces
+
 // LOD Level definitions for partial blocks
 // LOD 0 = full detail (all blocks)
 // LOD 1 = skip small decorative blocks (flowers, grass, small plants)
@@ -143,7 +160,8 @@ function getPositionRotation(x, y, z) {
 }
 
 // Initial buffer sizes (will grow as needed)
-const INITIAL_VERTEX_COUNT = 50000;
+// Use larger initial allocation to reduce resize operations
+const INITIAL_VERTEX_COUNT = 200000;
 
 /**
  * Build meshes for non-cube blocks in a region
@@ -209,6 +227,31 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   // 0 = not a slab, 1 = bottom slab, 2 = top slab, 3 = double slab
   const stateSlabType = new Uint8Array(maxStateId);
   
+  // Stair optimization: track stair properties for enhanced face culling
+  // Encode: facing (0-3 for N/S/E/W) + half (0=bottom, 4=top)
+  // 0 = not a stair, 1-8 = valid stair configurations
+  const stateStairType = new Uint8Array(maxStateId);
+  
+  // Track stair facing direction for back-face culling
+  // 0=north, 1=south, 2=east, 3=west (the direction the stair "faces" - open side)
+  const stateStairFacing = new Uint8Array(maxStateId);
+  
+  // Track stair half: 0=bottom (normal), 1=top (upside-down)
+  const stateStairHalf = new Uint8Array(maxStateId);
+  
+  // Track wall/fence blocks - same type adjacent can cull shared faces
+  // Value is a unique ID per wall/fence material type
+  const stateWallType = new Uint16Array(maxStateId);
+  const stateFenceType = new Uint16Array(maxStateId);
+  let nextWallTypeId = 1;
+  let nextFenceTypeId = 1;
+  const wallTypeMap = new Map(); // blockName → typeId
+  const fenceTypeMap = new Map(); // blockName → typeId
+  
+  // Track blocks that are "opaque for their occupied portion"
+  // These can cull faces of adjacent partial blocks when they overlap
+  const stateIsPartialOpaque = new Uint8Array(maxStateId);
+  
   // Transparent model detection: glass panes, iron bars, etc.
   const stateIsTransparent = new Uint8Array(maxStateId);
   
@@ -251,9 +294,48 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         // Detect slab type for enhanced face culling
         if (blockName.includes('_slab') && state.properties) {
           const slabType = state.properties.type;
-          if (slabType === 'bottom') stateSlabType[stateId] = 1;
-          else if (slabType === 'top') stateSlabType[stateId] = 2;
-          else if (slabType === 'double') stateSlabType[stateId] = 3;
+          if (slabType === 'bottom') {
+            stateSlabType[stateId] = 1;
+            stateIsPartialOpaque[stateId] = 1;
+          } else if (slabType === 'top') {
+            stateSlabType[stateId] = 2;
+            stateIsPartialOpaque[stateId] = 1;
+          } else if (slabType === 'double') {
+            stateSlabType[stateId] = 3;
+            stateIsPartialOpaque[stateId] = 1;
+          }
+        }
+        
+        // Detect stair type for enhanced face culling
+        if (blockName.includes('_stairs') && state.properties) {
+          stateIsPartialOpaque[stateId] = 1;
+          // Encode stair facing + half for culling decisions
+          // This allows us to cull faces between adjacent stairs
+          const facing = state.properties.facing || 'north';
+          const half = state.properties.half || 'bottom';
+          const facingCode = { north: 0, south: 1, east: 2, west: 3 }[facing] || 0;
+          const halfCode = half === 'top' ? 1 : 0;
+          stateStairType[stateId] = 1 + facingCode + halfCode * 4;
+          stateStairFacing[stateId] = facingCode; // 0=N, 1=S, 2=E, 3=W
+          stateStairHalf[stateId] = halfCode; // 0=bottom, 1=top
+        }
+        
+        // Detect wall blocks for wall-to-wall culling
+        if (blockName.includes('_wall')) {
+          stateIsPartialOpaque[stateId] = 1;
+          if (!wallTypeMap.has(blockName)) {
+            wallTypeMap.set(blockName, nextWallTypeId++);
+          }
+          stateWallType[stateId] = wallTypeMap.get(blockName);
+        }
+        
+        // Detect fence blocks for fence-to-fence culling
+        if (blockName.includes('_fence') && !blockName.includes('_fence_gate')) {
+          stateIsPartialOpaque[stateId] = 1;
+          if (!fenceTypeMap.has(blockName)) {
+            fenceTypeMap.set(blockName, nextFenceTypeId++);
+          }
+          stateFenceType[stateId] = fenceTypeMap.get(blockName);
         }
         
         // Detect transparent model blocks (glass panes, iron bars)
@@ -348,17 +430,34 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       // ========================================================================
       let nUp = 0, nDown = 0, nNorth = 0, nSouth = 0, nWest = 0, nEast = 0;
       
-      // Current block's slab type for enhanced culling
+      // Current block's partial block info for enhanced culling
       const mySlabType = stateSlabType[stateId];
+      const myStairType = stateStairType[stateId];
+      const myStairFacing = stateStairFacing[stateId]; // 0=N, 1=S, 2=E, 3=W
+      const myStairHalf = stateStairHalf[stateId]; // 0=bottom, 1=top
+      const myWallType = stateWallType[stateId];
+      const myFenceType = stateFenceType[stateId];
+      
+      // Helper to get neighbor state ID (inline for performance)
+      let neighborStateId;
       
       // +Y neighbor (up)
       if (ly < 15) {
         nUp = isFullOpaqueCube[blockSection[i + 256] & BLOCK_ID_MASK];
-        // Slab optimization: bottom slab's top face is covered by top slab above
-        if (!nUp && mySlabType === 1) { // Current is bottom slab
-          const neighborStateId = stateSection[i + 256];
-          if (neighborStateId && stateSlabType[neighborStateId] === 2) { // Neighbor is top slab
-            nUp = 1; // Cull the up face
+        if (!nUp) {
+          neighborStateId = stateSection[i + 256];
+          // Slab: bottom slab's top face is covered by top slab above
+          if (mySlabType === 1 && neighborStateId && stateSlabType[neighborStateId] === 2) {
+            nUp = 1;
+          }
+          // Stair: bottom stair can cull top if neighbor is bottom stair (covers full bottom half)
+          // or if neighbor is same-facing bottom stair
+          else if (myStairType && myStairHalf === 0 && neighborStateId) {
+            const nStairHalf = stateStairHalf[neighborStateId];
+            // Top stair above a bottom stair covers the top face if both have same facing
+            if (stateStairType[neighborStateId] && nStairHalf === 1) {
+              nUp = 1; // Top stair covers bottom stair's top
+            }
           }
         }
       } else if (secTop) {
@@ -368,41 +467,164 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       // -Y neighbor (down)
       if (ly > 0) {
         nDown = isFullOpaqueCube[blockSection[i - 256] & BLOCK_ID_MASK];
-        // Slab optimization: top slab's bottom face is covered by bottom slab below
-        if (!nDown && mySlabType === 2) { // Current is top slab
-          const neighborStateId = stateSection[i - 256];
-          if (neighborStateId && stateSlabType[neighborStateId] === 1) { // Neighbor is bottom slab
-            nDown = 1; // Cull the down face
+        if (!nDown) {
+          neighborStateId = stateSection[i - 256];
+          // Slab: top slab's bottom face is covered by bottom slab below
+          if (mySlabType === 2 && neighborStateId && stateSlabType[neighborStateId] === 1) {
+            nDown = 1;
+          }
+          // Stair: top stair can cull bottom if neighbor is top stair
+          else if (myStairType && myStairHalf === 1 && neighborStateId) {
+            const nStairHalf = stateStairHalf[neighborStateId];
+            if (stateStairType[neighborStateId] && nStairHalf === 0) {
+              nDown = 1; // Bottom stair covers top stair's bottom
+            }
           }
         }
       } else if (secBot) {
         nDown = isFullOpaqueCube[secBot[15 * 256 + lz * 16 + lx] & BLOCK_ID_MASK];
       }
       
-      // +Z neighbor (south)
+      // +Z neighbor (south) - face direction is 'south', stair back is when stair faces north (0)
       if (lz < 15) {
         nSouth = isFullOpaqueCube[blockSection[i + 16] & BLOCK_ID_MASK];
+        if (!nSouth) {
+          neighborStateId = stateSection[i + 16];
+          if (neighborStateId) {
+            // Slab: same-type slabs cull shared faces
+            if (mySlabType > 0 && stateSlabType[neighborStateId] === mySlabType) {
+              nSouth = 1;
+            }
+            // Stair: cull south face if...
+            else if (myStairType) {
+              const nStairType = stateStairType[neighborStateId];
+              const nStairHalf = stateStairHalf[neighborStateId];
+              const nStairFacing = stateStairFacing[neighborStateId];
+              if (nStairType && nStairHalf === myStairHalf) {
+                // Same half stairs - check if they share full face coverage
+                // My south face is full if I face north (0) - it's my back
+                // Neighbor's north face is full if neighbor faces south (1) - it's their back
+                // Or if both have same facing, their side faces match
+                if (myStairFacing === 0 || nStairFacing === 1 || myStairFacing === nStairFacing) {
+                  nSouth = 1;
+                }
+              }
+            }
+            // Wall: same type walls cull shared faces
+            else if (myWallType > 0 && stateWallType[neighborStateId] === myWallType) {
+              nSouth = 1;
+            }
+            // Fence: same type fences cull shared faces
+            else if (myFenceType > 0 && stateFenceType[neighborStateId] === myFenceType) {
+              nSouth = 1;
+            }
+          }
+        }
       } else if (secPosZ) {
         nSouth = isFullOpaqueCube[secPosZ[ly * 256 + lx] & BLOCK_ID_MASK];
       }
       
-      // -Z neighbor (north)
+      // -Z neighbor (north) - face direction is 'north', stair back is when stair faces south (1)
       if (lz > 0) {
         nNorth = isFullOpaqueCube[blockSection[i - 16] & BLOCK_ID_MASK];
+        if (!nNorth) {
+          neighborStateId = stateSection[i - 16];
+          if (neighborStateId) {
+            if (mySlabType > 0 && stateSlabType[neighborStateId] === mySlabType) {
+              nNorth = 1;
+            }
+            else if (myStairType) {
+              const nStairType = stateStairType[neighborStateId];
+              const nStairHalf = stateStairHalf[neighborStateId];
+              const nStairFacing = stateStairFacing[neighborStateId];
+              if (nStairType && nStairHalf === myStairHalf) {
+                // My north face is full if I face south (1)
+                // Neighbor's south face is full if neighbor faces north (0)
+                if (myStairFacing === 1 || nStairFacing === 0 || myStairFacing === nStairFacing) {
+                  nNorth = 1;
+                }
+              }
+            }
+            // Wall: same type walls cull shared faces
+            else if (myWallType > 0 && stateWallType[neighborStateId] === myWallType) {
+              nNorth = 1;
+            }
+            // Fence: same type fences cull shared faces
+            else if (myFenceType > 0 && stateFenceType[neighborStateId] === myFenceType) {
+              nNorth = 1;
+            }
+          }
+        }
       } else if (secNegZ) {
         nNorth = isFullOpaqueCube[secNegZ[ly * 256 + 15 * 16 + lx] & BLOCK_ID_MASK];
       }
       
-      // +X neighbor (east)
+      // +X neighbor (east) - face direction is 'east', stair back is when stair faces west (3)
       if (lx < 15) {
         nEast = isFullOpaqueCube[blockSection[i + 1] & BLOCK_ID_MASK];
+        if (!nEast) {
+          neighborStateId = stateSection[i + 1];
+          if (neighborStateId) {
+            if (mySlabType > 0 && stateSlabType[neighborStateId] === mySlabType) {
+              nEast = 1;
+            }
+            else if (myStairType) {
+              const nStairType = stateStairType[neighborStateId];
+              const nStairHalf = stateStairHalf[neighborStateId];
+              const nStairFacing = stateStairFacing[neighborStateId];
+              if (nStairType && nStairHalf === myStairHalf) {
+                // My east face is full if I face west (3)
+                // Neighbor's west face is full if neighbor faces east (2)
+                if (myStairFacing === 3 || nStairFacing === 2 || myStairFacing === nStairFacing) {
+                  nEast = 1;
+                }
+              }
+            }
+            // Wall: same type walls cull shared faces
+            else if (myWallType > 0 && stateWallType[neighborStateId] === myWallType) {
+              nEast = 1;
+            }
+            // Fence: same type fences cull shared faces
+            else if (myFenceType > 0 && stateFenceType[neighborStateId] === myFenceType) {
+              nEast = 1;
+            }
+          }
+        }
       } else if (secPosX) {
         nEast = isFullOpaqueCube[secPosX[ly * 256 + lz * 16] & BLOCK_ID_MASK];
       }
       
-      // -X neighbor (west)
+      // -X neighbor (west) - face direction is 'west', stair back is when stair faces east (2)
       if (lx > 0) {
         nWest = isFullOpaqueCube[blockSection[i - 1] & BLOCK_ID_MASK];
+        if (!nWest) {
+          neighborStateId = stateSection[i - 1];
+          if (neighborStateId) {
+            if (mySlabType > 0 && stateSlabType[neighborStateId] === mySlabType) {
+              nWest = 1;
+            }
+            else if (myStairType) {
+              const nStairType = stateStairType[neighborStateId];
+              const nStairHalf = stateStairHalf[neighborStateId];
+              const nStairFacing = stateStairFacing[neighborStateId];
+              if (nStairType && nStairHalf === myStairHalf) {
+                // My west face is full if I face east (2)
+                // Neighbor's east face is full if neighbor faces west (3)
+                if (myStairFacing === 2 || nStairFacing === 3 || myStairFacing === nStairFacing) {
+                  nWest = 1;
+                }
+              }
+            }
+            // Wall: same type walls cull shared faces
+            else if (myWallType > 0 && stateWallType[neighborStateId] === myWallType) {
+              nWest = 1;
+            }
+            // Fence: same type fences cull shared faces
+            else if (myFenceType > 0 && stateFenceType[neighborStateId] === myFenceType) {
+              nWest = 1;
+            }
+          }
+        }
       } else if (secNegX) {
         nWest = isFullOpaqueCube[secNegX[ly * 256 + lz * 16 + 15] & BLOCK_ID_MASK];
       }
@@ -433,6 +655,133 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
                 (cf === 'west' && nWest) || (cf === 'east' && nEast)) {
               continue; // Skip this face - neighbor is full opaque cube
             }
+          }
+          
+          // ========================================================================
+          // BOUNDS-BASED PARTIAL BLOCK CULLING
+          // For faces without cullface that are at block edges, check if neighbor
+          // partial blocks cover them. This handles stair-to-stair, wall-to-wall, etc.
+          // ========================================================================
+          const bounds = cullInfo.bounds;
+          const faceDir = cullInfo.faceDirection;
+          
+          if (bounds && faceDir && (myStairType || mySlabType || myWallType || myFenceType)) {
+            let shouldCullFace = false;
+            
+            // Check if this face is at the block boundary and could be culled
+            // Face must be at the edge of the block in the direction it's pointing
+            if (faceDir === 'east' && bounds.maxX > 1 - EDGE_THRESHOLD) {
+              // East face at x=1 boundary, check +X neighbor
+              if (lx < 15) {
+                neighborStateId = stateSection[i + 1];
+                if (neighborStateId) {
+                  // Check if neighbor stair/slab covers this face's Y range
+                  if (myStairType && stateStairType[neighborStateId] && stateStairHalf[neighborStateId] === myStairHalf) {
+                    // Same-half stairs cover each other's side faces
+                    if (bounds.minY >= (myStairHalf === 0 ? 0 : 0.5) - EDGE_THRESHOLD &&
+                        bounds.maxY <= (myStairHalf === 0 ? 0.5 : 1.0) + EDGE_THRESHOLD) {
+                      shouldCullFace = true;
+                    }
+                  } else if (mySlabType > 0 && stateSlabType[neighborStateId] === mySlabType) {
+                    // Same-type slabs cover each other
+                    shouldCullFace = true;
+                  } else if (myWallType > 0 && stateWallType[neighborStateId] === myWallType) {
+                    shouldCullFace = true;
+                  } else if (myFenceType > 0 && stateFenceType[neighborStateId] === myFenceType) {
+                    shouldCullFace = true;
+                  }
+                }
+              }
+            } else if (faceDir === 'west' && bounds.minX < EDGE_THRESHOLD) {
+              // West face at x=0 boundary, check -X neighbor
+              if (lx > 0) {
+                neighborStateId = stateSection[i - 1];
+                if (neighborStateId) {
+                  if (myStairType && stateStairType[neighborStateId] && stateStairHalf[neighborStateId] === myStairHalf) {
+                    if (bounds.minY >= (myStairHalf === 0 ? 0 : 0.5) - EDGE_THRESHOLD &&
+                        bounds.maxY <= (myStairHalf === 0 ? 0.5 : 1.0) + EDGE_THRESHOLD) {
+                      shouldCullFace = true;
+                    }
+                  } else if (mySlabType > 0 && stateSlabType[neighborStateId] === mySlabType) {
+                    shouldCullFace = true;
+                  } else if (myWallType > 0 && stateWallType[neighborStateId] === myWallType) {
+                    shouldCullFace = true;
+                  } else if (myFenceType > 0 && stateFenceType[neighborStateId] === myFenceType) {
+                    shouldCullFace = true;
+                  }
+                }
+              }
+            } else if (faceDir === 'south' && bounds.maxZ > 1 - EDGE_THRESHOLD) {
+              // South face at z=1 boundary, check +Z neighbor
+              if (lz < 15) {
+                neighborStateId = stateSection[i + 16];
+                if (neighborStateId) {
+                  if (myStairType && stateStairType[neighborStateId] && stateStairHalf[neighborStateId] === myStairHalf) {
+                    if (bounds.minY >= (myStairHalf === 0 ? 0 : 0.5) - EDGE_THRESHOLD &&
+                        bounds.maxY <= (myStairHalf === 0 ? 0.5 : 1.0) + EDGE_THRESHOLD) {
+                      shouldCullFace = true;
+                    }
+                  } else if (mySlabType > 0 && stateSlabType[neighborStateId] === mySlabType) {
+                    shouldCullFace = true;
+                  } else if (myWallType > 0 && stateWallType[neighborStateId] === myWallType) {
+                    shouldCullFace = true;
+                  } else if (myFenceType > 0 && stateFenceType[neighborStateId] === myFenceType) {
+                    shouldCullFace = true;
+                  }
+                }
+              }
+            } else if (faceDir === 'north' && bounds.minZ < EDGE_THRESHOLD) {
+              // North face at z=0 boundary, check -Z neighbor
+              if (lz > 0) {
+                neighborStateId = stateSection[i - 16];
+                if (neighborStateId) {
+                  if (myStairType && stateStairType[neighborStateId] && stateStairHalf[neighborStateId] === myStairHalf) {
+                    if (bounds.minY >= (myStairHalf === 0 ? 0 : 0.5) - EDGE_THRESHOLD &&
+                        bounds.maxY <= (myStairHalf === 0 ? 0.5 : 1.0) + EDGE_THRESHOLD) {
+                      shouldCullFace = true;
+                    }
+                  } else if (mySlabType > 0 && stateSlabType[neighborStateId] === mySlabType) {
+                    shouldCullFace = true;
+                  } else if (myWallType > 0 && stateWallType[neighborStateId] === myWallType) {
+                    shouldCullFace = true;
+                  } else if (myFenceType > 0 && stateFenceType[neighborStateId] === myFenceType) {
+                    shouldCullFace = true;
+                  }
+                }
+              }
+            } else if (faceDir === 'up' && bounds.maxY > 1 - EDGE_THRESHOLD) {
+              // Up face at y=1 boundary, check +Y neighbor
+              if (ly < 15) {
+                neighborStateId = stateSection[i + 256];
+                if (neighborStateId) {
+                  // Top slabs cover bottom slabs from above
+                  if (mySlabType === 1 && stateSlabType[neighborStateId] === 2) {
+                    shouldCullFace = true;
+                  }
+                  // Bottom stairs can be covered by top stairs above
+                  if (myStairType && myStairHalf === 0 && stateStairType[neighborStateId] && stateStairHalf[neighborStateId] === 1) {
+                    shouldCullFace = true;
+                  }
+                }
+              }
+            } else if (faceDir === 'down' && bounds.minY < EDGE_THRESHOLD) {
+              // Down face at y=0 boundary, check -Y neighbor
+              if (ly > 0) {
+                neighborStateId = stateSection[i - 256];
+                if (neighborStateId) {
+                  // Bottom slabs cover top slabs from below
+                  if (mySlabType === 2 && stateSlabType[neighborStateId] === 1) {
+                    shouldCullFace = true;
+                  }
+                  // Top stairs can be covered by bottom stairs below
+                  if (myStairType && myStairHalf === 1 && stateStairType[neighborStateId] && stateStairHalf[neighborStateId] === 0) {
+                    shouldCullFace = true;
+                  }
+                }
+              }
+            }
+            
+            if (shouldCullFace) continue;
           }
 
           // Get texture index for this face
@@ -465,10 +814,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
           
           // Route to appropriate buffer set based on transparency
           if (isTransparent) {
-            // Ensure capacity for transparent buffers
-            const faceverts = cullInfo.indexCount / 6 * 4; // 4 verts per quad
-            if (tVertexCount + faceverts > tCapacity) {
-              tCapacity = Math.ceil(tCapacity * 1.5);
+            // Ensure capacity for transparent buffers (4 verts per quad face)
+            if (tVertexCount + 4 > tCapacity) {
+              tCapacity = Math.ceil(tCapacity * 2); // Double to reduce reallocations
               tPositions = growArray(tPositions, tCapacity * 3);
               tNormals = growArray(tNormals, tCapacity * 3);
               tColors = growArray(tColors, tCapacity * 3);
@@ -481,50 +829,86 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
 
             const dstVertexStart = tVertexCount;
             
-            // Copy all 4 vertices to transparent buffer
-            for (let v = 0; v < 4; v++) {
-              const srcIdx = srcVertexStart + v;
-              const dstIdx = tVertexCount++;
-              
-              const pi = srcIdx * 3;
-              const ni = dstIdx * 3;
-              const ui = srcIdx * 2;
-              const uo = dstIdx * 2;
-              
-              tPositions[ni] = geom.positions[pi] + wx;
-              tPositions[ni + 1] = geom.positions[pi + 1] + wy;
-              tPositions[ni + 2] = geom.positions[pi + 2] + wz;
-              
-              tNormals[ni] = geom.normals[pi];
-              tNormals[ni + 1] = geom.normals[pi + 1];
-              tNormals[ni + 2] = geom.normals[pi + 2];
-              
-              tColors[ni] = r;
-              tColors[ni + 1] = g;
-              tColors[ni + 2] = b;
-              
-              if (geom.uvs) {
-                tModelUVs[uo] = geom.uvs[ui];
-                tModelUVs[uo + 1] = geom.uvs[ui + 1];
-              }
-              
-              tTexIndices[dstIdx] = texIdx;
-              tTexRotations[dstIdx] = blockTexRotation;
-              tTintTypes[dstIdx] = tintType;
+            // Optimized: batch copy 4 vertices using direct array indexing
+            const srcBase = srcVertexStart * 3;
+            const dstBase = tVertexCount * 3;
+            const srcUvBase = srcVertexStart * 2;
+            const dstUvBase = tVertexCount * 2;
+            
+            // Copy positions with world offset applied
+            tPositions[dstBase] = geom.positions[srcBase] + wx;
+            tPositions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
+            tPositions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
+            tPositions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
+            tPositions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
+            tPositions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
+            tPositions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
+            tPositions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
+            tPositions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
+            tPositions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
+            tPositions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
+            tPositions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            
+            // Copy normals directly
+            tNormals[dstBase] = geom.normals[srcBase];
+            tNormals[dstBase + 1] = geom.normals[srcBase + 1];
+            tNormals[dstBase + 2] = geom.normals[srcBase + 2];
+            tNormals[dstBase + 3] = geom.normals[srcBase + 3];
+            tNormals[dstBase + 4] = geom.normals[srcBase + 4];
+            tNormals[dstBase + 5] = geom.normals[srcBase + 5];
+            tNormals[dstBase + 6] = geom.normals[srcBase + 6];
+            tNormals[dstBase + 7] = geom.normals[srcBase + 7];
+            tNormals[dstBase + 8] = geom.normals[srcBase + 8];
+            tNormals[dstBase + 9] = geom.normals[srcBase + 9];
+            tNormals[dstBase + 10] = geom.normals[srcBase + 10];
+            tNormals[dstBase + 11] = geom.normals[srcBase + 11];
+            
+            // Set colors (same for all 4 vertices)
+            tColors[dstBase] = r; tColors[dstBase + 1] = g; tColors[dstBase + 2] = b;
+            tColors[dstBase + 3] = r; tColors[dstBase + 4] = g; tColors[dstBase + 5] = b;
+            tColors[dstBase + 6] = r; tColors[dstBase + 7] = g; tColors[dstBase + 8] = b;
+            tColors[dstBase + 9] = r; tColors[dstBase + 10] = g; tColors[dstBase + 11] = b;
+            
+            // Copy UVs if present
+            if (geom.uvs) {
+              tModelUVs[dstUvBase] = geom.uvs[srcUvBase];
+              tModelUVs[dstUvBase + 1] = geom.uvs[srcUvBase + 1];
+              tModelUVs[dstUvBase + 2] = geom.uvs[srcUvBase + 2];
+              tModelUVs[dstUvBase + 3] = geom.uvs[srcUvBase + 3];
+              tModelUVs[dstUvBase + 4] = geom.uvs[srcUvBase + 4];
+              tModelUVs[dstUvBase + 5] = geom.uvs[srcUvBase + 5];
+              tModelUVs[dstUvBase + 6] = geom.uvs[srcUvBase + 6];
+              tModelUVs[dstUvBase + 7] = geom.uvs[srcUvBase + 7];
             }
             
-            // Emit indices for transparent mesh
-            tIndices[tIndexCount++] = dstVertexStart;
-            tIndices[tIndexCount++] = dstVertexStart + 2;
-            tIndices[tIndexCount++] = dstVertexStart + 1;
-            tIndices[tIndexCount++] = dstVertexStart;
-            tIndices[tIndexCount++] = dstVertexStart + 3;
-            tIndices[tIndexCount++] = dstVertexStart + 2;
+            // Set per-vertex attributes (same for all 4 vertices)
+            tTexIndices[tVertexCount] = texIdx;
+            tTexIndices[tVertexCount + 1] = texIdx;
+            tTexIndices[tVertexCount + 2] = texIdx;
+            tTexIndices[tVertexCount + 3] = texIdx;
+            tTexRotations[tVertexCount] = blockTexRotation;
+            tTexRotations[tVertexCount + 1] = blockTexRotation;
+            tTexRotations[tVertexCount + 2] = blockTexRotation;
+            tTexRotations[tVertexCount + 3] = blockTexRotation;
+            tTintTypes[tVertexCount] = tintType;
+            tTintTypes[tVertexCount + 1] = tintType;
+            tTintTypes[tVertexCount + 2] = tintType;
+            tTintTypes[tVertexCount + 3] = tintType;
+            
+            tVertexCount += 4;
+            
+            // Emit indices for transparent mesh (two triangles forming a quad)
+            tIndices[tIndexCount] = dstVertexStart;
+            tIndices[tIndexCount + 1] = dstVertexStart + 2;
+            tIndices[tIndexCount + 2] = dstVertexStart + 1;
+            tIndices[tIndexCount + 3] = dstVertexStart;
+            tIndices[tIndexCount + 4] = dstVertexStart + 3;
+            tIndices[tIndexCount + 5] = dstVertexStart + 2;
+            tIndexCount += 6;
           } else {
-            // Ensure capacity for opaque buffers
-            const faceverts = cullInfo.indexCount / 6 * 4; // 4 verts per quad
-            if (vertexCount + faceverts > capacity) {
-              capacity = Math.ceil(capacity * 1.5);
+            // Ensure capacity for opaque buffers (4 verts per quad face)
+            if (vertexCount + 4 > capacity) {
+              capacity = Math.ceil(capacity * 2); // Double to reduce reallocations
               positions = growArray(positions, capacity * 3);
               normals = growArray(normals, capacity * 3);
               colors = growArray(colors, capacity * 3);
@@ -537,45 +921,83 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
 
             const dstVertexStart = vertexCount;
             
-            // Copy all 4 vertices to opaque buffer
-            for (let v = 0; v < 4; v++) {
-              const srcIdx = srcVertexStart + v;
-              const dstIdx = vertexCount++;
-              
-              const pi = srcIdx * 3;
-              const ni = dstIdx * 3;
-              const ui = srcIdx * 2;
-              const uo = dstIdx * 2;
-              
-              positions[ni] = geom.positions[pi] + wx;
-              positions[ni + 1] = geom.positions[pi + 1] + wy;
-              positions[ni + 2] = geom.positions[pi + 2] + wz;
-              
-              normals[ni] = geom.normals[pi];
-              normals[ni + 1] = geom.normals[pi + 1];
-              normals[ni + 2] = geom.normals[pi + 2];
-              
-              colors[ni] = r;
-              colors[ni + 1] = g;
-              colors[ni + 2] = b;
-              
-              if (geom.uvs) {
-                modelUVs[uo] = geom.uvs[ui];
-                modelUVs[uo + 1] = geom.uvs[ui + 1];
-              }
-              
-              texIndices[dstIdx] = texIdx;
-              texRotations[dstIdx] = blockTexRotation;
-              tintTypes[dstIdx] = tintType;
+            // Optimized: batch copy 4 vertices using direct array indexing
+            // Pre-compute base offsets once
+            const srcBase = srcVertexStart * 3;
+            const dstBase = vertexCount * 3;
+            const srcUvBase = srcVertexStart * 2;
+            const dstUvBase = vertexCount * 2;
+            
+            // Copy positions with world offset applied
+            positions[dstBase] = geom.positions[srcBase] + wx;
+            positions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
+            positions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
+            positions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
+            positions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
+            positions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
+            positions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
+            positions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
+            positions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
+            positions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
+            positions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
+            positions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            
+            // Copy normals directly (no offset needed)
+            normals[dstBase] = geom.normals[srcBase];
+            normals[dstBase + 1] = geom.normals[srcBase + 1];
+            normals[dstBase + 2] = geom.normals[srcBase + 2];
+            normals[dstBase + 3] = geom.normals[srcBase + 3];
+            normals[dstBase + 4] = geom.normals[srcBase + 4];
+            normals[dstBase + 5] = geom.normals[srcBase + 5];
+            normals[dstBase + 6] = geom.normals[srcBase + 6];
+            normals[dstBase + 7] = geom.normals[srcBase + 7];
+            normals[dstBase + 8] = geom.normals[srcBase + 8];
+            normals[dstBase + 9] = geom.normals[srcBase + 9];
+            normals[dstBase + 10] = geom.normals[srcBase + 10];
+            normals[dstBase + 11] = geom.normals[srcBase + 11];
+            
+            // Set colors (same for all 4 vertices)
+            colors[dstBase] = r; colors[dstBase + 1] = g; colors[dstBase + 2] = b;
+            colors[dstBase + 3] = r; colors[dstBase + 4] = g; colors[dstBase + 5] = b;
+            colors[dstBase + 6] = r; colors[dstBase + 7] = g; colors[dstBase + 8] = b;
+            colors[dstBase + 9] = r; colors[dstBase + 10] = g; colors[dstBase + 11] = b;
+            
+            // Copy UVs if present
+            if (geom.uvs) {
+              modelUVs[dstUvBase] = geom.uvs[srcUvBase];
+              modelUVs[dstUvBase + 1] = geom.uvs[srcUvBase + 1];
+              modelUVs[dstUvBase + 2] = geom.uvs[srcUvBase + 2];
+              modelUVs[dstUvBase + 3] = geom.uvs[srcUvBase + 3];
+              modelUVs[dstUvBase + 4] = geom.uvs[srcUvBase + 4];
+              modelUVs[dstUvBase + 5] = geom.uvs[srcUvBase + 5];
+              modelUVs[dstUvBase + 6] = geom.uvs[srcUvBase + 6];
+              modelUVs[dstUvBase + 7] = geom.uvs[srcUvBase + 7];
             }
             
-            // Emit indices for opaque mesh
-            indices[indexCount++] = dstVertexStart;
-            indices[indexCount++] = dstVertexStart + 2;
-            indices[indexCount++] = dstVertexStart + 1;
-            indices[indexCount++] = dstVertexStart;
-            indices[indexCount++] = dstVertexStart + 3;
-            indices[indexCount++] = dstVertexStart + 2;
+            // Set per-vertex attributes (same for all 4 vertices)
+            texIndices[vertexCount] = texIdx;
+            texIndices[vertexCount + 1] = texIdx;
+            texIndices[vertexCount + 2] = texIdx;
+            texIndices[vertexCount + 3] = texIdx;
+            texRotations[vertexCount] = blockTexRotation;
+            texRotations[vertexCount + 1] = blockTexRotation;
+            texRotations[vertexCount + 2] = blockTexRotation;
+            texRotations[vertexCount + 3] = blockTexRotation;
+            tintTypes[vertexCount] = tintType;
+            tintTypes[vertexCount + 1] = tintType;
+            tintTypes[vertexCount + 2] = tintType;
+            tintTypes[vertexCount + 3] = tintType;
+            
+            vertexCount += 4;
+            
+            // Emit indices for opaque mesh (two triangles forming a quad)
+            indices[indexCount] = dstVertexStart;
+            indices[indexCount + 1] = dstVertexStart + 2;
+            indices[indexCount + 2] = dstVertexStart + 1;
+            indices[indexCount + 3] = dstVertexStart;
+            indices[indexCount + 4] = dstVertexStart + 3;
+            indices[indexCount + 5] = dstVertexStart + 2;
+            indexCount += 6;
           }
         }
       }
@@ -627,6 +1049,34 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     opaque: opaqueResult,
     transparent: transparentResult,
   };
+}
+
+/**
+ * Build model meshes with multiple LOD levels
+ * Returns meshes at LOD0 (full), LOD1, LOD2, LOD3 for distance-based rendering
+ * 
+ * @param {BinaryGrid} grid - Block data
+ * @param {BlockStateGrid} stateGrid - State IDs for non-cube blocks
+ * @param {BlockRegistry} registry - Block type info
+ * @param {StateRegistry} stateRegistry - State to geometry mapping
+ * @param {Object} offset - World offset {x, y, z}
+ * @param {Object} options - Optional parameters
+ * @returns {Object} { lod0, lod1, lod2, lod3 } mesh data at different detail levels
+ */
+export function buildModelMeshesWithLOD(grid, stateGrid, registry, stateRegistry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
+  // LOD0 = full detail
+  const lod0 = buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset, { ...options, lodLevel: 0 });
+  
+  // LOD1 = skip flowers and small plants
+  const lod1 = buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset, { ...options, lodLevel: 1 });
+  
+  // LOD2 = skip more decorative blocks
+  const lod2 = buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset, { ...options, lodLevel: 2 });
+  
+  // LOD3 = only structural blocks (slabs, stairs, walls)
+  const lod3 = buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset, { ...options, lodLevel: 3 });
+  
+  return { lod0, lod1, lod2, lod3 };
 }
 
 /**

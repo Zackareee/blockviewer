@@ -48,7 +48,8 @@ const CULLFACE_OFFSETS = {
  * @property {Float32Array} normals - Vertex normals (3 floats per vertex)
  * @property {Float32Array} uvs - UV coordinates (2 floats per vertex)
  * @property {Uint16Array} indices - Triangle indices
- * @property {Array} cullFaces - Per-face cullface info [{start, count, cullface, texture}]
+ * @property {Array} cullFaces - Per-face cullface info [{start, count, cullface, texture, bounds}]
+ *   - bounds: {minX, minY, minZ, maxX, maxY, maxZ} - face position in block-space [0-1]
  * @property {number} vertexCount - Total vertices
  * @property {boolean} isFullCube - Whether this is a standard full cube
  * @property {string|null} primaryTexture - The main texture used by this model (for non-cube blocks)
@@ -157,6 +158,83 @@ class ModelGeometry {
     // For cross-pattern blocks with multiple thin elements, we also need to offset
     // entire elements apart from each other to prevent z-fighting at intersections
     const ELEMENT_OFFSET = 0.002;
+    
+    // Pre-compute element bounds for internal face culling
+    // This detects when faces from different elements overlap within the same model
+    const elementBounds = elements.map(el => ({
+      minX: el.from[0] / 16, minY: el.from[1] / 16, minZ: el.from[2] / 16,
+      maxX: el.to[0] / 16, maxY: el.to[1] / 16, maxZ: el.to[2] / 16,
+    }));
+    
+    // Helper to check if a face is FULLY covered by another element
+    // A face is internal if another element's opposite face is at the same position
+    // AND completely encompasses this face (not just partially overlaps)
+    const isInternalFace = (elementIdx, faceName, from, to) => {
+      const EPSILON = 0.001;
+      
+      for (let otherIdx = 0; otherIdx < elements.length; otherIdx++) {
+        if (otherIdx === elementIdx) continue;
+        
+        const other = elementBounds[otherIdx];
+        
+        // Check each face direction - other element must FULLY cover this face
+        switch (faceName) {
+          case 'up': // This element's top face (at to[1])
+            // Covered if another element's bottom is at the same Y and FULLY covers in X/Z
+            if (Math.abs(other.minY - to[1]) < EPSILON) {
+              // Other must fully encompass this face's X/Z extent
+              if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
+                  other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
+                return true;
+              }
+            }
+            break;
+          case 'down': // This element's bottom face (at from[1])
+            // Covered if another element's top is at the same Y and FULLY covers
+            if (Math.abs(other.maxY - from[1]) < EPSILON) {
+              if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
+                  other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
+                return true;
+              }
+            }
+            break;
+          case 'east': // This element's +X face (at to[0])
+            if (Math.abs(other.minX - to[0]) < EPSILON) {
+              // Other must fully cover this face's Y/Z extent
+              if (other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON &&
+                  other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
+                return true;
+              }
+            }
+            break;
+          case 'west': // This element's -X face (at from[0])
+            if (Math.abs(other.maxX - from[0]) < EPSILON) {
+              if (other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON &&
+                  other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
+                return true;
+              }
+            }
+            break;
+          case 'south': // This element's +Z face (at to[2])
+            if (Math.abs(other.minZ - to[2]) < EPSILON) {
+              if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
+                  other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON) {
+                return true;
+              }
+            }
+            break;
+          case 'north': // This element's -Z face (at from[2])
+            if (Math.abs(other.maxZ - from[2]) < EPSILON) {
+              if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
+                  other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON) {
+                return true;
+              }
+            }
+            break;
+        }
+      }
+      return false;
+    };
 
     for (let elementIdx = 0; elementIdx < elements.length; elementIdx++) {
       const element = elements[elementIdx];
@@ -177,6 +255,12 @@ class ModelGeometry {
         const faceNormal = FACE_NORMALS[faceName];
         
         if (!faceVerts) continue;
+        
+        // Skip internal faces - faces covered by other elements in the same model
+        // This prevents z-fighting seams within multi-element blocks like stairs
+        if (elements.length > 1 && isInternalFace(elementIdx, faceName, from, to)) {
+          continue;
+        }
 
         const faceStartVertex = vertexOffset / 3;
         const faceStartIndex = indexOffset;
@@ -272,6 +356,23 @@ class ModelGeometry {
           positions[vertexOffset++] = y;
           positions[vertexOffset++] = z;
         }
+
+        // Compute face bounds from the 4 vertices just written
+        // This is used for partial-block-to-partial-block culling
+        let faceMinX = Infinity, faceMinY = Infinity, faceMinZ = Infinity;
+        let faceMaxX = -Infinity, faceMaxY = -Infinity, faceMaxZ = -Infinity;
+        for (let i = 0; i < 4; i++) {
+          const px = positions[faceStartVertex * 3 + i * 3];
+          const py = positions[faceStartVertex * 3 + i * 3 + 1];
+          const pz = positions[faceStartVertex * 3 + i * 3 + 2];
+          if (px < faceMinX) faceMinX = px;
+          if (py < faceMinY) faceMinY = py;
+          if (pz < faceMinZ) faceMinZ = pz;
+          if (px > faceMaxX) faceMaxX = px;
+          if (py > faceMaxY) faceMaxY = py;
+          if (pz > faceMaxZ) faceMaxZ = pz;
+        }
+        const faceBounds = { minX: faceMinX, minY: faceMinY, minZ: faceMinZ, maxX: faceMaxX, maxY: faceMaxY, maxZ: faceMaxZ };
 
         // Generate normal (rotated if needed)
         let nx = faceNormal[0], ny = faceNormal[1], nz = faceNormal[2];
@@ -387,6 +488,13 @@ class ModelGeometry {
         // Get tintindex from face data (-1 means no tinting)
         const tintindex = faceData.tintindex !== undefined ? faceData.tintindex : -1;
 
+        // Determine the actual face direction from rotated normal
+        // This is the direction the face is pointing after all rotations
+        let faceDirection = null;
+        if (Math.abs(nx) > 0.9) faceDirection = nx > 0 ? 'east' : 'west';
+        else if (Math.abs(ny) > 0.9) faceDirection = ny > 0 ? 'up' : 'down';
+        else if (Math.abs(nz) > 0.9) faceDirection = nz > 0 ? 'south' : 'north';
+        
         cullFaces.push({
           faceIndex: faceIndex++,
           indexStart: faceStartIndex,
@@ -394,6 +502,8 @@ class ModelGeometry {
           cullface: cullface,
           texture: texturePath,
           tintindex: tintindex,
+          bounds: faceBounds,
+          faceDirection: faceDirection, // Actual direction the face points
         });
       }
     }

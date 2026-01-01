@@ -171,6 +171,7 @@ export class RegionMeshBuilder {
     // Phase 2b: Build model meshes for non-cube blocks (if enabled)
     let modelMesh = null;
     let transparentModelMesh = null;
+    let modelLodMeshes = null;
     if (enableModelMeshes && stateGrid && stateGrid.stateCount > 0) {
       this.onProgress?.('modelMeshing', 0, 100, 'Building model meshes...');
       const modelStart = performance.now();
@@ -189,6 +190,33 @@ export class RegionMeshBuilder {
         if (modelResult) {
           modelMesh = modelResult.opaque;
           transparentModelMesh = modelResult.transparent;
+        }
+        
+        // Generate LOD levels for model meshes when LOD is enabled
+        // This skips decorative blocks at distance for significant performance gains
+        if (generateLOD && modelResult) {
+          modelLodMeshes = {};
+          
+          // LOD1: Skip flowers and small plants
+          const lod1Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 1 });
+          if (lod1Result) {
+            modelLodMeshes.lod1 = lod1Result.opaque;
+            modelLodMeshes.lod1Transparent = lod1Result.transparent;
+          }
+          
+          // LOD2: Skip more decorative blocks (vines, saplings, crops)
+          const lod2Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 2 });
+          if (lod2Result) {
+            modelLodMeshes.lod2 = lod2Result.opaque;
+            modelLodMeshes.lod2Transparent = lod2Result.transparent;
+          }
+          
+          // LOD3: Only structural blocks (slabs, stairs, walls)
+          const lod3Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 3 });
+          if (lod3Result) {
+            modelLodMeshes.lod3 = lod3Result.opaque;
+            modelLodMeshes.lod3Transparent = lod3Result.transparent;
+          }
         }
         
         stats.modelMeshTimeMs = performance.now() - modelStart;
@@ -259,6 +287,7 @@ export class RegionMeshBuilder {
       modelMesh, // Opaque non-cube block geometry (slabs, stairs, flowers, etc.)
       transparentModelMesh, // Transparent non-cube block geometry (glass panes, iron bars)
       lodMeshes,
+      modelLodMeshes, // LOD levels for model meshes (skip decorative at distance)
       offset,
       bounds,
       stats,

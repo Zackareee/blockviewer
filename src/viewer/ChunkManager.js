@@ -473,6 +473,73 @@ export class ChunkManager {
   }
 
   /**
+   * Add model mesh with LOD support - shows progressively simpler models at distance
+   * LOD0: All blocks (flowers, grass, decorative)
+   * LOD1: Skip flowers and small plants (distance ~400)
+   * LOD2: Skip vines, saplings, crops (distance ~800)
+   * LOD3: Only structural (slabs, stairs, walls) (distance ~1200)
+   */
+  _addModelMeshWithLOD(meshData, lodMeshes, material, group, meshArray, meshCenter) {
+    if (!meshData || meshData.vertexCount === 0) return 0;
+    
+    // If no LOD data or mesh needs splitting, fall back to regular mesh
+    if (!lodMeshes || meshData.indices.length > MAX_INDICES_PER_DRAW) {
+      return this._addMeshesToScene(meshData, material, group, meshArray);
+    }
+    
+    const geom0 = RegionMeshBuilder.createGeometry(meshData);
+    if (!geom0) {
+      return this._addMeshesToScene(meshData, material, group, meshArray);
+    }
+    
+    // Create LOD object
+    const lod = new THREE.LOD();
+    
+    // Level 0: Full detail (all model blocks)
+    const mesh0 = new THREE.Mesh(geom0, material);
+    mesh0.frustumCulled = true;
+    mesh0.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+    lod.addLevel(mesh0, 0);
+    
+    // Helper to add LOD level
+    const addLodLevel = (lodData, distance) => {
+      if (!lodData || lodData.vertexCount === 0) return;
+      const geom = RegionMeshBuilder.createGeometry(lodData);
+      if (!geom) return;
+      const mesh = new THREE.Mesh(geom, material);
+      mesh.frustumCulled = true;
+      mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+      lod.addLevel(mesh, distance);
+    };
+    
+    // Add LOD levels at progressive distances
+    // These distances match the decorative block skip patterns:
+    // - LOD1 at 400: Skip flowers, grass, small plants
+    // - LOD2 at 800: Also skip vines, saplings, crops
+    // - LOD3 at 1200: Only structural blocks (slabs, stairs, walls)
+    if (lodMeshes.lod1) addLodLevel(lodMeshes.lod1, 400);
+    if (lodMeshes.lod2) addLodLevel(lodMeshes.lod2, 800);
+    if (lodMeshes.lod3) addLodLevel(lodMeshes.lod3, 1200);
+    
+    // At very far distances, hide model meshes entirely
+    // (decorative blocks not visible at distance anyway)
+    const emptyGeom = new THREE.BufferGeometry();
+    emptyGeom.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    const emptyMesh = new THREE.Mesh(emptyGeom, material);
+    lod.addLevel(emptyMesh, 2000);
+    
+    // Position LOD at mesh center
+    lod.position.copy(meshCenter);
+    lod.autoUpdate = true;
+    lod.frustumCulled = false;
+    
+    group.add(lod);
+    meshArray.push(lod);
+    
+    return 1;
+  }
+
+  /**
    * Load chunks from parsed MCA data (single region, simple mode)
    */
   async loadChunks(chunks, options = {}) {
@@ -610,7 +677,7 @@ export class ChunkManager {
         }
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, lodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, lodMeshes, modelLodMeshes, stats } = result;
 
         let drawCalls = 0;
         let meshCenter = null;
@@ -655,13 +722,28 @@ export class ChunkManager {
         }
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
+        // Use LOD to progressively hide decorative blocks at distance
         if (modelMesh) {
-          drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+          if (shouldGenerateLOD && modelLodMeshes && meshCenter) {
+            drawCalls += this._addModelMeshWithLOD(modelMesh, modelLodMeshes, this.modelMaterial, this.modelGroup, this.modelMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+          }
         }
         
         // Add transparent model meshes (glass panes, iron bars)
+        // Use LOD to progressively simplify at distance
         if (transparentModelMesh) {
-          drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+          if (shouldGenerateLOD && modelLodMeshes && meshCenter) {
+            const transparentLodMeshes = {
+              lod1: modelLodMeshes.lod1Transparent,
+              lod2: modelLodMeshes.lod2Transparent,
+              lod3: modelLodMeshes.lod3Transparent,
+            };
+            drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+          }
         }
         
         // Clean up builder immediately to free memory
@@ -825,7 +907,7 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, lodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, lodMeshes, modelLodMeshes, stats } = result;
         
         let drawCalls = 0;
         let meshCenter = null;
@@ -870,13 +952,28 @@ export class ChunkManager {
         }
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
+        // Use LOD to progressively hide decorative blocks at distance
         if (modelMesh) {
-          drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+          if (shouldGenerateLOD && modelLodMeshes && meshCenter) {
+            drawCalls += this._addModelMeshWithLOD(modelMesh, modelLodMeshes, this.modelMaterial, this.modelGroup, this.modelMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+          }
         }
         
         // Add transparent model meshes (glass panes, iron bars)
+        // Use LOD to progressively simplify at distance
         if (transparentModelMesh) {
-          drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+          if (shouldGenerateLOD && modelLodMeshes && meshCenter) {
+            const transparentLodMeshes = {
+              lod1: modelLodMeshes.lod1Transparent,
+              lod2: modelLodMeshes.lod2Transparent,
+              lod3: modelLodMeshes.lod3Transparent,
+            };
+            drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+          }
         }
         
         meshBuilder.dispose();
