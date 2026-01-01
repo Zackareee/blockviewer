@@ -192,6 +192,27 @@ class ModelGeometry {
           Math.abs(other.maxZ - thisBounds.maxZ) < EPSILON;
         if (boundsMatch) continue;
         
+        // Skip comparison between thin/planar elements that form X-pattern crosses
+        // (e.g., sea pickle stems: one thin in X, one thin in Z)
+        const THIN = 0.01; // Threshold for "thin" element (less than 1/6 block)
+        const thisSizeX = thisBounds.maxX - thisBounds.minX;
+        const thisSizeY = thisBounds.maxY - thisBounds.minY;
+        const thisSizeZ = thisBounds.maxZ - thisBounds.minZ;
+        const otherSizeX = other.maxX - other.minX;
+        const otherSizeY = other.maxY - other.minY;
+        const otherSizeZ = other.maxZ - other.minZ;
+        
+        const thisThinX = thisSizeX < THIN;
+        const thisThinZ = thisSizeZ < THIN;
+        const otherThinX = otherSizeX < THIN;
+        const otherThinZ = otherSizeZ < THIN;
+        
+        // If this is thin in X and other is thin in Z (or vice versa), they form a cross
+        // Skip internal face culling between them
+        if ((thisThinX && otherThinZ) || (thisThinZ && otherThinX)) {
+          continue;
+        }
+        
         switch (faceName) {
           case 'up': { // This element's top face (at to[1])
             const faceY = to[1];
