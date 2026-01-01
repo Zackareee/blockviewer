@@ -190,9 +190,12 @@ class StateRegistry {
       // For blocks with texture rotation, use base geometry (no model rotation)
       const rotX = usesTextureRotation ? 0 : variant.x;
       const rotY = usesTextureRotation ? 0 : variant.y;
+      
+      // Pass uvlock flag - when true, UVs remain world-aligned even when model rotates
+      const uvlock = variant.uvlock || false;
 
-      // Pass model path for proper caching
-      const geom = this.modelGeometry.getGeometry(model, rotX, rotY, modelPath);
+      // Pass model path and uvlock for proper caching and UV handling
+      const geom = this.modelGeometry.getGeometry(model, rotX, rotY, modelPath, uvlock);
       if (geom) {
         state.geometry.push(geom);
         if (!geom.isFullCube) {

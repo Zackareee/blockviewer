@@ -2,9 +2,12 @@
  * ModelGeometry - Pre-computes geometry from Minecraft block models
  * 
  * Converts model elements (boxes) to GPU-ready vertex data.
- * Caches geometry for each unique model+rotation combination.
+ * Caches geometry for each unique model+rotation+uvlock combination.
  * 
- * Uses vertex colors (no textures) for now.
+ * Handles:
+ * - Block-level X/Y rotation from blockstate variants
+ * - Face-level UV rotation from model face definitions
+ * - UV lock (uvlock) - keeps UVs world-aligned when model is rotated
  */
 
 // Face definitions: vertices in counter-clockwise order when viewed from outside
@@ -88,17 +91,18 @@ class ModelGeometry {
    * @param {number} rotX - X rotation (0, 90, 180, 270)
    * @param {number} rotY - Y rotation (0, 90, 180, 270)
    * @param {string} modelPath - Model path for cache key (e.g., "block/stone_slab")
+   * @param {boolean} uvlock - If true, UVs remain world-aligned when model is rotated
    * @returns {CompiledGeometry}
    */
-  getGeometry(resolvedModel, rotX = 0, rotY = 0, modelPath = null) {
+  getGeometry(resolvedModel, rotX = 0, rotY = 0, modelPath = null, uvlock = false) {
     if (!resolvedModel || !resolvedModel.elements) {
       return null;
     }
 
-    // Build cache key from model path and rotation
+    // Build cache key from model path, rotation, and uvlock
     // If no path provided, fall back to element count (less reliable but still useful)
     const pathKey = modelPath || `elements_${resolvedModel.elements.length}`;
-    const cacheKey = `${pathKey}|${rotX}|${rotY}`;
+    const cacheKey = `${pathKey}|${rotX}|${rotY}|${uvlock ? 1 : 0}`;
     
     // Check cache first
     if (this.cache.has(cacheKey)) {
@@ -106,15 +110,19 @@ class ModelGeometry {
     }
     
     // Compute and cache geometry
-    const geometry = this._computeGeometry(resolvedModel, rotX, rotY);
+    const geometry = this._computeGeometry(resolvedModel, rotX, rotY, uvlock);
     this.cache.set(cacheKey, geometry);
     return geometry;
   }
 
   /**
    * Compute geometry from model elements
+   * @param {Object} model - Resolved model with elements
+   * @param {number} rotX - Block-level X rotation (0, 90, 180, 270)
+   * @param {number} rotY - Block-level Y rotation (0, 90, 180, 270)
+   * @param {boolean} uvlock - If true, counter-rotate UVs to maintain world orientation
    */
-  _computeGeometry(model, rotX, rotY) {
+  _computeGeometry(model, rotX, rotY, uvlock = false) {
     const elements = model.elements;
     
     // Count total faces for allocation
@@ -323,12 +331,35 @@ class ModelGeometry {
           }
         }
         
+        // Calculate total UV rotation for this face:
+        // 1. Face-level rotation from model definition (faceData.rotation)
+        // 2. UV lock counter-rotation when block is rotated with uvlock: true
+        let totalUVRotation = 0;
+        
+        // Face-level rotation from model (0, 90, 180, 270 degrees)
+        const faceRotation = faceData.rotation || 0;
+        totalUVRotation += faceRotation;
+        
+        // UV lock: when enabled, counter-rotate UVs based on how the face moved
+        // This keeps the texture oriented to world space instead of model space
+        if (uvlock && (rotX !== 0 || rotY !== 0)) {
+          const uvlockRotation = this._computeUVLockRotation(faceName, rotX, rotY);
+          totalUVRotation += uvlockRotation;
+        }
+        
+        // Normalize to 0, 90, 180, or 270
+        totalUVRotation = ((totalUVRotation % 360) + 360) % 360;
+        
         // Map UVs to the 4 vertices using the face's UV mapping
+        // Apply rotation by remapping the vertex indices
         const uvMap = FACE_UV_MAPPING[faceName];
+        const rotSteps = Math.floor(totalUVRotation / 90);
+        
         for (let i = 0; i < 4; i++) {
-          // uvMap[i] gives [u_weight, v_weight] where 0 = use u1/v1, 1 = use u2/v2
-          const uWeight = uvMap[i][0];
-          const vWeight = uvMap[i][1];
+          // Rotate UV indices: shift vertex mapping by rotation steps
+          const rotatedIdx = (i + rotSteps) % 4;
+          const uWeight = uvMap[rotatedIdx][0];
+          const vWeight = uvMap[rotatedIdx][1];
           uvs[uvOffset++] = u1 + uWeight * (u2 - u1);
           uvs[uvOffset++] = v1 + vWeight * (v2 - v1);
         }
@@ -550,6 +581,74 @@ class ModelGeometry {
     }
     
     return null; // Invalid direction after rotation
+  }
+
+  /**
+   * Compute UV counter-rotation for uvlock mode
+   * When uvlock is true, UVs should remain world-aligned even when the model rotates.
+   * This means we need to counter-rotate the UVs based on how the face has moved.
+   * 
+   * @param {string} faceName - Original face name (before rotation)
+   * @param {number} rotX - Block X rotation
+   * @param {number} rotY - Block Y rotation  
+   * @returns {number} UV rotation in degrees to counter the block rotation
+   */
+  _computeUVLockRotation(faceName, rotX, rotY) {
+    // UV lock counter-rotation depends on:
+    // 1. Which face we're on (determines which rotation axes affect it)
+    // 2. How that face has been rotated
+    //
+    // The goal: after block rotation, the UV "up" direction should still point
+    // toward world +Y (or the original texture "up" direction).
+    
+    // For Y-facing faces (up/down):
+    // - Y rotation rotates the UVs directly
+    // - X rotation doesn't affect UV orientation on these faces
+    if (faceName === 'up') {
+      // Y rotation rotates the up face, counter-rotate to maintain world orientation
+      return -rotY;
+    }
+    if (faceName === 'down') {
+      // Y rotation on down face needs opposite direction
+      return rotY;
+    }
+    
+    // For side faces (north/south/east/west):
+    // - X rotation affects how the face tilts (which changes UV up direction)
+    // - Y rotation moves which cardinal direction the face points but doesn't
+    //   change the UV orientation within the face (texture up still points up)
+    //
+    // When X-rotated 90°, side faces become top/bottom oriented
+    // When X-rotated 180°, side faces flip upside down
+    
+    // Handle X rotation effects on side faces
+    if (rotX === 90) {
+      // Side faces have rotated to point up/down
+      // The UV "up" now points in the wrong direction
+      // North face rotated 90° around X: texture up was +Y, now points -Z
+      // We need to counter-rotate 180° to flip it back
+      if (faceName === 'north') return 180;
+      if (faceName === 'south') return 180;
+      // East/west faces when X-rotated: counter-rotate based on Y rotation
+      if (faceName === 'east') return 180 - rotY;
+      if (faceName === 'west') return 180 + rotY;
+    }
+    else if (rotX === 180) {
+      // Full X flip - all side faces are upside down
+      return 180;
+    }
+    else if (rotX === 270) {
+      // Same as X=90 but opposite direction
+      if (faceName === 'north') return 180;
+      if (faceName === 'south') return 180;
+      if (faceName === 'east') return 180 + rotY;
+      if (faceName === 'west') return 180 - rotY;
+    }
+    
+    // No X rotation or X=0: Y rotation doesn't change UV orientation on side faces
+    // because the face just moves to a different cardinal direction but texture
+    // orientation within the face stays the same (up is still up)
+    return 0;
   }
 
   /**
