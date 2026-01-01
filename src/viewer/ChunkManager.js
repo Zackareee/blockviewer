@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { createGlassMaterial } from './materials/GlassMaterial';
-import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, updateMaterialAtlas, setMaterialTextureMode } from './materials/TexturedMaterial';
+import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode } from './materials/TexturedMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
@@ -63,10 +63,12 @@ export class ChunkManager {
     this.glassGroup = new THREE.Group(); // Glass and transparent blocks
     this.modelGroup = new THREE.Group(); // Opaque non-cube blocks (slabs, stairs, flowers, etc.)
     this.transparentModelGroup = new THREE.Group(); // Transparent non-cube blocks (glass panes, iron bars)
+    this.overlayModelGroup = new THREE.Group(); // Overlay effects (torch bulb glow) - rendered with depthWrite: false
     this.waterGroup.renderOrder = 1;
     this.lavaGroup.renderOrder = 2;
     this.glassGroup.renderOrder = 3; // Glass renders after water/lava
     this.transparentModelGroup.renderOrder = 4; // Transparent models render after glass
+    this.overlayModelGroup.renderOrder = 5; // Overlay renders last (but doesn't write to depth)
     this.modelGroup.renderOrder = 0; // Same as solid
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
@@ -74,6 +76,7 @@ export class ChunkManager {
     scene.add(this.glassGroup);
     scene.add(this.modelGroup);
     scene.add(this.transparentModelGroup);
+    scene.add(this.overlayModelGroup);
     
     // Create materials based on texture mode
     // When textures are enabled, use textured materials that can fall back to vertex colors
@@ -87,6 +90,7 @@ export class ChunkManager {
     this.glassMaterial = createTexturedGlassMaterial(this.textureAtlas, useTextures);
     this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures); // Opaque non-cube blocks
     this.transparentModelMaterial = createTransparentModelMaterial(this.textureAtlas, useTextures); // Transparent non-cube blocks (glass panes, iron bars)
+    this.overlayModelMaterial = createOverlayModelMaterial(this.textureAtlas, useTextures); // Overlay glow effects (torch bulbs)
     
     // Current meshes (arrays to support split meshes)
     this.solidMeshes = [];
@@ -95,6 +99,7 @@ export class ChunkManager {
     this.glassMeshes = []; // Glass and transparent block meshes
     this.modelMeshes = []; // Opaque non-cube block meshes
     this.transparentModelMeshes = []; // Transparent non-cube block meshes (glass panes, iron bars)
+    this.overlayModelMeshes = []; // Overlay glow effect meshes (torch bulbs)
     
     // Stats
     this.totalBlocks = 0;
@@ -148,6 +153,10 @@ export class ChunkManager {
     // Update transparent model material (glass panes, iron bars)
     updateMaterialAtlas(this.transparentModelMaterial, atlasData);
     setMaterialTextureMode(this.transparentModelMaterial, useTextures);
+    
+    // Update overlay model material (torch bulb glow)
+    updateMaterialAtlas(this.overlayModelMaterial, atlasData);
+    setMaterialTextureMode(this.overlayModelMaterial, useTextures);
     
     console.log(`[ChunkManager] Texture mode: ${mode}, using textures: ${useTextures}`);
   }
@@ -242,6 +251,8 @@ export class ChunkManager {
     this.modelMaterial.uniforms.uMaxY.value = maxY;
     this.transparentModelMaterial.uniforms.uMinY.value = minY;
     this.transparentModelMaterial.uniforms.uMaxY.value = maxY;
+    this.overlayModelMaterial.uniforms.uMinY.value = minY;
+    this.overlayModelMaterial.uniforms.uMaxY.value = maxY;
   }
 
   /**
@@ -557,7 +568,7 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, stats, _grid } = result;
       
       // Merge grid for debug lookups
       if (_grid && this.debugGrid) {
@@ -570,13 +581,14 @@ export class ChunkManager {
       if (glassMesh) this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes);
       if (modelMesh) this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
       if (transparentModelMesh) this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+      if (overlayModelMesh) this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes);
       
       this.totalBlocks = stats.totalBlocks;
       this.loadedChunks = stats.chunksProcessed;
       this.loadedRegions = 1;
       
       const totalTime = performance.now() - startTime;
-      const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.glassMeshes.length + this.modelMeshes.length + this.transparentModelMeshes.length;
+      const meshCount = this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.glassMeshes.length + this.modelMeshes.length + this.transparentModelMeshes.length + this.overlayModelMeshes.length;
       
       console.log(
         `[ChunkManager] Loaded ${chunks.length} chunks, ` +
@@ -677,7 +689,7 @@ export class ChunkManager {
         }
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, lodMeshes, modelLodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, lodMeshes, modelLodMeshes, stats } = result;
 
         let drawCalls = 0;
         let meshCenter = null;
@@ -743,6 +755,21 @@ export class ChunkManager {
             drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter);
           } else {
             drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+          }
+        }
+        
+        // Add overlay model meshes (torch bulb glow panels)
+        // Use LOD to progressively simplify at distance
+        if (overlayModelMesh) {
+          if (shouldGenerateLOD && modelLodMeshes && meshCenter) {
+            const overlayLodMeshes = {
+              lod1: modelLodMeshes.lod1Overlay,
+              lod2: modelLodMeshes.lod2Overlay,
+              lod3: modelLodMeshes.lod3Overlay,
+            };
+            drawCalls += this._addModelMeshWithLOD(overlayModelMesh, overlayLodMeshes, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes);
           }
         }
         
@@ -907,7 +934,7 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, lodMeshes, modelLodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, lodMeshes, modelLodMeshes, stats } = result;
         
         let drawCalls = 0;
         let meshCenter = null;
@@ -973,6 +1000,21 @@ export class ChunkManager {
             drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter);
           } else {
             drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+          }
+        }
+        
+        // Add overlay model meshes (torch bulb glow panels)
+        // Use LOD to progressively simplify at distance
+        if (overlayModelMesh) {
+          if (shouldGenerateLOD && modelLodMeshes && meshCenter) {
+            const overlayLodMeshes = {
+              lod1: modelLodMeshes.lod1Overlay,
+              lod2: modelLodMeshes.lod2Overlay,
+              lod3: modelLodMeshes.lod3Overlay,
+            };
+            drawCalls += this._addModelMeshWithLOD(overlayModelMesh, overlayLodMeshes, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, meshCenter);
+          } else {
+            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes);
           }
         }
         
@@ -1563,6 +1605,12 @@ export class ChunkManager {
     }
     this.transparentModelMeshes = [];
     
+    for (const mesh of this.overlayModelMeshes) {
+      this.overlayModelGroup.remove(mesh);
+      this._disposeMeshOrLOD(mesh);
+    }
+    this.overlayModelMeshes = [];
+    
     this.totalBlocks = 0;
     this.loadedChunks = 0;
     this.loadedRegions = 0;
@@ -1590,12 +1638,14 @@ export class ChunkManager {
     this.lavaMaterial.dispose();
     this.modelMaterial.dispose();
     this.transparentModelMaterial.dispose();
+    this.overlayModelMaterial.dispose();
     
     this.scene.remove(this.solidGroup);
     this.scene.remove(this.waterGroup);
     this.scene.remove(this.lavaGroup);
     this.scene.remove(this.modelGroup);
     this.scene.remove(this.transparentModelGroup);
+    this.scene.remove(this.overlayModelGroup);
   }
 
   /**
@@ -1624,13 +1674,17 @@ export class ChunkManager {
       const idx = mesh.geometry?.getIndex();
       if (idx) triangleCount += idx.count / 3;
     }
+    for (const mesh of this.overlayModelMeshes) {
+      const idx = mesh.geometry?.getIndex();
+      if (idx) triangleCount += idx.count / 3;
+    }
     
     return {
       regionsLoaded: this.loadedRegions,
       chunksLoaded: this.loadedChunks,
       totalBlocks: this.totalBlocks,
       triangleCount,
-      meshCount: this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.modelMeshes.length + this.transparentModelMeshes.length,
+      meshCount: this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.modelMeshes.length + this.transparentModelMeshes.length + this.overlayModelMeshes.length,
     };
   }
 }

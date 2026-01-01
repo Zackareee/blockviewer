@@ -171,6 +171,7 @@ export class RegionMeshBuilder {
     // Phase 2b: Build model meshes for non-cube blocks (if enabled)
     let modelMesh = null;
     let transparentModelMesh = null;
+    let overlayModelMesh = null;
     let modelLodMeshes = null;
     if (enableModelMeshes && stateGrid && stateGrid.stateCount > 0) {
       this.onProgress?.('modelMeshing', 0, 100, 'Building model meshes...');
@@ -186,10 +187,11 @@ export class RegionMeshBuilder {
         };
         const modelResult = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
         
-        // Extract opaque and transparent meshes from result
+        // Extract opaque, transparent, and overlay meshes from result
         if (modelResult) {
           modelMesh = modelResult.opaque;
           transparentModelMesh = modelResult.transparent;
+          overlayModelMesh = modelResult.overlay;
         }
         
         // Generate LOD levels for model meshes when LOD is enabled
@@ -202,6 +204,7 @@ export class RegionMeshBuilder {
           if (lod1Result) {
             modelLodMeshes.lod1 = lod1Result.opaque;
             modelLodMeshes.lod1Transparent = lod1Result.transparent;
+            modelLodMeshes.lod1Overlay = lod1Result.overlay;
           }
           
           // LOD2: Skip more decorative blocks (vines, saplings, crops)
@@ -209,6 +212,7 @@ export class RegionMeshBuilder {
           if (lod2Result) {
             modelLodMeshes.lod2 = lod2Result.opaque;
             modelLodMeshes.lod2Transparent = lod2Result.transparent;
+            modelLodMeshes.lod2Overlay = lod2Result.overlay;
           }
           
           // LOD3: Only structural blocks (slabs, stairs, walls)
@@ -216,16 +220,18 @@ export class RegionMeshBuilder {
           if (lod3Result) {
             modelLodMeshes.lod3 = lod3Result.opaque;
             modelLodMeshes.lod3Transparent = lod3Result.transparent;
+            modelLodMeshes.lod3Overlay = lod3Result.overlay;
           }
         }
         
         stats.modelMeshTimeMs = performance.now() - modelStart;
-        stats.modelTriangles = (modelMesh?.triangleCount || 0) + (transparentModelMesh?.triangleCount || 0);
+        stats.modelTriangles = (modelMesh?.triangleCount || 0) + (transparentModelMesh?.triangleCount || 0) + (overlayModelMesh?.triangleCount || 0);
         stats.opaqueModelTriangles = modelMesh?.triangleCount || 0;
         stats.transparentModelTriangles = transparentModelMesh?.triangleCount || 0;
+        stats.overlayModelTriangles = overlayModelMesh?.triangleCount || 0;
         
         if (stats.modelTriangles > 0) {
-          console.log(`[RegionMeshBuilder] Model meshes: ${stats.modelTriangles.toLocaleString()} triangles (${stats.opaqueModelTriangles.toLocaleString()} opaque, ${stats.transparentModelTriangles.toLocaleString()} transparent) in ${stats.modelMeshTimeMs.toFixed(0)}ms`);
+          console.log(`[RegionMeshBuilder] Model meshes: ${stats.modelTriangles.toLocaleString()} triangles (${stats.opaqueModelTriangles.toLocaleString()} opaque, ${stats.transparentModelTriangles.toLocaleString()} transparent, ${stats.overlayModelTriangles.toLocaleString()} overlay) in ${stats.modelMeshTimeMs.toFixed(0)}ms`);
         }
       } catch (err) {
         console.warn('[RegionMeshBuilder] Model mesh generation failed:', err.message);
@@ -286,6 +292,7 @@ export class RegionMeshBuilder {
       glassMesh, // Glass and transparent block geometry (full cubes)
       modelMesh, // Opaque non-cube block geometry (slabs, stairs, flowers, etc.)
       transparentModelMesh, // Transparent non-cube block geometry (glass panes, iron bars)
+      overlayModelMesh, // Overlay glow effects (torch bulb panels) - rendered with depthWrite: false
       lodMeshes,
       modelLodMeshes, // LOD levels for model meshes (skip decorative at distance)
       offset,

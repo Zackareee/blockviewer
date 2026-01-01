@@ -391,6 +391,22 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let tIndexCount = 0;
   let tCapacity = INITIAL_VERTEX_COUNT;
 
+  // Growable buffers for OVERLAY models (torch bulb glow panels - rendered with depthWrite: false)
+  let oPositions = new Float32Array(INITIAL_VERTEX_COUNT * 3);
+  let oNormals = new Float32Array(INITIAL_VERTEX_COUNT * 3);
+  let oColors = new Float32Array(INITIAL_VERTEX_COUNT * 3);
+  let oModelUVs = new Float32Array(INITIAL_VERTEX_COUNT * 2);
+  let oTexIndices = new Float32Array(INITIAL_VERTEX_COUNT);
+  let oTexRotations = new Float32Array(INITIAL_VERTEX_COUNT);
+  let oTintTypes = new Float32Array(INITIAL_VERTEX_COUNT);
+  let oShadeFlags = new Float32Array(INITIAL_VERTEX_COUNT);
+  let oSingleSidedFlags = new Float32Array(INITIAL_VERTEX_COUNT);
+  let oIndices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
+  
+  let oVertexCount = 0;
+  let oIndexCount = 0;
+  let oCapacity = INITIAL_VERTEX_COUNT;
+
   const ox = offset.x, oy = offset.y, oz = offset.z;
 
   // Process each section that has state data
@@ -829,8 +845,116 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             tintType = tintTypeLookup[blockId];
           }
           
-          // Route to appropriate buffer set based on transparency
-          if (isTransparent) {
+          // Check if this face is an overlay (torch bulb panels, etc.)
+          // Overlay faces are rendered with depthWrite: false to not occlude geometry behind them
+          const isOverlay = cullInfo.overlay === true;
+          
+          // Route to appropriate buffer set: overlay > transparent > opaque
+          if (isOverlay) {
+            // Route to overlay buffer (rendered with depthWrite: false)
+            if (oVertexCount + 4 > oCapacity) {
+              oCapacity = Math.ceil(oCapacity * 2);
+              oPositions = growArray(oPositions, oCapacity * 3);
+              oNormals = growArray(oNormals, oCapacity * 3);
+              oColors = growArray(oColors, oCapacity * 3);
+              oModelUVs = growArray(oModelUVs, oCapacity * 2);
+              oTexIndices = growArray(oTexIndices, oCapacity);
+              oTexRotations = growArray(oTexRotations, oCapacity);
+              oTintTypes = growArray(oTintTypes, oCapacity);
+              oShadeFlags = growArray(oShadeFlags, oCapacity);
+              oSingleSidedFlags = growArray(oSingleSidedFlags, oCapacity);
+              oIndices = growArrayUint(oIndices, oCapacity * 2);
+            }
+
+            const dstVertexStart = oVertexCount;
+            
+            // Copy vertex data
+            const srcBase = srcVertexStart * 3;
+            const dstBase = oVertexCount * 3;
+            const srcUvBase = srcVertexStart * 2;
+            const dstUvBase = oVertexCount * 2;
+            
+            // Copy positions with world offset
+            oPositions[dstBase] = geom.positions[srcBase] + wx;
+            oPositions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
+            oPositions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
+            oPositions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
+            oPositions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
+            oPositions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
+            oPositions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
+            oPositions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
+            oPositions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
+            oPositions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
+            oPositions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
+            oPositions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            
+            // Copy normals
+            oNormals[dstBase] = geom.normals[srcBase];
+            oNormals[dstBase + 1] = geom.normals[srcBase + 1];
+            oNormals[dstBase + 2] = geom.normals[srcBase + 2];
+            oNormals[dstBase + 3] = geom.normals[srcBase + 3];
+            oNormals[dstBase + 4] = geom.normals[srcBase + 4];
+            oNormals[dstBase + 5] = geom.normals[srcBase + 5];
+            oNormals[dstBase + 6] = geom.normals[srcBase + 6];
+            oNormals[dstBase + 7] = geom.normals[srcBase + 7];
+            oNormals[dstBase + 8] = geom.normals[srcBase + 8];
+            oNormals[dstBase + 9] = geom.normals[srcBase + 9];
+            oNormals[dstBase + 10] = geom.normals[srcBase + 10];
+            oNormals[dstBase + 11] = geom.normals[srcBase + 11];
+            
+            // Set colors
+            oColors[dstBase] = r; oColors[dstBase + 1] = g; oColors[dstBase + 2] = b;
+            oColors[dstBase + 3] = r; oColors[dstBase + 4] = g; oColors[dstBase + 5] = b;
+            oColors[dstBase + 6] = r; oColors[dstBase + 7] = g; oColors[dstBase + 8] = b;
+            oColors[dstBase + 9] = r; oColors[dstBase + 10] = g; oColors[dstBase + 11] = b;
+            
+            // Copy UVs
+            if (geom.uvs) {
+              oModelUVs[dstUvBase] = geom.uvs[srcUvBase];
+              oModelUVs[dstUvBase + 1] = geom.uvs[srcUvBase + 1];
+              oModelUVs[dstUvBase + 2] = geom.uvs[srcUvBase + 2];
+              oModelUVs[dstUvBase + 3] = geom.uvs[srcUvBase + 3];
+              oModelUVs[dstUvBase + 4] = geom.uvs[srcUvBase + 4];
+              oModelUVs[dstUvBase + 5] = geom.uvs[srcUvBase + 5];
+              oModelUVs[dstUvBase + 6] = geom.uvs[srcUvBase + 6];
+              oModelUVs[dstUvBase + 7] = geom.uvs[srcUvBase + 7];
+            }
+            
+            // Set per-vertex attributes
+            oTexIndices[oVertexCount] = texIdx;
+            oTexIndices[oVertexCount + 1] = texIdx;
+            oTexIndices[oVertexCount + 2] = texIdx;
+            oTexIndices[oVertexCount + 3] = texIdx;
+            oTexRotations[oVertexCount] = blockTexRotation;
+            oTexRotations[oVertexCount + 1] = blockTexRotation;
+            oTexRotations[oVertexCount + 2] = blockTexRotation;
+            oTexRotations[oVertexCount + 3] = blockTexRotation;
+            oTintTypes[oVertexCount] = tintType;
+            oTintTypes[oVertexCount + 1] = tintType;
+            oTintTypes[oVertexCount + 2] = tintType;
+            oTintTypes[oVertexCount + 3] = tintType;
+            const oShadeValue = cullInfo.shade !== false ? 1.0 : 0.0;
+            oShadeFlags[oVertexCount] = oShadeValue;
+            oShadeFlags[oVertexCount + 1] = oShadeValue;
+            oShadeFlags[oVertexCount + 2] = oShadeValue;
+            oShadeFlags[oVertexCount + 3] = oShadeValue;
+            const oSingleSidedValue = cullInfo.singleSided ? 1.0 : 0.0;
+            oSingleSidedFlags[oVertexCount] = oSingleSidedValue;
+            oSingleSidedFlags[oVertexCount + 1] = oSingleSidedValue;
+            oSingleSidedFlags[oVertexCount + 2] = oSingleSidedValue;
+            oSingleSidedFlags[oVertexCount + 3] = oSingleSidedValue;
+            
+            oVertexCount += 4;
+            
+            // Emit indices
+            oIndices[oIndexCount] = dstVertexStart;
+            oIndices[oIndexCount + 1] = dstVertexStart + 2;
+            oIndices[oIndexCount + 2] = dstVertexStart + 1;
+            oIndices[oIndexCount + 3] = dstVertexStart;
+            oIndices[oIndexCount + 4] = dstVertexStart + 3;
+            oIndices[oIndexCount + 5] = dstVertexStart + 2;
+            oIndexCount += 6;
+          } else if (isTransparent) {
             // Ensure capacity for transparent buffers (4 verts per quad face)
             if (tVertexCount + 4 > tCapacity) {
               tCapacity = Math.ceil(tCapacity * 2); // Double to reduce reallocations
@@ -1049,7 +1173,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     }
   }
 
-  // Build result object with opaque and transparent meshes
+  // Build result object with opaque, transparent, and overlay meshes
   const opaqueResult = vertexCount > 0 ? {
     positions: positions.subarray(0, vertexCount * 3),
     normals: normals.subarray(0, vertexCount * 3),
@@ -1074,6 +1198,19 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     triangleCount: tIndexCount / 3,
   } : null;
   
+  // Overlay mesh for torch bulb glow panels (rendered with depthWrite: false)
+  const overlayResult = oVertexCount > 0 ? {
+    positions: oPositions.subarray(0, oVertexCount * 3),
+    normals: oNormals.subarray(0, oVertexCount * 3),
+    colors: oColors.subarray(0, oVertexCount * 3),
+    modelUVs: oModelUVs.subarray(0, oVertexCount * 2),
+    indices: oIndices.subarray(0, oIndexCount),
+    shadeFlags: oShadeFlags.subarray(0, oVertexCount),
+    singleSidedFlags: oSingleSidedFlags.subarray(0, oVertexCount),
+    vertexCount: oVertexCount,
+    triangleCount: oIndexCount / 3,
+  } : null;
+  
   // Add texture data if available
   if (textureIndexLookup) {
     if (opaqueResult) {
@@ -1086,17 +1223,23 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       transparentResult.texRotations = tTexRotations.subarray(0, tVertexCount);
       transparentResult.tintTypes = tTintTypes.subarray(0, tVertexCount);
     }
+    if (overlayResult) {
+      overlayResult.texIndices = oTexIndices.subarray(0, oVertexCount);
+      overlayResult.texRotations = oTexRotations.subarray(0, oVertexCount);
+      overlayResult.tintTypes = oTintTypes.subarray(0, oVertexCount);
+    }
   }
   
   // Return null if no geometry was generated
-  if (!opaqueResult && !transparentResult) {
+  if (!opaqueResult && !transparentResult && !overlayResult) {
     return null;
   }
   
-  // Return split meshes for opaque and transparent models
+  // Return split meshes for opaque, transparent, and overlay models
   return {
     opaque: opaqueResult,
     transparent: transparentResult,
+    overlay: overlayResult,
   };
 }
 

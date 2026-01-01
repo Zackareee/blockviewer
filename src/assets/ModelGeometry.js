@@ -333,18 +333,19 @@ class ModelGeometry {
       const sizeY = Math.abs(to[1] - from[1]);
       const sizeZ = Math.abs(to[2] - from[2]);
       
-      // Check if this is a single-sided thin element (like torch bulb panels)
-      // These are zero-thickness in one axis with only one face defined
-      // In Minecraft, backface culling makes these faces invisible from behind
+      // Check if this is a single-sided element (like torch bulb panels)
+      // These are used for glow/overlay effects in torches, repeaters, comparators
       const ZERO_THRESHOLD = 0.001;
       const isZeroThicknessX = sizeX < ZERO_THRESHOLD;
       const isZeroThicknessY = sizeY < ZERO_THRESHOLD;
       const isZeroThicknessZ = sizeZ < ZERO_THRESHOLD;
       const faceCount = Object.keys(element.faces || {}).length;
       
-      // Single-sided: zero thickness in one axis AND only 1-2 faces defined
-      // (torch bulbs have 1 face, some thin elements might have 2 opposing faces)
-      const isSingleSidedElement = (isZeroThicknessX || isZeroThicknessY || isZeroThicknessZ) && faceCount <= 2;
+      // Elements with only 1 face are always single-sided (used for glow/overlay effects)
+      // This catches: standing torch bulbs (zero-thickness), wall torch bulbs (3x3x3),
+      // repeater torch bulbs (3x3x3), comparator torch bulbs (3x3x3)
+      // Elements with 2 faces that are zero-thickness are also single-sided (double-sided thin panels)
+      const isSingleSidedElement = faceCount === 1 || ((isZeroThicknessX || isZeroThicknessY || isZeroThicknessZ) && faceCount === 2);
 
       // Element-level rotation (optional)
       const elRot = element.rotation;
@@ -632,6 +633,10 @@ class ModelGeometry {
         else if (Math.abs(ny) > 0.9) faceDirection = ny > 0 ? 'up' : 'down';
         else if (Math.abs(nz) > 0.9) faceDirection = nz > 0 ? 'south' : 'north';
         
+        // Single-sided zero-thickness faces (torch bulb panels, repeater torches, etc.)
+        // should be rendered as overlays that don't occlude geometry behind them
+        const isOverlay = isSingleSidedElement;
+        
         cullFaces.push({
           faceIndex: faceIndex++,
           indexStart: faceStartIndex,
@@ -643,6 +648,7 @@ class ModelGeometry {
           faceDirection: faceDirection, // Actual direction the face points
           shade: elementShade, // Whether to apply directional face shading
           singleSided: isSingleSidedElement, // Whether to cull backfaces (torch bulb panels, etc.)
+          overlay: isOverlay, // Whether to render without depth write (glow effects)
         });
       }
     }

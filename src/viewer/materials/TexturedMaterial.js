@@ -628,7 +628,8 @@ void main() {
   
   // For single-sided elements (torch bulb panels, etc.), cull backfaces
   // These elements have inward-facing normals and should not be visible from outside
-  if (vSingleSided > 0.5 && !gl_FrontFacing) discard;
+  // Note: Check singleSided is valid (>= 0) to handle missing attribute gracefully
+  if (vSingleSided > 0.5 && vSingleSided < 1.5 && !gl_FrontFacing) discard;
   
   vec3 finalColor;
   float alpha = 1.0;
@@ -755,6 +756,39 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
     vertexColors: true,
     transparent: true,     // Enable transparency/alpha blending
     depthWrite: true,      // Still write to depth buffer to maintain proper ordering
+  });
+  
+  return material;
+}
+
+/**
+ * Create a textured material for overlay model blocks (torch bulb glow panels, etc.)
+ * Uses depthWrite: false so overlays don't occlude geometry behind them
+ * This creates the effect of "glow" faces that appear behind solid geometry
+ */
+export function createOverlayModelMaterial(atlasData = null, useTextures = false) {
+  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uMinY: { value: -64 },
+      uMaxY: { value: 320 },
+      uAtlas: { value: atlas },
+      uColormap: { value: colormap },
+      uUseTextures: { value: useTextures ? 1.0 : 0.0 },
+      uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
+      uAtlasSize: { value: size },
+      uTileUV: { value: tileUV },
+      uTextureUV: { value: textureUV },
+      uBorderUV: { value: borderUV },
+    },
+    vertexShader: modelVertexShader,
+    fragmentShader: modelFragmentShader,
+    side: THREE.DoubleSide,  // Overlay faces may be visible from both sides
+    vertexColors: true,
+    transparent: true,       // Enable transparency for proper blending
+    depthWrite: false,       // DON'T write to depth buffer - allows geometry to show through
+    depthTest: true,         // Still test against depth so overlays are hidden by blocks in front
   });
   
   return material;
