@@ -1153,6 +1153,359 @@ const TEXTURE_MAPPINGS = {
   
   // Test block (debug/development block)
   'test_block': 'block/test_block_start',
+  'test_instance_block': 'block/test_instance_block',
+  
+  // ============================================
+  // ADDITIONAL BLOCK MAPPINGS (from debug world)
+  // ============================================
+  
+  // Leaves
+  'acacia_leaves': 'block/acacia_leaves',
+  'azalea_leaves': 'block/azalea_leaves',
+  'birch_leaves': 'block/birch_leaves',
+  'cherry_leaves': 'block/cherry_leaves',
+  'dark_oak_leaves': 'block/dark_oak_leaves',
+  'flowering_azalea_leaves': 'block/flowering_azalea_leaves',
+  'jungle_leaves': 'block/jungle_leaves',
+  'mangrove_leaves': 'block/mangrove_leaves',
+  'oak_leaves': 'block/oak_leaves',
+  'pale_oak_leaves': 'block/pale_oak_leaves',
+  'spruce_leaves': 'block/spruce_leaves',
+  
+  // Saplings
+  'acacia_sapling': 'block/acacia_sapling',
+  'birch_sapling': 'block/birch_sapling',
+  'cherry_sapling': 'block/cherry_sapling',
+  'dark_oak_sapling': 'block/dark_oak_sapling',
+  'jungle_sapling': 'block/jungle_sapling',
+  'mangrove_propagule': 'block/mangrove_propagule',
+  'oak_sapling': 'block/oak_sapling',
+  'pale_oak_sapling': 'block/pale_oak_sapling',
+  'spruce_sapling': 'block/spruce_sapling',
+  
+  // Flowers
+  'allium': 'block/allium',
+  'azure_bluet': 'block/azure_bluet',
+  'blue_orchid': 'block/blue_orchid',
+  'cornflower': 'block/cornflower',
+  'dandelion': 'block/dandelion',
+  'lily_of_the_valley': 'block/lily_of_the_valley',
+  'orange_tulip': 'block/orange_tulip',
+  'oxeye_daisy': 'block/oxeye_daisy',
+  'pink_tulip': 'block/pink_tulip',
+  'poppy': 'block/poppy',
+  'red_tulip': 'block/red_tulip',
+  'white_tulip': 'block/white_tulip',
+  'wither_rose': 'block/wither_rose',
+  'wildflowers': 'block/wildflowers',
+  
+  // Tall flowers/plants
+  'lilac': 'block/lilac_top',
+  'peony': 'block/peony_top',
+  'rose_bush': 'block/rose_bush_top',
+  'sunflower': 'block/sunflower_front',
+  'large_fern': 'block/large_fern_top',
+  'tall_grass': 'block/tall_grass_top',
+  'pitcher_plant': 'block/pitcher_plant_top',
+  'tall_seagrass': 'block/tall_seagrass_top',
+  'short_dry_grass': 'block/short_dry_grass',
+  'tall_dry_grass': 'block/tall_dry_grass_top',
+  
+  // Mushrooms
+  'brown_mushroom': 'block/brown_mushroom',
+  'red_mushroom': 'block/red_mushroom',
+  'brown_mushroom_block': 'block/brown_mushroom_block',
+  'red_mushroom_block': 'block/red_mushroom_block',
+  'mushroom_stem': 'block/mushroom_stem',
+  
+  // Candles (all colors)
+  'candle': 'block/candle',
+  'white_candle': 'block/white_candle',
+  'orange_candle': 'block/orange_candle',
+  'magenta_candle': 'block/magenta_candle',
+  'light_blue_candle': 'block/light_blue_candle',
+  'yellow_candle': 'block/yellow_candle',
+  'lime_candle': 'block/lime_candle',
+  'pink_candle': 'block/pink_candle',
+  'gray_candle': 'block/gray_candle',
+  'light_gray_candle': 'block/light_gray_candle',
+  'cyan_candle': 'block/cyan_candle',
+  'purple_candle': 'block/purple_candle',
+  'blue_candle': 'block/blue_candle',
+  'brown_candle': 'block/brown_candle',
+  'green_candle': 'block/green_candle',
+  'red_candle': 'block/red_candle',
+  'black_candle': 'block/black_candle',
+  
+  // Coral blocks
+  'brain_coral_block': 'block/brain_coral_block',
+  'bubble_coral_block': 'block/bubble_coral_block',
+  'fire_coral_block': 'block/fire_coral_block',
+  'horn_coral_block': 'block/horn_coral_block',
+  'tube_coral_block': 'block/tube_coral_block',
+  'dead_brain_coral_block': 'block/dead_brain_coral_block',
+  'dead_bubble_coral_block': 'block/dead_bubble_coral_block',
+  'dead_fire_coral_block': 'block/dead_fire_coral_block',
+  'dead_horn_coral_block': 'block/dead_horn_coral_block',
+  'dead_tube_coral_block': 'block/dead_tube_coral_block',
+  
+  // Coral (non-block)
+  'brain_coral': 'block/brain_coral',
+  'bubble_coral': 'block/bubble_coral',
+  'fire_coral': 'block/fire_coral',
+  'horn_coral': 'block/horn_coral',
+  'tube_coral': 'block/tube_coral',
+  'dead_brain_coral': 'block/dead_brain_coral',
+  'dead_bubble_coral': 'block/dead_bubble_coral',
+  'dead_fire_coral': 'block/dead_fire_coral',
+  'dead_horn_coral': 'block/dead_horn_coral',
+  'dead_tube_coral': 'block/dead_tube_coral',
+  
+  // Amethyst
+  'amethyst_cluster': 'block/amethyst_cluster',
+  'large_amethyst_bud': 'block/large_amethyst_bud',
+  'medium_amethyst_bud': 'block/medium_amethyst_bud',
+  'small_amethyst_bud': 'block/small_amethyst_bud',
+  'budding_amethyst': 'block/budding_amethyst',
+  
+  // Basic blocks
+  'bedrock': 'block/bedrock',
+  'bookshelf': 'block/bookshelf',
+  'bricks': 'block/bricks',
+  'clay': 'block/clay',
+  'coarse_dirt': 'block/coarse_dirt',
+  'dirt': 'block/dirt',
+  'rooted_dirt': 'block/rooted_dirt',
+  'gravel': 'block/gravel',
+  'sand': 'block/sand',
+  'red_sand': 'block/red_sand',
+  'mud': 'block/mud',
+  'packed_mud': 'block/packed_mud',
+  'mud_bricks': 'block/mud_bricks',
+  'moss_block': 'block/moss_block',
+  'pale_moss_block': 'block/pale_moss_block',
+  'calcite': 'block/calcite',
+  'dripstone_block': 'block/dripstone_block',
+  'tuff_bricks': 'block/tuff_bricks',
+  'end_stone': 'block/end_stone',
+  'end_stone_bricks': 'block/end_stone_bricks',
+  'glowstone': 'block/glowstone',
+  'ice': 'block/ice',
+  'blue_ice': 'block/blue_ice',
+  'packed_ice': 'block/packed_ice',
+  'magma_block': 'block/magma',
+  'netherrack': 'block/netherrack',
+  'nether_wart_block': 'block/nether_wart_block',
+  'warped_wart_block': 'block/warped_wart_block',
+  'obsidian': 'block/obsidian',
+  'crying_obsidian': 'block/crying_obsidian',
+  'note_block': 'block/note_block',
+  'purpur_block': 'block/purpur_block',
+  'quartz_bricks': 'block/quartz_bricks',
+  'sea_lantern': 'block/sea_lantern',
+  'shroomlight': 'block/shroomlight',
+  'slime_block': 'block/slime_block',
+  'smooth_basalt': 'block/smooth_basalt',
+  'smooth_stone': 'block/smooth_stone',
+  'soul_sand': 'block/soul_sand',
+  'soul_soil': 'block/soul_soil',
+  'sponge': 'block/sponge',
+  'wet_sponge': 'block/wet_sponge',
+  'terracotta': 'block/terracotta',
+  'honeycomb_block': 'block/honeycomb_block',
+  'resin_block': 'block/resin_block',
+  'resin_bricks': 'block/resin_bricks',
+  'resin_clump': 'block/resin_clump',
+  
+  // Chiseled variants
+  'chiseled_polished_blackstone': 'block/chiseled_polished_blackstone',
+  'chiseled_quartz_block': 'block/chiseled_quartz_block',
+  'chiseled_red_sandstone': 'block/chiseled_red_sandstone',
+  'chiseled_sandstone': 'block/chiseled_sandstone',
+  'chiseled_resin_bricks': 'block/chiseled_resin_bricks',
+  'chiseled_tuff': 'block/chiseled_tuff',
+  'chiseled_tuff_bricks': 'block/chiseled_tuff_bricks',
+  'cracked_polished_blackstone_bricks': 'block/cracked_polished_blackstone_bricks',
+  'polished_blackstone_bricks': 'block/polished_blackstone_bricks',
+  'prismarine_bricks': 'block/prismarine_bricks',
+  'gilded_blackstone': 'block/gilded_blackstone',
+  'bamboo_mosaic': 'block/bamboo_mosaic',
+  
+  // Nylium
+  'crimson_nylium': 'block/crimson_nylium',
+  'warped_nylium': 'block/warped_nylium',
+  
+  // Anvil
+  'anvil': 'block/anvil_top',
+  
+  // Brewing stand
+  'brewing_stand': 'block/brewing_stand',
+  
+  // Flower pot (empty)
+  'flower_pot': 'block/flower_pot',
+  
+  // Farmland
+  'farmland': 'block/farmland',
+  
+  // Ladder
+  'ladder': 'block/ladder',
+  
+  // Lanterns
+  'lantern': 'block/lantern',
+  'soul_lantern': 'block/soul_lantern',
+  
+  // Torches
+  'torch': 'block/torch',
+  'soul_torch': 'block/soul_torch',
+  'redstone_torch': 'block/redstone_torch',
+  
+  // Lever
+  'lever': 'block/lever',
+  
+  // Stems
+  'melon_stem': 'block/melon_stem',
+  'pumpkin_stem': 'block/pumpkin_stem',
+  'attached_melon_stem': 'block/attached_melon_stem',
+  'attached_pumpkin_stem': 'block/attached_pumpkin_stem',
+  
+  // Iron chain
+  'iron_chain': 'block/iron_chain',
+  
+  // Kelp
+  'kelp': 'block/kelp',
+  'kelp_plant': 'block/kelp_plant',
+  
+  // Seagrass
+  'seagrass': 'block/seagrass',
+  
+  // Sculk
+  'sculk': 'block/sculk',
+  
+  // Redstone lamp
+  'redstone_lamp': 'block/redstone_lamp',
+  
+  // Shelves (new blocks)
+  'acacia_shelf': 'block/acacia_shelf',
+  'bamboo_shelf': 'block/bamboo_shelf',
+  'birch_shelf': 'block/birch_shelf',
+  'cherry_shelf': 'block/cherry_shelf',
+  'crimson_shelf': 'block/crimson_shelf',
+  'dark_oak_shelf': 'block/dark_oak_shelf',
+  'jungle_shelf': 'block/jungle_shelf',
+  'mangrove_shelf': 'block/mangrove_shelf',
+  'oak_shelf': 'block/oak_shelf',
+  'pale_oak_shelf': 'block/pale_oak_shelf',
+  'spruce_shelf': 'block/spruce_shelf',
+  'warped_shelf': 'block/warped_shelf',
+  
+  // New 1.21+ blocks
+  'bush': 'block/bush',
+  'cactus_flower': 'block/cactus_flower',
+  'creaking_heart': 'block/creaking_heart',
+  'firefly_bush': 'block/firefly_bush',
+  'frogspawn': 'block/frogspawn',
+  'closed_eyeblossom': 'block/closed_eyeblossom',
+  'open_eyeblossom': 'block/open_eyeblossom',
+  'pale_hanging_moss': 'block/pale_hanging_moss',
+  'pale_moss_carpet': 'block/pale_moss_block',
+  'moss_carpet': 'block/moss_block',
+  'leaf_litter': 'block/leaf_litter',
+  
+  // Nether fungi
+  'crimson_fungus': 'block/crimson_fungus',
+  'warped_fungus': 'block/warped_fungus',
+  'crimson_roots': 'block/crimson_roots',
+  'warped_roots': 'block/warped_roots',
+  'nether_sprouts': 'block/nether_sprouts',
+  
+  // Vines
+  'twisting_vines': 'block/twisting_vines',
+  'twisting_vines_plant': 'block/twisting_vines_plant',
+  'weeping_vines': 'block/weeping_vines',
+  'weeping_vines_plant': 'block/weeping_vines_plant',
+  'cave_vines': 'block/cave_vines',
+  'cave_vines_plant': 'block/cave_vines_plant',
+  'vine': 'block/vine',
+  'glow_lichen': 'block/glow_lichen',
+  'sculk_vein': 'block/sculk_vein',
+  
+  // Dripleaf
+  'big_dripleaf': 'block/big_dripleaf_top',
+  'big_dripleaf_stem': 'block/big_dripleaf_stem',
+  'small_dripleaf': 'block/small_dripleaf_top',
+  
+  // Hanging roots
+  'hanging_roots': 'block/hanging_roots',
+  'spore_blossom': 'block/spore_blossom',
+  
+  // Azalea
+  'azalea': 'block/azalea_side',
+  
+  // End blocks
+  'end_rod': 'block/end_rod',
+  'chorus_plant': 'block/chorus_plant',
+  'chorus_flower': 'block/chorus_flower',
+  'dragon_egg': 'block/dragon_egg',
+  
+  // Misc plants
+  'dead_bush': 'block/dead_bush',
+  'fern': 'block/fern',
+  'short_grass': 'block/short_grass',
+  'sugar_cane': 'block/sugar_cane',
+  'cactus': 'block/cactus_side',
+  'bamboo': 'block/bamboo_stalk',
+  'lily_pad': 'block/lily_pad',
+  'pink_petals': 'block/pink_petals',
+  'nether_wart': 'block/nether_wart_stage2',
+  'beetroots': 'block/beetroots_stage3',
+  'carrots': 'block/carrots_stage3',
+  'potatoes': 'block/potatoes_stage3',
+  'wheat': 'block/wheat_stage7',
+  'sweet_berry_bush': 'block/sweet_berry_bush_stage3',
+  'torchflower': 'block/torchflower',
+  
+  // Comparator/Repeater
+  'comparator': 'block/comparator',
+  'repeater': 'block/repeater',
+  
+  // Scaffolding
+  'scaffolding': 'block/scaffolding_side',
+  
+  // Rails
+  'rail': 'block/rail',
+  'powered_rail': 'block/powered_rail',
+  'detector_rail': 'block/detector_rail',
+  'activator_rail': 'block/activator_rail',
+  
+  // Hoppers/Composter
+  'hopper': 'block/hopper_outside',
+  'composter': 'block/composter_side',
+  
+  // Cake
+  'cake': 'block/cake_side',
+  
+  // Tripwire
+  'tripwire_hook': 'block/tripwire_hook',
+  'tripwire': 'block/tripwire',
+  
+  // Cobweb
+  'cobweb': 'block/cobweb',
+  
+  // Sea pickle
+  'sea_pickle': 'block/sea_pickle',
+  
+  // Turtle egg
+  'turtle_egg': 'block/turtle_egg',
+  
+  // Redstone wire
+  'redstone_wire': 'block/redstone_dust_line0',
+  
+  // Barrel
+  'barrel': 'block/barrel_side',
+  
+  // Bee nest/hive
+  'bee_nest': 'block/bee_nest_front',
+  'beehive': 'block/beehive_front',
 };
 
 /**
