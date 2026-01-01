@@ -327,6 +327,11 @@ export class RegionMeshBuilder {
       geometry.setAttribute('tintType', new THREE.BufferAttribute(meshData.tintTypes, 1));
     }
     
+    // Add shade flag attribute if present (for face shading control in shader)
+    if (meshData.shadeFlags) {
+      geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(meshData.shadeFlags, 1));
+    }
+    
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
     geometry.computeBoundingSphere();
     

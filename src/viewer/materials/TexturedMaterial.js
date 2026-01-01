@@ -482,6 +482,7 @@ attribute vec2 modelUV;      // Model UV coordinates (from Minecraft model data)
 attribute float texIndex;    // Atlas texture index (0 to tilesPerRow*tilesPerCol-1)
 attribute float texRotation; // Texture rotation (0-3 for 90° increments)
 attribute float tintType;    // Biome tint type (0=none, 1=grass, 2=foliage, 3=spruce, 4=birch, 5=water)
+attribute float shadeFlag;   // Face shading flag (0=no shade, 1=apply directional shading)
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -490,6 +491,7 @@ varying float vVisible;
 varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
+varying float vShadeFlag;
 
 void main() {
   vColor = color;
@@ -498,6 +500,7 @@ void main() {
   vTexIndex = texIndex;
   vTexRotation = texRotation;
   vTintType = tintType;
+  vShadeFlag = shadeFlag;
   
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
@@ -546,6 +549,7 @@ varying float vVisible;
 varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
+varying float vShadeFlag;
 
 // Snap normal for face shading
 vec3 snapNormal(vec3 n) {
@@ -665,16 +669,19 @@ void main() {
     finalColor = vColor;
   }
   
-  // Minecraft-style face shading
-  vec3 snappedN = snapNormal(vNormal);
+  // Minecraft-style face shading (only applied if shadeFlag is 1.0)
+  // Cross-model plants like grass and ferns have shade: false in their model
   float shade = 1.0;
   
-  if (abs(snappedN.y) > 0.5) {
-    shade = snappedN.y > 0.0 ? 1.0 : 0.5;
-  } else if (abs(snappedN.x) > 0.5) {
-    shade = 0.6;
-  } else {
-    shade = 0.8;
+  if (vShadeFlag > 0.5) {
+    vec3 snappedN = snapNormal(vNormal);
+    if (abs(snappedN.y) > 0.5) {
+      shade = snappedN.y > 0.0 ? 1.0 : 0.5;
+    } else if (abs(snappedN.x) > 0.5) {
+      shade = 0.6;
+    } else {
+      shade = 0.8;
+    }
   }
   
   gl_FragColor = vec4(finalColor * shade, alpha);

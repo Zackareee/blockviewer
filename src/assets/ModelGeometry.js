@@ -289,6 +289,10 @@ class ModelGeometry {
       // Element bounds in [0-16] space, convert to [0-1]
       const from = element.from.map(v => v / 16);
       const to = element.to.map(v => v / 16);
+      
+      // Whether to apply directional face shading (default true in Minecraft)
+      // Cross-model plants like grass and ferns have shade: false
+      const elementShade = element.shade !== false;
 
       // Calculate element thickness in each axis
       const sizeX = Math.abs(to[0] - from[0]);
@@ -552,6 +556,7 @@ class ModelGeometry {
           tintindex: tintindex,
           bounds: faceBounds,
           faceDirection: faceDirection, // Actual direction the face points
+          shade: elementShade, // Whether to apply directional face shading
         });
       }
     }
