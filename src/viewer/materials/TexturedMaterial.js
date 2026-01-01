@@ -483,6 +483,7 @@ attribute float texIndex;    // Atlas texture index (0 to tilesPerRow*tilesPerCo
 attribute float texRotation; // Texture rotation (0-3 for 90° increments)
 attribute float tintType;    // Biome tint type (0=none, 1=grass, 2=foliage, 3=spruce, 4=birch, 5=water)
 attribute float shadeFlag;   // Face shading flag (0=no shade, 1=apply directional shading)
+attribute float singleSided; // Single-sided flag (0=double-sided, 1=cull backface)
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -492,6 +493,7 @@ varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
 varying float vShadeFlag;
+varying float vSingleSided;
 
 void main() {
   vColor = color;
@@ -501,6 +503,7 @@ void main() {
   vTexRotation = texRotation;
   vTintType = tintType;
   vShadeFlag = shadeFlag;
+  vSingleSided = singleSided;
   
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
@@ -550,6 +553,7 @@ varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
 varying float vShadeFlag;
+varying float vSingleSided;
 
 // Snap normal for face shading
 vec3 snapNormal(vec3 n) {
@@ -621,6 +625,10 @@ vec3 getBiomeTint(int tintType) {
 
 void main() {
   if (vVisible < 0.5) discard;
+  
+  // For single-sided elements (torch bulb panels, etc.), cull backfaces
+  // These elements have inward-facing normals and should not be visible from outside
+  if (vSingleSided > 0.5 && !gl_FrontFacing) discard;
   
   vec3 finalColor;
   float alpha = 1.0;

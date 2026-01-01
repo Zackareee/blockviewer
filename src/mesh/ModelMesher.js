@@ -368,6 +368,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let texRotations = new Float32Array(INITIAL_VERTEX_COUNT); // Texture rotation per vertex (0 for model blocks)
   let tintTypes = new Float32Array(INITIAL_VERTEX_COUNT); // Biome tint type per vertex
   let shadeFlags = new Float32Array(INITIAL_VERTEX_COUNT); // Face shading flag per vertex (0=no shade, 1=shade)
+  let singleSidedFlags = new Float32Array(INITIAL_VERTEX_COUNT); // Single-sided flag per vertex (0=double-sided, 1=cull backface)
   let indices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
   
   let vertexCount = 0;
@@ -383,6 +384,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let tTexRotations = new Float32Array(INITIAL_VERTEX_COUNT);
   let tTintTypes = new Float32Array(INITIAL_VERTEX_COUNT);
   let tShadeFlags = new Float32Array(INITIAL_VERTEX_COUNT);
+  let tSingleSidedFlags = new Float32Array(INITIAL_VERTEX_COUNT);
   let tIndices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
   
   let tVertexCount = 0;
@@ -840,6 +842,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
               tTexRotations = growArray(tTexRotations, tCapacity);
               tTintTypes = growArray(tTintTypes, tCapacity);
               tShadeFlags = growArray(tShadeFlags, tCapacity);
+              tSingleSidedFlags = growArray(tSingleSidedFlags, tCapacity);
               tIndices = growArrayUint(tIndices, tCapacity * 2);
             }
 
@@ -916,6 +919,12 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             tShadeFlags[tVertexCount + 1] = tShadeValue;
             tShadeFlags[tVertexCount + 2] = tShadeValue;
             tShadeFlags[tVertexCount + 3] = tShadeValue;
+            // Single-sided flag (0 = double-sided, 1 = cull backface)
+            const tSingleSidedValue = cullInfo.singleSided ? 1.0 : 0.0;
+            tSingleSidedFlags[tVertexCount] = tSingleSidedValue;
+            tSingleSidedFlags[tVertexCount + 1] = tSingleSidedValue;
+            tSingleSidedFlags[tVertexCount + 2] = tSingleSidedValue;
+            tSingleSidedFlags[tVertexCount + 3] = tSingleSidedValue;
             
             tVertexCount += 4;
             
@@ -939,6 +948,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
               texRotations = growArray(texRotations, capacity);
               tintTypes = growArray(tintTypes, capacity);
               shadeFlags = growArray(shadeFlags, capacity);
+              singleSidedFlags = growArray(singleSidedFlags, capacity);
               indices = growArrayUint(indices, capacity * 2);
             }
 
@@ -1016,6 +1026,12 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             shadeFlags[vertexCount + 1] = shadeValue;
             shadeFlags[vertexCount + 2] = shadeValue;
             shadeFlags[vertexCount + 3] = shadeValue;
+            // Single-sided flag (0 = double-sided, 1 = cull backface)
+            const singleSidedValue = cullInfo.singleSided ? 1.0 : 0.0;
+            singleSidedFlags[vertexCount] = singleSidedValue;
+            singleSidedFlags[vertexCount + 1] = singleSidedValue;
+            singleSidedFlags[vertexCount + 2] = singleSidedValue;
+            singleSidedFlags[vertexCount + 3] = singleSidedValue;
             
             vertexCount += 4;
             
@@ -1041,6 +1057,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     modelUVs: modelUVs.subarray(0, vertexCount * 2),
     indices: indices.subarray(0, indexCount),
     shadeFlags: shadeFlags.subarray(0, vertexCount),
+    singleSidedFlags: singleSidedFlags.subarray(0, vertexCount),
     vertexCount,
     triangleCount: indexCount / 3,
   } : null;
@@ -1052,6 +1069,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     modelUVs: tModelUVs.subarray(0, tVertexCount * 2),
     indices: tIndices.subarray(0, tIndexCount),
     shadeFlags: tShadeFlags.subarray(0, tVertexCount),
+    singleSidedFlags: tSingleSidedFlags.subarray(0, tVertexCount),
     vertexCount: tVertexCount,
     triangleCount: tIndexCount / 3,
   } : null;

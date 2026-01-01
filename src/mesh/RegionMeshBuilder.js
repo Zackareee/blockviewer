@@ -332,6 +332,11 @@ export class RegionMeshBuilder {
       geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(meshData.shadeFlags, 1));
     }
     
+    // Add single-sided flag if present (for backface culling control in shader)
+    if (meshData.singleSidedFlags) {
+      geometry.setAttribute('singleSided', new THREE.BufferAttribute(meshData.singleSidedFlags, 1));
+    }
+    
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
     geometry.computeBoundingSphere();
     

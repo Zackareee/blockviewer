@@ -332,6 +332,19 @@ class ModelGeometry {
       const sizeX = Math.abs(to[0] - from[0]);
       const sizeY = Math.abs(to[1] - from[1]);
       const sizeZ = Math.abs(to[2] - from[2]);
+      
+      // Check if this is a single-sided thin element (like torch bulb panels)
+      // These are zero-thickness in one axis with only one face defined
+      // In Minecraft, backface culling makes these faces invisible from behind
+      const ZERO_THRESHOLD = 0.001;
+      const isZeroThicknessX = sizeX < ZERO_THRESHOLD;
+      const isZeroThicknessY = sizeY < ZERO_THRESHOLD;
+      const isZeroThicknessZ = sizeZ < ZERO_THRESHOLD;
+      const faceCount = Object.keys(element.faces || {}).length;
+      
+      // Single-sided: zero thickness in one axis AND only 1-2 faces defined
+      // (torch bulbs have 1 face, some thin elements might have 2 opposing faces)
+      const isSingleSidedElement = (isZeroThicknessX || isZeroThicknessY || isZeroThicknessZ) && faceCount <= 2;
 
       // Element-level rotation (optional)
       const elRot = element.rotation;
@@ -629,6 +642,7 @@ class ModelGeometry {
           bounds: faceBounds,
           faceDirection: faceDirection, // Actual direction the face points
           shade: elementShade, // Whether to apply directional face shading
+          singleSided: isSingleSidedElement, // Whether to cull backfaces (torch bulb panels, etc.)
         });
       }
     }
