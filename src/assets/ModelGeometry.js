@@ -508,13 +508,48 @@ class ModelGeometry {
         const uvMap = FACE_UV_MAPPING[faceName];
         const rotSteps = Math.floor(totalUVRotation / 90);
         
+        // Calculate UV dimensions
+        const uWidth = u2 - u1;
+        const vHeight = v2 - v1;
+        
+        // For 90° or 270° rotations, we need to rotate UV coordinates around the center
+        // This handles non-square UV regions (like stair step tops: 8x16)
+        const isOddRotation = (rotSteps === 1 || rotSteps === 3);
+        
         for (let i = 0; i < 4; i++) {
-          // Rotate UV indices: shift vertex mapping by rotation steps
-          const rotatedIdx = (i + rotSteps) % 4;
-          const uWeight = uvMap[rotatedIdx][0];
-          const vWeight = uvMap[rotatedIdx][1];
-          uvs[uvOffset++] = u1 + uWeight * (u2 - u1);
-          uvs[uvOffset++] = v1 + vWeight * (v2 - v1);
+          // Get the base UV weights for this vertex
+          const baseWeights = uvMap[i];
+          let uWeight = baseWeights[0];
+          let vWeight = baseWeights[1];
+          
+          // Apply UV rotation around center (0.5, 0.5)
+          // For each 90° step, rotate: (u,v) -> (v, 1-u)
+          for (let r = 0; r < rotSteps; r++) {
+            const newU = vWeight;
+            const newV = 1 - uWeight;
+            uWeight = newU;
+            vWeight = newV;
+          }
+          
+          // For odd rotations (90°, 270°), the UV space is rotated, so we need to
+          // adjust for non-square UV regions to prevent stretching
+          if (isOddRotation) {
+            // Center of the UV region
+            const uCenter = (u1 + u2) / 2;
+            const vCenter = (v1 + v2) / 2;
+            
+            // Map rotated weights using the swapped dimensions
+            // After 90° rotation, what was horizontal is now vertical
+            const localU = (uWeight - 0.5) * vHeight + uCenter;
+            const localV = (vWeight - 0.5) * uWidth + vCenter;
+            
+            uvs[uvOffset++] = localU;
+            uvs[uvOffset++] = localV;
+          } else {
+            // 0° or 180° rotation - no dimension swap needed
+            uvs[uvOffset++] = u1 + uWeight * uWidth;
+            uvs[uvOffset++] = v1 + vWeight * vHeight;
+          }
         }
 
         // Generate indices (2 triangles) - CCW winding for front faces
