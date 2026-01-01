@@ -7,8 +7,8 @@
 import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, sectionToWorldY, makeSectionKey, parseSectionKey } from './BinaryGrid.js';
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
 import { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT, AXIS_MASK } from './ChunkDecoder.js';
-import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
-import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
+import { isRotatableBlock, getBlockSideOverlay } from '../assets/BlockTextureRegistry.js';
+import { buildFaceTintTypeLookup, TINT_TYPE } from '../data/biomeTinting.js';
 
 const S = 16;
 const S2 = 256;
@@ -38,6 +38,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   const isFluid = new Uint8Array(4096);
   const isGlass = new Uint8Array(4096); // Glass and transparent blocks
   const isRotatable = new Uint8Array(4096); // Blocks that support axis rotation
+  const needsSideOverlay = new Uint8Array(4096); // Blocks with tinted side overlay (grass_block)
+  const sideOverlayTexIdx = new Float32Array(4096); // Overlay texture atlas index
   
   // Build per-face tint type lookup for biome tinting (grass, leaves, etc.)
   // This respects tintindex from block models - e.g. grass_block only tints top face
@@ -63,6 +65,12 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         // Check if this block is rotatable (logs, pillars, etc.)
         if (isRotatableBlock(info.name)) {
           isRotatable[id] = 1;
+        }
+        // Check if this block has a side overlay (grass_block)
+        const overlayPath = getBlockSideOverlay(info.name);
+        if (overlayPath && textureIndexLookup) {
+          needsSideOverlay[id] = 1;
+          sideOverlayTexIdx[id] = textureIndexLookup.getIndexByPath(overlayPath);
         }
       }
     }
@@ -591,6 +599,28 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          
+          // Add tinted overlay for grass block sides (rendered with glass material for proper alpha)
+          if (needsSideOverlay[bid] && ensureCapacity('g', 1)) {
+            const gv = gVC, gpi = gVC * 3;
+            // Same positions as the base face - glass renders after solid so no z-fighting
+            gPos[gpi] = x; gPos[gpi+1] = y; gPos[gpi+2] = z;
+            gPos[gpi+3] = x; gPos[gpi+4] = y + h; gPos[gpi+5] = z;
+            gPos[gpi+6] = x; gPos[gpi+7] = y + h; gPos[gpi+8] = z + w;
+            gPos[gpi+9] = x; gPos[gpi+10] = y; gPos[gpi+11] = z + w;
+            
+            const overlayTexIdx = sideOverlayTexIdx[bid];
+            for (let v = 0; v < 4; v++) {
+              gNorm[gpi + v*3] = 1; gNorm[gpi + v*3 + 1] = 0; gNorm[gpi + v*3 + 2] = 0;
+              gCol[gpi + v*3] = r; gCol[gpi + v*3 + 1] = g; gCol[gpi + v*3 + 2] = b;
+              gTexIdx[gVC + v] = overlayTexIdx;
+              gTexRot[gVC + v] = texRot;
+              gTintType[gVC + v] = TINT_TYPE.GRASS;
+            }
+            gVC += 4;
+            gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+            gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+          }
         }
       }
     }
@@ -677,6 +707,27 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          
+          // Add tinted overlay for grass block sides
+          if (needsSideOverlay[bid] && ensureCapacity('g', 1)) {
+            const gv = gVC, gpi = gVC * 3;
+            gPos[gpi] = x; gPos[gpi+1] = y; gPos[gpi+2] = z + w;
+            gPos[gpi+3] = x; gPos[gpi+4] = y + h; gPos[gpi+5] = z + w;
+            gPos[gpi+6] = x; gPos[gpi+7] = y + h; gPos[gpi+8] = z;
+            gPos[gpi+9] = x; gPos[gpi+10] = y; gPos[gpi+11] = z;
+            
+            const overlayTexIdx = sideOverlayTexIdx[bid];
+            for (let v = 0; v < 4; v++) {
+              gNorm[gpi + v*3] = -1; gNorm[gpi + v*3 + 1] = 0; gNorm[gpi + v*3 + 2] = 0;
+              gCol[gpi + v*3] = r; gCol[gpi + v*3 + 1] = g; gCol[gpi + v*3 + 2] = b;
+              gTexIdx[gVC + v] = overlayTexIdx;
+              gTexRot[gVC + v] = texRot;
+              gTintType[gVC + v] = TINT_TYPE.GRASS;
+            }
+            gVC += 4;
+            gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+            gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+          }
         }
       }
     }
@@ -764,6 +815,27 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          
+          // Add tinted overlay for grass block sides
+          if (needsSideOverlay[bid] && ensureCapacity('g', 1)) {
+            const gv = gVC, gpi = gVC * 3;
+            gPos[gpi] = x; gPos[gpi+1] = y; gPos[gpi+2] = z;
+            gPos[gpi+3] = x + w; gPos[gpi+4] = y; gPos[gpi+5] = z;
+            gPos[gpi+6] = x + w; gPos[gpi+7] = y + h; gPos[gpi+8] = z;
+            gPos[gpi+9] = x; gPos[gpi+10] = y + h; gPos[gpi+11] = z;
+            
+            const overlayTexIdx = sideOverlayTexIdx[bid];
+            for (let v = 0; v < 4; v++) {
+              gNorm[gpi + v*3] = 0; gNorm[gpi + v*3 + 1] = 0; gNorm[gpi + v*3 + 2] = 1;
+              gCol[gpi + v*3] = r; gCol[gpi + v*3 + 1] = g; gCol[gpi + v*3 + 2] = b;
+              gTexIdx[gVC + v] = overlayTexIdx;
+              gTexRot[gVC + v] = texRot;
+              gTintType[gVC + v] = TINT_TYPE.GRASS;
+            }
+            gVC += 4;
+            gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+            gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+          }
         }
       }
     }
@@ -850,6 +922,27 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          
+          // Add tinted overlay for grass block sides
+          if (needsSideOverlay[bid] && ensureCapacity('g', 1)) {
+            const gv = gVC, gpi = gVC * 3;
+            gPos[gpi] = x + w; gPos[gpi+1] = y; gPos[gpi+2] = z;
+            gPos[gpi+3] = x; gPos[gpi+4] = y; gPos[gpi+5] = z;
+            gPos[gpi+6] = x; gPos[gpi+7] = y + h; gPos[gpi+8] = z;
+            gPos[gpi+9] = x + w; gPos[gpi+10] = y + h; gPos[gpi+11] = z;
+            
+            const overlayTexIdx = sideOverlayTexIdx[bid];
+            for (let v = 0; v < 4; v++) {
+              gNorm[gpi + v*3] = 0; gNorm[gpi + v*3 + 1] = 0; gNorm[gpi + v*3 + 2] = -1;
+              gCol[gpi + v*3] = r; gCol[gpi + v*3 + 1] = g; gCol[gpi + v*3 + 2] = b;
+              gTexIdx[gVC + v] = overlayTexIdx;
+              gTexRot[gVC + v] = texRot;
+              gTintType[gVC + v] = TINT_TYPE.GRASS;
+            }
+            gVC += 4;
+            gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
+            gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
+          }
         }
       }
     }

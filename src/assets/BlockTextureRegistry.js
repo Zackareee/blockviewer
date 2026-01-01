@@ -254,7 +254,8 @@ const ROTATABLE_BLOCKS = new Set([
  */
 const MULTIFACE_BLOCKS = {
   // Grass and related
-  'grass_block': { top: 'block/grass_block_top', side: 'block/grass_block_side', bottom: 'block/dirt' },
+  // Note: grass_block has a tinted overlay on side faces rendered separately in FastMesher
+  'grass_block': { top: 'block/grass_block_top', side: 'block/grass_block_side', bottom: 'block/dirt', sideOverlay: 'block/grass_block_side_overlay' },
   'podzol': { top: 'block/podzol_top', side: 'block/podzol_side', bottom: 'block/dirt' },
   'mycelium': { top: 'block/mycelium_top', side: 'block/mycelium_side', bottom: 'block/dirt' },
   'dirt_path': { top: 'block/dirt_path_top', side: 'block/dirt_path_side', bottom: 'block/dirt' },
@@ -695,6 +696,7 @@ export function getBlockTextures(blockName) {
     if (multiface.side) textures.add(multiface.side);
     if (multiface.front) textures.add(multiface.front);
     if (multiface.back) textures.add(multiface.back);
+    if (multiface.sideOverlay) textures.add(multiface.sideOverlay);
   } else if (TEXTURE_MAPPINGS[name]) {
     textures.add(TEXTURE_MAPPINGS[name]);
   } else {
@@ -702,6 +704,21 @@ export function getBlockTextures(blockName) {
   }
   
   return Array.from(textures);
+}
+
+/**
+ * Get the overlay texture path for a block's side faces (if any)
+ * Used for blocks like grass_block that have a tinted overlay on side faces
+ * @param {string} blockName - Block name (with or without minecraft: prefix)
+ * @returns {string|null} Overlay texture path or null if no overlay
+ */
+export function getBlockSideOverlay(blockName) {
+  const name = blockName.replace('minecraft:', '');
+  const multiface = MULTIFACE_BLOCKS[name];
+  if (multiface && multiface.sideOverlay) {
+    return multiface.sideOverlay;
+  }
+  return null;
 }
 
 export default getBlockTexture;
