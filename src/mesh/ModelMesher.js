@@ -1195,7 +1195,8 @@ export const NON_CUBE_PATTERNS = [
   'stonecutter', 'heavy_core', 'dried_ghast',
   
   // Portals (thin panels, not full cubes)
-  'nether_portal', 'end_portal', 'end_gateway',
+  // Note: end_portal and end_gateway use block entity renderers, not block models
+  'nether_portal',
   
   // Path blocks (15 blocks tall, not 16)
   'farmland', 'dirt_path',

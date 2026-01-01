@@ -344,7 +344,10 @@ class ModelGeometry {
         
         // Skip internal faces - faces covered by other elements in the same model
         // This prevents z-fighting seams within multi-element blocks like stairs
-        if (elements.length > 1 && isInternalFace(elementIdx, faceName, from, to)) {
+        // ONLY apply to faces WITH cullface - faces without cullface are meant to always render
+        // (e.g., slime_block's inner cube, honey_block's inner cube)
+        const hasCullface = !!faceData.cullface;
+        if (hasCullface && elements.length > 1 && isInternalFace(elementIdx, faceName, from, to)) {
           continue;
         }
 
