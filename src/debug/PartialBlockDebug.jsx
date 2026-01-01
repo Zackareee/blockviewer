@@ -73,8 +73,8 @@ export default function PartialBlockDebug() {
 
     // Camera - positioned to see stairs section
     const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
-    camera.position.set(6, 8, 28);
-    camera.lookAt(3, 0, 12);
+    camera.position.set(10, 10, 38);
+    camera.lookAt(8, 0, 18);
 
     // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -95,7 +95,7 @@ export default function PartialBlockDebug() {
     scene.add(directionalLight);
 
     // Grid helper - larger to accommodate stairs
-    const gridHelper = new THREE.GridHelper(30, 30, 0x444444, 0x333333);
+    const gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x333333);
     scene.add(gridHelper);
 
     // Axes helper
@@ -255,6 +255,87 @@ export default function PartialBlockDebug() {
 
       // Row 8: Beacon - multi-element block with glass shell, obsidian base, beacon core
       await createBlock(new THREE.Vector3(0, 0, 24), 'block/beacon', 'Beacon', 0x7ec8e3, 0x00ffff, 0, 0);
+
+      // Row 9: Glass pane individual parts
+      await createBlock(new THREE.Vector3(0, 0, 27), 'block/orange_stained_glass_pane_post', 'Post', 0xff8800, 0x00ffff, 0, 0);
+      await createBlock(new THREE.Vector3(2.5, 0, 27), 'block/orange_stained_glass_pane_side', 'Side N', 0xff8800, 0x00ffff, 0, 0);
+      await createBlock(new THREE.Vector3(5, 0, 27), 'block/orange_stained_glass_pane_side', 'Side E', 0xff8800, 0x00ffff, 0, 90);
+      await createBlock(new THREE.Vector3(7.5, 0, 27), 'block/orange_stained_glass_pane_side_alt', 'Side S', 0xff8800, 0x00ffff, 0, 0);
+      await createBlock(new THREE.Vector3(10, 0, 27), 'block/orange_stained_glass_pane_side_alt', 'Side W', 0xff8800, 0x00ffff, 0, 90);
+      await createBlock(new THREE.Vector3(12.5, 0, 27), 'block/orange_stained_glass_pane_noside', 'Cap N', 0xff8800, 0xff0000, 0, 0);
+      await createBlock(new THREE.Vector3(15, 0, 27), 'block/orange_stained_glass_pane_noside_alt', 'Cap E', 0xff8800, 0xff0000, 0, 0);
+
+      // Row 10: Glass pane combinations - manually combining parts
+      // Helper to create combined pane (multiple models at same position)
+      async function createCombinedPane(pos, parts, label) {
+        for (const [model, rotY] of parts) {
+          await createBlock(pos, model, '', 0xff8800, 0x00ffff, 0, rotY);
+        }
+        addLabel(label, pos.clone().add(new THREE.Vector3(0.5, 1.5, 0.5)));
+      }
+
+      // N-S pane (straight line) - needs east/west caps
+      await createCombinedPane(new THREE.Vector3(0, 0, 30), [
+        ['block/orange_stained_glass_pane_post', 0],
+        ['block/orange_stained_glass_pane_side', 0],          // North arm
+        ['block/orange_stained_glass_pane_side_alt', 0],      // South arm
+        ['block/orange_stained_glass_pane_noside_alt', 0],    // East cap (east=false)
+        ['block/orange_stained_glass_pane_noside', 270],      // West cap (west=false)
+      ], 'N-S');
+
+      // E-W pane (straight line) - needs north/south caps
+      await createCombinedPane(new THREE.Vector3(3, 0, 30), [
+        ['block/orange_stained_glass_pane_post', 0],
+        ['block/orange_stained_glass_pane_side', 90],         // East arm
+        ['block/orange_stained_glass_pane_side_alt', 90],     // West arm
+        ['block/orange_stained_glass_pane_noside', 0],        // North cap (north=false)
+        ['block/orange_stained_glass_pane_noside_alt', 90],   // South cap (south=false)
+      ], 'E-W');
+
+      // L-shape N-E - needs south/west caps
+      await createCombinedPane(new THREE.Vector3(6, 0, 30), [
+        ['block/orange_stained_glass_pane_post', 0],
+        ['block/orange_stained_glass_pane_side', 0],          // North arm
+        ['block/orange_stained_glass_pane_side', 90],         // East arm
+        ['block/orange_stained_glass_pane_noside_alt', 90],   // South cap
+        ['block/orange_stained_glass_pane_noside', 270],      // West cap
+      ], 'N-E');
+
+      // L-shape S-W - needs north/east caps
+      await createCombinedPane(new THREE.Vector3(9, 0, 30), [
+        ['block/orange_stained_glass_pane_post', 0],
+        ['block/orange_stained_glass_pane_side_alt', 0],      // South arm
+        ['block/orange_stained_glass_pane_side_alt', 90],     // West arm
+        ['block/orange_stained_glass_pane_noside', 0],        // North cap
+        ['block/orange_stained_glass_pane_noside_alt', 0],    // East cap
+      ], 'S-W');
+
+      // T-shape N-S-E - needs west cap only
+      await createCombinedPane(new THREE.Vector3(12, 0, 30), [
+        ['block/orange_stained_glass_pane_post', 0],
+        ['block/orange_stained_glass_pane_side', 0],          // North arm
+        ['block/orange_stained_glass_pane_side', 90],         // East arm
+        ['block/orange_stained_glass_pane_side_alt', 0],      // South arm
+        ['block/orange_stained_glass_pane_noside', 270],      // West cap
+      ], 'N-S-E');
+
+      // Cross N-S-E-W - no caps needed (all connected)
+      await createCombinedPane(new THREE.Vector3(15, 0, 30), [
+        ['block/orange_stained_glass_pane_post', 0],
+        ['block/orange_stained_glass_pane_side', 0],          // North arm
+        ['block/orange_stained_glass_pane_side', 90],         // East arm
+        ['block/orange_stained_glass_pane_side_alt', 0],      // South arm
+        ['block/orange_stained_glass_pane_side_alt', 90],     // West arm
+      ], 'Cross');
+
+      // Single post only (no connections) - all 4 caps
+      await createCombinedPane(new THREE.Vector3(18, 0, 30), [
+        ['block/orange_stained_glass_pane_post', 0],
+        ['block/orange_stained_glass_pane_noside', 0],        // North cap
+        ['block/orange_stained_glass_pane_noside_alt', 0],    // East cap
+        ['block/orange_stained_glass_pane_noside_alt', 90],   // South cap
+        ['block/orange_stained_glass_pane_noside', 270],      // West cap
+      ], 'Post only');
 
       // Add compass reference for orientation
       addLabel('← West (-X)    North (-Z) ↑', new THREE.Vector3(3.5, 2, -2));

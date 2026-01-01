@@ -59,8 +59,12 @@ const FACE_UV_MAPPING = {
   // For each face, we need to map element-space coords to UV coords
   // The 4 vertices in FACE_VERTICES use [0,1] template coords
   // We map these to [u1,v1] -> [u2,v2] from the model's uv spec
-  // Standard mapping: vertex template [x, y] maps to UV based on face orientation
-  down:  [[0, 1], [1, 1], [1, 0], [0, 0]],  // Y- face: X→U, Z→V
+  // 
+  // Minecraft's UV mapping accounts for face orientation in how it maps element
+  // corners to UV coordinates. For 'down', Minecraft already swaps the Z-to-UV
+  // mapping compared to 'up' in the model format, so both faces use the same
+  // weight mapping here (the model's UV specification handles the difference).
+  down:  [[0, 0], [1, 0], [1, 1], [0, 1]],  // Y- face: matches 'up' - model UV handles orientation
   up:    [[0, 0], [1, 0], [1, 1], [0, 1]],  // Y+ face: X→U, Z→V 
   north: [[1, 0], [0, 0], [0, 1], [1, 1]],  // Z- face: X→U (flipped), Y→V
   south: [[0, 0], [1, 0], [1, 1], [0, 1]],  // Z+ face: X→U, Y→V
