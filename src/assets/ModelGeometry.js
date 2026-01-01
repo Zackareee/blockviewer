@@ -179,6 +179,19 @@ class ModelGeometry {
         
         const other = elementBounds[otherIdx];
         
+        // Skip comparison with elements that have the same or similar bounds
+        // This handles candle wicks, sea pickle stems, etc. where multiple elements
+        // have identical from/to but different rotations
+        const thisBounds = elementBounds[elementIdx];
+        const boundsMatch = 
+          Math.abs(other.minX - thisBounds.minX) < EPSILON &&
+          Math.abs(other.maxX - thisBounds.maxX) < EPSILON &&
+          Math.abs(other.minY - thisBounds.minY) < EPSILON &&
+          Math.abs(other.maxY - thisBounds.maxY) < EPSILON &&
+          Math.abs(other.minZ - thisBounds.minZ) < EPSILON &&
+          Math.abs(other.maxZ - thisBounds.maxZ) < EPSILON;
+        if (boundsMatch) continue;
+        
         switch (faceName) {
           case 'up': { // This element's top face (at to[1])
             const faceY = to[1];
