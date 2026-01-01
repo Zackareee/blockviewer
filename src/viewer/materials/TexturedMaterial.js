@@ -65,13 +65,17 @@ uniform vec2 uBorderUV;          // Border offset in UV space (1px)
 #define TINT_SPRUCE 3
 #define TINT_BIRCH 4
 #define TINT_WATER 5
+#define TINT_REDSTONE 6
 #define TINT_DRY_FOLIAGE 7
+#define TINT_STEM 8
 
 // Fixed tint colors (RGB 0-1)
 const vec3 SPRUCE_TINT = vec3(0.380, 0.600, 0.380);   // #619961
 const vec3 BIRCH_TINT = vec3(0.502, 0.655, 0.333);    // #80a755
 const vec3 WATER_TINT = vec3(0.247, 0.463, 0.894);    // #3F76E4
+const vec3 REDSTONE_TINT = vec3(0.918, 0.000, 0.000); // #EA0000 (powered redstone red)
 const vec3 DRY_FOLIAGE_TINT = vec3(0.667, 0.580, 0.439); // #AB9470
+const vec3 STEM_TINT = vec3(0.455, 0.698, 0.196);    // #74b232 (mature stem green)
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -119,21 +123,38 @@ vec2 rotateUV(vec2 uv, float rotation) {
 }
 
 // Sample the biome colormap to get tint color
-// Colormap is 256x512: grass (0-255), foliage (256-511)
-// UV coordinates: use center of colormap for default "plains" biome look
+// Colormap is 256x512: grass (0-255 in source), foliage (256-511 in source)
+// In our combined texture: grass at Y: 0.0-0.5, foliage at Y: 0.5-1.0
+//
+// Minecraft colormap sampling formula:
+// adjustedTemp = clamp(temperature, 0.0, 1.0)
+// adjustedDownfall = clamp(downfall, 0.0, 1.0) * adjustedTemp
+// x = (1.0 - adjustedTemp) * 255
+// y = (1.0 - adjustedDownfall) * 255
+//
+// Plains biome: temp=0.8, downfall=0.4
+// adjustedTemp = 0.8, adjustedDownfall = 0.32
+// x = 0.2 * 255 = 51, y = 0.68 * 255 = 173
+// normalized: (0.2, 0.68)
 vec3 sampleColormap(int tintType) {
-  // Default sampling position (plains-like biome - middle of colormap for nice green)
-  vec2 uv = vec2(0.5, 0.25); // Middle of grass section (top half)
+  // Plains biome sampling position (temp=0.8, downfall=0.4)
+  float temp = 0.8;
+  float downfall = 0.4;
+  float adjustedDownfall = downfall * temp;
+  
+  // Calculate colormap UV from biome parameters
+  float u = 1.0 - temp;        // X: 0 = hot (right), 1 = cold (left)
+  float v = 1.0 - adjustedDownfall; // Y: 0 = wet (bottom), 1 = dry (top)
   
   if (tintType == TINT_GRASS) {
     // Grass colormap is in top half (y: 0.0 to 0.5)
-    uv = vec2(0.5, 0.25);
+    return texture2D(uColormap, vec2(u, v * 0.5)).rgb;
   } else if (tintType == TINT_FOLIAGE) {
     // Foliage colormap is in bottom half (y: 0.5 to 1.0)
-    uv = vec2(0.5, 0.75);
+    return texture2D(uColormap, vec2(u, 0.5 + v * 0.5)).rgb;
   }
   
-  return texture2D(uColormap, uv).rgb;
+  return vec3(1.0);
 }
 
 // Get the biome tint color for the current fragment
@@ -148,8 +169,12 @@ vec3 getBiomeTint(int tintType) {
     return BIRCH_TINT;
   } else if (tintType == TINT_WATER) {
     return WATER_TINT;
+  } else if (tintType == TINT_REDSTONE) {
+    return REDSTONE_TINT;
   } else if (tintType == TINT_DRY_FOLIAGE) {
     return DRY_FOLIAGE_TINT;
+  } else if (tintType == TINT_STEM) {
+    return STEM_TINT;
   }
   return vec3(1.0);
 }
@@ -502,13 +527,17 @@ uniform vec2 uBorderUV;          // Border offset in UV space (1px)
 #define TINT_SPRUCE 3
 #define TINT_BIRCH 4
 #define TINT_WATER 5
+#define TINT_REDSTONE 6
 #define TINT_DRY_FOLIAGE 7
+#define TINT_STEM 8
 
 // Fixed tint colors
 const vec3 SPRUCE_TINT = vec3(0.380, 0.600, 0.380);
 const vec3 BIRCH_TINT = vec3(0.502, 0.655, 0.333);
 const vec3 WATER_TINT = vec3(0.247, 0.463, 0.894);
+const vec3 REDSTONE_TINT = vec3(0.918, 0.000, 0.000);
 const vec3 DRY_FOLIAGE_TINT = vec3(0.667, 0.580, 0.439);
+const vec3 STEM_TINT = vec3(0.455, 0.698, 0.196);
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -546,15 +575,22 @@ vec2 rotateUV(vec2 uv, float rotation) {
   return clamp(centered + 0.5, 0.0, 1.0);
 }
 
-// Sample biome colormap
+// Sample biome colormap using Minecraft's formula
+// Plains biome: temp=0.8, downfall=0.4
 vec3 sampleColormap(int tintType) {
-  vec2 uv = vec2(0.5, 0.25);
+  float temp = 0.8;
+  float downfall = 0.4;
+  float adjustedDownfall = downfall * temp;
+  
+  float u = 1.0 - temp;
+  float v = 1.0 - adjustedDownfall;
+  
   if (tintType == TINT_GRASS) {
-    uv = vec2(0.5, 0.25);
+    return texture2D(uColormap, vec2(u, v * 0.5)).rgb;
   } else if (tintType == TINT_FOLIAGE) {
-    uv = vec2(0.5, 0.75);
+    return texture2D(uColormap, vec2(u, 0.5 + v * 0.5)).rgb;
   }
-  return texture2D(uColormap, uv).rgb;
+  return vec3(1.0);
 }
 
 // Get biome tint color
@@ -569,8 +605,12 @@ vec3 getBiomeTint(int tintType) {
     return BIRCH_TINT;
   } else if (tintType == TINT_WATER) {
     return WATER_TINT;
+  } else if (tintType == TINT_REDSTONE) {
+    return REDSTONE_TINT;
   } else if (tintType == TINT_DRY_FOLIAGE) {
     return DRY_FOLIAGE_TINT;
+  } else if (tintType == TINT_STEM) {
+    return STEM_TINT;
   }
   return vec3(1.0);
 }

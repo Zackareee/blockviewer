@@ -28,7 +28,8 @@ export const TINT_TYPE = {
   BIRCH: 4,          // Fixed birch leaves color
   WATER: 5,          // Water tint
   REDSTONE: 6,       // Redstone wire (intensity-based)
-  DRY_FOLIAGE: 7,    // Pale garden dead foliage
+  DRY_FOLIAGE: 7,    // Pale garden dead foliage (dry_foliage.png)
+  STEM: 8,           // Pumpkin/melon stem (fixed green, varies by growth in MC)
 };
 
 // Fixed tint colors for specific block types (RGB 0-1)
@@ -36,7 +37,9 @@ export const FIXED_TINT_COLORS = {
   [TINT_TYPE.SPRUCE]: { r: 0.380, g: 0.600, b: 0.380 },    // #619961
   [TINT_TYPE.BIRCH]: { r: 0.502, g: 0.655, b: 0.333 },     // #80a755
   [TINT_TYPE.WATER]: { r: 0.247, g: 0.463, b: 0.894 },     // #3F76E4
+  [TINT_TYPE.REDSTONE]: { r: 0.918, g: 0.000, b: 0.000 },  // #EA0000 (powered redstone red)
   [TINT_TYPE.DRY_FOLIAGE]: { r: 0.667, g: 0.580, b: 0.439 }, // #AB9470
+  [TINT_TYPE.STEM]: { r: 0.455, g: 0.698, b: 0.196 },      // #74b232 (mature stem green)
 };
 
 // Default biome color sampling coordinates (Plains biome)
@@ -51,14 +54,21 @@ export const DEFAULT_BIOME_UV = {
 };
 
 // Block names that need grass colormap tinting
+// These use the grass.png colormap based on biome temperature/humidity
 const GRASS_TINTED_BLOCKS = new Set([
+  // Grass blocks
   'minecraft:grass_block',
   'minecraft:short_grass',
   'minecraft:tall_grass',
+  // Sugar cane
   'minecraft:sugar_cane',
+  // Potted grass (uses grass colormap)
+  'minecraft:potted_short_grass',
+  'minecraft:potted_tall_grass',
 ]);
 
 // Block names that need foliage colormap tinting
+// These use the foliage.png colormap based on biome temperature/humidity
 // Note: Cherry, Azalea, and Flowering Azalea leaves do NOT use biome tinting
 // - they have their own colors in the texture
 const FOLIAGE_TINTED_BLOCKS = new Set([
@@ -72,7 +82,7 @@ const FOLIAGE_TINTED_BLOCKS = new Set([
   'minecraft:dark_oak_leaves',
   // Mangrove leaves
   'minecraft:mangrove_leaves',
-  // Vines
+  // Vines (overworld only - not nether vines)
   'minecraft:vine',
   // Ferns (use foliage colormap, not grass)
   'minecraft:fern',
@@ -82,6 +92,13 @@ const FOLIAGE_TINTED_BLOCKS = new Set([
   'minecraft:leaf_litter',
   // Lily pad
   'minecraft:lily_pad',
+  // Seagrass (underwater plants)
+  'minecraft:seagrass',
+  'minecraft:tall_seagrass',
+  // Bamboo leaves
+  'minecraft:bamboo',
+  // Pink petals (stems are tinted, flowers are not)
+  'minecraft:pink_petals',
 ]);
 
 // Block names with fixed spruce tint
@@ -95,18 +112,41 @@ const BIRCH_TINTED_BLOCKS = new Set([
 ]);
 
 // Block names with water tint
+// These use a fixed water color (varies by biome in actual Minecraft)
 const WATER_TINTED_BLOCKS = new Set([
   'minecraft:water',
   'minecraft:bubble_column',
   'minecraft:water_cauldron',
+  // Note: kelp and other underwater plants do NOT use water tint
 ]);
 
-// Block names with dry foliage tint (pale garden)
+// Block names with dry foliage tint (pale garden biome)
+// These use the dry_foliage.png colormap
 const DRY_FOLIAGE_TINTED_BLOCKS = new Set([
   'minecraft:pale_oak_leaves',
   'minecraft:pale_moss_block',
   'minecraft:pale_moss_carpet',
   'minecraft:pale_hanging_moss',
+  // Dry grass variants (1.21+)
+  'minecraft:short_dry_grass',
+  'minecraft:tall_dry_grass',
+]);
+
+// Block names with stem tint (pumpkin/melon stems)
+// These have a special green-to-brown/orange gradient based on growth stage
+// For now, we use a fixed green color matching mature stems
+const STEM_TINTED_BLOCKS = new Set([
+  'minecraft:pumpkin_stem',
+  'minecraft:melon_stem',
+  'minecraft:attached_pumpkin_stem',
+  'minecraft:attached_melon_stem',
+]);
+
+// Block names with redstone tint (intensity-based red)
+// Color varies from dark red (power=0) to bright red (power=15)
+// For now, we use a medium-powered red color
+const REDSTONE_TINTED_BLOCKS = new Set([
+  'minecraft:redstone_wire',
 ]);
 
 /**
@@ -123,7 +163,9 @@ export function getBlockTintType(blockName) {
   if (SPRUCE_TINTED_BLOCKS.has(blockName)) return TINT_TYPE.SPRUCE;
   if (BIRCH_TINTED_BLOCKS.has(blockName)) return TINT_TYPE.BIRCH;
   if (WATER_TINTED_BLOCKS.has(blockName)) return TINT_TYPE.WATER;
+  if (REDSTONE_TINTED_BLOCKS.has(blockName)) return TINT_TYPE.REDSTONE;
   if (DRY_FOLIAGE_TINTED_BLOCKS.has(blockName)) return TINT_TYPE.DRY_FOLIAGE;
+  if (STEM_TINTED_BLOCKS.has(blockName)) return TINT_TYPE.STEM;
   
   return TINT_TYPE.NONE;
 }
