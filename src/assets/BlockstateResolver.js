@@ -75,7 +75,12 @@ class BlockstateResolver {
    */
   async getBlockstate(blockName) {
     // Normalize: "minecraft:stone" → "stone"
-    const normalized = blockName.replace('minecraft:', '');
+    let normalized = blockName.replace('minecraft:', '');
+    
+    // Apply legacy renames for blocks renamed in Minecraft 1.21+
+    if (LEGACY_BLOCK_RENAMES[normalized]) {
+      normalized = LEGACY_BLOCK_RENAMES[normalized];
+    }
 
     if (this.blockstates.has(normalized)) {
       return this.blockstates.get(normalized);
