@@ -465,6 +465,7 @@ export class BlockRegistry {
       'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
       'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
       'snow',                              // Snow layers (not snow_block)
+      'chain',                             // Old name (pre-1.21) - still in old worlds
       'iron_chain',                        // Iron chain (renamed from 'chain' in 1.21)
       'copper_chain',                      // Copper chain variants
       'exposed_copper_chain',

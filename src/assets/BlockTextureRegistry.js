@@ -1368,7 +1368,8 @@ const TEXTURE_MAPPINGS = {
   'attached_melon_stem': 'block/attached_melon_stem',
   'attached_pumpkin_stem': 'block/attached_pumpkin_stem',
   
-  // Iron chain
+  // Iron chain (also old name 'chain' for backwards compatibility)
+  'chain': 'block/iron_chain',
   'iron_chain': 'block/iron_chain',
   
   // Kelp
