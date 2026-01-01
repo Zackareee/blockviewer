@@ -166,9 +166,11 @@ class ModelGeometry {
       maxX: el.to[0] / 16, maxY: el.to[1] / 16, maxZ: el.to[2] / 16,
     }));
     
-    // Helper to check if a face is FULLY covered by another element
-    // A face is internal if another element's opposite face is at the same position
-    // AND completely encompasses this face (not just partially overlaps)
+    // Helper to check if a face is internal (hidden by other elements)
+    // Detection methods:
+    // 1. Face-to-face: another element's opposite face at same position fully covers this face
+    // 2. Volume (strict): face is entirely inside another element's volume
+    // 3. Touching volume: face is at the boundary of another element and covered by it
     const isInternalFace = (elementIdx, faceName, from, to) => {
       const EPSILON = 0.001;
       
@@ -177,60 +179,106 @@ class ModelGeometry {
         
         const other = elementBounds[otherIdx];
         
-        // Check each face direction - other element must FULLY cover this face
         switch (faceName) {
-          case 'up': // This element's top face (at to[1])
-            // Covered if another element's bottom is at the same Y and FULLY covers in X/Z
-            if (Math.abs(other.minY - to[1]) < EPSILON) {
-              // Other must fully encompass this face's X/Z extent
+          case 'up': { // This element's top face (at to[1])
+            const faceY = to[1];
+            // Face-to-face: another element's bottom at same Y, fully covers
+            if (Math.abs(other.minY - faceY) < EPSILON) {
+              if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
+                  other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
+                return true;
+              }
+            }
+            // Volume: face at or inside other's Y range, other covers face's X/Z
+            if (faceY >= other.minY - EPSILON && faceY < other.maxY - EPSILON) {
               if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
                   other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
                 return true;
               }
             }
             break;
-          case 'down': // This element's bottom face (at from[1])
-            // Covered if another element's top is at the same Y and FULLY covers
-            if (Math.abs(other.maxY - from[1]) < EPSILON) {
+          }
+          case 'down': { // This element's bottom face (at from[1])
+            const faceY = from[1];
+            if (Math.abs(other.maxY - faceY) < EPSILON) {
+              if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
+                  other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
+                return true;
+              }
+            }
+            // Volume: face at or inside other's Y range
+            if (faceY > other.minY + EPSILON && faceY <= other.maxY + EPSILON) {
               if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
                   other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
                 return true;
               }
             }
             break;
-          case 'east': // This element's +X face (at to[0])
-            if (Math.abs(other.minX - to[0]) < EPSILON) {
-              // Other must fully cover this face's Y/Z extent
+          }
+          case 'east': { // This element's +X face (at to[0])
+            const faceX = to[0];
+            if (Math.abs(other.minX - faceX) < EPSILON) {
+              if (other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON &&
+                  other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
+                return true;
+              }
+            }
+            if (faceX >= other.minX - EPSILON && faceX < other.maxX - EPSILON) {
               if (other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON &&
                   other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
                 return true;
               }
             }
             break;
-          case 'west': // This element's -X face (at from[0])
-            if (Math.abs(other.maxX - from[0]) < EPSILON) {
+          }
+          case 'west': { // This element's -X face (at from[0])
+            const faceX = from[0];
+            if (Math.abs(other.maxX - faceX) < EPSILON) {
+              if (other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON &&
+                  other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
+                return true;
+              }
+            }
+            if (faceX > other.minX + EPSILON && faceX <= other.maxX + EPSILON) {
               if (other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON &&
                   other.minZ <= from[2] + EPSILON && other.maxZ >= to[2] - EPSILON) {
                 return true;
               }
             }
             break;
-          case 'south': // This element's +Z face (at to[2])
-            if (Math.abs(other.minZ - to[2]) < EPSILON) {
+          }
+          case 'south': { // This element's +Z face (at to[2])
+            const faceZ = to[2];
+            if (Math.abs(other.minZ - faceZ) < EPSILON) {
+              if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
+                  other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON) {
+                return true;
+              }
+            }
+            if (faceZ >= other.minZ - EPSILON && faceZ < other.maxZ - EPSILON) {
               if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
                   other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON) {
                 return true;
               }
             }
             break;
-          case 'north': // This element's -Z face (at from[2])
-            if (Math.abs(other.maxZ - from[2]) < EPSILON) {
+          }
+          case 'north': { // This element's -Z face (at from[2])
+            const faceZ = from[2];
+            if (Math.abs(other.maxZ - faceZ) < EPSILON) {
+              if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
+                  other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON) {
+                return true;
+              }
+            }
+            if (faceZ > other.minZ + EPSILON && faceZ <= other.maxZ + EPSILON) {
               if (other.minX <= from[0] + EPSILON && other.maxX >= to[0] - EPSILON &&
                   other.minY <= from[1] + EPSILON && other.maxY >= to[1] - EPSILON) {
                 return true;
               }
             }
             break;
+          }
         }
       }
       return false;
