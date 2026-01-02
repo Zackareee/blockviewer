@@ -1,0 +1,37 @@
+{
+  "credit": "Extracted from Minecraft 1.21.11 ShulkerModel.java - createBoxLayer()",
+  "texture_size": [64, 64],
+  "textures": {
+    "texture": "minecraft:entity/shulker/shulker",
+    "particle": "minecraft:block/purpur_block"
+  },
+  "elements": [
+    {
+      "__comment": "Lid - addBox(-8.0, -16.0, -8.0, 16.0, 12.0, 16.0) texOffs(0, 0) offset(0, 24, 0)",
+      "from": [0, 4, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "north": {"uv": [4, 4, 8, 7], "texture": "#texture"},
+        "east":  {"uv": [0, 4, 4, 7], "texture": "#texture"},
+        "south": {"uv": [12, 4, 16, 7], "texture": "#texture"},
+        "west":  {"uv": [8, 4, 12, 7], "texture": "#texture"},
+        "up":    {"uv": [8, 0, 4, 4], "texture": "#texture"},
+        "down":  {"uv": [12, 0, 8, 4], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Base - addBox(-8.0, -8.0, -8.0, 16.0, 8.0, 16.0) texOffs(0, 28) offset(0, 24, 0)",
+      "from": [0, 0, 0],
+      "to": [16, 8, 16],
+      "faces": {
+        "north": {"uv": [4, 11, 8, 13], "texture": "#texture"},
+        "east":  {"uv": [0, 11, 4, 13], "texture": "#texture"},
+        "south": {"uv": [12, 11, 16, 13], "texture": "#texture"},
+        "west":  {"uv": [8, 11, 12, 13], "texture": "#texture"},
+        "up":    {"uv": [8, 7, 4, 11], "texture": "#texture"},
+        "down":  {"uv": [12, 7, 8, 11], "texture": "#texture"}
+      }
+    }
+  ]
+}
+

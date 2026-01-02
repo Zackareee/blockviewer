@@ -1,0 +1,24 @@
+{
+  "credit": "Extracted from Minecraft 1.21.11 SkullModel.java - createMobHeadLayer()",
+  "texture_size": [64, 32],
+  "textures": {
+    "texture": "minecraft:entity/skeleton/skeleton",
+    "particle": "minecraft:block/soul_sand"
+  },
+  "elements": [
+    {
+      "__comment": "Head - addBox(-4.0, -8.0, -4.0, 8.0, 8.0, 8.0) texOffs(0, 0)",
+      "from": [4, 0, 4],
+      "to": [12, 8, 12],
+      "faces": {
+        "north": {"uv": [2, 4, 4, 8], "texture": "#texture"},
+        "east":  {"uv": [0, 4, 2, 8], "texture": "#texture"},
+        "south": {"uv": [6, 4, 8, 8], "texture": "#texture"},
+        "west":  {"uv": [4, 4, 6, 8], "texture": "#texture"},
+        "up":    {"uv": [4, 0, 2, 2], "texture": "#texture"},
+        "down":  {"uv": [6, 0, 4, 2], "texture": "#texture"}
+      }
+    }
+  ]
+}
+

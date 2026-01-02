@@ -849,6 +849,16 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
   return material;
 }
 
+/**
+ * Toggle lightmap usage on a material
+ * @param {THREE.ShaderMaterial} material - The material to update
+ * @param {boolean} enabled - Whether to use lightmap (true) or fixed face shading (false)
+ */
+export function setMaterialLightingEnabled(material, enabled) {
+  if (material && material.uniforms && material.uniforms.uUseLightmap) {
+    material.uniforms.uUseLightmap.value = enabled ? 1.0 : 0.0;
+    material.needsUpdate = true;
+  }
+}
+
 export default createTexturedMaterial;
-
-

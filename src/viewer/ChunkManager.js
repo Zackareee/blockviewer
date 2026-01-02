@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { createGlassMaterial } from './materials/GlassMaterial';
-import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode } from './materials/TexturedMaterial';
+import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled } from './materials/TexturedMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
@@ -172,6 +172,19 @@ export class ChunkManager {
     setMaterialTextureMode(this.overlayModelMaterial, useTextures);
     
     console.log(`[ChunkManager] Texture mode: ${mode}, using textures: ${useTextures}`);
+  }
+  
+  /**
+   * Enable or disable lightmap-based lighting on all materials
+   * @param {boolean} enabled - true = use lightmap, false = use fixed face shading
+   */
+  setLightingEnabled(enabled) {
+    setMaterialLightingEnabled(this.solidMaterial, enabled);
+    setMaterialLightingEnabled(this.glassMaterial, enabled);
+    setMaterialLightingEnabled(this.modelMaterial, enabled);
+    setMaterialLightingEnabled(this.transparentModelMaterial, enabled);
+    setMaterialLightingEnabled(this.overlayModelMaterial, enabled);
+    console.log(`[ChunkManager] Lighting: ${enabled ? 'enabled' : 'disabled'}`);
   }
   
   /**

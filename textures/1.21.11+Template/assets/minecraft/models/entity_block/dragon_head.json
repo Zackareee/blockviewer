@@ -1,0 +1,50 @@
+{
+  "credit": "Extracted from Minecraft 1.21.11 DragonHeadModel.java - createHeadLayer()",
+  "texture_size": [256, 256],
+  "textures": {
+    "texture": "minecraft:entity/enderdragon/dragon",
+    "particle": "minecraft:block/obsidian"
+  },
+  "elements": [
+    {
+      "__comment": "Upper head - addBox(-8.0, -8.0, -10.0, 16, 16, 16) texOffs(112, 30) scaled 0.75",
+      "from": [2, 0, 0.5],
+      "to": [14, 12, 12.5],
+      "faces": {
+        "north": {"uv": [47, 17.5, 53.25, 23.75], "texture": "#texture"},
+        "east":  {"uv": [43.75, 17.5, 50, 23.75], "texture": "#texture"},
+        "south": {"uv": [56.5, 17.5, 62.75, 23.75], "texture": "#texture"},
+        "west":  {"uv": [50, 17.5, 56.25, 23.75], "texture": "#texture"},
+        "up":    {"uv": [50, 11.75, 43.75, 17.5], "texture": "#texture"},
+        "down":  {"uv": [56.25, 11.75, 50, 17.5], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Upper lip/snout - addBox(-6.0, -1.0, -24.0, 12, 5, 16) texOffs(176, 44) scaled 0.75",
+      "from": [3.5, 5.25, -10],
+      "to": [12.5, 9, 2],
+      "faces": {
+        "north": {"uv": [73.5, 21.5, 78, 23.4375], "texture": "#texture"},
+        "east":  {"uv": [69, 21.5, 75, 23.4375], "texture": "#texture"},
+        "south": {"uv": [84, 21.5, 88.5, 23.4375], "texture": "#texture"},
+        "west":  {"uv": [78, 21.5, 84, 23.4375], "texture": "#texture"},
+        "up":    {"uv": [78, 17.25, 73.5, 23.25], "texture": "#texture"},
+        "down":  {"uv": [82.5, 17.25, 78, 23.25], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Jaw - addBox(-6.0, 0.0, -16.0, 12.0, 4.0, 16.0) texOffs(176, 65) offset(0, 4, -8) scaled 0.75",
+      "from": [3.5, 2, -4],
+      "to": [12.5, 5, 8],
+      "faces": {
+        "north": {"uv": [73.5, 29.5, 78, 31], "texture": "#texture"},
+        "east":  {"uv": [69, 29.5, 73.5, 31], "texture": "#texture"},
+        "south": {"uv": [82.5, 29.5, 87, 31], "texture": "#texture"},
+        "west":  {"uv": [78, 29.5, 82.5, 31], "texture": "#texture"},
+        "up":    {"uv": [78, 25.5, 73.5, 29.5], "texture": "#texture"},
+        "down":  {"uv": [82.5, 25.5, 78, 29.5], "texture": "#texture"}
+      }
+    }
+  ]
+}
+

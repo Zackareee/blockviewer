@@ -37,6 +37,9 @@ function App() {
   // Model meshes toggle (non-cube blocks like slabs, stairs, flowers)
   const [enableModelMeshes, setEnableModelMeshes] = useState(true);
   
+  // Lighting toggle (lightmap-based lighting vs fixed face shading)
+  const [enableLighting, setEnableLighting] = useState(true);
+  
   // Debug mode - shows block info on hover
   const [debugMode, setDebugMode] = useState(false);
   const [hoveredBlock, setHoveredBlock] = useState(null);
@@ -354,6 +357,7 @@ function App() {
             parseRegion={parseMCAFile}
             onBuildProgress={handleBuildProgress}
             enableModelMeshes={enableModelMeshes}
+            enableLighting={enableLighting}
             debugMode={debugMode}
             onBlockHover={debugMode ? setHoveredBlock : null}
             onCameraUpdate={handleCameraUpdate}
@@ -572,6 +576,18 @@ function App() {
               Partial Blocks
             </span>
             <span className="toggle-hint">Slabs, stairs, fences, flowers, etc.</span>
+          </label>
+          <label className="toggle-option" style={{ marginTop: '0.5rem' }}>
+            <input 
+              type="checkbox"
+              checked={enableLighting}
+              onChange={(e) => setEnableLighting(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">{enableLighting ? '💡' : '🌙'}</span>
+              Lighting
+            </span>
+            <span className="toggle-hint">Smooth lighting and ambient occlusion</span>
           </label>
           <label className="toggle-option" style={{ marginTop: '0.5rem' }}>
             <input 

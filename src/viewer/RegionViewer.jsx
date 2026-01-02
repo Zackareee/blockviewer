@@ -521,6 +521,15 @@ function RegionScene({
     invalidate(); // Re-render to show/hide model meshes
   }, [enableModelMeshes, invalidate]);
 
+  // Toggle lighting (lightmap vs fixed face shading)
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager) return;
+    
+    manager.setLightingEnabled(enableLighting);
+    invalidate(); // Re-render with new lighting mode
+  }, [enableLighting, invalidate]);
+
   // Position camera at a specific target (updates initial position for SpectatorControls)
   const positionCameraAt = useCallback((cx, cy, cz, chunkCount = 100) => {
     // Position camera above and to the side of the center
@@ -589,6 +598,7 @@ export function RegionViewer({
   parseRegion,
   enableLOD = true,
   enableModelMeshes = true,
+  enableLighting = true,
   onBuildProgress = null,
   enablePerformanceMonitor = true,
   debugMode = false,

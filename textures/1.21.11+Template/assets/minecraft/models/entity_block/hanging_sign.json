@@ -1,0 +1,77 @@
+{
+  "credit": "Extracted from Minecraft 1.21.11 HangingSignRenderer.java - createHangingSignLayer()",
+  "texture_size": [64, 32],
+  "textures": {
+    "texture": "minecraft:entity/signs/hanging/oak",
+    "particle": "minecraft:block/oak_planks"
+  },
+  "elements": [
+    {
+      "__comment": "Board - addBox(-7.0, 0.0, -1.0, 14.0, 10.0, 2.0) texOffs(0, 12)",
+      "from": [1, 0, 7],
+      "to": [15, 10, 9],
+      "faces": {
+        "north": {"uv": [0.5, 7, 4, 9.5], "texture": "#texture"},
+        "east":  {"uv": [0, 7, 0.5, 9.5], "texture": "#texture"},
+        "south": {"uv": [4.5, 7, 8, 9.5], "texture": "#texture"},
+        "west":  {"uv": [4, 7, 4.5, 9.5], "texture": "#texture"},
+        "up":    {"uv": [4, 6.5, 0.5, 7], "texture": "#texture"},
+        "down":  {"uv": [7.5, 6.5, 4, 7], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Plank (wall attachment) - addBox(-8.0, -6.0, -2.0, 16.0, 2.0, 4.0) texOffs(0, 0)",
+      "from": [0, 10, 6],
+      "to": [16, 12, 10],
+      "faces": {
+        "north": {"uv": [1, 1, 5, 1.5], "texture": "#texture"},
+        "east":  {"uv": [0, 1, 1, 1.5], "texture": "#texture"},
+        "south": {"uv": [6, 1, 10, 1.5], "texture": "#texture"},
+        "west":  {"uv": [5, 1, 6, 1.5], "texture": "#texture"},
+        "up":    {"uv": [5, 0, 1, 1], "texture": "#texture"},
+        "down":  {"uv": [9, 0, 5, 1], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Chain L1 - addBox(-1.5, 0.0, 0.0, 3.0, 6.0, 0.0) rotated 45deg",
+      "from": [2.5, 10, 7.9],
+      "to": [5.5, 16, 8.1],
+      "rotation": {"angle": -45, "axis": "y", "origin": [3, 13, 8]},
+      "faces": {
+        "north": {"uv": [0, 3, 0.75, 4.5], "texture": "#texture"},
+        "south": {"uv": [0.75, 3, 1.5, 4.5], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Chain L2 - addBox(-1.5, 0.0, 0.0, 3.0, 6.0, 0.0) rotated -45deg",
+      "from": [2.5, 10, 7.9],
+      "to": [5.5, 16, 8.1],
+      "rotation": {"angle": 45, "axis": "y", "origin": [3, 13, 8]},
+      "faces": {
+        "north": {"uv": [1.5, 3, 2.25, 4.5], "texture": "#texture"},
+        "south": {"uv": [2.25, 3, 3, 4.5], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Chain R1 - addBox(-1.5, 0.0, 0.0, 3.0, 6.0, 0.0) rotated 45deg",
+      "from": [10.5, 10, 7.9],
+      "to": [13.5, 16, 8.1],
+      "rotation": {"angle": -45, "axis": "y", "origin": [13, 13, 8]},
+      "faces": {
+        "north": {"uv": [0, 3, 0.75, 4.5], "texture": "#texture"},
+        "south": {"uv": [0.75, 3, 1.5, 4.5], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Chain R2 - addBox(-1.5, 0.0, 0.0, 3.0, 6.0, 0.0) rotated -45deg",
+      "from": [10.5, 10, 7.9],
+      "to": [13.5, 16, 8.1],
+      "rotation": {"angle": 45, "axis": "y", "origin": [13, 13, 8]},
+      "faces": {
+        "north": {"uv": [1.5, 3, 2.25, 4.5], "texture": "#texture"},
+        "south": {"uv": [2.25, 3, 3, 4.5], "texture": "#texture"}
+      }
+    }
+  ]
+}
+
