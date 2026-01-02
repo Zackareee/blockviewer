@@ -1265,9 +1265,10 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             indices[indexCount + 5] = dstVertexStart + 2;
             indexCount += 6;
             
-            // For double-sided faces (NOT singleSided), emit backface with reversed winding
+            // For cross-model plants (shade: false), emit backface with reversed winding
             // This allows using FrontSide material which is much faster than DoubleSide
-            if (!cullInfo.singleSided) {
+            // Only cross-model elements need backfaces - opaque blocks like slabs/stairs don't
+            if (!cullInfo.singleSided && cullInfo.shade === false) {
               // Ensure capacity for backface indices
               if (indexCount + 6 > indices.length) {
                 indices = growArrayUint(indices, Math.ceil(indices.length * 2));

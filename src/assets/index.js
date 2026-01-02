@@ -16,8 +16,8 @@ export {
 export { 
   TextureAtlas, 
   getTextureAtlas,
-  TEXTURE_SIZE,
-  TILE_SIZE,
+  DEFAULT_TEXTURE_SIZE,
+  BORDER_SIZE,
 } from './TextureAtlas.js';
 
 /**

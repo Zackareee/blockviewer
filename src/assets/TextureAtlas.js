@@ -56,6 +56,11 @@ class TextureAtlas {
     // Three.js texture
     this.texture = null;
     
+    // Texture pack resolution (auto-detected from first texture)
+    // Standard Minecraft is 16x16, but texture packs can be 32x32, 64x64, 128x128, etc.
+    this.textureSize = DEFAULT_TEXTURE_SIZE;
+    this.tileSize = DEFAULT_TEXTURE_SIZE + BORDER_SIZE * 2;
+    
     // Build state
     this.isBuilt = false;
   }
@@ -78,16 +83,21 @@ class TextureAtlas {
       return false;
     }
 
-    console.log(`[TextureAtlas] Building atlas from ${blockTextures.length} textures...`);
+    // Auto-detect texture resolution from the first texture
+    // This handles texture packs of any resolution (16x16, 32x32, 64x64, etc.)
+    this.textureSize = this._detectTextureSize(packManager, blockTextures);
+    this.tileSize = this.textureSize + BORDER_SIZE * 2;
+
+    console.log(`[TextureAtlas] Building atlas from ${blockTextures.length} textures (${this.textureSize}x${this.textureSize} resolution)...`);
 
     // Calculate atlas dimensions (power of 2)
     const tilesPerRow = Math.ceil(Math.sqrt(blockTextures.length));
-    this.atlasWidth = this._nextPowerOf2(tilesPerRow * TILE_SIZE);
-    this.atlasHeight = this._nextPowerOf2(Math.ceil(blockTextures.length / tilesPerRow) * TILE_SIZE);
+    this.atlasWidth = this._nextPowerOf2(tilesPerRow * this.tileSize);
+    this.atlasHeight = this._nextPowerOf2(Math.ceil(blockTextures.length / tilesPerRow) * this.tileSize);
     
     // Store tiles per row/col for index calculations
-    this.tilesPerRow = Math.floor(this.atlasWidth / TILE_SIZE);
-    this.tilesPerCol = Math.floor(this.atlasHeight / TILE_SIZE);
+    this.tilesPerRow = Math.floor(this.atlasWidth / this.tileSize);
+    this.tilesPerCol = Math.floor(this.atlasHeight / this.tileSize);
     
     // Clear texture path to index mapping
     this.texturePathToIndex.clear();
@@ -112,8 +122,8 @@ class TextureAtlas {
       if (!bitmap) continue;
 
       // Calculate tile position
-      const tileX = tileCol * TILE_SIZE;
-      const tileY = tileRow * TILE_SIZE;
+      const tileX = tileCol * this.tileSize;
+      const tileY = tileRow * this.tileSize;
 
       // Draw the texture with border (for tiling support)
       this._drawTileWithBorder(bitmap, tileX, tileY);
@@ -131,8 +141,8 @@ class TextureAtlas {
       const uvData = {
         u: innerX / this.atlasWidth,
         v: innerY / this.atlasHeight, // Don't flip - CanvasTexture handles it
-        width: TEXTURE_SIZE / this.atlasWidth,
-        height: TEXTURE_SIZE / this.atlasHeight,
+        width: this.textureSize / this.atlasWidth,
+        height: this.textureSize / this.atlasHeight,
         // Raw pixel coordinates for debugging
         px: innerX,
         py: innerY,
@@ -154,7 +164,7 @@ class TextureAtlas {
       // Move to next position
       tileCol++;
       textureIndex++;
-      if ((tileCol + 1) * TILE_SIZE > this.atlasWidth) {
+      if ((tileCol + 1) * this.tileSize > this.atlasWidth) {
         tileCol = 0;
         tileRow++;
       }
@@ -229,47 +239,51 @@ class TextureAtlas {
 
   /**
    * Draw a texture tile with border pixels for seamless tiling
+   * Draws the full source texture (any resolution) scaled to this.textureSize
    */
   _drawTileWithBorder(bitmap, tileX, tileY) {
     const innerX = tileX + BORDER_SIZE;
     const innerY = tileY + BORDER_SIZE;
+    const texSize = this.textureSize;
+    const srcW = bitmap.width;
+    const srcH = bitmap.height;
 
-    // Draw main texture
-    this.ctx.drawImage(bitmap, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE, 
-                       innerX, innerY, TEXTURE_SIZE, TEXTURE_SIZE);
+    // Draw main texture (scale from source size to target texture size)
+    this.ctx.drawImage(bitmap, 0, 0, srcW, srcH, 
+                       innerX, innerY, texSize, texSize);
 
     // Draw border pixels by extending edge pixels
     // This prevents texture bleeding when mipmapping or filtering
     
     // Top border (copy from top row of texture)
-    this.ctx.drawImage(bitmap, 0, 0, TEXTURE_SIZE, 1,
-                       innerX, tileY, TEXTURE_SIZE, BORDER_SIZE);
+    this.ctx.drawImage(bitmap, 0, 0, srcW, 1,
+                       innerX, tileY, texSize, BORDER_SIZE);
     
     // Bottom border (copy from bottom row)
-    this.ctx.drawImage(bitmap, 0, TEXTURE_SIZE - 1, TEXTURE_SIZE, 1,
-                       innerX, innerY + TEXTURE_SIZE, TEXTURE_SIZE, BORDER_SIZE);
+    this.ctx.drawImage(bitmap, 0, srcH - 1, srcW, 1,
+                       innerX, innerY + texSize, texSize, BORDER_SIZE);
     
     // Left border (copy from left column)
-    this.ctx.drawImage(bitmap, 0, 0, 1, TEXTURE_SIZE,
-                       tileX, innerY, BORDER_SIZE, TEXTURE_SIZE);
+    this.ctx.drawImage(bitmap, 0, 0, 1, srcH,
+                       tileX, innerY, BORDER_SIZE, texSize);
     
     // Right border (copy from right column)
-    this.ctx.drawImage(bitmap, TEXTURE_SIZE - 1, 0, 1, TEXTURE_SIZE,
-                       innerX + TEXTURE_SIZE, innerY, BORDER_SIZE, TEXTURE_SIZE);
+    this.ctx.drawImage(bitmap, srcW - 1, 0, 1, srcH,
+                       innerX + texSize, innerY, BORDER_SIZE, texSize);
 
     // Corner pixels
     // Top-left
     this.ctx.drawImage(bitmap, 0, 0, 1, 1,
                        tileX, tileY, BORDER_SIZE, BORDER_SIZE);
     // Top-right
-    this.ctx.drawImage(bitmap, TEXTURE_SIZE - 1, 0, 1, 1,
-                       innerX + TEXTURE_SIZE, tileY, BORDER_SIZE, BORDER_SIZE);
+    this.ctx.drawImage(bitmap, srcW - 1, 0, 1, 1,
+                       innerX + texSize, tileY, BORDER_SIZE, BORDER_SIZE);
     // Bottom-left
-    this.ctx.drawImage(bitmap, 0, TEXTURE_SIZE - 1, 1, 1,
-                       tileX, innerY + TEXTURE_SIZE, BORDER_SIZE, BORDER_SIZE);
+    this.ctx.drawImage(bitmap, 0, srcH - 1, 1, 1,
+                       tileX, innerY + texSize, BORDER_SIZE, BORDER_SIZE);
     // Bottom-right
-    this.ctx.drawImage(bitmap, TEXTURE_SIZE - 1, TEXTURE_SIZE - 1, 1, 1,
-                       innerX + TEXTURE_SIZE, innerY + TEXTURE_SIZE, BORDER_SIZE, BORDER_SIZE);
+    this.ctx.drawImage(bitmap, srcW - 1, srcH - 1, 1, 1,
+                       innerX + texSize, innerY + texSize, BORDER_SIZE, BORDER_SIZE);
   }
 
   /**
@@ -320,8 +334,8 @@ class TextureAtlas {
     this.colorLookup = new Uint8ClampedArray(lookupSize * lookupSize * 4);
     
     // Calculate tile size in normalized UV space (not including border)
-    const tileU = TEXTURE_SIZE / this.atlasWidth;
-    const tileV = TEXTURE_SIZE / this.atlasHeight;
+    const tileU = this.textureSize / this.atlasWidth;
+    const tileV = this.textureSize / this.atlasHeight;
     
     let matchedCount = 0;
     let missedNames = [];
@@ -461,15 +475,15 @@ class TextureAtlas {
    */
   getMaterialData() {
     // Calculate the actual tile size in UV space
-    // TILE_SIZE includes the 1px border on each side (16 + 2 = 18)
+    // tileSize includes the 1px border on each side (e.g., 16 + 2 = 18 for standard packs)
     const tileUV = {
-      x: TILE_SIZE / this.atlasWidth,  // Full tile size in UV (includes border)
-      y: TILE_SIZE / this.atlasHeight,
+      x: this.tileSize / this.atlasWidth,  // Full tile size in UV (includes border)
+      y: this.tileSize / this.atlasHeight,
     };
     // The actual usable texture area (without border)
     const textureUV = {
-      x: TEXTURE_SIZE / this.atlasWidth,  // Just the 16x16 texture part
-      y: TEXTURE_SIZE / this.atlasHeight,
+      x: this.textureSize / this.atlasWidth,  // Just the texture part
+      y: this.textureSize / this.atlasHeight,
     };
     // Border offset in UV space
     const borderUV = {
@@ -477,7 +491,7 @@ class TextureAtlas {
       y: BORDER_SIZE / this.atlasHeight,
     };
     
-    console.log(`[TextureAtlas] Material data: atlas ${this.atlasWidth}x${this.atlasHeight}, tiles ${this.tilesPerRow}x${this.tilesPerCol}`);
+    console.log(`[TextureAtlas] Material data: atlas ${this.atlasWidth}x${this.atlasHeight}, tiles ${this.tilesPerRow}x${this.tilesPerCol}, resolution ${this.textureSize}x${this.textureSize}`);
     console.log(`[TextureAtlas] UV sizes: tile=${tileUV.x.toFixed(4)}, texture=${textureUV.x.toFixed(4)}, border=${borderUV.x.toFixed(4)}`);
     console.log(`[TextureAtlas] Colormap texture: ${this.colormapTexture ? 'available' : 'not available'}`);
     
@@ -493,11 +507,14 @@ class TextureAtlas {
       tilesPerRow: this.tilesPerRow,
       tilesPerCol: this.tilesPerCol,
       // UV space sizes for shader
-      tileUV,      // Full tile including border (18/1024)
-      textureUV,   // Just texture area (16/1024)
-      borderUV,    // Border offset (1/1024)
+      tileUV,      // Full tile including border
+      textureUV,   // Just texture area
+      borderUV,    // Border offset
       atlasWidth: this.atlasWidth,
       atlasHeight: this.atlasHeight,
+      // Detected texture pack resolution (16, 32, 64, etc.)
+      textureSize: this.textureSize,
+      tileSize: this.tileSize,
     };
   }
 
@@ -588,6 +605,43 @@ class TextureAtlas {
   }
 
   /**
+   * Detect texture resolution from the first texture in the pack
+   * Minecraft packs can be 16x16, 32x32, 64x64, 128x128, etc.
+   * Returns the detected size (width of the first square texture found)
+   */
+  _detectTextureSize(packManager, texturePaths) {
+    // Try to find a standard texture to detect resolution
+    // Prefer stone.png as it's always present and always square
+    const preferredTextures = [
+      'textures/block/stone.png',
+      'textures/block/dirt.png',
+      'textures/block/cobblestone.png',
+    ];
+    
+    // Try preferred textures first
+    for (const path of preferredTextures) {
+      const bitmap = packManager.getTexture(path);
+      if (bitmap && bitmap.width === bitmap.height) {
+        console.log(`[TextureAtlas] Detected ${bitmap.width}x${bitmap.height} resolution from ${path}`);
+        return bitmap.width;
+      }
+    }
+    
+    // Fall back to first square texture found
+    for (const path of texturePaths) {
+      const bitmap = packManager.getTexture(path);
+      if (bitmap && bitmap.width === bitmap.height) {
+        console.log(`[TextureAtlas] Detected ${bitmap.width}x${bitmap.height} resolution from ${path}`);
+        return bitmap.width;
+      }
+    }
+    
+    // Default to standard Minecraft resolution
+    console.log(`[TextureAtlas] Could not detect resolution, defaulting to ${DEFAULT_TEXTURE_SIZE}x${DEFAULT_TEXTURE_SIZE}`);
+    return DEFAULT_TEXTURE_SIZE;
+  }
+
+  /**
    * Dispose of resources
    */
   dispose() {
@@ -609,6 +663,8 @@ class TextureAtlas {
     this.uvLookup.clear();
     this.texturePathToIndex.clear();
     this.textureIndexLookup = null;
+    this.textureSize = DEFAULT_TEXTURE_SIZE;
+    this.tileSize = DEFAULT_TEXTURE_SIZE + BORDER_SIZE * 2;
     this.isBuilt = false;
   }
 
@@ -634,6 +690,6 @@ export function getTextureAtlas() {
   return instance;
 }
 
-export { TextureAtlas, TEXTURE_SIZE, TILE_SIZE, BORDER_SIZE };
+export { TextureAtlas, DEFAULT_TEXTURE_SIZE, BORDER_SIZE };
 export default TextureAtlas;
 
