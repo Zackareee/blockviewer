@@ -14,6 +14,9 @@ import { buildGridMeshesParallel } from './ParallelMesher.js';
 import { buildSimplifiedMesh } from './SimplifiedMesher.js';
 import { buildModelMeshes } from './ModelMesher.js';
 import { getStateRegistry } from '../assets/StateRegistry.js';
+import { LightGrid } from './LightGrid.js';
+import { propagateSkyLight } from './LightPropagator.js';
+import { propagateBlockLight } from './BlockLightPropagator.js';
 
 // Check if SharedArrayBuffer is available
 const USE_PARALLEL = typeof SharedArrayBuffer !== 'undefined';
@@ -83,8 +86,12 @@ export class RegionMeshBuilder {
       await stateRegistry.init();
     }
     
+    // Create light grid before decoding so we can read Minecraft's pre-computed light data
+    const lightGrid = new LightGrid();
+    
     for (let i = 0; i < chunks.length; i++) {
-      decodeChunk(chunks[i], grid, this.registry, stateGrid, stateRegistry);
+      // Pass lightGrid to decodeChunk to read Minecraft's SkyLight/BlockLight arrays
+      decodeChunk(chunks[i], grid, this.registry, stateGrid, stateRegistry, lightGrid);
       stats.chunksProcessed++;
     }
     
@@ -92,6 +99,24 @@ export class RegionMeshBuilder {
     stats.totalBlocks = grid.totalBlocks;
     
     this.onProgress?.('decoding', chunks.length, chunks.length, 'Decode complete');
+    
+    // Phase 1b: Propagate light (only if Minecraft's light data wasn't available)
+    // If lightGrid has sections, we read the light from the world file (preferred)
+    // Otherwise, fall back to our custom propagation
+    this.onProgress?.('lighting', 0, 100, 'Processing lighting...');
+    const lightStart = performance.now();
+    
+    if (lightGrid.sections.size === 0) {
+      // No light data in world file - use fallback propagation
+      console.log('[RegionMeshBuilder] No light data in world file, using fallback propagation');
+      propagateSkyLight(grid, lightGrid, this.registry);
+      propagateBlockLight(grid, lightGrid, this.registry);
+    } else {
+      console.log(`[RegionMeshBuilder] Using Minecraft's pre-computed light data (${lightGrid.sections.size} sections)`);
+    }
+    
+    stats.lightTimeMs = performance.now() - lightStart;
+    console.log(`[RegionMeshBuilder] Light propagation: ${stats.lightTimeMs.toFixed(0)}ms`);
     
     // Calculate center offset (only if centerMesh is enabled)
     const bounds = grid.getBounds();
@@ -108,9 +133,10 @@ export class RegionMeshBuilder {
     
     let solidMesh, waterMesh, lavaMesh, glassMesh;
     
-    // Mesher options (including texture index lookup for textured rendering)
+    // Mesher options (including texture index lookup for textured rendering and light grid)
     const mesherOptions = {
       textureIndexLookup: this.textureIndexLookup,
+      lightGrid,
     };
     
     if (this.textureIndexLookup) {
@@ -184,6 +210,7 @@ export class RegionMeshBuilder {
         // Build model meshes using pre-computed geometry
         const modelOptions = {
           textureIndexLookup: this.textureIndexLookup,
+          lightGrid,
         };
         const modelResult = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
         
@@ -200,7 +227,7 @@ export class RegionMeshBuilder {
           modelLodMeshes = {};
           
           // LOD1: Skip flowers and small plants
-          const lod1Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 1 });
+          const lod1Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 1, lightGrid });
           if (lod1Result) {
             modelLodMeshes.lod1 = lod1Result.opaque;
             modelLodMeshes.lod1Transparent = lod1Result.transparent;
@@ -208,7 +235,7 @@ export class RegionMeshBuilder {
           }
           
           // LOD2: Skip more decorative blocks (vines, saplings, crops)
-          const lod2Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 2 });
+          const lod2Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 2, lightGrid });
           if (lod2Result) {
             modelLodMeshes.lod2 = lod2Result.opaque;
             modelLodMeshes.lod2Transparent = lod2Result.transparent;
@@ -216,7 +243,7 @@ export class RegionMeshBuilder {
           }
           
           // LOD3: Only structural blocks (slabs, stairs, walls)
-          const lod3Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 3 });
+          const lod3Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 3, lightGrid });
           if (lod3Result) {
             modelLodMeshes.lod3 = lod3Result.opaque;
             modelLodMeshes.lod3Transparent = lod3Result.transparent;
@@ -342,6 +369,16 @@ export class RegionMeshBuilder {
     // Add single-sided flag if present (for backface culling control in shader)
     if (meshData.singleSidedFlags) {
       geometry.setAttribute('singleSided', new THREE.BufferAttribute(meshData.singleSidedFlags, 1));
+    }
+    
+    // Add sky light attribute if present (for lightmap-based lighting)
+    if (meshData.skyLight) {
+      geometry.setAttribute('skyLight', new THREE.BufferAttribute(meshData.skyLight, 1));
+    }
+    
+    // Add block light attribute if present (for lightmap-based lighting)
+    if (meshData.blockLight) {
+      geometry.setAttribute('blockLight', new THREE.BufferAttribute(meshData.blockLight, 1));
     }
     
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));

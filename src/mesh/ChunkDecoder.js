@@ -31,6 +31,22 @@ const AIR_BLOCKS = new Set([
   'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'air', 'cave_air', 'void_air'
 ]);
 
+/**
+ * Unpack nibble-packed light data (2048 bytes -> 4096 values)
+ * Minecraft stores light as 4 bits per block, packed into bytes
+ * @param {Uint8Array|Int8Array} data - 2048 byte array of packed light values
+ * @returns {Uint8Array} 4096 unpacked light values (0-15)
+ */
+function unpackLightData(data) {
+  const unpacked = new Uint8Array(4096);
+  for (let i = 0; i < 2048; i++) {
+    const byte = data[i] & 0xFF; // Handle signed bytes
+    unpacked[i * 2] = byte & 0x0F;       // Lower nibble
+    unpacked[i * 2 + 1] = (byte >> 4) & 0x0F; // Upper nibble
+  }
+  return unpacked;
+}
+
 // Blocks that inherently exist in water and should always render water
 const UNDERWATER_BLOCKS = new Set([
   'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
@@ -168,8 +184,9 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
  * @param {BlockRegistry} registry - Block registry
  * @param {BlockStateGrid} stateGrid - Optional state grid for non-cube blocks
  * @param {StateRegistry} stateRegistry - Optional state registry
+ * @param {LightGrid} lightGrid - Optional light grid to populate with Minecraft's light data
  */
-function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null, stateRegistry = null) {
+function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null, stateRegistry = null, lightGrid = null) {
   const sectionY = section.Y !== undefined ? Number(section.Y) : 0;
   // Minecraft section Y is already world-relative: section Y=-4 means world Y=-64
   const baseY = sectionY * SECTION_SIZE;
@@ -182,6 +199,35 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
   // Convert Minecraft section Y to internal section index (0-based from MIN_Y)
   // MIN_Y=-64 / 16 = -4, so section Y=-4 becomes internal index 0
   const internalSectionY = sectionY - Math.floor(MIN_Y / SECTION_SIZE); // -4 - (-4) = 0
+  
+  // Parse light data from section if lightGrid is provided
+  // Minecraft stores SkyLight and BlockLight as nibble-packed arrays (2048 bytes = 4096 nibbles)
+  if (lightGrid) {
+    const skyLightData = section.SkyLight || section.sky_light;
+    const blockLightData = section.BlockLight || section.block_light;
+    
+    if (skyLightData || blockLightData) {
+      const lightSection = lightGrid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
+      
+      // Unpack and store sky light (lower nibble of light storage)
+      if (skyLightData && skyLightData.length >= 2048) {
+        const skyLight = unpackLightData(skyLightData);
+        for (let i = 0; i < 4096; i++) {
+          // Store sky light in lower nibble
+          lightSection[i] = (lightSection[i] & 0xF0) | (skyLight[i] & 0x0F);
+        }
+      }
+      
+      // Unpack and store block light (upper nibble of light storage)
+      if (blockLightData && blockLightData.length >= 2048) {
+        const blockLight = unpackLightData(blockLightData);
+        for (let i = 0; i < 4096; i++) {
+          // Store block light in upper nibble
+          lightSection[i] = (lightSection[i] & 0x0F) | ((blockLight[i] & 0x0F) << 4);
+        }
+      }
+    }
+  }
   
   let blocksDecoded = 0;
   
@@ -367,7 +413,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
  * @param {StateRegistry} stateRegistry - Optional state registry
  * @returns {number} Number of blocks decoded
  */
-export function decodeChunk(chunk, grid, registry, stateGrid = null, stateRegistry = null) {
+export function decodeChunk(chunk, grid, registry, stateGrid = null, stateRegistry = null, lightGrid = null) {
   const { x: chunkX, z: chunkZ, data } = chunk;
   
   // Get sections array
@@ -377,7 +423,7 @@ export function decodeChunk(chunk, grid, registry, stateGrid = null, stateRegist
   let totalBlocks = 0;
   
   for (const section of sections) {
-    totalBlocks += decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid, stateRegistry);
+    totalBlocks += decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid, stateRegistry, lightGrid);
   }
   
   return totalBlocks;
