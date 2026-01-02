@@ -4,6 +4,9 @@ import './index.css'
 import App from './App.jsx'
 import PartialBlockDebug from './debug/PartialBlockDebug.jsx'
 
+// Initialize performance profiler (exposes window.__profiler)
+import './utils/PerformanceProfiler.js'
+
 // Simple hash-based routing for debug pages
 function Router() {
   const [route, setRoute] = useState(window.location.hash);

@@ -374,6 +374,8 @@ function RegionScene({
       console.log('[RegionViewer] ChunkManager exposed as window.__chunkManager');
       console.log('  - window.__chunkManager.printTriangleCounts() - Show triangle counts per group');
       console.log('  - window.__chunkManager.setGroupVisible("glass", false) - Hide glass/leaves');
+      console.log('  - window.__chunkManager.setPartialBlockDistance(32) - Set partial block render distance (performance)');
+      console.log('  - window.__chunkManager.getPartialBlockDistance() - Get current partial block distance');
     }
     
     return () => {

@@ -286,6 +286,27 @@ export class ChunkManager {
   }
 
   /**
+   * Set the maximum render distance for partial blocks (grass, flowers, etc.)
+   * Lower values = better performance, higher values = more detail
+   * @param {number} distance - Distance in blocks (0 = render all, 32-128 typical range)
+   */
+  setPartialBlockDistance(distance) {
+    this.partialBlockDistance = distance;
+    this.modelMaterial.uniforms.uMaxDistance.value = distance;
+    this.transparentModelMaterial.uniforms.uMaxDistance.value = distance;
+    this.overlayModelMaterial.uniforms.uMaxDistance.value = distance;
+    console.log(`[ChunkManager] Partial block distance set to ${distance} blocks`);
+  }
+  
+  /**
+   * Get current partial block render distance
+   * @returns {number} Distance in blocks
+   */
+  getPartialBlockDistance() {
+    return this.modelMaterial.uniforms.uMaxDistance.value;
+  }
+
+  /**
    * Split mesh data into chunks that fit within WebGL limits
    */
   _splitMeshData(meshData) {

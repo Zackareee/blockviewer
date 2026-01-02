@@ -810,6 +810,41 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       } else if (secNegX) {
         nWest = isFullOpaqueCube[secNegX[ly * 256 + lz * 16 + 15] & BLOCK_ID_MASK];
       }
+      
+      // ========================================================================
+      // OCCLUSION CULLING: Skip blocks completely surrounded by solid blocks
+      // This primarily helps cross-pattern blocks (grass, flowers) underground
+      // ========================================================================
+      // For cross-pattern blocks (no cullface, can't be partially culled), check if
+      // completely occluded by solid neighbors
+      const isCrossPattern = stateHasModelRotation[stateId] === 1;
+      if (isCrossPattern) {
+        // Use raw neighbor solid check (not the modified nUp/nDown that includes partials)
+        let rawUp = 0, rawDown = 0, rawNorth = 0, rawSouth = 0, rawWest = 0, rawEast = 0;
+        
+        if (ly < 15) rawUp = isFullOpaqueCube[blockSection[i + 256] & BLOCK_ID_MASK];
+        else if (secTop) rawUp = isFullOpaqueCube[secTop[lz * 16 + lx] & BLOCK_ID_MASK];
+        
+        if (ly > 0) rawDown = isFullOpaqueCube[blockSection[i - 256] & BLOCK_ID_MASK];
+        else if (secBot) rawDown = isFullOpaqueCube[secBot[15 * 256 + lz * 16 + lx] & BLOCK_ID_MASK];
+        
+        if (lz < 15) rawSouth = isFullOpaqueCube[blockSection[i + 16] & BLOCK_ID_MASK];
+        else if (secPosZ) rawSouth = isFullOpaqueCube[secPosZ[ly * 256 + lx] & BLOCK_ID_MASK];
+        
+        if (lz > 0) rawNorth = isFullOpaqueCube[blockSection[i - 16] & BLOCK_ID_MASK];
+        else if (secNegZ) rawNorth = isFullOpaqueCube[secNegZ[ly * 256 + 15 * 16 + lx] & BLOCK_ID_MASK];
+        
+        if (lx < 15) rawEast = isFullOpaqueCube[blockSection[i + 1] & BLOCK_ID_MASK];
+        else if (secPosX) rawEast = isFullOpaqueCube[secPosX[ly * 256 + lz * 16] & BLOCK_ID_MASK];
+        
+        if (lx > 0) rawWest = isFullOpaqueCube[blockSection[i - 1] & BLOCK_ID_MASK];
+        else if (secNegX) rawWest = isFullOpaqueCube[secNegX[ly * 256 + lz * 16 + 15] & BLOCK_ID_MASK];
+        
+        // If all 6 neighbors are solid opaque cubes, skip this block entirely
+        if (rawUp && rawDown && rawNorth && rawSouth && rawWest && rawEast) {
+          continue; // Block is completely occluded
+        }
+      }
 
       // Compute texture rotation using pre-cached rotation type
       let blockTexRotation = 0;

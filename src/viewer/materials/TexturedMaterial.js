@@ -828,7 +828,7 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
-      uMaxDistance: { value: 64.0 },  // PERFORMANCE: Hide partial blocks beyond 64 blocks
+      uMaxDistance: { value: 48.0 },  // PERFORMANCE: Hide partial blocks beyond 48 blocks (reduced from 64 for better perf)
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
@@ -864,7 +864,7 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
-      uMaxDistance: { value: 64.0 },  // PERFORMANCE: Hide partial blocks beyond 64 blocks
+      uMaxDistance: { value: 48.0 },  // PERFORMANCE: Hide partial blocks beyond 48 blocks (reduced from 64 for better perf)
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
@@ -899,7 +899,7 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
-      uMaxDistance: { value: 64.0 },  // PERFORMANCE: Hide partial blocks beyond 64 blocks
+      uMaxDistance: { value: 48.0 },  // PERFORMANCE: Hide partial blocks beyond 48 blocks (reduced from 64 for better perf)
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
