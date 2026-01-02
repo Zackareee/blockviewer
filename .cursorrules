@@ -1,0 +1,107 @@
+# Block Viewer - Cursor Rules
+
+## Project Overview
+This is a Minecraft world viewer that renders .mca region files using Three.js. It replicates Minecraft's rendering pipeline including block meshing, lighting, ambient occlusion, and texture atlases.
+
+## Key Documentation References
+
+### Minecraft Shader System
+When working on lighting, shading, or rendering:
+
+1. **Main Shader Reference**: `docs/minecraft_shaders/agent.md`
+   - Complete shader architecture overview
+   - Lighting system details
+   - Uniform buffer layouts
+   - Key implementation insights
+
+2. **Ambient Occlusion**: `docs/minecraft_shaders/ambient_occlusion.agent.md`
+   - Exact AO algorithm with code
+   - Vertex-to-neighbor mapping for all faces
+   - AO-transparent block detection
+   - Greedy meshing compatibility
+   - Quad triangulation rules
+
+3. **Lightmap System**: `docs/minecraft_shaders/lightmap.agent.md`
+   - Brightness curve formula: `level / (4.0 - 3.0 * level)`
+   - Block light color (warm orange tint)
+   - Sky light integration
+   - Special effects (night vision, darkness)
+   - Complete lightmap generation code
+
+4. **Extracted Shaders**: `docs/minecraft_shaders/core/` and `docs/minecraft_shaders/include/`
+   - Actual Minecraft GLSL shader files
+   - `terrain.vsh/fsh` - Chunk rendering
+   - `block.vsh/fsh` - Block entities
+   - `entity.vsh/fsh` - Entity rendering
+   - `lightmap.fsh` - Lightmap generation
+   - `light.glsl` - Directional lighting
+   - `fog.glsl` - Fog calculations
+
+### Minecraft Source References
+When understanding Minecraft internals:
+
+1. **Client Rendering**: `minecraft_versions/1.21.11_unobfuscated/net/minecraft/client/agent.md`
+   - Render pipeline overview
+   - Key renderer classes
+
+2. **Assets Structure**: `minecraft_versions/1.21.11_unobfuscated/assets/minecraft/agent.md`
+   - Block states and models
+   - Texture atlases
+   - Shader format
+
+## Project Architecture
+
+### Mesh Generation
+- `src/mesh/FastMesher.js` - Greedy mesher for solid blocks (includes AO)
+- `src/mesh/ModelMesher.js` - Non-cube block models (slabs, stairs, plants)
+- `src/mesh/LightGrid.js` - Sky/block light storage
+- `src/mesh/ChunkDecoder.js` - NBT chunk parsing with light data extraction
+
+### Materials/Shaders
+- `src/viewer/materials/TexturedMaterial.js` - Main block material with lightmap
+- `src/mesh/LightmapGenerator.js` - Generates 16x16 lightmap texture
+
+### Key Algorithms
+
+#### AO Calculation
+```javascript
+// For each vertex, check 3 neighbors (side1, side2, corner)
+if (side1 && side2) return 0;  // Maximum occlusion
+return 3 - side1 - side2 - corner;  // 0-3 level
+```
+
+#### Brightness Curve
+```javascript
+const brightness = level / (4.0 - 3.0 * level);
+```
+
+#### Block Light Color
+```javascript
+r = brightness;
+g = brightness * ((brightness * 0.6 + 0.4) * 0.6 + 0.4);
+b = brightness * (brightness * brightness * brightness * 0.6 + 0.4);
+```
+
+## Common Tasks
+
+### Modifying AO
+1. Read `docs/minecraft_shaders/ambient_occlusion.agent.md`
+2. Edit `src/mesh/FastMesher.js` - `sampleSmoothLight()` and `getCornerAO()`
+3. AO factors are in the array `[1.0, 0.9, 0.8, 0.65, 0.4]`
+
+### Modifying Lighting
+1. Read `docs/minecraft_shaders/lightmap.agent.md`
+2. For lightmap generation: `src/mesh/LightmapGenerator.js`
+3. For light data: `src/mesh/LightGrid.js`, `src/mesh/ChunkDecoder.js`
+4. For shaders: `src/viewer/materials/TexturedMaterial.js`
+
+### Understanding Minecraft Shaders
+1. Look in `docs/minecraft_shaders/core/` for actual GLSL files
+2. Key files: `terrain.vsh/fsh`, `lightmap.fsh`, `entity.vsh/fsh`
+3. Include files in `docs/minecraft_shaders/include/`
+
+## Code Style
+- Single-line git commit messages
+- Use existing patterns from the codebase
+- Prefer modifying existing files over creating new ones
+
