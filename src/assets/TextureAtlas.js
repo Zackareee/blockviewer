@@ -12,14 +12,11 @@
 import * as THREE from 'three';
 import { TextureIndexLookup } from './TextureIndexLookup.js';
 
-// Standard Minecraft texture size
-const TEXTURE_SIZE = 16;
+// Default Minecraft texture size (can be overridden by texture pack resolution)
+const DEFAULT_TEXTURE_SIZE = 16;
 
 // Border pixels to prevent texture bleeding during tiling
 const BORDER_SIZE = 1;
-
-// Tile size including border
-const TILE_SIZE = TEXTURE_SIZE + BORDER_SIZE * 2;
 
 /**
  * TextureAtlas class

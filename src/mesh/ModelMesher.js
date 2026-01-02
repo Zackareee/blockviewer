@@ -1256,6 +1256,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             vertexCount += 4;
             
             // Emit indices for opaque mesh (two triangles forming a quad)
+            // Front face winding: 0,2,1 and 0,3,2
             indices[indexCount] = dstVertexStart;
             indices[indexCount + 1] = dstVertexStart + 2;
             indices[indexCount + 2] = dstVertexStart + 1;
@@ -1263,6 +1264,23 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             indices[indexCount + 4] = dstVertexStart + 3;
             indices[indexCount + 5] = dstVertexStart + 2;
             indexCount += 6;
+            
+            // For double-sided faces (NOT singleSided), emit backface with reversed winding
+            // This allows using FrontSide material which is much faster than DoubleSide
+            if (!cullInfo.singleSided) {
+              // Ensure capacity for backface indices
+              if (indexCount + 6 > indices.length) {
+                indices = growArrayUint(indices, Math.ceil(indices.length * 2));
+              }
+              // Back face winding: 0,1,2 and 0,2,3 (reversed from front)
+              indices[indexCount] = dstVertexStart;
+              indices[indexCount + 1] = dstVertexStart + 1;
+              indices[indexCount + 2] = dstVertexStart + 2;
+              indices[indexCount + 3] = dstVertexStart;
+              indices[indexCount + 4] = dstVertexStart + 2;
+              indices[indexCount + 5] = dstVertexStart + 3;
+              indexCount += 6;
+            }
           }
         }
       }

@@ -771,7 +771,7 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
     },
     vertexShader: modelVertexShader,
     fragmentShader: modelFragmentShader,
-    side: THREE.DoubleSide, // Model blocks (flowers, plants) need visible back faces
+    side: THREE.FrontSide, // Use FrontSide for performance - double-sided faces have geometry duplicated with reversed winding
     vertexColors: true,
     transparent: false,    // Opaque models don't need transparency
     depthWrite: true,
@@ -839,7 +839,7 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
     },
     vertexShader: modelVertexShader,
     fragmentShader: modelFragmentShader,
-    side: THREE.DoubleSide,  // Overlay faces may be visible from both sides
+    side: THREE.FrontSide,   // Use FrontSide for performance - overlay elements are single-sided
     vertexColors: true,
     transparent: true,       // Enable transparency for proper blending
     depthWrite: false,       // DON'T write to depth buffer - allows geometry to show through
