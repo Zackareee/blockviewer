@@ -217,27 +217,18 @@ function sampleSmoothLight(lightGrid, x, y, z, nx, ny, nz, blockGrid, isOpaque, 
 }
 
 /**
- * Get AO for all 4 vertices of a TOP face at block position (blockX, blockY, blockZ)
+ * Compute 4-vertex AO for a merged TOP face quad
+ * @param {number} startX, startZ - Start corner of merged quad
+ * @param {number} w, h - Width (+X) and height (+Z) of merged quad  
+ * @param {number} faceY - Y level of the face (1 above block)
  * 
- * For a TOP face, we check blocks at Y = blockY + 1 (the face level, which should be air above our block).
- * Each vertex corner is influenced by 3 adjacent blocks: side1, side2, and corner (diagonal).
- * 
- * Face vertices (looking down at top face from above):
- *   V0 ---- V1      V0 = (-X, +Z) corner = southwest
- *    |      |       V1 = (+X, +Z) corner = southeast
- *    |      |       V2 = (+X, -Z) corner = northeast
- *   V3 ---- V2      V3 = (-X, -Z) corner = northwest
- * 
- * For each vertex, the 3 neighbors to check are determined by which corner it occupies:
- * - V0 (SW): check blocks at West (-1,0), South (0,+1), and Southwest (-1,+1)
- * - V1 (SE): check blocks at East (+1,0), South (0,+1), and Southeast (+1,+1)
- * - V2 (NE): check blocks at East (+1,0), North (0,-1), and Northeast (+1,-1)
- * - V3 (NW): check blocks at West (-1,0), North (0,-1), and Northwest (-1,-1)
+ * Vertices looking down at TOP face:
+ *   V0(startX, startZ+h) ---- V1(startX+w, startZ+h)     V0 = SW corner
+ *          |                           |                 V1 = SE corner
+ *          |                           |                 V2 = NE corner
+ *   V3(startX, startZ)   ---- V2(startX+w, startZ)       V3 = NW corner
  */
-function getTopFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
-  const y = blockY + 1; // Sample in air space above block (the face level)
-  
-  // Helper function to check if a block is solid for AO purposes
+function getMergedTopFaceAO(startX, faceY, startZ, w, h, blockGrid, isOpaque, isAOTransparent) {
   const isSolidForAO = (bx, by, bz) => {
     const blockId = blockGrid.getBlockId(bx, by, bz);
     if (blockId === 0) return false;
@@ -245,46 +236,171 @@ function getTopFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTranspare
     return isOpaque[blockId] === 1;
   };
   
-  // Compute AO level for a vertex given two side offsets (in XZ plane)
-  // corner is automatically computed as side1 + side2
-  const computeAO = (side1X, side1Z, side2X, side2Z) => {
-    const side1 = isSolidForAO(blockX + side1X, y, blockZ + side1Z);
-    const side2 = isSolidForAO(blockX + side2X, y, blockZ + side2Z);
-    
-    // Minecraft behavior: if both sides are solid, corner is fully occluded
+  // Compute AO for a vertex at (vx, vz) on the TOP face at faceY
+  // side1X/Z and side2X/Z are the two adjacent directions to check
+  const computeVertexAO = (vx, vz, side1X, side1Z, side2X, side2Z) => {
+    const side1 = isSolidForAO(vx + side1X, faceY, vz + side1Z);
+    const side2 = isSolidForAO(vx + side2X, faceY, vz + side2Z);
     if (side1 && side2) return 0;
-    
-    const corner = isSolidForAO(blockX + side1X + side2X, y, blockZ + side1Z + side2Z);
+    const corner = isSolidForAO(vx + side1X + side2X, faceY, vz + side1Z + side2Z);
     return 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
   };
   
-  // V0: corner at (-X, +Z) - check West and South
-  const ao0 = computeAO(-1, 0, 0, 1);
+  // V0 at (startX, startZ+h): SW corner, check West(-1,0) and South(0,+1)
+  const ao0 = computeVertexAO(startX, startZ + h, -1, 0, 0, 1);
   
-  // V1: corner at (+X, +Z) - check East and South
-  const ao1 = computeAO(1, 0, 0, 1);
+  // V1 at (startX+w, startZ+h): SE corner, check East(+1,0) and South(0,+1)
+  // Note: vertex is at startX+w, so East neighbor is at startX+w (offset 0 relative to vertex)
+  // Actually, following original pattern where block X goes from blockX to blockX+1,
+  // and vertex V1 is at the +X edge (blockX+1), the East check should be at offset 0
+  const ao1 = computeVertexAO(startX + w, startZ + h, 0, 0, 0, 1);
   
-  // V2: corner at (+X, -Z) - check East and North
-  const ao2 = computeAO(1, 0, 0, -1);
+  // V2 at (startX+w, startZ): NE corner, check East(0,0) and North(0,-1)
+  const ao2 = computeVertexAO(startX + w, startZ, 0, 0, 0, -1);
   
-  // V3: corner at (-X, -Z) - check West and North
-  const ao3 = computeAO(-1, 0, 0, -1);
+  // V3 at (startX, startZ): NW corner, check West(-1,0) and North(0,-1)
+  const ao3 = computeVertexAO(startX, startZ, -1, 0, 0, -1);
   
   return [ao0, ao1, ao2, ao3];
 }
 
 /**
- * Check if a block can be merged with the current run for TOP face
- * Blocks can only merge if ALL their AO values match
- * 
- * @param {number[]} baseAO - AO values [ao0, ao1, ao2, ao3] of first block in run
- * @param {number} blockX, blockY, blockZ - Position of block to check
- * @returns {boolean} true if block can be merged
+ * Compute 4-vertex AO for a merged EAST face (+X) quad
+ * Face is in YZ plane at x = faceX
+ * @param {number} faceX - X position of the face (1 more than block X)
+ * @param {number} startY, startZ - Start corner of merged quad
+ * @param {number} h, w - Height (+Y) and width (+Z) of merged quad
  */
-function canMergeBlockAO(baseAO, blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
-  const checkAO = getTopFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent);
-  return checkAO[0] === baseAO[0] && checkAO[1] === baseAO[1] && 
-         checkAO[2] === baseAO[2] && checkAO[3] === baseAO[3];
+function getMergedEastFaceAO(faceX, startY, startZ, h, w, blockGrid, isOpaque, isAOTransparent) {
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  // EAST face (+X): vertices in YZ plane, normal points +X
+  // V0(faceX, startY, startZ), V1(faceX, startY+h, startZ), V2(faceX, startY+h, startZ+w), V3(faceX, startY, startZ+w)
+  const computeVertexAO = (vy, vz, side1Y, side1Z, side2Y, side2Z) => {
+    const side1 = isSolidForAO(faceX, vy + side1Y, vz + side1Z);
+    const side2 = isSolidForAO(faceX, vy + side2Y, vz + side2Z);
+    if (side1 && side2) return 0;
+    const corner = isSolidForAO(faceX, vy + side1Y + side2Y, vz + side1Z + side2Z);
+    return 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+  };
+  
+  // V0 at (startY, startZ): check Down(-1,0) and North(0,-1)
+  const ao0 = computeVertexAO(startY, startZ, -1, 0, 0, -1);
+  // V1 at (startY+h, startZ): check Up(0,0) and North(0,-1)
+  const ao1 = computeVertexAO(startY + h, startZ, 0, 0, 0, -1);
+  // V2 at (startY+h, startZ+w): check Up(0,0) and South(0,0)
+  const ao2 = computeVertexAO(startY + h, startZ + w, 0, 0, 0, 0);
+  // V3 at (startY, startZ+w): check Down(-1,0) and South(0,0)
+  const ao3 = computeVertexAO(startY, startZ + w, -1, 0, 0, 0);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Compute 4-vertex AO for a merged WEST face (-X) quad
+ * Face is in YZ plane at x = faceX
+ */
+function getMergedWestFaceAO(faceX, startY, startZ, h, w, blockGrid, isOpaque, isAOTransparent) {
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  // WEST face (-X): vertices in YZ plane, normal points -X
+  // V0(faceX, startY, startZ+w), V1(faceX, startY+h, startZ+w), V2(faceX, startY+h, startZ), V3(faceX, startY, startZ)
+  const computeVertexAO = (vy, vz, side1Y, side1Z, side2Y, side2Z) => {
+    const side1 = isSolidForAO(faceX - 1, vy + side1Y, vz + side1Z);
+    const side2 = isSolidForAO(faceX - 1, vy + side2Y, vz + side2Z);
+    if (side1 && side2) return 0;
+    const corner = isSolidForAO(faceX - 1, vy + side1Y + side2Y, vz + side1Z + side2Z);
+    return 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+  };
+  
+  // V0 at (startY, startZ+w): check Down(-1,0) and South(0,0)
+  const ao0 = computeVertexAO(startY, startZ + w, -1, 0, 0, 0);
+  // V1 at (startY+h, startZ+w): check Up(0,0) and South(0,0)
+  const ao1 = computeVertexAO(startY + h, startZ + w, 0, 0, 0, 0);
+  // V2 at (startY+h, startZ): check Up(0,0) and North(0,-1)
+  const ao2 = computeVertexAO(startY + h, startZ, 0, 0, 0, -1);
+  // V3 at (startY, startZ): check Down(-1,0) and North(0,-1)
+  const ao3 = computeVertexAO(startY, startZ, -1, 0, 0, -1);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Compute 4-vertex AO for a merged SOUTH face (+Z) quad
+ * Face is in XY plane at z = faceZ
+ */
+function getMergedSouthFaceAO(faceZ, startX, startY, w, h, blockGrid, isOpaque, isAOTransparent) {
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  // SOUTH face (+Z): vertices in XY plane, normal points +Z
+  // V0(startX+w, startY, faceZ), V1(startX+w, startY+h, faceZ), V2(startX, startY+h, faceZ), V3(startX, startY, faceZ)
+  const computeVertexAO = (vx, vy, side1X, side1Y, side2X, side2Y) => {
+    const side1 = isSolidForAO(vx + side1X, vy + side1Y, faceZ);
+    const side2 = isSolidForAO(vx + side2X, vy + side2Y, faceZ);
+    if (side1 && side2) return 0;
+    const corner = isSolidForAO(vx + side1X + side2X, vy + side1Y + side2Y, faceZ);
+    return 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+  };
+  
+  // V0 at (startX+w, startY): check East(0,0) and Down(0,-1)
+  const ao0 = computeVertexAO(startX + w, startY, 0, 0, 0, -1);
+  // V1 at (startX+w, startY+h): check East(0,0) and Up(0,0)
+  const ao1 = computeVertexAO(startX + w, startY + h, 0, 0, 0, 0);
+  // V2 at (startX, startY+h): check West(-1,0) and Up(0,0)
+  const ao2 = computeVertexAO(startX, startY + h, -1, 0, 0, 0);
+  // V3 at (startX, startY): check West(-1,0) and Down(0,-1)
+  const ao3 = computeVertexAO(startX, startY, -1, 0, 0, -1);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Compute 4-vertex AO for a merged NORTH face (-Z) quad
+ * Face is in XY plane at z = faceZ
+ */
+function getMergedNorthFaceAO(faceZ, startX, startY, w, h, blockGrid, isOpaque, isAOTransparent) {
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  // NORTH face (-Z): vertices in XY plane, normal points -Z
+  // V0(startX, startY, faceZ), V1(startX, startY+h, faceZ), V2(startX+w, startY+h, faceZ), V3(startX+w, startY, faceZ)
+  const computeVertexAO = (vx, vy, side1X, side1Y, side2X, side2Y) => {
+    const side1 = isSolidForAO(vx + side1X, vy + side1Y, faceZ - 1);
+    const side2 = isSolidForAO(vx + side2X, vy + side2Y, faceZ - 1);
+    if (side1 && side2) return 0;
+    const corner = isSolidForAO(vx + side1X + side2X, vy + side1Y + side2Y, faceZ - 1);
+    return 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+  };
+  
+  // V0 at (startX, startY): check West(-1,0) and Down(0,-1)
+  const ao0 = computeVertexAO(startX, startY, -1, 0, 0, -1);
+  // V1 at (startX, startY+h): check West(-1,0) and Up(0,0)
+  const ao1 = computeVertexAO(startX, startY + h, -1, 0, 0, 0);
+  // V2 at (startX+w, startY+h): check East(0,0) and Up(0,0)
+  const ao2 = computeVertexAO(startX + w, startY + h, 0, 0, 0, 0);
+  // V3 at (startX+w, startY): check East(0,0) and Down(0,-1)
+  const ao3 = computeVertexAO(startX + w, startY, 0, 0, 0, -1);
+  
+  return [ao0, ao1, ao2, ao3];
 }
 
 /**
@@ -755,24 +871,19 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const worldX = baseX + ii;
           const worldZ = baseZ + jj;
           
-          // Get AO signature of starting block's 4 corners
-          const startAO = getTopFaceAO(worldX, blockY, worldZ, grid, isOpaque, isAOTransparent);
-          
-          // Expand width (+X) only if next block has identical AO
-          // Note: Rotation is now computed per-fragment in the shader, so we can merge freely
+          // Greedy merge by block ID only
+          // AO is computed per-vertex at the merged quad corners for correct smooth shading
           let w = 1;
           while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
-            if (!canMergeBlockAO(startAO, worldX + w, blockY, worldZ, grid, isOpaque, isAOTransparent)) break;
             w++;
           }
           
-          // Expand height (+Z) only if all blocks in row have identical AO
+          // Expand height (+Z)
           let h = 1;
           outer: while (jj + h < S) {
             for (let k = 0; k < w; k++) {
               const ci = (jj + h) * S + ii + k;
               if (visited[ci] || mask[ci] !== bid) break outer;
-              if (!canMergeBlockAO(startAO, worldX + k, blockY, worldZ + h, grid, isOpaque, isAOTransparent)) break outer;
             }
             h++;
           }
@@ -793,6 +904,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const faceWorldX = baseX + ii;
           const faceWorldY = baseY + ly + 1;
           const faceWorldZ = baseZ + jj;
+          
+          // Compute AO at the actual merged quad corners
+          const mergedAO = getMergedTopFaceAO(faceWorldX, faceWorldY, faceWorldZ, w, h, grid, isOpaque, isAOTransparent);
           
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z + h;
           sPos[pi+3] = x + w; sPos[pi+4] = y; sPos[pi+5] = z + h;
@@ -817,17 +931,17 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const tintType = faceTintTypeLookup[bid * 6 + FACE_UP];
           
           // Per-vertex lighting with Minecraft-style AO
-          // Since we only merged blocks with IDENTICAL AO, use startAO for all vertices
+          // AO is computed at the actual merged quad corners for correct smooth shading
           // Vertex positions: V0(x, y, z+h), V1(x+w, y, z+h), V2(x+w, y, z), V3(x, y, z)
           let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            // Sample light at each vertex corner with the block's AO applied
-            const l0 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, startAO[0], grid, isOpaque, isAOTransparent, 'xz');
-            const l1 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, startAO[1], grid, isOpaque, isAOTransparent, 'xz');
-            const l2 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, startAO[2], grid, isOpaque, isAOTransparent, 'xz');
-            const l3 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, startAO[3], grid, isOpaque, isAOTransparent, 'xz');
+            // Sample light at each vertex corner with per-vertex AO
+            const l0 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, mergedAO[0], grid, isOpaque, isAOTransparent, 'xz');
+            const l1 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, mergedAO[1], grid, isOpaque, isAOTransparent, 'xz');
+            const l2 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, mergedAO[2], grid, isOpaque, isAOTransparent, 'xz');
+            const l3 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, mergedAO[3], grid, isOpaque, isAOTransparent, 'xz');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -993,15 +1107,37 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      // No greedy merge for side faces - emit each face individually to prevent lighting artifacts
+      // Greedy merge for EAST face - mask[jj * S + ii] where jj=Y, ii=Z
+      visited.fill(0);
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
-          if (mask[mi] === 0) continue;
+          if (visited[mi] || mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          const w = 1;  // No merge - single block faces
-          const h = 1;
+          
+          // Expand width (+Z direction)
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
+            w++;
+          }
+          
+          // Expand height (+Y direction)
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          // Mark visited
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
           
           const x = baseX + lx + 1 - ox;
           const y = baseY + jj - oy;
@@ -1012,6 +1148,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const faceWorldX = baseX + lx + 1;
           const faceWorldY = baseY + jj;
           const faceWorldZ = baseZ + ii;
+          
+          // Compute AO at the actual merged quad corners
+          const mergedAO = getMergedEastFaceAO(faceWorldX, faceWorldY, faceWorldZ, h, w, grid, isOpaque, isAOTransparent);
           
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z;
           sPos[pi+3] = x; sPos[pi+4] = y + h; sPos[pi+5] = z;
@@ -1040,10 +1179,10 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, 1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, mergedAO[0], grid, isOpaque, isAOTransparent, 'yz');
+            const l1 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, mergedAO[1], grid, isOpaque, isAOTransparent, 'yz');
+            const l2 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, mergedAO[2], grid, isOpaque, isAOTransparent, 'yz');
+            const l3 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, mergedAO[3], grid, isOpaque, isAOTransparent, 'yz');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -1119,25 +1258,50 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      // No greedy merge for side faces - emit each face individually to prevent lighting artifacts
+      // Greedy merge for WEST face - mask[jj * S + ii] where jj=Y, ii=Z
+      visited.fill(0);
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
-          if (mask[mi] === 0) continue;
+          if (visited[mi] || mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          const w = 1;  // No merge - single block faces
-          const h = 1;
+          
+          // Expand width (+Z direction)
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
+            w++;
+          }
+          
+          // Expand height (+Y direction)
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          // Mark visited
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
           
           const x = baseX + lx - ox;
           const y = baseY + jj - oy;
           const z = baseZ + ii - oz;
           const sv = sVC, pi = sVC * 3;
           
-          // World coordinates for light sampling (face is at x = baseX + lx - 1)
-          const faceWorldX = baseX + lx - 1;
+          // World coordinates for light sampling (face is at x = baseX + lx)
+          const faceWorldX = baseX + lx;
           const faceWorldY = baseY + jj;
           const faceWorldZ = baseZ + ii;
+          
+          // Compute AO at the actual merged quad corners
+          const mergedAO = getMergedWestFaceAO(faceWorldX, faceWorldY, faceWorldZ, h, w, grid, isOpaque, isAOTransparent);
           
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z + w;
           sPos[pi+3] = x; sPos[pi+4] = y + h; sPos[pi+5] = z + w;
@@ -1165,10 +1329,10 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, -1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, -1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, -1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, mergedAO[0], grid, isOpaque, isAOTransparent, 'yz');
+            const l1 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, mergedAO[1], grid, isOpaque, isAOTransparent, 'yz');
+            const l2 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, mergedAO[2], grid, isOpaque, isAOTransparent, 'yz');
+            const l3 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, mergedAO[3], grid, isOpaque, isAOTransparent, 'yz');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -1243,15 +1407,37 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      // No greedy merge for side faces - emit each face individually to prevent lighting artifacts
+      // Greedy merge for SOUTH face - mask[jj * S + ii] where jj=Y, ii=X
+      visited.fill(0);
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
-          if (mask[mi] === 0) continue;
+          if (visited[mi] || mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          const w = 1;  // No merge - single block faces
-          const h = 1;
+          
+          // Expand width (+X direction)
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
+            w++;
+          }
+          
+          // Expand height (+Y direction)
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          // Mark visited
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
           
           const x = baseX + ii - ox;
           const y = baseY + jj - oy;
@@ -1262,6 +1448,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const faceWorldX = baseX + ii;
           const faceWorldY = baseY + jj;
           const faceWorldZ = baseZ + lz + 1;
+          
+          // Compute AO at the actual merged quad corners
+          const mergedAO = getMergedSouthFaceAO(faceWorldZ, faceWorldX, faceWorldY, w, h, grid, isOpaque, isAOTransparent);
           
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z;
           sPos[pi+3] = x + w; sPos[pi+4] = y; sPos[pi+5] = z;
@@ -1290,10 +1479,10 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, mergedAO[0], grid, isOpaque, isAOTransparent, 'xy');
+            const l1 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, mergedAO[1], grid, isOpaque, isAOTransparent, 'xy');
+            const l2 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, mergedAO[2], grid, isOpaque, isAOTransparent, 'xy');
+            const l3 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, mergedAO[3], grid, isOpaque, isAOTransparent, 'xy');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -1368,25 +1557,50 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      // No greedy merge for side faces - emit each face individually to prevent lighting artifacts
+      // Greedy merge for NORTH face - mask[jj * S + ii] where jj=Y, ii=X
+      visited.fill(0);
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
-          if (mask[mi] === 0) continue;
+          if (visited[mi] || mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          const w = 1;  // No merge - single block faces
-          const h = 1;
+          
+          // Expand width (+X direction)
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
+            w++;
+          }
+          
+          // Expand height (+Y direction)
+          let h = 1;
+          outer: while (jj + h < S) {
+            for (let k = 0; k < w; k++) {
+              const ci = (jj + h) * S + ii + k;
+              if (visited[ci] || mask[ci] !== bid) break outer;
+            }
+            h++;
+          }
+          
+          // Mark visited
+          for (let dj = 0; dj < h; dj++) {
+            for (let di = 0; di < w; di++) {
+              visited[(jj + dj) * S + ii + di] = 1;
+            }
+          }
           
           const x = baseX + ii - ox;
           const y = baseY + jj - oy;
           const z = baseZ + lz - oz;
           const sv = sVC, pi = sVC * 3;
           
-          // World coordinates for light sampling (face is at z = baseZ + lz - 1)
+          // World coordinates for light sampling (face is at z = baseZ + lz)
           const faceWorldX = baseX + ii;
           const faceWorldY = baseY + jj;
-          const faceWorldZ = baseZ + lz - 1;
+          const faceWorldZ = baseZ + lz;
+          
+          // Compute AO at the actual merged quad corners
+          const mergedAO = getMergedNorthFaceAO(faceWorldZ, faceWorldX, faceWorldY, w, h, grid, isOpaque, isAOTransparent);
           
           sPos[pi] = x + w; sPos[pi+1] = y; sPos[pi+2] = z;
           sPos[pi+3] = x; sPos[pi+4] = y; sPos[pi+5] = z;
@@ -1414,10 +1628,10 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, mergedAO[0], grid, isOpaque, isAOTransparent, 'xy');
+            const l1 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, mergedAO[1], grid, isOpaque, isAOTransparent, 'xy');
+            const l2 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, mergedAO[2], grid, isOpaque, isAOTransparent, 'xy');
+            const l3 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, mergedAO[3], grid, isOpaque, isAOTransparent, 'xy');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
