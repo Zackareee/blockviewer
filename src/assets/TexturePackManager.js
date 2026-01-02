@@ -142,18 +142,36 @@ class TexturePackManager {
       }
     }
     
-    // Load textures (parallel for speed)
-    const texturePromises = [];
+    // Load textures with controlled concurrency for better performance
+    // Too many parallel createImageBitmap calls can overwhelm the browser
+    const TEXTURE_CONCURRENCY = 32;
+    const textureEntries = [];
     const texturePath = `${minecraftPath}textures/block/`;
     
     for (const [path, file] of Object.entries(zip.files)) {
       if (path.startsWith(texturePath) && path.endsWith('.png') && !file.dir) {
         const relativePath = path.substring(minecraftPath.length);
-        texturePromises.push(
-          this._loadTexture(file, relativePath)
-        );
+        textureEntries.push({ file, relativePath });
       }
     }
+    
+    // Process textures in batches with controlled concurrency
+    const loadTexturesBatched = async () => {
+      for (let i = 0; i < textureEntries.length; i += TEXTURE_CONCURRENCY) {
+        const batch = textureEntries.slice(i, i + TEXTURE_CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(({ file, relativePath }) => this._loadTextureEntry(file, relativePath))
+        );
+        // Store results immediately (reduces memory pressure)
+        for (const result of results) {
+          if (result) {
+            this.textures.set(result.path, result.bitmap);
+          }
+        }
+      }
+    };
+    
+    const texturePromises = [loadTexturesBatched()];
     
     // Load colormap textures for biome tinting
     const colormapPath = `${minecraftPath}textures/colormap/`;
@@ -230,13 +248,25 @@ class TexturePackManager {
     );
   }
 
-  async _loadTexture(file, relativePath) {
+  /**
+   * Load a single texture from a ZIP file entry
+   * Returns a promise that resolves to { path, bitmap } or null on failure
+   * @private
+   */
+  async _loadTextureEntry(file, relativePath) {
     try {
       const blob = await file.async('blob');
       const imageBitmap = await createImageBitmap(blob);
-      this.textures.set(relativePath, imageBitmap);
+      return { path: relativePath, bitmap: imageBitmap };
     } catch (e) {
-      // Skip invalid images silently
+      return null; // Skip invalid images silently
+    }
+  }
+
+  async _loadTexture(file, relativePath) {
+    const result = await this._loadTextureEntry(file, relativePath);
+    if (result) {
+      this.textures.set(result.path, result.bitmap);
     }
   }
 

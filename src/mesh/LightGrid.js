@@ -229,6 +229,30 @@ export class LightGrid {
   }
   
   /**
+   * ULTRA-FAST: Get light value by direct index (no coordinate conversion)
+   * @param {Uint8Array} section - The light section
+   * @param {number} index - Direct array index (0-4095)
+   * @returns {number} Combined light byte (sky in lower nibble, block in upper)
+   */
+  static getLightByIndex(section, index) {
+    return section[index];
+  }
+  
+  /**
+   * ULTRA-FAST: Get sky and block light by index (inline-friendly)
+   * Call as: const val = section[index]; skyLight = val & 0xF; blockLight = val >> 4;
+   */
+  
+  /**
+   * Get a light section by section key directly (avoids coordinate math)
+   * @param {string} key - Section key from makeSectionKey
+   * @returns {Uint8Array|undefined}
+   */
+  getSectionByKey(key) {
+    return this.sections.get(key);
+  }
+  
+  /**
    * Get memory usage estimate
    */
   getMemoryUsage() {

@@ -56,14 +56,63 @@ const UNDERWATER_BLOCKS = new Set([
 
 /**
  * Unpack block indices from packed long array (Minecraft 1.16+ format)
+ * 
+ * OPTIMIZATION: For bitsPerBlock == 4 (most common case with palettes 1-16 entries),
+ * we can process using Number operations which are ~10x faster than BigInt.
+ * With 4 bits per entry, 16 entries fit in 64 bits, and no entry crosses the 32-bit boundary.
  */
 function unpackBlockIndices(data, bitsPerBlock, totalBlocks) {
   const indices = new Uint16Array(totalBlocks);
-  const mask = (1n << BigInt(bitsPerBlock)) - 1n;
   const entriesPerLong = Math.floor(64 / bitsPerBlock);
+  const dataLen = data.length;
+  
+  // FAST PATH: For bitsPerBlock == 4 (very common - palettes with 1-16 entries)
+  // 4 bits per entry means 16 entries per long, and no entry crosses 32-bit boundary
+  if (bitsPerBlock === 4) {
+    let i = 0;
+    
+    for (let longIndex = 0; longIndex < dataLen && i < totalBlocks; longIndex++) {
+      const val = data[longIndex];
+      
+      // Split 64-bit value into two 32-bit numbers
+      let low, high;
+      if (typeof val === 'bigint') {
+        low = Number(val & 0xFFFFFFFFn);
+        high = Number((val >> 32n) & 0xFFFFFFFFn);
+      } else {
+        low = val >>> 0;
+        high = 0;
+      }
+      
+      // Extract 8 entries from low, 8 from high (4 bits each, total 16 entries)
+      // Low 32 bits: entries 0-7
+      if (i < totalBlocks) indices[i++] = (low) & 0xF;
+      if (i < totalBlocks) indices[i++] = (low >>> 4) & 0xF;
+      if (i < totalBlocks) indices[i++] = (low >>> 8) & 0xF;
+      if (i < totalBlocks) indices[i++] = (low >>> 12) & 0xF;
+      if (i < totalBlocks) indices[i++] = (low >>> 16) & 0xF;
+      if (i < totalBlocks) indices[i++] = (low >>> 20) & 0xF;
+      if (i < totalBlocks) indices[i++] = (low >>> 24) & 0xF;
+      if (i < totalBlocks) indices[i++] = (low >>> 28) & 0xF;
+      
+      // High 32 bits: entries 8-15
+      if (i < totalBlocks) indices[i++] = (high) & 0xF;
+      if (i < totalBlocks) indices[i++] = (high >>> 4) & 0xF;
+      if (i < totalBlocks) indices[i++] = (high >>> 8) & 0xF;
+      if (i < totalBlocks) indices[i++] = (high >>> 12) & 0xF;
+      if (i < totalBlocks) indices[i++] = (high >>> 16) & 0xF;
+      if (i < totalBlocks) indices[i++] = (high >>> 20) & 0xF;
+      if (i < totalBlocks) indices[i++] = (high >>> 24) & 0xF;
+      if (i < totalBlocks) indices[i++] = (high >>> 28) & 0xF;
+    }
+    
+    return indices;
+  }
+  
+  // STANDARD PATH: Use BigInt for all other cases (still optimized with pre-computed offsets)
+  const mask = (1n << BigInt(bitsPerBlock)) - 1n;
   
   // Pre-convert all longs to unsigned BigInts once
-  const dataLen = data.length;
   const longValues = new Array(dataLen);
   for (let j = 0; j < dataLen; j++) {
     const val = data[j];

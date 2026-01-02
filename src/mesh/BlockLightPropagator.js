@@ -11,9 +11,84 @@
  * 1. Find all light-emitting blocks and their light levels
  * 2. BFS flood-fill from each light source
  * 3. Take maximum light at each position (multiple sources can overlap)
+ * 
+ * Performance: Uses a ring buffer queue for O(1) enqueue/dequeue instead of
+ * array.shift() which is O(n).
  */
 
 import { MAX_LIGHT } from './LightGrid.js';
+
+/**
+ * Ring buffer queue for O(1) enqueue/dequeue operations.
+ * Standard array.shift() is O(n) which becomes a bottleneck for BFS with millions of nodes.
+ */
+class LightQueue {
+  constructor(initialCapacity = 65536) {
+    this.capacity = initialCapacity;
+    // Store as flat typed arrays for cache efficiency
+    // Each entry is (x, y, z, light) packed into 4 consecutive Int16 values
+    this.data = new Int16Array(initialCapacity * 4);
+    this.head = 0;
+    this.tail = 0;
+    this.size = 0;
+  }
+  
+  get length() {
+    return this.size;
+  }
+  
+  push(item) {
+    // Grow if needed
+    if (this.size >= this.capacity) {
+      this._grow();
+    }
+    
+    const idx = this.tail * 4;
+    this.data[idx] = item.x;
+    this.data[idx + 1] = item.y;
+    this.data[idx + 2] = item.z;
+    this.data[idx + 3] = item.light;
+    
+    this.tail = (this.tail + 1) % this.capacity;
+    this.size++;
+  }
+  
+  shift() {
+    if (this.size === 0) return undefined;
+    
+    const idx = this.head * 4;
+    const item = {
+      x: this.data[idx],
+      y: this.data[idx + 1],
+      z: this.data[idx + 2],
+      light: this.data[idx + 3],
+    };
+    
+    this.head = (this.head + 1) % this.capacity;
+    this.size--;
+    return item;
+  }
+  
+  _grow() {
+    const newCapacity = this.capacity * 2;
+    const newData = new Int16Array(newCapacity * 4);
+    
+    // Copy existing data in order
+    for (let i = 0; i < this.size; i++) {
+      const oldIdx = ((this.head + i) % this.capacity) * 4;
+      const newIdx = i * 4;
+      newData[newIdx] = this.data[oldIdx];
+      newData[newIdx + 1] = this.data[oldIdx + 1];
+      newData[newIdx + 2] = this.data[oldIdx + 2];
+      newData[newIdx + 3] = this.data[oldIdx + 3];
+    }
+    
+    this.data = newData;
+    this.head = 0;
+    this.tail = this.size;
+    this.capacity = newCapacity;
+  }
+}
 import { 
   SECTION_SIZE, 
   parseSectionKey,
@@ -187,7 +262,8 @@ export function propagateBlockLight(blockGrid, lightGrid, registry) {
   }
   
   // Find all light sources and build initial queue
-  const queue = [];
+  // Use ring buffer queue for O(1) operations instead of O(n) array.shift()
+  const queue = new LightQueue();
   
   for (const [key, section] of blockGrid.sections) {
     const { chunkX, chunkZ, sectionY } = parseSectionKey(key);

@@ -878,6 +878,18 @@ export class ChunkManager {
       `in ${(totalTime / 1000).toFixed(1)}s`
     );
     
+    // Expose stats globally for E2E testing
+    if (typeof window !== 'undefined') {
+      window.__chunkManagerStats = {
+        regions: completedRegions,
+        chunks: totalChunks,
+        blocks: totalBlocks,
+        triangles: totalTriangles,
+        meshCount,
+        timeMs: totalTime,
+      };
+    }
+    
     this.onComplete?.();
     
     return {
@@ -1270,6 +1282,18 @@ export class ChunkManager {
       `${totalTriangles.toLocaleString()} triangles in ${(totalTime / 1000).toFixed(1)}s ` +
       `(avg ${(avgTime / 1000).toFixed(2)}s/region)`
     );
+    
+    // Expose stats globally for E2E testing
+    if (typeof window !== 'undefined') {
+      window.__chunkManagerStats = {
+        regions: completedRegions,
+        chunks: totalChunks,
+        blocks: totalBlocks,
+        triangles: totalTriangles,
+        meshCount,
+        timeMs: totalTime,
+      };
+    }
     
     this.onComplete?.();
     

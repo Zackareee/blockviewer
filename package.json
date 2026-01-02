@@ -13,7 +13,9 @@
     "test:update": "node test/mesh.test.js --update",
     "test:e2e": "node test/e2e/regionDisplay.test.js",
     "test:e2e:regression": "HEADLESS=1 node test/e2e/screenshotRegression.test.js",
-    "test:e2e:update-baseline": "HEADLESS=1 node test/e2e/screenshotRegression.test.js --update"
+    "test:e2e:update-baseline": "HEADLESS=1 node test/e2e/screenshotRegression.test.js --update",
+    "test:benchmark": "node test/e2e/performanceBenchmark.test.js",
+    "test:benchmark:headless": "HEADLESS=1 node test/e2e/performanceBenchmark.test.js"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
