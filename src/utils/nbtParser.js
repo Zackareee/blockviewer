@@ -15,6 +15,9 @@ const TAG_COMPOUND = 10;
 const TAG_INT_ARRAY = 11;
 const TAG_LONG_ARRAY = 12;
 
+// Reuse TextDecoder to avoid creating new instances for each string
+const textDecoder = new TextDecoder('utf-8');
+
 class NBTReader {
   constructor(buffer) {
     this.buffer = buffer;
@@ -70,30 +73,38 @@ class NBTReader {
     if (length <= 0) return '';
     const bytes = new Uint8Array(this.buffer, this.offset, length);
     this.offset += length;
-    return new TextDecoder('utf-8').decode(bytes);
+    return textDecoder.decode(bytes);
   }
 
   readByteArray() {
     const length = this.readInt();
-    const array = new Int8Array(this.buffer, this.offset, length);
+    // Return Int8Array directly - more efficient than Array.from()
+    // Callers that need Array can convert if needed
+    const array = new Int8Array(this.buffer.slice(this.offset, this.offset + length));
     this.offset += length;
-    return Array.from(array);
+    return array;
   }
 
   readIntArray() {
     const length = this.readInt();
-    const array = [];
+    // Pre-allocate array for better performance
+    const array = new Int32Array(length);
     for (let i = 0; i < length; i++) {
-      array.push(this.readInt());
+      array[i] = this.view.getInt32(this.offset, false);
+      this.offset += 4;
     }
     return array;
   }
 
   readLongArray() {
     const length = this.readInt();
-    const array = [];
+    // Pre-allocate array for better performance
+    const array = new Array(length);
     for (let i = 0; i < length; i++) {
-      array.push(this.readLong());
+      const high = this.view.getInt32(this.offset, false);
+      const low = this.view.getUint32(this.offset + 4, false);
+      this.offset += 8;
+      array[i] = BigInt(high) * BigInt(0x100000000) + BigInt(low);
     }
     return array;
   }
