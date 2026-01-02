@@ -19,6 +19,11 @@ export {
   DEFAULT_TEXTURE_SIZE,
   BORDER_SIZE,
 } from './TextureAtlas.js';
+export {
+  RandomRotationRegistry,
+  getRandomRotationRegistry,
+  getPositionRotation,
+} from './RandomRotationRegistry.js';
 
 /**
  * Initialize all asset systems

@@ -9,6 +9,7 @@ import {
 } from './assets';
 import { getBlockColorsNumeric, BLOCK_COLORS } from './data/blockColors';
 import { getBlockRegistry } from './mesh/BlockRegistry';
+import { getRandomRotationRegistry } from './assets/RandomRotationRegistry';
 import './App.css';
 
 function App() {
@@ -147,6 +148,14 @@ function App() {
       
       const customPack = getCustomPackManager();
       await customPack.loadFromZip(file, file.name.replace('.zip', ''));
+      
+      // Apply random rotation overrides from texture pack if available
+      const rotationRegistry = getRandomRotationRegistry();
+      rotationRegistry.clearPackOverrides(); // Clear any previous pack overrides
+      const packRotationBlocks = customPack.getRandomRotationBlocks();
+      if (packRotationBlocks) {
+        rotationRegistry.addPackOverrides(packRotationBlocks);
+      }
       
       const atlas = getTextureAtlas();
       await atlas.build(customPack);

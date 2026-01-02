@@ -45,6 +45,10 @@ class TexturePackManager {
     this.packMeta = null;
     this.packName = null;
     
+    // BlockViewer-specific config (blockviewer.json)
+    // Supports: { randomRotationBlocks: ["block1", "block2", ...] }
+    this.blockviewerConfig = null;
+    
     // Loading state
     this.isLoaded = false;
     this.loading = null;
@@ -194,6 +198,18 @@ class TexturePackManager {
             if (json) this.blockstates.set(blockName, json);
           })
         );
+      }
+    }
+    
+    // Load blockviewer.json config if exists (custom Block Viewer settings)
+    const blockviewerConfigPath = `${assetsPrefix}blockviewer.json`;
+    if (zip.files[blockviewerConfigPath]) {
+      try {
+        const configText = await zip.files[blockviewerConfigPath].async('text');
+        this.blockviewerConfig = JSON.parse(configText);
+        console.log('[TexturePackManager] Loaded blockviewer.json config');
+      } catch (e) {
+        console.warn('[TexturePackManager] Could not parse blockviewer.json');
       }
     }
     
@@ -356,9 +372,29 @@ class TexturePackManager {
     this.models.clear();
     this.blockstates.clear();
     this.colormaps = { grass: null, foliage: null, dryFoliage: null };
+    this.blockviewerConfig = null;
     this.isLoaded = false;
     this.packMeta = null;
     this.packName = null;
+  }
+
+  /**
+   * Get BlockViewer-specific config from texture pack
+   * @returns {Object|null} Config object or null if not present
+   */
+  getBlockViewerConfig() {
+    return this.blockviewerConfig;
+  }
+
+  /**
+   * Get random rotation blocks override from texture pack
+   * @returns {string[]|null} Array of block names or null if not specified
+   */
+  getRandomRotationBlocks() {
+    if (this.blockviewerConfig && Array.isArray(this.blockviewerConfig.randomRotationBlocks)) {
+      return this.blockviewerConfig.randomRotationBlocks;
+    }
+    return null;
   }
 
   /**
