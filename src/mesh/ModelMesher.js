@@ -57,6 +57,8 @@ const MODEL_ROTATION_BLOCKS = new Set([
   'hanging_roots', 'spore_blossom',
   // Mushrooms (small)
   'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  // Sea pickle (has 4 rotation variants in blockstate)
+  'sea_pickle',
 ]);
 
 // Blocks that should have random XZ position offset within their block

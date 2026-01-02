@@ -24,6 +24,25 @@ const TEXTURE_ROTATION_BLOCKS = new Set([
   'leaf_litter',
 ]);
 
+// Blocks that have random Y-rotation in their blockstate (as variant arrays)
+// but need actual MODEL rotation applied at render time by ModelMesher.
+// For these blocks, we only store the base (non-rotated) geometry.
+const MODEL_ROTATION_BLOCKS = new Set([
+  // Cross-model plants
+  'short_grass', 'tall_grass', 'fern', 'large_fern',
+  'nether_sprouts', 'crimson_roots', 'warped_roots',
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower', 'pink_petals', 'eyeblossom', 'dead_bush',
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'mangrove_propagule',
+  'pale_oak_sapling', 'hanging_roots', 'spore_blossom',
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  // 3D models with rotation variants
+  'sea_pickle',
+]);
+
 /**
  * Registered block state with cached data
  * @typedef {Object} BlockState
@@ -168,18 +187,24 @@ class StateRegistry {
 
     // Check if this block uses texture rotation instead of model rotation
     const usesTextureRotation = TEXTURE_ROTATION_BLOCKS.has(state.blockName);
+    
+    // Check if this block uses model rotation applied at render time
+    const usesModelRotation = MODEL_ROTATION_BLOCKS.has(state.blockName);
+    
+    // For both texture and model rotation blocks, skip duplicate rotation variants
+    const skipDuplicateRotations = usesTextureRotation || usesModelRotation;
 
-    // Track which model paths we've already processed (for texture rotation blocks)
+    // Track which model paths we've already processed (to avoid duplicate geometries)
     // This prevents duplicate geometries when multiple rotation variants of the same model exist
-    const processedModels = usesTextureRotation ? new Set() : null;
+    const processedModels = skipDuplicateRotations ? new Set() : null;
 
     // Compute geometry for each variant
     state.geometry = [];
     state.isFullCube = true;
 
     for (const variant of state.variants) {
-      // For texture rotation blocks, skip duplicate rotation variants of the same model
-      if (usesTextureRotation && processedModels.has(variant.model)) {
+      // For rotation blocks, skip duplicate rotation variants of the same model
+      if (skipDuplicateRotations && processedModels.has(variant.model)) {
         continue;
       }
 
@@ -187,9 +212,9 @@ class StateRegistry {
       const model = await this.modelResolver.resolve(modelPath);
       if (!model) continue;
 
-      // For blocks with texture rotation, use base geometry (no model rotation)
-      const rotX = usesTextureRotation ? 0 : variant.x;
-      const rotY = usesTextureRotation ? 0 : variant.y;
+      // For blocks with texture/model rotation at render time, use base geometry (no model rotation)
+      const rotX = skipDuplicateRotations ? 0 : variant.x;
+      const rotY = skipDuplicateRotations ? 0 : variant.y;
       
       // Pass uvlock flag - when true, UVs remain world-aligned even when model rotates
       const uvlock = variant.uvlock || false;
@@ -203,7 +228,7 @@ class StateRegistry {
         }
 
         // Mark this model as processed
-        if (usesTextureRotation) {
+        if (skipDuplicateRotations) {
           processedModels.add(variant.model);
         }
       }
