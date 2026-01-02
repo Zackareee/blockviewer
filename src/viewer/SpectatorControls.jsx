@@ -18,7 +18,7 @@
  *   - negative = looking up
  */
 
-import { useRef, useEffect, useCallback, useState, useImperativeHandle, forwardRef } from 'react';
+import { useRef, useEffect, useCallback, useState, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -342,61 +342,91 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     };
   }, [gl, camera, mouseSensitivity, requestPointerLock, invalidate]);
   
+  // PERFORMANCE: Reuse objects to avoid GC pressure from allocations every frame
+  const forwardVec = useMemo(() => new THREE.Vector3(), []);
+  const rightVec = useMemo(() => new THREE.Vector3(), []);
+  const movementVec = useMemo(() => new THREE.Vector3(), []);
+  const yawEuler = useMemo(() => new THREE.Euler(0, 0, 0, 'YXZ'), []);
+  
+  // Track last reported position to only update when changed
+  const lastReportedPos = useRef({ x: 0, y: 0, z: 0, pitch: 0, yaw: 0 });
+  
   // Movement update each frame
   useFrame((state, delta) => {
     const keys = keysRef.current;
     const speed = keys.fast ? fastMoveSpeed : moveSpeed;
     const distance = speed * delta;
     
-    // Get forward/right vectors from camera
-    const forward = new THREE.Vector3(0, 0, -1);
-    const right = new THREE.Vector3(1, 0, 0);
+    // PERFORMANCE: Reuse pre-allocated vectors instead of creating new ones
+    forwardVec.set(0, 0, -1);
+    rightVec.set(1, 0, 0);
     
     // Apply yaw rotation only (not pitch) for horizontal movement
-    const yawRotation = new THREE.Euler(0, -rotationRef.current.yaw, 0, 'YXZ');
-    forward.applyEuler(yawRotation);
-    right.applyEuler(yawRotation);
+    yawEuler.set(0, -rotationRef.current.yaw, 0);
+    forwardVec.applyEuler(yawEuler);
+    rightVec.applyEuler(yawEuler);
     
     // Calculate movement
-    const movement = new THREE.Vector3();
+    movementVec.set(0, 0, 0);
     
-    if (keys.forward) movement.add(forward);
-    if (keys.backward) movement.sub(forward);
-    if (keys.right) movement.add(right);
-    if (keys.left) movement.sub(right);
+    if (keys.forward) movementVec.add(forwardVec);
+    if (keys.backward) movementVec.sub(forwardVec);
+    if (keys.right) movementVec.add(rightVec);
+    if (keys.left) movementVec.sub(rightVec);
     
     // Normalize horizontal movement
-    if (movement.length() > 0) {
-      movement.normalize().multiplyScalar(distance);
+    if (movementVec.length() > 0) {
+      movementVec.normalize().multiplyScalar(distance);
     }
     
     // Vertical movement (independent of look direction)
-    if (keys.up) movement.y += distance;
-    if (keys.down) movement.y -= distance;
+    if (keys.up) movementVec.y += distance;
+    if (keys.down) movementVec.y -= distance;
     
     // Apply movement
-    if (movement.length() > 0) {
-      camera.position.add(movement);
+    const hasMoved = movementVec.length() > 0;
+    if (hasMoved) {
+      camera.position.add(movementVec);
       invalidate();
     }
     
-    // Report camera state to parent
+    // PERFORMANCE: Only report camera state when it actually changes
+    // This prevents React re-renders every frame when stationary
     if (onCameraUpdate) {
       const { pitch, yaw } = internalToMinecraftRotation(
         rotationRef.current.yaw,
         rotationRef.current.pitch
       );
-      const cardinal = getCardinalDirection(yaw);
       
-      onCameraUpdate({
-        x: camera.position.x,
-        y: camera.position.y,
-        z: camera.position.z,
-        pitch,
-        yaw,
-        direction: cardinal.direction,
-        axis: cardinal.axis,
-      });
+      // Check if position or rotation changed significantly
+      const lastPos = lastReportedPos.current;
+      const posDelta = Math.abs(camera.position.x - lastPos.x) + 
+                       Math.abs(camera.position.y - lastPos.y) + 
+                       Math.abs(camera.position.z - lastPos.z);
+      const rotDelta = Math.abs(pitch - lastPos.pitch) + Math.abs(yaw - lastPos.yaw);
+      
+      // Only update if moved more than 0.01 blocks or rotated more than 0.1 degrees
+      if (posDelta > 0.01 || rotDelta > 0.1) {
+        const cardinal = getCardinalDirection(yaw);
+        
+        onCameraUpdate({
+          x: camera.position.x,
+          y: camera.position.y,
+          z: camera.position.z,
+          pitch,
+          yaw,
+          direction: cardinal.direction,
+          axis: cardinal.axis,
+        });
+        
+        lastReportedPos.current = {
+          x: camera.position.x,
+          y: camera.position.y,
+          z: camera.position.z,
+          pitch,
+          yaw,
+        };
+      }
     }
   });
   

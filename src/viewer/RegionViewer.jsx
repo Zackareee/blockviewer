@@ -20,10 +20,10 @@ import * as THREE from 'three';
 
 /**
  * Adaptive pixel ratio component - reduces DPR when performance drops
- * Note: Simplified to avoid issues with demand rendering mode
+ * PERFORMANCE: More aggressive settings for large scenes
  */
 function AdaptivePerformance() {
-  const { invalidate } = useThree();
+  const { invalidate, gl } = useThree();
   
   return (
     <PerformanceMonitor
@@ -32,11 +32,14 @@ function AdaptivePerformance() {
         invalidate();
       }}
       onDecline={() => {
-        console.log('[Performance] Quality decreasing');
+        console.log('[Performance] Quality decreasing - reducing DPR');
+        // Force immediate DPR reduction for faster response
+        gl.setPixelRatio(Math.max(0.5, gl.getPixelRatio() * 0.75));
         invalidate();
       }}
-      flipflops={5} // More tolerance before switching
-      factor={0.5} // Less aggressive changes
+      flipflops={3}   // PERFORMANCE: Faster response to drops
+      factor={0.75}   // PERFORMANCE: More aggressive changes
+      iterations={5}  // PERFORMANCE: Check performance more frequently
     >
       <AdaptiveDpr pixelated />
     </PerformanceMonitor>
@@ -63,27 +66,53 @@ function DynamicFOV({ fov }) {
 /**
  * Movement regression - lower quality while camera is moving
  * This helps maintain smooth framerates during orbit/pan
+ * PERFORMANCE: Only regress every N frames to reduce overhead
  */
 function MovementRegression() {
   const { performance: perf } = useThree();
   const lastPos = useRef({ x: 0, y: 0, z: 0 });
-  const framesSinceMove = useRef(0);
+  const frameCounter = useRef(0);
   
+  // Only check every 5 frames to reduce useFrame overhead
   useFrame(({ camera }) => {
+    frameCounter.current++;
+    if (frameCounter.current < 5) return;
+    frameCounter.current = 0;
+    
     const dx = camera.position.x - lastPos.current.x;
     const dy = camera.position.y - lastPos.current.y;
     const dz = camera.position.z - lastPos.current.z;
-    const moved = dx * dx + dy * dy + dz * dz > 0.1;
+    const moved = dx * dx + dy * dy + dz * dz > 1.0; // Increased threshold
     
     lastPos.current.x = camera.position.x;
     lastPos.current.y = camera.position.y;
     lastPos.current.z = camera.position.z;
     
     if (moved) {
-      framesSinceMove.current = 0;
       perf.regress();
-    } else {
-      framesSinceMove.current++;
+    }
+  });
+  
+  return null;
+}
+
+/**
+ * Throttled LOD updater - incrementally updates LODs
+ * PERFORMANCE: Now uses incremental updates (10 LODs per call) to avoid lag spikes
+ * Updates happen every few frames to spread work evenly
+ */
+function ThrottledLODUpdater({ managerRef }) {
+  const frameCount = useRef(0);
+  
+  // Update LODs every N frames - now safe since updates are incremental
+  const UPDATE_INTERVAL_FRAMES = 3;  // Every 3 frames (spreads work evenly)
+  
+  useFrame(({ camera }) => {
+    frameCount.current++;
+    
+    if (frameCount.current >= UPDATE_INTERVAL_FRAMES && managerRef.current) {
+      managerRef.current.updateLODs(camera);
+      frameCount.current = 0;
     }
   });
   
@@ -363,6 +392,10 @@ function RegionScene({
     manager.loadChunks(chunks).then(result => {
       console.log(`[RegionViewer] Loaded ${result.chunksLoaded} chunks, ${result.totalBlocks.toLocaleString()} blocks`);
       positionCamera();
+      // PERFORMANCE: Trigger initial LOD update after loading completes (use immediate version)
+      if (manager.updateAllLODsNow) {
+        manager.updateAllLODsNow(camera);
+      }
       invalidate();
     });
     
@@ -506,6 +539,12 @@ function RegionScene({
         if (isFreshLoad) {
           positionCameraAt(centerX, 64, centerZ, result.chunksLoaded || result.totalChunks);
         }
+        
+        // PERFORMANCE: Trigger initial LOD update after loading completes (use immediate version)
+        if (manager.updateAllLODsNow) {
+          manager.updateAllLODsNow(camera);
+        }
+        
         invalidate();
       });
     }
@@ -570,6 +609,9 @@ function RegionScene({
       {/* Performance optimizations */}
       <MovementRegression />
       
+      {/* Throttled LOD updates - only update LODs when camera moves significantly */}
+      <ThrottledLODUpdater managerRef={managerRef} />
+      
       {/* Debug block highlight */}
       {debugMode && hoveredBlock && (
         <BlockHighlight position={hoveredBlock} />
@@ -621,22 +663,25 @@ export function RegionViewer({
       style={{ width: '100%', height: '100%', ...style }}
       camera={{ 
         fov: fov, 
-        near: 0.1, 
-        far: 10000, 
+        near: 0.5,   // Slightly larger near plane reduces z-fighting and depth precision issues
+        far: 2500,   // PERFORMANCE: Reduced from 10000 - less geometry to rasterize
         position: [500, 300, 500] 
       }}
       gl={{ 
-        antialias: true,
+        antialias: false,  // PERFORMANCE: Disable antialiasing - very expensive with millions of triangles
         powerPreference: 'high-performance',
+        stencil: false,    // PERFORMANCE: Disable stencil buffer if not needed
+        depth: true,
       }}
       // Always render - demand mode can cause issues with LOD updates
       frameloop="always"
-      // Performance settings
-      dpr={[0.5, 1.5]} // Allow DPR to scale between 0.5x and 1.5x
-      performance={{ min: 0.5 }} // Minimum performance ratio before regression
+      // Performance settings - more aggressive DPR reduction
+      dpr={[0.5, 1.0]} // PERFORMANCE: Cap at 1.0 instead of 1.5 - reduces fill rate significantly
+      performance={{ min: 0.3 }} // Allow more aggressive quality reduction
     >
       <color attach="background" args={['#1a1a2e']} />
-      <fog attach="fog" args={['#1a1a2e', 1000, 5000]} />
+      {/* PERFORMANCE: Fog now matches reduced far plane - hides pop-in */}
+      <fog attach="fog" args={['#1a1a2e', 500, 2400]} />
       
       {/* Dynamic FOV updater - responds to prop changes */}
       <DynamicFOV fov={fov} />

@@ -346,10 +346,137 @@ export class ChunkManager {
   }
 
   /**
+   * PERFORMANCE: Split mesh data into spatial chunks for effective frustum culling
+   * Each chunk covers a CHUNK_SIZE x CHUNK_SIZE area in XZ plane
+   * This allows Three.js to cull entire chunks when they're outside the camera frustum
+   */
+  _splitMeshSpatially(meshData, chunkSize = 128) {
+    if (!meshData || meshData.vertexCount === 0) return [];
+    
+    const { positions, normals, colors, indices, texIndices, texRotations,
+            tintTypes, skyLight, blockLight, modelUVs, shadeFlags, singleSidedFlags } = meshData;
+    
+    // Build spatial bins based on triangle centroids
+    const bins = new Map(); // key: "chunkX,chunkZ" -> { triangles: [] }
+    
+    // Process each triangle
+    const triangleCount = indices.length / 3;
+    for (let t = 0; t < triangleCount; t++) {
+      const i0 = indices[t * 3];
+      const i1 = indices[t * 3 + 1];
+      const i2 = indices[t * 3 + 2];
+      
+      // Calculate triangle centroid
+      const cx = (positions[i0 * 3] + positions[i1 * 3] + positions[i2 * 3]) / 3;
+      const cz = (positions[i0 * 3 + 2] + positions[i1 * 3 + 2] + positions[i2 * 3 + 2]) / 3;
+      
+      // Determine which spatial chunk this triangle belongs to
+      const chunkX = Math.floor(cx / chunkSize);
+      const chunkZ = Math.floor(cz / chunkSize);
+      const key = `${chunkX},${chunkZ}`;
+      
+      if (!bins.has(key)) {
+        bins.set(key, { triangles: [] });
+      }
+      bins.get(key).triangles.push(t);
+    }
+    
+    // Build mesh data for each bin
+    const chunks = [];
+    for (const [key, bin] of bins) {
+      if (bin.triangles.length === 0) continue;
+      
+      // Collect vertices for this bin
+      const chunkPositions = [];
+      const chunkNormals = [];
+      const chunkColors = [];
+      const chunkIndices = [];
+      const chunkTexIndices = texIndices ? [] : null;
+      const chunkTexRotations = texRotations ? [] : null;
+      const chunkTintTypes = tintTypes ? [] : null;
+      const chunkSkyLight = skyLight ? [] : null;
+      const chunkBlockLight = blockLight ? [] : null;
+      const chunkModelUVs = modelUVs ? [] : null;
+      const chunkShadeFlags = shadeFlags ? [] : null;
+      const chunkSingleSidedFlags = singleSidedFlags ? [] : null;
+      
+      const vertexMap = new Map(); // old index -> new index
+      let newVertexIndex = 0;
+      
+      for (const triIdx of bin.triangles) {
+        for (let v = 0; v < 3; v++) {
+          const oldIdx = indices[triIdx * 3 + v];
+          
+          if (!vertexMap.has(oldIdx)) {
+            const pos = oldIdx * 3;
+            chunkPositions.push(positions[pos], positions[pos + 1], positions[pos + 2]);
+            chunkNormals.push(normals[pos], normals[pos + 1], normals[pos + 2]);
+            chunkColors.push(colors[pos], colors[pos + 1], colors[pos + 2]);
+            
+            if (texIndices) chunkTexIndices.push(texIndices[oldIdx]);
+            if (texRotations) chunkTexRotations.push(texRotations[oldIdx]);
+            if (tintTypes) chunkTintTypes.push(tintTypes[oldIdx]);
+            if (skyLight) chunkSkyLight.push(skyLight[oldIdx]);
+            if (blockLight) chunkBlockLight.push(blockLight[oldIdx]);
+            if (modelUVs) {
+              const uvIdx = oldIdx * 2;
+              chunkModelUVs.push(modelUVs[uvIdx], modelUVs[uvIdx + 1]);
+            }
+            if (shadeFlags) chunkShadeFlags.push(shadeFlags[oldIdx]);
+            if (singleSidedFlags) chunkSingleSidedFlags.push(singleSidedFlags[oldIdx]);
+            
+            vertexMap.set(oldIdx, newVertexIndex++);
+          }
+          
+          chunkIndices.push(vertexMap.get(oldIdx));
+        }
+      }
+      
+      const chunk = {
+        positions: new Float32Array(chunkPositions),
+        normals: new Float32Array(chunkNormals),
+        colors: new Float32Array(chunkColors),
+        indices: new Uint32Array(chunkIndices),
+        vertexCount: newVertexIndex,
+        triangleCount: chunkIndices.length / 3,
+      };
+      
+      if (chunkTexIndices) chunk.texIndices = new Float32Array(chunkTexIndices);
+      if (chunkTexRotations) chunk.texRotations = new Float32Array(chunkTexRotations);
+      if (chunkTintTypes) chunk.tintTypes = new Float32Array(chunkTintTypes);
+      if (chunkSkyLight) chunk.skyLight = new Float32Array(chunkSkyLight);
+      if (chunkBlockLight) chunk.blockLight = new Float32Array(chunkBlockLight);
+      if (chunkModelUVs) chunk.modelUVs = new Float32Array(chunkModelUVs);
+      if (chunkShadeFlags) chunk.shadeFlags = new Float32Array(chunkShadeFlags);
+      if (chunkSingleSidedFlags) chunk.singleSidedFlags = new Float32Array(chunkSingleSidedFlags);
+      
+      chunks.push(chunk);
+    }
+    
+    console.log(`[ChunkManager] Split mesh into ${chunks.length} spatial chunks (${chunkSize}x${chunkSize} blocks each)`);
+    return chunks;
+  }
+
+  /**
    * Add meshes to scene from mesh data
+   * PERFORMANCE: Uses spatial chunking for large meshes to enable effective frustum culling
    */
   _addMeshesToScene(meshData, material, group, meshArray, renderOrder = undefined) {
-    const splitData = this._splitMeshData(meshData);
+    if (!meshData || meshData.vertexCount === 0) return 0;
+    
+    // PERFORMANCE: For large meshes, split spatially for better frustum culling
+    // When looking at a wall, chunks behind you won't be rendered
+    const SPATIAL_CHUNK_THRESHOLD = 100000; // 100k triangles
+    const useSpatialChunking = meshData.triangleCount > SPATIAL_CHUNK_THRESHOLD;
+    
+    let splitData;
+    if (useSpatialChunking) {
+      // Split into 128x128 block spatial chunks
+      splitData = this._splitMeshSpatially(meshData, 128);
+    } else {
+      // Just use WebGL limit splitting for smaller meshes
+      splitData = this._splitMeshData(meshData);
+    }
     
     for (const data of splitData) {
       const geom = RegionMeshBuilder.createGeometry(data);
@@ -438,8 +565,11 @@ export class ChunkManager {
     // Position LOD at mesh center for distance calculation
     lod.position.copy(meshCenter);
     
-    lod.autoUpdate = true;
-    lod.frustumCulled = false; // Disable culling for LOD itself - children handle their own
+    // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
+    // This is critical because autoUpdate runs every frame for EVERY LOD object
+    lod.autoUpdate = false;
+    // Enable frustum culling on LOD - important for performance when looking at a wall
+    lod.frustumCulled = true;
     
     group.add(lod);
     meshArray.push(lod);
@@ -490,8 +620,9 @@ export class ChunkManager {
     
     // Position LOD at same center as solid mesh
     lod.position.copy(meshCenter);
-    lod.autoUpdate = true;
-    lod.frustumCulled = false;
+    // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
+    lod.autoUpdate = false;
+    lod.frustumCulled = true;
     
     group.add(lod);
     meshArray.push(lod);
@@ -569,8 +700,9 @@ export class ChunkManager {
     
     // Position LOD at mesh center
     lod.position.copy(meshCenter);
-    lod.autoUpdate = true;
-    lod.frustumCulled = false;
+    // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
+    lod.autoUpdate = false;
+    lod.frustumCulled = true;
     
     group.add(lod);
     meshArray.push(lod);
@@ -1459,10 +1591,34 @@ export class ChunkManager {
   
   /**
    * Add mesh from raw buffers (used by streaming loader)
+   * PERFORMANCE: Uses spatial chunking for large meshes to enable effective frustum culling
    */
   _addMeshFromBuffers(meshData, material, group, meshArray, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
     
+    // PERFORMANCE: For large meshes, split spatially for better frustum culling
+    const SPATIAL_CHUNK_THRESHOLD = 100000; // 100k triangles
+    const triangleCount = meshData.indices ? meshData.indices.length / 3 : 0;
+    
+    if (triangleCount > SPATIAL_CHUNK_THRESHOLD) {
+      // Split into spatial chunks
+      const chunks = this._splitMeshSpatially(meshData, 128);
+      for (const chunk of chunks) {
+        const geometry = this._createGeometryFromBuffers(chunk);
+        if (geometry) {
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.frustumCulled = true;
+          if (renderOrder !== undefined) {
+            mesh.renderOrder = renderOrder;
+          }
+          group.add(mesh);
+          meshArray.push(mesh);
+        }
+      }
+      return chunks.length;
+    }
+    
+    // Small mesh - no splitting needed
     const geometry = this._createGeometryFromBuffers(meshData);
     if (!geometry) return 0;
     
@@ -1555,8 +1711,9 @@ export class ChunkManager {
     
     // Position LOD at mesh center for distance calculation
     lod.position.copy(meshCenter);
-    lod.autoUpdate = true;
-    lod.frustumCulled = false;
+    // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
+    lod.autoUpdate = false;
+    lod.frustumCulled = true;
     
     group.add(lod);
     meshArray.push(lod);
@@ -1604,8 +1761,9 @@ export class ChunkManager {
     
     // Position LOD at same center as solid mesh
     lod.position.copy(meshCenter);
-    lod.autoUpdate = true;
-    lod.frustumCulled = false;
+    // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
+    lod.autoUpdate = false;
+    lod.frustumCulled = true;
     
     group.add(lod);
     meshArray.push(lod);
@@ -1712,6 +1870,85 @@ export class ChunkManager {
     this.scene.remove(this.modelGroup);
     this.scene.remove(this.transparentModelGroup);
     this.scene.remove(this.overlayModelGroup);
+  }
+
+  /**
+   * Update all LOD objects based on camera position
+   * Call this manually when camera moves significantly (instead of every frame)
+   * PERFORMANCE: Uses incremental updates to avoid lag spikes
+   * @param {THREE.Camera} camera - The camera to calculate distances from
+   */
+  updateLODs(camera) {
+    if (!camera) return;
+    
+    // PERFORMANCE: Update LODs incrementally across frames to avoid spikes
+    // Track which group we last updated
+    if (!this._lodUpdateIndex) this._lodUpdateIndex = 0;
+    if (!this._lodUpdateSubIndex) this._lodUpdateSubIndex = 0;
+    
+    const groups = [
+      this.solidMeshes,
+      this.waterMeshes,
+      this.lavaMeshes,
+      this.glassMeshes,
+      this.modelMeshes,
+      this.transparentModelMeshes,
+      this.overlayModelMeshes,
+    ];
+    
+    // Update only a batch of LODs per call to spread work across frames
+    const MAX_UPDATES_PER_CALL = 10;
+    let updatesThisCall = 0;
+    
+    while (updatesThisCall < MAX_UPDATES_PER_CALL) {
+      if (this._lodUpdateIndex >= groups.length) {
+        // Wrapped around - reset for next cycle
+        this._lodUpdateIndex = 0;
+        this._lodUpdateSubIndex = 0;
+        break;
+      }
+      
+      const group = groups[this._lodUpdateIndex];
+      
+      if (this._lodUpdateSubIndex >= group.length) {
+        // Move to next group
+        this._lodUpdateIndex++;
+        this._lodUpdateSubIndex = 0;
+        continue;
+      }
+      
+      const obj = group[this._lodUpdateSubIndex];
+      if (obj && obj.isLOD) {
+        obj.update(camera);
+        updatesThisCall++;
+      }
+      
+      this._lodUpdateSubIndex++;
+    }
+  }
+  
+  /**
+   * Force update all LODs immediately (use sparingly - can cause lag spike)
+   * @param {THREE.Camera} camera
+   */
+  updateAllLODsNow(camera) {
+    if (!camera) return;
+    
+    const updateLODArray = (meshArray) => {
+      for (const obj of meshArray) {
+        if (obj.isLOD) {
+          obj.update(camera);
+        }
+      }
+    };
+    
+    updateLODArray(this.solidMeshes);
+    updateLODArray(this.waterMeshes);
+    updateLODArray(this.lavaMeshes);
+    updateLODArray(this.glassMeshes);
+    updateLODArray(this.modelMeshes);
+    updateLODArray(this.transparentModelMeshes);
+    updateLODArray(this.overlayModelMeshes);
   }
 
   /**
