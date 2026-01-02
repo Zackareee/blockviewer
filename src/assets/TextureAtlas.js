@@ -239,36 +239,44 @@ class TextureAtlas {
 
   /**
    * Draw a texture tile with border pixels for seamless tiling
-   * Draws the full source texture (any resolution) scaled to this.textureSize
+   * Draws the first frame of the source texture scaled to this.textureSize
+   * 
+   * Handles animated textures (taller than wide) by only using the first frame.
+   * Minecraft animated textures stack frames vertically, so a 32x64 texture
+   * contains 2 frames of 32x32.
    */
   _drawTileWithBorder(bitmap, tileX, tileY) {
     const innerX = tileX + BORDER_SIZE;
     const innerY = tileY + BORDER_SIZE;
     const texSize = this.textureSize;
     const srcW = bitmap.width;
-    const srcH = bitmap.height;
+    
+    // For animated textures, srcH > srcW (frames are stacked vertically)
+    // Only use the first frame (srcW x srcW region from top)
+    // For regular textures, srcH === srcW so this is a no-op
+    const frameH = Math.min(bitmap.height, srcW);
 
-    // Draw main texture (scale from source size to target texture size)
-    this.ctx.drawImage(bitmap, 0, 0, srcW, srcH, 
+    // Draw main texture (first frame only, scaled to target texture size)
+    this.ctx.drawImage(bitmap, 0, 0, srcW, frameH, 
                        innerX, innerY, texSize, texSize);
 
     // Draw border pixels by extending edge pixels
     // This prevents texture bleeding when mipmapping or filtering
     
-    // Top border (copy from top row of texture)
+    // Top border (copy from top row of first frame)
     this.ctx.drawImage(bitmap, 0, 0, srcW, 1,
                        innerX, tileY, texSize, BORDER_SIZE);
     
-    // Bottom border (copy from bottom row)
-    this.ctx.drawImage(bitmap, 0, srcH - 1, srcW, 1,
+    // Bottom border (copy from bottom row of first frame)
+    this.ctx.drawImage(bitmap, 0, frameH - 1, srcW, 1,
                        innerX, innerY + texSize, texSize, BORDER_SIZE);
     
-    // Left border (copy from left column)
-    this.ctx.drawImage(bitmap, 0, 0, 1, srcH,
+    // Left border (copy from left column of first frame)
+    this.ctx.drawImage(bitmap, 0, 0, 1, frameH,
                        tileX, innerY, BORDER_SIZE, texSize);
     
-    // Right border (copy from right column)
-    this.ctx.drawImage(bitmap, srcW - 1, 0, 1, srcH,
+    // Right border (copy from right column of first frame)
+    this.ctx.drawImage(bitmap, srcW - 1, 0, 1, frameH,
                        innerX + texSize, innerY, BORDER_SIZE, texSize);
 
     // Corner pixels
@@ -279,10 +287,10 @@ class TextureAtlas {
     this.ctx.drawImage(bitmap, srcW - 1, 0, 1, 1,
                        innerX + texSize, tileY, BORDER_SIZE, BORDER_SIZE);
     // Bottom-left
-    this.ctx.drawImage(bitmap, 0, srcH - 1, 1, 1,
+    this.ctx.drawImage(bitmap, 0, frameH - 1, 1, 1,
                        tileX, innerY + texSize, BORDER_SIZE, BORDER_SIZE);
     // Bottom-right
-    this.ctx.drawImage(bitmap, srcW - 1, srcH - 1, 1, 1,
+    this.ctx.drawImage(bitmap, srcW - 1, frameH - 1, 1, 1,
                        innerX + texSize, innerY + texSize, BORDER_SIZE, BORDER_SIZE);
   }
 
@@ -607,31 +615,45 @@ class TextureAtlas {
   /**
    * Detect texture resolution from the first texture in the pack
    * Minecraft packs can be 16x16, 32x32, 64x64, 128x128, etc.
-   * Returns the detected size (width of the first square texture found)
+   * Returns the detected size (width of the first valid texture found)
+   * 
+   * For animated textures, height is a multiple of width (frames stacked vertically)
+   * so we use width as the texture size.
    */
   _detectTextureSize(packManager, texturePaths) {
+    // Helper to check if a texture has valid dimensions
+    // Square textures: width === height
+    // Animated textures: height is a multiple of width (frames stacked)
+    const isValidTexture = (bitmap) => {
+      if (!bitmap || bitmap.width <= 0) return false;
+      // Square texture or animated texture (height is multiple of width)
+      return bitmap.height === bitmap.width || 
+             (bitmap.height > bitmap.width && bitmap.height % bitmap.width === 0);
+    };
+    
     // Try to find a standard texture to detect resolution
-    // Prefer stone.png as it's always present and always square
+    // Prefer stone.png as it's always present and typically not animated
     const preferredTextures = [
       'textures/block/stone.png',
       'textures/block/dirt.png',
       'textures/block/cobblestone.png',
+      'textures/block/oak_planks.png',
     ];
     
     // Try preferred textures first
     for (const path of preferredTextures) {
       const bitmap = packManager.getTexture(path);
-      if (bitmap && bitmap.width === bitmap.height) {
-        console.log(`[TextureAtlas] Detected ${bitmap.width}x${bitmap.height} resolution from ${path}`);
+      if (isValidTexture(bitmap)) {
+        console.log(`[TextureAtlas] Detected ${bitmap.width}x${bitmap.width} resolution from ${path} (source: ${bitmap.width}x${bitmap.height})`);
         return bitmap.width;
       }
     }
     
-    // Fall back to first square texture found
+    // Fall back to first valid texture found
     for (const path of texturePaths) {
       const bitmap = packManager.getTexture(path);
-      if (bitmap && bitmap.width === bitmap.height) {
-        console.log(`[TextureAtlas] Detected ${bitmap.width}x${bitmap.height} resolution from ${path}`);
+      if (isValidTexture(bitmap)) {
+        console.log(`[TextureAtlas] Detected ${bitmap.width}x${bitmap.width} resolution from ${path} (source: ${bitmap.width}x${bitmap.height})`);
         return bitmap.width;
       }
     }
