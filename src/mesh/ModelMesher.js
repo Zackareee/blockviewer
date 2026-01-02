@@ -35,6 +35,52 @@ const FACING_TEXTURE_ROTATION_BLOCKS = new Set([
   'leaf_litter',
 ]);
 
+// Cross-model blocks that should have their MODEL rotated (not just texture)
+// These are plants with X-shaped cross models that look better with random Y rotation
+const MODEL_ROTATION_BLOCKS = new Set([
+  // Grass and ferns
+  'short_grass', 'tall_grass', 'fern', 'large_fern',
+  // Nether vegetation
+  'nether_sprouts', 'crimson_roots', 'warped_roots',
+  // Flowers (cross-model type)
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower', 'pink_petals', 'eyeblossom',
+  // Dead plants
+  'dead_bush',
+  // Saplings
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'mangrove_propagule',
+  'pale_oak_sapling',
+  // Cave plants
+  'hanging_roots', 'spore_blossom',
+  // Mushrooms (small)
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+]);
+
+// Blocks that should have random XZ position offset within their block
+// These are small plants that look more natural when not perfectly centered
+// Offset is up to 0.25 blocks (4 pixels) in X and Z
+const POSITION_OFFSET_BLOCKS = new Set([
+  // Grass and small plants
+  'short_grass', 'fern',
+  // Small flowers
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower',
+  // Nether small plants
+  'nether_sprouts', 'crimson_roots', 'warped_roots',
+  // Cave plants
+  'hanging_roots',
+  // Mushrooms
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  // Saplings
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
+]);
+
 // Facing direction to rotation value mapping (for blocks using facing property)
 const FACING_TO_ROTATION = {
   'north': 0,
@@ -123,6 +169,74 @@ const LOD3_SKIP_PATTERNS = [
   'lever', 'tripwire', 'tripwire_hook', 'redstone_wire',
   '_button', '_pressure_plate',
 ];
+
+/**
+ * Compute position-based XZ offset for small plants
+ * Returns an offset in the range [-0.25, 0.25] for X and Z
+ * Uses the same position hash as rotation for consistency
+ * @param {number} x - World X coordinate
+ * @param {number} y - World Y coordinate  
+ * @param {number} z - World Z coordinate
+ * @returns {{dx: number, dz: number}} Offset values in block units
+ */
+function getPositionOffset(x, y, z) {
+  const ix = x | 0;
+  const iy = y | 0;
+  const iz = z | 0;
+  
+  // Use Minecraft's position hash
+  const xPart = BigInt(Math.imul(ix, 3129871));
+  const zPart = BigInt(iz) * 116129781n;
+  const yPart = BigInt(iy);
+  
+  let l = xPart ^ zPart ^ yPart;
+  l = l * l * 42317861n + l * 11n;
+  const seed = l >> 16n;
+  
+  // Java Random simulation for two values
+  const MULT = 0x5DEECE66Dn;
+  const MASK = (1n << 48n) - 1n;
+  
+  let rng = (seed ^ MULT) & MASK;
+  
+  // First random value for X offset
+  rng = (rng * MULT + 0xBn) & MASK;
+  const xRand = Number((rng >> 17n) & 0x7FFFn) / 32767.0; // 0 to 1
+  
+  // Second random value for Z offset
+  rng = (rng * MULT + 0xBn) & MASK;
+  const zRand = Number((rng >> 17n) & 0x7FFFn) / 32767.0; // 0 to 1
+  
+  // Map to [-0.25, 0.25] range (Minecraft's typical offset range)
+  return {
+    dx: (xRand - 0.5) * 0.5, // -0.25 to 0.25
+    dz: (zRand - 0.5) * 0.5  // -0.25 to 0.25
+  };
+}
+
+/**
+ * Rotate a vertex position around Y axis by 90-degree increments
+ * @param {number} vx - Vertex X (relative to block center 0.5)
+ * @param {number} vz - Vertex Z (relative to block center 0.5)
+ * @param {number} rotation - 0=0°, 1=90°, 2=180°, 3=270°
+ * @returns {{rx: number, rz: number}} Rotated position
+ */
+function rotateVertexY(vx, vz, rotation) {
+  // Rotate around block center (0.5, 0.5)
+  const cx = vx - 0.5;
+  const cz = vz - 0.5;
+  
+  switch (rotation) {
+    case 1: // 90° clockwise
+      return { rx: -cz + 0.5, rz: cx + 0.5 };
+    case 2: // 180°
+      return { rx: -cx + 0.5, rz: -cz + 0.5 };
+    case 3: // 270° clockwise (90° counter-clockwise)
+      return { rx: cz + 0.5, rz: -cx + 0.5 };
+    default: // 0° - no rotation
+      return { rx: vx, rz: vz };
+  }
+}
 
 /**
  * Compute position-based texture rotation for blocks with random rotation variants
@@ -234,6 +348,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   const stateGeometries = new Array(maxStateId);     // stateId → geometry array or null
   const stateRotationType = new Uint8Array(maxStateId); // 0=none, 1=position-based, 2=facing-based
   const stateFacingRotation = new Uint8Array(maxStateId); // Pre-computed facing rotation for facing-based blocks
+  const stateHasModelRotation = new Uint8Array(maxStateId); // 1 if block should have model Y-rotation
+  const stateHasPositionOffset = new Uint8Array(maxStateId); // 1 if block should have XZ position offset
   
   // Slab optimization: track slab types for enhanced face culling
   // 0 = not a slab, 1 = bottom slab, 2 = top slab, 3 = double slab
@@ -293,14 +409,24 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       // Pre-compute rotation type and slab type
       if (state) {
         if (POSITION_ROTATION_BLOCKS.has(blockName)) {
-          stateRotationType[stateId] = 1; // Position-based
+          stateRotationType[stateId] = 1; // Position-based texture rotation
         } else if (FACING_TEXTURE_ROTATION_BLOCKS.has(blockName)) {
-          stateRotationType[stateId] = 2; // Facing-based
+          stateRotationType[stateId] = 2; // Facing-based texture rotation
           // Pre-compute facing rotation
           if (state.properties && state.properties.facing) {
             const rot = FACING_TO_ROTATION[state.properties.facing];
             stateFacingRotation[stateId] = rot !== undefined ? rot : 0;
           }
+        }
+        
+        // Check for model Y-rotation (cross-model plants)
+        if (MODEL_ROTATION_BLOCKS.has(blockName)) {
+          stateHasModelRotation[stateId] = 1;
+        }
+        
+        // Check for position XZ offset (small plants)
+        if (POSITION_OFFSET_BLOCKS.has(blockName)) {
+          stateHasPositionOffset[stateId] = 1;
         }
         
         // Detect slab type for enhanced face culling
@@ -679,6 +805,20 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         // Pre-computed facing-based rotation
         blockTexRotation = stateFacingRotation[stateId];
       }
+      
+      // Compute model Y-rotation for cross-model plants (grass, flowers, etc.)
+      let modelRotation = 0;
+      if (stateHasModelRotation[stateId]) {
+        modelRotation = getPositionRotation(baseX + lx, baseY + ly, baseZ + lz);
+      }
+      
+      // Compute position XZ offset for small plants
+      let offsetX = 0, offsetZ = 0;
+      if (stateHasPositionOffset[stateId]) {
+        const offset = getPositionOffset(baseX + lx, baseY + ly, baseZ + lz);
+        offsetX = offset.dx;
+        offsetZ = offset.dz;
+      }
 
       // Determine if this block uses transparent or opaque buffer
       const isTransparent = stateIsTransparent[stateId];
@@ -942,19 +1082,46 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             const srcUvBase = srcVertexStart * 2;
             const dstUvBase = oVertexCount * 2;
             
-            // Copy positions with world offset
-            oPositions[dstBase] = geom.positions[srcBase] + wx;
-            oPositions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
-            oPositions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
-            oPositions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
-            oPositions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
-            oPositions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
-            oPositions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
-            oPositions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
-            oPositions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
-            oPositions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
-            oPositions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
-            oPositions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            // Copy positions with model rotation, offset, and world offset
+            // Apply Y-axis model rotation and XZ position offset if needed
+            if (modelRotation !== 0 || offsetX !== 0 || offsetZ !== 0) {
+              // Process each of the 4 vertices
+              for (let vIdx = 0; vIdx < 4; vIdx++) {
+                let px = geom.positions[srcBase + vIdx * 3];
+                const py = geom.positions[srcBase + vIdx * 3 + 1];
+                let pz = geom.positions[srcBase + vIdx * 3 + 2];
+                
+                // Apply model rotation around block center (0.5, 0.5)
+                if (modelRotation !== 0) {
+                  const rotated = rotateVertexY(px, pz, modelRotation);
+                  px = rotated.rx;
+                  pz = rotated.rz;
+                }
+                
+                // Apply position offset
+                px += offsetX;
+                pz += offsetZ;
+                
+                // Write to buffer with world offset
+                oPositions[dstBase + vIdx * 3] = px + wx;
+                oPositions[dstBase + vIdx * 3 + 1] = py + wy;
+                oPositions[dstBase + vIdx * 3 + 2] = pz + wz;
+              }
+            } else {
+              // Fast path: no transformation needed
+              oPositions[dstBase] = geom.positions[srcBase] + wx;
+              oPositions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
+              oPositions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
+              oPositions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
+              oPositions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
+              oPositions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
+              oPositions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
+              oPositions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
+              oPositions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
+              oPositions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
+              oPositions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
+              oPositions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            }
             
             // Copy normals
             oNormals[dstBase] = geom.normals[srcBase];
@@ -1056,19 +1223,40 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             const srcUvBase = srcVertexStart * 2;
             const dstUvBase = tVertexCount * 2;
             
-            // Copy positions with world offset applied
-            tPositions[dstBase] = geom.positions[srcBase] + wx;
-            tPositions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
-            tPositions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
-            tPositions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
-            tPositions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
-            tPositions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
-            tPositions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
-            tPositions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
-            tPositions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
-            tPositions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
-            tPositions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
-            tPositions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            // Copy positions with model rotation, offset, and world offset
+            if (modelRotation !== 0 || offsetX !== 0 || offsetZ !== 0) {
+              for (let vIdx = 0; vIdx < 4; vIdx++) {
+                let px = geom.positions[srcBase + vIdx * 3];
+                const py = geom.positions[srcBase + vIdx * 3 + 1];
+                let pz = geom.positions[srcBase + vIdx * 3 + 2];
+                
+                if (modelRotation !== 0) {
+                  const rotated = rotateVertexY(px, pz, modelRotation);
+                  px = rotated.rx;
+                  pz = rotated.rz;
+                }
+                
+                px += offsetX;
+                pz += offsetZ;
+                
+                tPositions[dstBase + vIdx * 3] = px + wx;
+                tPositions[dstBase + vIdx * 3 + 1] = py + wy;
+                tPositions[dstBase + vIdx * 3 + 2] = pz + wz;
+              }
+            } else {
+              tPositions[dstBase] = geom.positions[srcBase] + wx;
+              tPositions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
+              tPositions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
+              tPositions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
+              tPositions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
+              tPositions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
+              tPositions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
+              tPositions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
+              tPositions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
+              tPositions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
+              tPositions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
+              tPositions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            }
             
             // Copy normals directly
             tNormals[dstBase] = geom.normals[srcBase];
@@ -1173,19 +1361,40 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             const srcUvBase = srcVertexStart * 2;
             const dstUvBase = vertexCount * 2;
             
-            // Copy positions with world offset applied
-            positions[dstBase] = geom.positions[srcBase] + wx;
-            positions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
-            positions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
-            positions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
-            positions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
-            positions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
-            positions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
-            positions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
-            positions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
-            positions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
-            positions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
-            positions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            // Copy positions with model rotation, offset, and world offset
+            if (modelRotation !== 0 || offsetX !== 0 || offsetZ !== 0) {
+              for (let vIdx = 0; vIdx < 4; vIdx++) {
+                let px = geom.positions[srcBase + vIdx * 3];
+                const py = geom.positions[srcBase + vIdx * 3 + 1];
+                let pz = geom.positions[srcBase + vIdx * 3 + 2];
+                
+                if (modelRotation !== 0) {
+                  const rotated = rotateVertexY(px, pz, modelRotation);
+                  px = rotated.rx;
+                  pz = rotated.rz;
+                }
+                
+                px += offsetX;
+                pz += offsetZ;
+                
+                positions[dstBase + vIdx * 3] = px + wx;
+                positions[dstBase + vIdx * 3 + 1] = py + wy;
+                positions[dstBase + vIdx * 3 + 2] = pz + wz;
+              }
+            } else {
+              positions[dstBase] = geom.positions[srcBase] + wx;
+              positions[dstBase + 1] = geom.positions[srcBase + 1] + wy;
+              positions[dstBase + 2] = geom.positions[srcBase + 2] + wz;
+              positions[dstBase + 3] = geom.positions[srcBase + 3] + wx;
+              positions[dstBase + 4] = geom.positions[srcBase + 4] + wy;
+              positions[dstBase + 5] = geom.positions[srcBase + 5] + wz;
+              positions[dstBase + 6] = geom.positions[srcBase + 6] + wx;
+              positions[dstBase + 7] = geom.positions[srcBase + 7] + wy;
+              positions[dstBase + 8] = geom.positions[srcBase + 8] + wz;
+              positions[dstBase + 9] = geom.positions[srcBase + 9] + wx;
+              positions[dstBase + 10] = geom.positions[srcBase + 10] + wy;
+              positions[dstBase + 11] = geom.positions[srcBase + 11] + wz;
+            }
             
             // Copy normals directly (no offset needed)
             normals[dstBase] = geom.normals[srcBase];
