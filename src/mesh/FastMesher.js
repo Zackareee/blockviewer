@@ -15,15 +15,289 @@ const S2 = 256;
 const S3 = 4096;
 
 /**
+ * Sample smooth light at a corner position by averaging neighboring blocks
+ * Minecraft's smooth lighting averages light from the 4 blocks touching each vertex corner
+ * 
+ * Blocks that are transparent for AO purposes (don't block smooth lighting):
+ * - Air (blockId 0)
+ * - Glass, ice, leaves, slime, honey
+ * - Non-cube blocks (slabs, stairs, fences, etc.)
+ * - Fluids (water, lava)
+ * 
+ * @param {LightGrid} lightGrid - The light grid
+ * @param {number} x - Corner X position (integer vertex position)
+ * @param {number} y - Corner Y position 
+ * @param {number} z - Corner Z position
+ * @param {number} nx - Face normal X (-1, 0, or 1)
+ * @param {number} ny - Face normal Y (-1, 0, or 1)
+ * @param {number} nz - Face normal Z (-1, 0, or 1)
+ * @param {BinaryGrid} blockGrid - Block grid for solid block detection
+ * @param {Uint8Array} isOpaque - Opaque block lookup
+ * @param {Uint8Array} isAOTransparent - Blocks that don't block AO (glass, leaves, non-cube, etc.)
+ * @returns {{ skyLight: number, blockLight: number }}
+ */
+/**
+ * Sample smooth light for a vertex with Minecraft-style AO
+ * 
+ * This samples light from the 4 blocks touching the vertex corner,
+ * then applies AO based on the 3-neighbor algorithm.
+ * 
+ * @param {LightGrid} lightGrid - Light data
+ * @param {number} x, y, z - Vertex position (corner of face, in air space)
+ * @param {number} aoLevel - Pre-computed AO level (0-3) from getVertexAO
+ * @param {BinaryGrid} blockGrid - Block data
+ * @param {Uint8Array} isOpaque - Opaque block lookup
+ * @param {Uint8Array} isAOTransparent - AO-transparent block lookup
+ * @param {string} plane - 'xz', 'yz', or 'xy' - the sampling plane
+ * @returns {{skyLight: number, blockLight: number}} Light values with AO applied
+ */
+function sampleVertexLight(lightGrid, x, y, z, aoLevel, blockGrid, isOpaque, isAOTransparent, plane) {
+  const isSolidForAO = (blockId) => {
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  // Sample light from 4 blocks touching this vertex corner
+  // Average light from non-solid blocks only
+  let totalSky = 0;
+  let totalBlock = 0;
+  let count = 0;
+  
+  if (plane === 'xz') {
+    // Top/Bottom face - sample in XZ plane
+    for (let dx = -1; dx <= 0; dx++) {
+      for (let dz = -1; dz <= 0; dz++) {
+        const blockId = blockGrid.getBlockId(x + dx, y, z + dz);
+        if (!isSolidForAO(blockId)) {
+          const light = lightGrid.getLight(x + dx, y, z + dz);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          count++;
+        }
+      }
+    }
+  } else if (plane === 'yz') {
+    // East/West face - sample in YZ plane
+    for (let dy = -1; dy <= 0; dy++) {
+      for (let dz = -1; dz <= 0; dz++) {
+        const blockId = blockGrid.getBlockId(x, y + dy, z + dz);
+        if (!isSolidForAO(blockId)) {
+          const light = lightGrid.getLight(x, y + dy, z + dz);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          count++;
+        }
+      }
+    }
+  } else {
+    // North/South face - sample in XY plane
+    for (let dx = -1; dx <= 0; dx++) {
+      for (let dy = -1; dy <= 0; dy++) {
+        const blockId = blockGrid.getBlockId(x + dx, y + dy, z);
+        if (!isSolidForAO(blockId)) {
+          const light = lightGrid.getLight(x + dx, y + dy, z);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          count++;
+        }
+      }
+    }
+  }
+  
+  // Get average light, or fallback to direct sample
+  let avgSky, avgBlock;
+  if (count > 0) {
+    avgSky = totalSky / count;
+    avgBlock = totalBlock / count;
+  } else {
+    const light = lightGrid.getLight(x, y, z);
+    avgSky = light.skyLight;
+    avgBlock = light.blockLight;
+  }
+  
+  // Apply AO brightness multiplier
+  // Minecraft's AO creates subtle shadows, not harsh darkness
+  // Values based on actual Minecraft rendering analysis:
+  // AO 0 = both sides blocked (corner) = 50% brightness
+  // AO 1 = 2 neighbors blocked = 70%
+  // AO 2 = 1 neighbor blocked = 85%
+  // AO 3 = fully exposed = 100%
+  const aoBrightness = [0.5, 0.7, 0.85, 1.0];
+  const ao = aoBrightness[aoLevel];
+  
+  return {
+    skyLight: avgSky * ao,
+    blockLight: avgBlock * ao,
+  };
+}
+
+/**
+ * Legacy wrapper for smooth light sampling (used by non-TOP faces)
+ * Computes AO using a simplified 4-block count method for backward compatibility
+ */
+function sampleSmoothLight(lightGrid, x, y, z, nx, ny, nz, blockGrid, isOpaque, isAOTransparent) {
+  const isSolidForAO = (blockId) => {
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  let solidCount = 0;
+  let totalSky = 0;
+  let totalBlock = 0;
+  let airCount = 0;
+  
+  // Sample 4 blocks in the plane perpendicular to the normal
+  if (ny !== 0) {
+    for (let dx = -1; dx <= 0; dx++) {
+      for (let dz = -1; dz <= 0; dz++) {
+        const blockId = blockGrid.getBlockId(x + dx, y, z + dz);
+        if (isSolidForAO(blockId)) {
+          solidCount++;
+        } else {
+          const light = lightGrid.getLight(x + dx, y, z + dz);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          airCount++;
+        }
+      }
+    }
+  } else if (nx !== 0) {
+    for (let dy = -1; dy <= 0; dy++) {
+      for (let dz = -1; dz <= 0; dz++) {
+        const blockId = blockGrid.getBlockId(x, y + dy, z + dz);
+        if (isSolidForAO(blockId)) {
+          solidCount++;
+        } else {
+          const light = lightGrid.getLight(x, y + dy, z + dz);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          airCount++;
+        }
+      }
+    }
+  } else {
+    for (let dx = -1; dx <= 0; dx++) {
+      for (let dy = -1; dy <= 0; dy++) {
+        const blockId = blockGrid.getBlockId(x + dx, y + dy, z);
+        if (isSolidForAO(blockId)) {
+          solidCount++;
+        } else {
+          const light = lightGrid.getLight(x + dx, y + dy, z);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          airCount++;
+        }
+      }
+    }
+  }
+  
+  // Convert 4-block count to AO level (0-3)
+  // 0 solid → AO 3, 1 solid → AO 2, 2 solid → AO 1, 3-4 solid → AO 0
+  const aoLevel = Math.max(0, 3 - solidCount);
+  const aoBrightness = [0.5, 0.7, 0.85, 1.0];
+  const ao = aoBrightness[aoLevel];
+  
+  let avgSky, avgBlock;
+  if (airCount > 0) {
+    avgSky = totalSky / airCount;
+    avgBlock = totalBlock / airCount;
+  } else {
+    const light = lightGrid.getLight(x, y, z);
+    avgSky = light.skyLight;
+    avgBlock = light.blockLight;
+  }
+  
+  return {
+    skyLight: avgSky * ao,
+    blockLight: avgBlock * ao,
+  };
+}
+
+/**
+ * Compute Minecraft-style AO for a single vertex corner
+ * 
+ * Minecraft's algorithm:
+ * - Check exactly 3 neighbors: side1, side2, corner (relative to vertex)
+ * - If side1 AND side2 are both solid → return 0 (maximum occlusion)
+ * - Otherwise → return 3 - side1 - side2 - corner
+ * 
+ * @param {number} x, y, z - Vertex position (corner of face)
+ * @param {number} side1X, side1Y, side1Z - Offset to first side neighbor
+ * @param {number} side2X, side2Y, side2Z - Offset to second side neighbor
+ * @param {BinaryGrid} blockGrid - Block data
+ * @param {Uint8Array} isOpaque - Opaque block lookup
+ * @param {Uint8Array} isAOTransparent - AO-transparent block lookup
+ * @returns {number} AO level 0-3 (0=darkest, 3=brightest)
+ */
+function getVertexAO(x, y, z, side1X, side1Y, side1Z, side2X, side2Y, side2Z, blockGrid, isOpaque, isAOTransparent) {
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  const side1 = isSolidForAO(x + side1X, y + side1Y, z + side1Z);
+  const side2 = isSolidForAO(x + side2X, y + side2Y, z + side2Z);
+  
+  // Key Minecraft behavior: if both sides are solid, corner is fully blocked
+  if (side1 && side2) {
+    return 0;
+  }
+  
+  const corner = isSolidForAO(x + side1X + side2X, y + side1Y + side2Y, z + side1Z + side2Z);
+  return 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+}
+
+/**
+ * Get AO for all 4 vertices of a TOP face at block position (blockX, blockY, blockZ)
+ * Sample Y is one above the block (in the air space where the face is)
+ */
+function getTopFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
+  const y = blockY + 1; // Sample in air space above block
+  
+  // V0: corner at (blockX, y, blockZ+1) - check West (-X) and South (+Z)
+  const ao0 = getVertexAO(blockX, y, blockZ + 1, -1, 0, 0, 0, 0, 1, blockGrid, isOpaque, isAOTransparent);
+  
+  // V1: corner at (blockX+1, y, blockZ+1) - check East (+X) and South (+Z)
+  const ao1 = getVertexAO(blockX + 1, y, blockZ + 1, 1, 0, 0, 0, 0, 1, blockGrid, isOpaque, isAOTransparent);
+  
+  // V2: corner at (blockX+1, y, blockZ) - check East (+X) and North (-Z)
+  const ao2 = getVertexAO(blockX + 1, y, blockZ, 1, 0, 0, 0, 0, -1, blockGrid, isOpaque, isAOTransparent);
+  
+  // V3: corner at (blockX, y, blockZ) - check West (-X) and North (-Z)
+  const ao3 = getVertexAO(blockX, y, blockZ, -1, 0, 0, 0, 0, -1, blockGrid, isOpaque, isAOTransparent);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Check if a block can be merged with the current run for TOP face
+ * Blocks can only merge if ALL their AO values match
+ * 
+ * @param {number[]} baseAO - AO values [ao0, ao1, ao2, ao3] of first block in run
+ * @param {number} blockX, blockY, blockZ - Position of block to check
+ * @returns {boolean} true if block can be merged
+ */
+function canMergeBlockAO(baseAO, blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
+  const checkAO = getTopFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent);
+  return checkAO[0] === baseAO[0] && checkAO[1] === baseAO[1] && 
+         checkAO[2] === baseAO[2] && checkAO[3] === baseAO[3];
+}
+
+/**
  * Build all meshes for a region
  * @param {BinaryGrid} grid - The block grid
  * @param {BlockRegistry} registry - Block registry
  * @param {Object} offset - World offset { x, y, z }
  * @param {Object} options - Optional parameters
  * @param {TextureIndexLookup} options.textureIndexLookup - Texture atlas index lookup
+ * @param {LightGrid} options.lightGrid - Light grid for per-vertex lighting
  */
 export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
-  const { textureIndexLookup = null } = options;
+  const { textureIndexLookup = null, lightGrid = null } = options;
   
   if (textureIndexLookup) {
     console.log(`[FastMesher] Using textureIndexLookup with ${textureIndexLookup.registeredBlocks.size} blocks, tiles: ${textureIndexLookup.tilesPerRow}x${textureIndexLookup.tilesPerCol}`);
@@ -40,6 +314,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   const isRotatable = new Uint8Array(4096); // Blocks that support axis rotation
   const needsSideOverlay = new Uint8Array(4096); // Blocks with tinted side overlay (grass_block)
   const sideOverlayTexIdx = new Float32Array(4096); // Overlay texture atlas index
+  // AO-transparent blocks: don't block ambient occlusion / smooth lighting
+  // These blocks let light through for AO calculations even if technically solid
+  const isAOTransparent = new Uint8Array(4096);
   
   // Build per-face tint type lookup for biome tinting (grass, leaves, etc.)
   // This respects tintindex from block models - e.g. grass_block only tints top face
@@ -65,6 +342,15 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         // Check if this block is rotatable (logs, pillars, etc.)
         if (isRotatableBlock(info.name)) {
           isRotatable[id] = 1;
+        }
+        // AO-transparent blocks: don't block smooth lighting
+        // Includes glass, ice, leaves, slime, honey, non-cube blocks, fluids
+        if (info.name.includes('glass') || info.name.includes('ice') || 
+            info.name.includes('leaves') || info.name.includes('slime') ||
+            info.name.includes('honey') || info.name.includes('water') ||
+            info.name.includes('lava') || info.name.includes('barrier') ||
+            info.name.includes('light') || registry.isNonCube(id)) {
+          isAOTransparent[id] = 1;
         }
         // Check if this block has a side overlay (grass_block)
         const overlayPath = getBlockSideOverlay(info.name);
@@ -194,6 +480,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   let sTexIdx = new Float32Array(INITIAL_SIZE * 4); // Texture index per vertex
   let sTexRot = new Float32Array(INITIAL_SIZE * 4); // Texture rotation per vertex (0-3 for 90° increments)
   let sTintType = new Float32Array(INITIAL_SIZE * 4); // Biome tint type per vertex
+  let sSkyLight = new Float32Array(INITIAL_SIZE * 4); // Sky light level per vertex (0-15)
+  let sBlockLight = new Float32Array(INITIAL_SIZE * 4); // Block light level per vertex (0-15)
   let sIdx = new Uint32Array(INITIAL_SIZE * 6);
   let sVC = 0, sIC = 0;
   let sCapacity = INITIAL_SIZE;
@@ -221,6 +509,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   let gTexIdx = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Texture index per vertex
   let gTexRot = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Texture rotation per vertex
   let gTintType = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Biome tint type per vertex
+  let gSkyLight = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Sky light level per vertex
+  let gBlockLight = new Float32Array(INITIAL_SIZE * 0.2 * 4); // Block light level per vertex
   let gIdx = new Uint32Array(INITIAL_SIZE * 0.2 * 6);
   let gVC = 0, gIC = 0;
   let gCapacity = Math.floor(INITIAL_SIZE * 0.2);
@@ -236,6 +526,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         const newTexIdx = new Float32Array(newCap * 4);
         const newTexRot = new Float32Array(newCap * 4);
         const newTintType = new Float32Array(newCap * 4);
+        const newSkyLight = new Float32Array(newCap * 4);
+        const newBlockLight = new Float32Array(newCap * 4);
         const newIdx = new Uint32Array(newCap * 6);
         newPos.set(sPos.subarray(0, sVC * 3));
         newNorm.set(sNorm.subarray(0, sVC * 3));
@@ -243,8 +535,10 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         newTexIdx.set(sTexIdx.subarray(0, sVC));
         newTexRot.set(sTexRot.subarray(0, sVC));
         newTintType.set(sTintType.subarray(0, sVC));
+        newSkyLight.set(sSkyLight.subarray(0, sVC));
+        newBlockLight.set(sBlockLight.subarray(0, sVC));
         newIdx.set(sIdx.subarray(0, sIC));
-        sPos = newPos; sNorm = newNorm; sCol = newCol; sTexIdx = newTexIdx; sTexRot = newTexRot; sTintType = newTintType; sIdx = newIdx;
+        sPos = newPos; sNorm = newNorm; sCol = newCol; sTexIdx = newTexIdx; sTexRot = newTexRot; sTintType = newTintType; sSkyLight = newSkyLight; sBlockLight = newBlockLight; sIdx = newIdx;
         sCapacity = newCap;
       } else if (type === 'w') {
         const newCap = Math.floor(wCapacity * GROWTH_FACTOR);
@@ -278,6 +572,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         const newTexIdx = new Float32Array(newCap * 4);
         const newTexRot = new Float32Array(newCap * 4);
         const newTintType = new Float32Array(newCap * 4);
+        const newSkyLight = new Float32Array(newCap * 4);
+        const newBlockLight = new Float32Array(newCap * 4);
         const newIdx = new Uint32Array(newCap * 6);
         newPos.set(gPos.subarray(0, gVC * 3));
         newNorm.set(gNorm.subarray(0, gVC * 3));
@@ -285,8 +581,10 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         newTexIdx.set(gTexIdx.subarray(0, gVC));
         newTexRot.set(gTexRot.subarray(0, gVC));
         newTintType.set(gTintType.subarray(0, gVC));
+        newSkyLight.set(gSkyLight.subarray(0, gVC));
+        newBlockLight.set(gBlockLight.subarray(0, gVC));
         newIdx.set(gIdx.subarray(0, gIC));
-        gPos = newPos; gNorm = newNorm; gCol = newCol; gTexIdx = newTexIdx; gTexRot = newTexRot; gTintType = newTintType; gIdx = newIdx;
+        gPos = newPos; gNorm = newNorm; gCol = newCol; gTexIdx = newTexIdx; gTexRot = newTexRot; gTintType = newTintType; gSkyLight = newSkyLight; gBlockLight = newBlockLight; gIdx = newIdx;
         gCapacity = newCap;
       }
       return true;
@@ -371,22 +669,37 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      // Greedy merge
+      // Greedy merge with strict AO matching
+      // Only merge blocks that have IDENTICAL AO at all 4 corners
       visited.fill(0);
+      const blockY = baseY + ly; // Block Y position
+      
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
           if (visited[mi] || mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          let w = 1;
-          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
+          const worldX = baseX + ii;
+          const worldZ = baseZ + jj;
           
+          // Get AO signature of starting block's 4 corners
+          const startAO = getTopFaceAO(worldX, blockY, worldZ, grid, isOpaque, isAOTransparent);
+          
+          // Expand width (+X) only if next block has identical AO
+          let w = 1;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
+            if (!canMergeBlockAO(startAO, worldX + w, blockY, worldZ, grid, isOpaque, isAOTransparent)) break;
+            w++;
+          }
+          
+          // Expand height (+Z) only if all blocks in row have identical AO
           let h = 1;
           outer: while (jj + h < S) {
             for (let k = 0; k < w; k++) {
               const ci = (jj + h) * S + ii + k;
               if (visited[ci] || mask[ci] !== bid) break outer;
+              if (!canMergeBlockAO(startAO, worldX + k, blockY, worldZ + h, grid, isOpaque, isAOTransparent)) break outer;
             }
             h++;
           }
@@ -403,6 +716,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const z = baseZ + jj - oz;
           const sv = sVC, pi = sVC * 3;
           
+          // World coordinates for light sampling (face is at y = baseY + ly + 1)
+          const faceWorldX = baseX + ii;
+          const faceWorldY = baseY + ly + 1;
+          const faceWorldZ = baseZ + jj;
+          
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z + h;
           sPos[pi+3] = x + w; sPos[pi+4] = y; sPos[pi+5] = z + h;
           sPos[pi+6] = x + w; sPos[pi+7] = y; sPos[pi+8] = z;
@@ -418,6 +736,25 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_UP);
           const tintType = faceTintTypeLookup[bid * 6 + FACE_UP];
+          
+          // Per-vertex lighting with Minecraft-style AO
+          // Since we only merged blocks with IDENTICAL AO, use startAO for all vertices
+          // Vertex positions: V0(x, y, z+h), V1(x+w, y, z+h), V2(x+w, y, z), V3(x, y, z)
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          
+          if (lightGrid) {
+            // Sample light at each vertex corner with the block's AO applied
+            const l0 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, startAO[0], grid, isOpaque, isAOTransparent, 'xz');
+            const l1 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, startAO[1], grid, isOpaque, isAOTransparent, 'xz');
+            const l2 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, startAO[2], grid, isOpaque, isAOTransparent, 'xz');
+            const l3 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, startAO[3], grid, isOpaque, isAOTransparent, 'xz');
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 1; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -425,6 +762,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             sTexRot[sVC + v] = texRot;
             sTintType[sVC + v] = tintType;
           }
+          sSkyLight[sVC] = skyL0; sSkyLight[sVC + 1] = skyL1; sSkyLight[sVC + 2] = skyL2; sSkyLight[sVC + 3] = skyL3;
+          sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
+          
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
@@ -487,6 +827,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const z = baseZ + jj - oz;
           const sv = sVC, pi = sVC * 3;
           
+          // World coordinates for light sampling (face is at y = baseY + ly - 1)
+          const faceWorldX = baseX + ii;
+          const faceWorldY = baseY + ly - 1;
+          const faceWorldZ = baseZ + jj;
+          
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z;
           sPos[pi+3] = x + w; sPos[pi+4] = y; sPos[pi+5] = z;
           sPos[pi+6] = x + w; sPos[pi+7] = y; sPos[pi+8] = z + h;
@@ -502,6 +847,23 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_DOWN);
           const tintType = faceTintTypeLookup[bid * 6 + FACE_DOWN];
+          
+          // Per-vertex smooth lighting for BOTTOM face (-Y)
+          // Vertex positions: V0(x, y, z), V1(x+w, y, z), V2(x+w, y, z+h), V3(x, y, z+h)
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = -1; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -509,6 +871,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             sTexRot[sVC + v] = texRot;
             sTintType[sVC + v] = tintType;
           }
+          sSkyLight[sVC] = skyL0; sSkyLight[sVC + 1] = skyL1; sSkyLight[sVC + 2] = skyL2; sSkyLight[sVC + 3] = skyL3;
+          sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
+          
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
@@ -543,35 +908,25 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      visited.fill(0);
+      // No greedy merge for side faces - emit each face individually to prevent lighting artifacts
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
-          if (visited[mi] || mask[mi] === 0) continue;
+          if (mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          let w = 1;
-          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
-          
-          let h = 1;
-          outer: while (jj + h < S) {
-            for (let k = 0; k < w; k++) {
-              const ci = (jj + h) * S + ii + k;
-              if (visited[ci] || mask[ci] !== bid) break outer;
-            }
-            h++;
-          }
-          
-          for (let dj = 0; dj < h; dj++) {
-            for (let di = 0; di < w; di++) {
-              visited[(jj + dj) * S + ii + di] = 1;
-            }
-          }
+          const w = 1;  // No merge - single block faces
+          const h = 1;
           
           const x = baseX + lx + 1 - ox;
           const y = baseY + jj - oy;
           const z = baseZ + ii - oz;
           const sv = sVC, pi = sVC * 3;
+          
+          // World coordinates for light sampling (face is at x = baseX + lx + 1)
+          const faceWorldX = baseX + lx + 1;
+          const faceWorldY = baseY + jj;
+          const faceWorldZ = baseZ + ii;
           
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z;
           sPos[pi+3] = x; sPos[pi+4] = y + h; sPos[pi+5] = z;
@@ -589,6 +944,23 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_EAST);
           const tintType = faceTintTypeLookup[bid * 6 + FACE_EAST];
+          
+          // Per-vertex smooth lighting for EAST face (+X)
+          // Vertex positions: V0(x, y, z), V1(x, y+h, z), V2(x, y+h, z+w), V3(x, y, z+w)
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 1; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -596,6 +968,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             sTexRot[sVC + v] = texRot;
             sTintType[sVC + v] = tintType;
           }
+          sSkyLight[sVC] = skyL0; sSkyLight[sVC + 1] = skyL1; sSkyLight[sVC + 2] = skyL2; sSkyLight[sVC + 3] = skyL3;
+          sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
+          
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
@@ -617,6 +992,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
               gTexRot[gVC + v] = texRot;
               gTintType[gVC + v] = TINT_TYPE.GRASS;
             }
+            gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+            gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
             gVC += 4;
             gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
             gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -652,35 +1029,25 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      visited.fill(0);
+      // No greedy merge for side faces - emit each face individually to prevent lighting artifacts
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
-          if (visited[mi] || mask[mi] === 0) continue;
+          if (mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          let w = 1;
-          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
-          
-          let h = 1;
-          outer: while (jj + h < S) {
-            for (let k = 0; k < w; k++) {
-              const ci = (jj + h) * S + ii + k;
-              if (visited[ci] || mask[ci] !== bid) break outer;
-            }
-            h++;
-          }
-          
-          for (let dj = 0; dj < h; dj++) {
-            for (let di = 0; di < w; di++) {
-              visited[(jj + dj) * S + ii + di] = 1;
-            }
-          }
+          const w = 1;  // No merge - single block faces
+          const h = 1;
           
           const x = baseX + lx - ox;
           const y = baseY + jj - oy;
           const z = baseZ + ii - oz;
           const sv = sVC, pi = sVC * 3;
+          
+          // World coordinates for light sampling (face is at x = baseX + lx - 1)
+          const faceWorldX = baseX + lx - 1;
+          const faceWorldY = baseY + jj;
+          const faceWorldZ = baseZ + ii;
           
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z + w;
           sPos[pi+3] = x; sPos[pi+4] = y + h; sPos[pi+5] = z + w;
@@ -697,6 +1064,23 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_WEST);
           const tintType = faceTintTypeLookup[bid * 6 + FACE_WEST];
+          
+          // Per-vertex smooth lighting for WEST face (-X)
+          // Vertex positions: V0(x, y, z+w), V1(x, y+h, z+w), V2(x, y+h, z), V3(x, y, z)
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = -1; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 0;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -704,6 +1088,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             sTexRot[sVC + v] = texRot;
             sTintType[sVC + v] = tintType;
           }
+          sSkyLight[sVC] = skyL0; sSkyLight[sVC + 1] = skyL1; sSkyLight[sVC + 2] = skyL2; sSkyLight[sVC + 3] = skyL3;
+          sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
+          
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
@@ -724,6 +1111,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
               gTexRot[gVC + v] = texRot;
               gTintType[gVC + v] = TINT_TYPE.GRASS;
             }
+            gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+            gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
             gVC += 4;
             gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
             gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -759,35 +1148,25 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      visited.fill(0);
+      // No greedy merge for side faces - emit each face individually to prevent lighting artifacts
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
-          if (visited[mi] || mask[mi] === 0) continue;
+          if (mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          let w = 1;
-          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
-          
-          let h = 1;
-          outer: while (jj + h < S) {
-            for (let k = 0; k < w; k++) {
-              const ci = (jj + h) * S + ii + k;
-              if (visited[ci] || mask[ci] !== bid) break outer;
-            }
-            h++;
-          }
-          
-          for (let dj = 0; dj < h; dj++) {
-            for (let di = 0; di < w; di++) {
-              visited[(jj + dj) * S + ii + di] = 1;
-            }
-          }
+          const w = 1;  // No merge - single block faces
+          const h = 1;
           
           const x = baseX + ii - ox;
           const y = baseY + jj - oy;
           const z = baseZ + lz + 1 - oz;
           const sv = sVC, pi = sVC * 3;
+          
+          // World coordinates for light sampling (face is at z = baseZ + lz + 1)
+          const faceWorldX = baseX + ii;
+          const faceWorldY = baseY + jj;
+          const faceWorldZ = baseZ + lz + 1;
           
           sPos[pi] = x; sPos[pi+1] = y; sPos[pi+2] = z;
           sPos[pi+3] = x + w; sPos[pi+4] = y; sPos[pi+5] = z;
@@ -805,6 +1184,23 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_SOUTH);
           const tintType = faceTintTypeLookup[bid * 6 + FACE_SOUTH];
+          
+          // Per-vertex smooth lighting for SOUTH face (+Z)
+          // Vertex positions: V0(x, y, z), V1(x+w, y, z), V2(x+w, y+h, z), V3(x, y+h, z)
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = 1;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -812,6 +1208,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             sTexRot[sVC + v] = texRot;
             sTintType[sVC + v] = tintType;
           }
+          sSkyLight[sVC] = skyL0; sSkyLight[sVC + 1] = skyL1; sSkyLight[sVC + 2] = skyL2; sSkyLight[sVC + 3] = skyL3;
+          sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
+          
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
@@ -832,6 +1231,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
               gTexRot[gVC + v] = texRot;
               gTintType[gVC + v] = TINT_TYPE.GRASS;
             }
+            gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+            gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
             gVC += 4;
             gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
             gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -867,35 +1268,25 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      visited.fill(0);
+      // No greedy merge for side faces - emit each face individually to prevent lighting artifacts
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
-          if (visited[mi] || mask[mi] === 0) continue;
+          if (mask[mi] === 0) continue;
           
           const bid = mask[mi];
-          let w = 1;
-          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
-          
-          let h = 1;
-          outer: while (jj + h < S) {
-            for (let k = 0; k < w; k++) {
-              const ci = (jj + h) * S + ii + k;
-              if (visited[ci] || mask[ci] !== bid) break outer;
-            }
-            h++;
-          }
-          
-          for (let dj = 0; dj < h; dj++) {
-            for (let di = 0; di < w; di++) {
-              visited[(jj + dj) * S + ii + di] = 1;
-            }
-          }
+          const w = 1;  // No merge - single block faces
+          const h = 1;
           
           const x = baseX + ii - ox;
           const y = baseY + jj - oy;
           const z = baseZ + lz - oz;
           const sv = sVC, pi = sVC * 3;
+          
+          // World coordinates for light sampling (face is at z = baseZ + lz - 1)
+          const faceWorldX = baseX + ii;
+          const faceWorldY = baseY + jj;
+          const faceWorldZ = baseZ + lz - 1;
           
           sPos[pi] = x + w; sPos[pi+1] = y; sPos[pi+2] = z;
           sPos[pi+3] = x; sPos[pi+4] = y; sPos[pi+5] = z;
@@ -912,6 +1303,23 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           const texRot = getTextureRotation(axis, FACE_NORTH);
           const tintType = faceTintTypeLookup[bid * 6 + FACE_NORTH];
+          
+          // Per-vertex smooth lighting for NORTH face (-Z)
+          // Vertex positions: V0(x+w, y, z), V1(x, y, z), V2(x, y+h, z), V3(x+w, y+h, z)
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             sNorm[pi + v*3] = 0; sNorm[pi + v*3 + 1] = 0; sNorm[pi + v*3 + 2] = -1;
             sCol[pi + v*3] = r; sCol[pi + v*3 + 1] = g; sCol[pi + v*3 + 2] = b;
@@ -919,6 +1327,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             sTexRot[sVC + v] = texRot;
             sTintType[sVC + v] = tintType;
           }
+          sSkyLight[sVC] = skyL0; sSkyLight[sVC + 1] = skyL1; sSkyLight[sVC + 2] = skyL2; sSkyLight[sVC + 3] = skyL3;
+          sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
+          
           sVC += 4;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
           sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
@@ -939,6 +1350,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
               gTexRot[gVC + v] = texRot;
               gTintType[gVC + v] = TINT_TYPE.GRASS;
             }
+            gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+            gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
             gVC += 4;
             gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
             gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -1249,6 +1662,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const z = baseZ + jj - oz;
           const gv = gVC, pi = gVC * 3;
           
+          // World coordinates for light sampling
+          const faceWorldX = baseX + ii;
+          const faceWorldY = baseY + ly + 1;
+          const faceWorldZ = baseZ + jj;
+          
           gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z + h;
           gPos[pi+3] = x + w; gPos[pi+4] = y; gPos[pi+5] = z + h;
           gPos[pi+6] = x + w; gPos[pi+7] = y; gPos[pi+8] = z;
@@ -1256,6 +1674,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_UP) : 0;
+          
+          // Per-vertex smooth lighting for glass TOP face
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, 0, 1, 0, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, 0, 1, 0, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 1, 0, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 1, 0, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 1; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
@@ -1263,6 +1696,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gTexRot[gVC + v] = 0;
             gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_UP];
           }
+          gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+          gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -1327,6 +1762,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const z = baseZ + jj - oz;
           const gv = gVC, pi = gVC * 3;
           
+          // World coordinates for light sampling
+          const faceWorldX = baseX + ii;
+          const faceWorldY = baseY + ly - 1;
+          const faceWorldZ = baseZ + jj;
+          
           gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z;
           gPos[pi+3] = x + w; gPos[pi+4] = y; gPos[pi+5] = z;
           gPos[pi+6] = x + w; gPos[pi+7] = y; gPos[pi+8] = z + h;
@@ -1334,6 +1774,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_DOWN) : 0;
+          
+          // Per-vertex smooth lighting for glass BOTTOM face
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = -1; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
@@ -1341,6 +1796,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gTexRot[gVC + v] = 0;
             gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_DOWN];
           }
+          gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+          gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -1407,6 +1864,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const z = baseZ + ii - oz;
           const gv = gVC, pi = gVC * 3;
           
+          // World coordinates for light sampling
+          const faceWorldX = baseX + lx + 1;
+          const faceWorldY = baseY + jj;
+          const faceWorldZ = baseZ + ii;
+          
           gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z;
           gPos[pi+3] = x; gPos[pi+4] = y + h; gPos[pi+5] = z;
           gPos[pi+6] = x; gPos[pi+7] = y + h; gPos[pi+8] = z + w;
@@ -1414,6 +1876,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_EAST) : 0;
+          
+          // Per-vertex smooth lighting for glass EAST face
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 1; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
@@ -1421,6 +1898,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gTexRot[gVC + v] = 0;
             gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_EAST];
           }
+          gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+          gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -1487,6 +1966,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const z = baseZ + ii - oz;
           const gv = gVC, pi = gVC * 3;
           
+          // World coordinates for light sampling
+          const faceWorldX = baseX + lx - 1;
+          const faceWorldY = baseY + jj;
+          const faceWorldZ = baseZ + ii;
+          
           gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z + w;
           gPos[pi+3] = x; gPos[pi+4] = y + h; gPos[pi+5] = z + w;
           gPos[pi+6] = x; gPos[pi+7] = y + h; gPos[pi+8] = z;
@@ -1494,6 +1978,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_WEST) : 0;
+          
+          // Per-vertex smooth lighting for glass WEST face
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = -1; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 0;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
@@ -1501,6 +2000,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gTexRot[gVC + v] = 0;
             gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_WEST];
           }
+          gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+          gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -1567,6 +2068,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const z = baseZ + lz + 1 - oz;
           const gv = gVC, pi = gVC * 3;
           
+          // World coordinates for light sampling
+          const faceWorldX = baseX + ii;
+          const faceWorldY = baseY + jj;
+          const faceWorldZ = baseZ + lz + 1;
+          
           gPos[pi] = x; gPos[pi+1] = y; gPos[pi+2] = z;
           gPos[pi+3] = x + w; gPos[pi+4] = y; gPos[pi+5] = z;
           gPos[pi+6] = x + w; gPos[pi+7] = y + h; gPos[pi+8] = z;
@@ -1574,6 +2080,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_SOUTH) : 0;
+          
+          // Per-vertex smooth lighting for glass SOUTH face
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = 1;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
@@ -1581,6 +2102,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gTexRot[gVC + v] = 0;
             gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_SOUTH];
           }
+          gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+          gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -1647,6 +2170,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const z = baseZ + lz - oz;
           const gv = gVC, pi = gVC * 3;
           
+          // World coordinates for light sampling
+          const faceWorldX = baseX + ii;
+          const faceWorldY = baseY + jj;
+          const faceWorldZ = baseZ + lz - 1;
+          
           gPos[pi] = x + w; gPos[pi+1] = y; gPos[pi+2] = z;
           gPos[pi+3] = x; gPos[pi+4] = y; gPos[pi+5] = z;
           gPos[pi+6] = x; gPos[pi+7] = y + h; gPos[pi+8] = z;
@@ -1654,6 +2182,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, FACE_NORTH) : 0;
+          
+          // Per-vertex smooth lighting for glass NORTH face
+          let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
+          let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
+          if (lightGrid) {
+            const l0 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            const l3 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
+          }
+          
           for (let v = 0; v < 4; v++) {
             gNorm[pi + v*3] = 0; gNorm[pi + v*3 + 1] = 0; gNorm[pi + v*3 + 2] = -1;
             gCol[pi + v*3] = r; gCol[pi + v*3 + 1] = g; gCol[pi + v*3 + 2] = b;
@@ -1661,6 +2204,8 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             gTexRot[gVC + v] = 0;
             gTintType[gVC + v] = faceTintTypeLookup[bid * 6 + FACE_NORTH];
           }
+          gSkyLight[gVC] = skyL0; gSkyLight[gVC + 1] = skyL1; gSkyLight[gVC + 2] = skyL2; gSkyLight[gVC + 3] = skyL3;
+          gBlockLight[gVC] = blockL0; gBlockLight[gVC + 1] = blockL1; gBlockLight[gVC + 2] = blockL2; gBlockLight[gVC + 3] = blockL3;
           gVC += 4;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 1; gIdx[gIC++] = gv + 2;
           gIdx[gIC++] = gv; gIdx[gIC++] = gv + 2; gIdx[gIC++] = gv + 3;
@@ -1670,7 +2215,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   }
   
   // Trim and return
-  const trimMesh = (pos, norm, col, idx, vc, ic, texIdx = null, texRot = null, tintType = null) => {
+  const trimMesh = (pos, norm, col, idx, vc, ic, texIdx = null, texRot = null, tintType = null, skyLight = null, blockLight = null) => {
     if (vc === 0) return null;
     const result = {
       positions: pos.subarray(0, vc * 3),
@@ -1689,14 +2234,20 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
     if (tintType) {
       result.tintTypes = tintType.subarray(0, vc);
     }
+    if (skyLight) {
+      result.skyLight = skyLight.subarray(0, vc);
+    }
+    if (blockLight) {
+      result.blockLight = blockLight.subarray(0, vc);
+    }
     return result;
   };
   
   return {
-    solid: trimMesh(sPos, sNorm, sCol, sIdx, sVC, sIC, sTexIdx, sTexRot, sTintType),
+    solid: trimMesh(sPos, sNorm, sCol, sIdx, sVC, sIC, sTexIdx, sTexRot, sTintType, sSkyLight, sBlockLight),
     water: trimMesh(wPos, wNorm, wCol, wIdx, wVC, wIC),
     lava: trimMesh(lPos, lNorm, lCol, lIdx, lVC, lIC),
-    glass: trimMesh(gPos, gNorm, gCol, gIdx, gVC, gIC, gTexIdx, gTexRot, gTintType),
+    glass: trimMesh(gPos, gNorm, gCol, gIdx, gVC, gIC, gTexIdx, gTexRot, gTintType, gSkyLight, gBlockLight),
   };
 }
 
