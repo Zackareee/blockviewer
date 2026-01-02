@@ -9,7 +9,7 @@ import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from
 import { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT, AXIS_MASK } from './ChunkDecoder.js';
 import { isRotatableBlock, getBlockSideOverlay } from '../assets/BlockTextureRegistry.js';
 import { buildFaceTintTypeLookup, TINT_TYPE } from '../data/biomeTinting.js';
-import { getRandomRotationRegistry, getPositionRotation } from '../assets/RandomRotationRegistry.js';
+import { getRandomRotationRegistry } from '../assets/RandomRotationRegistry.js';
 
 const S = 16;
 const S2 = 256;
@@ -315,6 +315,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   const isRotatable = new Uint8Array(4096); // Blocks that support axis rotation
   const hasRandomRotation = new Uint8Array(4096); // Blocks with position-based random rotation
   const isTopOnlyRotation = new Uint8Array(4096); // Blocks that only rotate on top face
+  const isHalfRotation = new Uint8Array(4096); // Blocks that only use 0° and 180° (not 90°/270°)
   const needsSideOverlay = new Uint8Array(4096); // Blocks with tinted side overlay (grass_block)
   const sideOverlayTexIdx = new Float32Array(4096); // Overlay texture atlas index
   // AO-transparent blocks: don't block ambient occlusion / smooth lighting
@@ -359,6 +360,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           hasRandomRotation[id] = 1;
           if (randomRotationRegistry.isTopOnlyRotation(info.name)) {
             isTopOnlyRotation[id] = 1;
+          }
+          if (randomRotationRegistry.isHalfRotation(info.name)) {
+            isHalfRotation[id] = 1;
           }
         }
         // AO-transparent blocks: don't block smooth lighting
@@ -754,26 +758,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           // Get AO signature of starting block's 4 corners
           const startAO = getTopFaceAO(worldX, blockY, worldZ, grid, isOpaque, isAOTransparent);
           
-          // For blocks with random rotation, get the starting rotation to match against
-          const checkRotation = hasRandomRotation[bid];
-          const startRotation = checkRotation ? getPositionRotation(worldX, blockY, worldZ) : 0;
-          
-          // Expand width (+X) only if next block has identical AO (and rotation for rotation blocks)
+          // Expand width (+X) only if next block has identical AO
+          // Note: Rotation is now computed per-fragment in the shader, so we can merge freely
           let w = 1;
           while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
             if (!canMergeBlockAO(startAO, worldX + w, blockY, worldZ, grid, isOpaque, isAOTransparent)) break;
-            if (checkRotation && getPositionRotation(worldX + w, blockY, worldZ) !== startRotation) break;
             w++;
           }
           
-          // Expand height (+Z) only if all blocks in row have identical AO (and rotation)
+          // Expand height (+Z) only if all blocks in row have identical AO
           let h = 1;
           outer: while (jj + h < S) {
             for (let k = 0; k < w; k++) {
               const ci = (jj + h) * S + ii + k;
               if (visited[ci] || mask[ci] !== bid) break outer;
               if (!canMergeBlockAO(startAO, worldX + k, blockY, worldZ + h, grid, isOpaque, isAOTransparent)) break outer;
-              if (checkRotation && getPositionRotation(worldX + k, blockY, worldZ + h) !== startRotation) break outer;
             }
             h++;
           }
@@ -809,8 +808,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const rotatedFace = getRotatedFace(axis, FACE_UP);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
           let texRot = getTextureRotation(axis, FACE_UP);
-          if (checkRotation) {
-            texRot = (texRot + startRotation) % 4;
+          // For blocks with random rotation, use per-fragment rotation
+          // Values 4-7: full rotation (0°, 90°, 180°, 270°)
+          // Values 8-11: half rotation (0° and 180° only, for stone/bedrock)
+          if (hasRandomRotation[bid]) {
+            texRot = texRot + (isHalfRotation[bid] ? 8 : 4);
           }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_UP];
           
@@ -923,7 +925,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const rotatedFace = getRotatedFace(axis, FACE_DOWN);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
-          const texRot = getTextureRotation(axis, FACE_DOWN);
+          let texRot = getTextureRotation(axis, FACE_DOWN);
+          // For blocks with random rotation (except top-only blocks), use per-fragment mode
+          if (hasRandomRotation[bid] && !isTopOnlyRotation[bid]) {
+            texRot = texRot + (isHalfRotation[bid] ? 8 : 4);
+          }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_DOWN];
           
           // Per-vertex smooth lighting for BOTTOM face (-Y)
@@ -1021,7 +1027,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const rotatedFace = getRotatedFace(axis, FACE_EAST);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
-          const texRot = getTextureRotation(axis, FACE_EAST);
+          let texRot = getTextureRotation(axis, FACE_EAST);
+          // For blocks with random rotation (except top-only blocks), use per-fragment mode
+          if (hasRandomRotation[bid] && !isTopOnlyRotation[bid]) {
+            texRot = texRot + (isHalfRotation[bid] ? 8 : 4);
+          }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_EAST];
           
           // Per-vertex smooth lighting for EAST face (+X)
@@ -1142,7 +1152,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const rotatedFace = getRotatedFace(axis, FACE_WEST);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
-          const texRot = getTextureRotation(axis, FACE_WEST);
+          let texRot = getTextureRotation(axis, FACE_WEST);
+          // For blocks with random rotation (except top-only blocks), use per-fragment mode
+          if (hasRandomRotation[bid] && !isTopOnlyRotation[bid]) {
+            texRot = texRot + (isHalfRotation[bid] ? 8 : 4);
+          }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_WEST];
           
           // Per-vertex smooth lighting for WEST face (-X)
@@ -1263,7 +1277,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const rotatedFace = getRotatedFace(axis, FACE_SOUTH);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
-          const texRot = getTextureRotation(axis, FACE_SOUTH);
+          let texRot = getTextureRotation(axis, FACE_SOUTH);
+          // For blocks with random rotation (except top-only blocks), use per-fragment mode
+          if (hasRandomRotation[bid] && !isTopOnlyRotation[bid]) {
+            texRot = texRot + (isHalfRotation[bid] ? 8 : 4);
+          }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_SOUTH];
           
           // Per-vertex smooth lighting for SOUTH face (+Z)
@@ -1383,7 +1401,11 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const r = colorR[bid], g = colorG[bid], b = colorB[bid];
           const rotatedFace = getRotatedFace(axis, FACE_NORTH);
           const texIdx = textureIndexLookup ? textureIndexLookup.getIndex(bid, rotatedFace) : 0;
-          const texRot = getTextureRotation(axis, FACE_NORTH);
+          let texRot = getTextureRotation(axis, FACE_NORTH);
+          // For blocks with random rotation (except top-only blocks), use per-fragment mode
+          if (hasRandomRotation[bid] && !isTopOnlyRotation[bid]) {
+            texRot = texRot + (isHalfRotation[bid] ? 8 : 4);
+          }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_NORTH];
           
           // Per-vertex smooth lighting for NORTH face (-Z)

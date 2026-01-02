@@ -69,17 +69,29 @@ const TOP_ONLY_ROTATION_BLOCKS = new Set([
 ]);
 
 /**
+ * Blocks that use 0° and 180° rotation ONLY (with mirrored textures in vanilla)
+ * Since we don't support texture mirroring, we just use 0° and 180° rotations.
+ * These blocks would look strange with 90°/270° rotations.
+ */
+const HALF_ROTATION_BLOCKS = new Set([
+  'stone',
+  'bedrock',
+]);
+
+/**
  * Default list of vanilla blocks known to have random Y-rotation variants
- * These blocks have blockstate files with arrays of 4 variants (0°, 90°, 180°, 270°)
+ * These are verified from actual vanilla blockstate JSON files.
  * 
- * This is used as a fallback when blockstates haven't been parsed yet,
- * and can be overridden by texture packs.
+ * Pattern categories:
+ * - Full rotation (0°, 90°, 180°, 270°): dirt, grass_block, sand, etc.
+ * - Half rotation (0°, 180° + mirrored): stone, bedrock (handled by HALF_ROTATION_BLOCKS)
+ * - No rotation: granite, diorite, andesite, cobblestone, gravel, etc.
  * 
  * Blocks in TOP_ONLY_ROTATION_BLOCKS will only rotate on the top face,
  * all other blocks here will rotate on all faces.
  */
 const DEFAULT_RANDOM_ROTATION_BLOCKS = new Set([
-  // Top-only rotation blocks (included here for completeness, filtered by TOP_ONLY)
+  // Top-only rotation blocks - full 4-way rotation on top face only
   'grass_block',
   'podzol',
   'mycelium',
@@ -88,72 +100,21 @@ const DEFAULT_RANDOM_ROTATION_BLOCKS = new Set([
   'dirt_path',
   'farmland',
   
-  // All-face rotation blocks (uniform textures)
+  // All-face full rotation blocks (verified from vanilla blockstates)
   'dirt',
   'coarse_dirt',
   'rooted_dirt',
-  
-  // Stone variants
-  'stone',
-  'granite',
-  'diorite',
-  'andesite',
-  'tuff',
-  'deepslate',
-  'calcite',
-  'dripstone_block',
-  
-  // Sand and gravel
   'sand',
   'red_sand',
   'suspicious_sand',
   'suspicious_gravel',
   
-  // Nether blocks
-  'netherrack',
-  'soul_sand',
-  'soul_soil',
-  'blackstone',
-  
-  // End blocks
-  'end_stone',
-  
-  // Clay and mud
-  'clay',
-  'mud',
-  'packed_mud',
-  
-  // Ore blocks (often have rotation variants)
-  'coal_ore',
-  'iron_ore',
-  'gold_ore',
-  'diamond_ore',
-  'emerald_ore',
-  'lapis_ore',
-  'redstone_ore',
-  'copper_ore',
-  'deepslate_coal_ore',
-  'deepslate_iron_ore',
-  'deepslate_gold_ore',
-  'deepslate_diamond_ore',
-  'deepslate_emerald_ore',
-  'deepslate_lapis_ore',
-  'deepslate_redstone_ore',
-  'deepslate_copper_ore',
-  'nether_gold_ore',
-  'nether_quartz_ore',
-  'ancient_debris',
-  
-  // Miscellaneous
+  // Half-rotation blocks (0° and 180° only, uses mirrored textures in vanilla)
+  'stone',
   'bedrock',
-  'obsidian',
-  'crying_obsidian',
-  'gravel',
-  'snow_block',
-  'powder_snow',
-  'moss_block',
-  'pale_moss_block',
-  'sculk',
+  
+  // Netherrack has complex X+Y rotation (16 variants) - we approximate with Y rotation
+  'netherrack',
 ]);
 
 class RandomRotationRegistry {
@@ -195,6 +156,17 @@ class RandomRotationRegistry {
   isTopOnlyRotation(blockName) {
     const normalized = blockName.replace('minecraft:', '');
     return this.topOnlyBlocks.has(normalized);
+  }
+
+  /**
+   * Check if a block uses half rotation (0° and 180° only)
+   * These blocks use mirrored textures in vanilla instead of 90°/270° rotations
+   * @param {string} blockName - Block name (with or without minecraft: prefix)
+   * @returns {boolean}
+   */
+  isHalfRotation(blockName) {
+    const normalized = blockName.replace('minecraft:', '');
+    return HALF_ROTATION_BLOCKS.has(normalized);
   }
 
   /**

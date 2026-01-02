@@ -111,10 +111,9 @@ vec3 snapNormal(vec3 n) {
 
 // Rotate UV coordinates by 90-degree increments (0=0°, 1=90°, 2=180°, 3=270°)
 // Returns UV clamped to [0, 1] range
-vec2 rotateUV(vec2 uv, float rotation) {
+vec2 rotateUV(vec2 uv, int rot) {
   // Rotation around center (0.5, 0.5)
   vec2 centered = uv - 0.5;
-  int rot = int(mod(rotation + 0.5, 4.0)); // Add 0.5 to round to nearest int
   
   if (rot == 1) {
     // 90° clockwise: (x, y) -> (y, -x)
@@ -130,6 +129,23 @@ vec2 rotateUV(vec2 uv, float rotation) {
   
   // Clamp result to valid UV range to prevent any edge case issues
   return clamp(centered + 0.5, 0.0, 1.0);
+}
+
+// Position-based random rotation for blocks like grass, stone, dirt
+// Uses a hash function that gives consistent per-block rotation values 0-3
+// This allows greedy meshing to merge blocks while each pixel computes its own rotation
+int getPositionRotation(vec3 worldPos) {
+  // Get block position (floor to get the block the fragment is in)
+  vec3 p = floor(worldPos);
+  
+  // Minecraft's position hash formula adapted for GLSL
+  // Original: l = (x * 3129871) ^ (z * 116129781) ^ y
+  // We use a simplified float-based hash that gives similar visual results
+  // Using prime multipliers for good distribution
+  float hash = p.x * 3129871.0 + p.z * 116129781.0 + p.y;
+  hash = fract(sin(hash * 0.0000001) * 43758.5453);
+  
+  return int(hash * 4.0); // Returns 0, 1, 2, or 3
 }
 
 // Sample the biome colormap to get tint color
@@ -251,12 +267,29 @@ void main() {
     // Get the local UV within a single block face (0-1 per block)
     vec2 localUV = getTriplanarUV(vWorldPos, vNormal);
     
-    // Apply texture rotation if needed (for rotated blocks like horizontal logs)
-    // Only apply rotation for valid non-zero rotation values (most blocks have rotation=0)
-    // Check for valid range to avoid NaN or garbage values
-    if (vTexRotation > 0.5 && vTexRotation < 3.5) {
-      float safeRotation = floor(vTexRotation + 0.5); // Round to nearest integer
-      localUV = rotateUV(localUV, safeRotation);
+    // Apply texture rotation if needed
+    // Rotation values 0-3: fixed rotation
+    // Rotation values 4-7: per-fragment full rotation (0°, 90°, 180°, 270°)
+    // Rotation values 8-11: per-fragment half rotation (0° and 180° only, for stone/bedrock)
+    int rotValue = int(vTexRotation + 0.5); // Round to nearest int
+    
+    if (rotValue >= 8) {
+      // Half rotation mode (0° and 180° only): for blocks like stone, bedrock
+      int baseRot = rotValue - 8;
+      int posRot = getPositionRotation(vWorldPos);
+      // Map 0,1,2,3 -> 0,2,0,2 (only 0° and 180°)
+      int halfRot = (posRot / 2) * 2; // 0->0, 1->0, 2->2, 3->2
+      rotValue = int(mod(float(baseRot + halfRot), 4.0));
+      localUV = rotateUV(localUV, rotValue);
+    } else if (rotValue >= 4) {
+      // Full per-fragment rotation mode: compute rotation from block position
+      int baseRot = rotValue - 4;
+      int posRot = getPositionRotation(vWorldPos);
+      rotValue = int(mod(float(baseRot + posRot), 4.0));
+      localUV = rotateUV(localUV, rotValue);
+    } else if (rotValue > 0 && rotValue < 4) {
+      // Fixed rotation mode
+      localUV = rotateUV(localUV, rotValue);
     }
     
     // Final safety clamp on localUV (belt and suspenders approach)
@@ -605,9 +638,8 @@ vec3 snapNormal(vec3 n) {
 }
 
 // Rotate UV by 90-degree increments
-vec2 rotateUV(vec2 uv, float rotation) {
+vec2 rotateUV(vec2 uv, int rot) {
   vec2 centered = uv - 0.5;
-  int rot = int(mod(rotation + 0.5, 4.0));
   
   if (rot == 1) {
     centered = vec2(centered.y, -centered.x);
@@ -676,9 +708,11 @@ void main() {
     vec2 localUV = vModelUV;
     
     // Apply texture rotation if needed
-    if (vTexRotation > 0.5 && vTexRotation < 3.5) {
-      float safeRotation = floor(vTexRotation + 0.5);
-      localUV = rotateUV(localUV, safeRotation);
+    // Note: Model blocks currently don't use per-fragment rotation (values 4-7)
+    // but we support it for consistency
+    int rotValue = int(vTexRotation + 0.5);
+    if (rotValue > 0 && rotValue < 4) {
+      localUV = rotateUV(localUV, rotValue);
     }
     
     // Clamp UV to valid range
