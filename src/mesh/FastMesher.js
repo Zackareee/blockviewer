@@ -216,22 +216,27 @@ function sampleSmoothLight(lightGrid, x, y, z, nx, ny, nz, blockGrid, isOpaque, 
 }
 
 /**
- * Compute Minecraft-style AO for a single vertex corner
+ * Get AO for all 4 vertices of a TOP face at block position (blockX, blockY, blockZ)
  * 
- * Minecraft's algorithm:
- * - Check exactly 3 neighbors: side1, side2, corner (relative to vertex)
- * - If side1 AND side2 are both solid → return 0 (maximum occlusion)
- * - Otherwise → return 3 - side1 - side2 - corner
+ * For a TOP face, we check blocks at Y = blockY + 1 (the face level, which should be air above our block).
+ * Each vertex corner is influenced by 3 adjacent blocks: side1, side2, and corner (diagonal).
  * 
- * @param {number} x, y, z - Vertex position (corner of face)
- * @param {number} side1X, side1Y, side1Z - Offset to first side neighbor
- * @param {number} side2X, side2Y, side2Z - Offset to second side neighbor
- * @param {BinaryGrid} blockGrid - Block data
- * @param {Uint8Array} isOpaque - Opaque block lookup
- * @param {Uint8Array} isAOTransparent - AO-transparent block lookup
- * @returns {number} AO level 0-3 (0=darkest, 3=brightest)
+ * Face vertices (looking down at top face from above):
+ *   V0 ---- V1      V0 = (-X, +Z) corner = southwest
+ *    |      |       V1 = (+X, +Z) corner = southeast
+ *    |      |       V2 = (+X, -Z) corner = northeast
+ *   V3 ---- V2      V3 = (-X, -Z) corner = northwest
+ * 
+ * For each vertex, the 3 neighbors to check are determined by which corner it occupies:
+ * - V0 (SW): check blocks at West (-1,0), South (0,+1), and Southwest (-1,+1)
+ * - V1 (SE): check blocks at East (+1,0), South (0,+1), and Southeast (+1,+1)
+ * - V2 (NE): check blocks at East (+1,0), North (0,-1), and Northeast (+1,-1)
+ * - V3 (NW): check blocks at West (-1,0), North (0,-1), and Northwest (-1,-1)
  */
-function getVertexAO(x, y, z, side1X, side1Y, side1Z, side2X, side2Y, side2Z, blockGrid, isOpaque, isAOTransparent) {
+function getTopFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
+  const y = blockY + 1; // Sample in air space above block (the face level)
+  
+  // Helper function to check if a block is solid for AO purposes
   const isSolidForAO = (bx, by, bz) => {
     const blockId = blockGrid.getBlockId(bx, by, bz);
     if (blockId === 0) return false;
@@ -239,36 +244,30 @@ function getVertexAO(x, y, z, side1X, side1Y, side1Z, side2X, side2Y, side2Z, bl
     return isOpaque[blockId] === 1;
   };
   
-  const side1 = isSolidForAO(x + side1X, y + side1Y, z + side1Z);
-  const side2 = isSolidForAO(x + side2X, y + side2Y, z + side2Z);
+  // Compute AO level for a vertex given two side offsets (in XZ plane)
+  // corner is automatically computed as side1 + side2
+  const computeAO = (side1X, side1Z, side2X, side2Z) => {
+    const side1 = isSolidForAO(blockX + side1X, y, blockZ + side1Z);
+    const side2 = isSolidForAO(blockX + side2X, y, blockZ + side2Z);
+    
+    // Minecraft behavior: if both sides are solid, corner is fully occluded
+    if (side1 && side2) return 0;
+    
+    const corner = isSolidForAO(blockX + side1X + side2X, y, blockZ + side1Z + side2Z);
+    return 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+  };
   
-  // Key Minecraft behavior: if both sides are solid, corner is fully blocked
-  if (side1 && side2) {
-    return 0;
-  }
+  // V0: corner at (-X, +Z) - check West and South
+  const ao0 = computeAO(-1, 0, 0, 1);
   
-  const corner = isSolidForAO(x + side1X + side2X, y + side1Y + side2Y, z + side1Z + side2Z);
-  return 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
-}
-
-/**
- * Get AO for all 4 vertices of a TOP face at block position (blockX, blockY, blockZ)
- * Sample Y is one above the block (in the air space where the face is)
- */
-function getTopFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
-  const y = blockY + 1; // Sample in air space above block
+  // V1: corner at (+X, +Z) - check East and South
+  const ao1 = computeAO(1, 0, 0, 1);
   
-  // V0: corner at (blockX, y, blockZ+1) - check West (-X) and South (+Z)
-  const ao0 = getVertexAO(blockX, y, blockZ + 1, -1, 0, 0, 0, 0, 1, blockGrid, isOpaque, isAOTransparent);
+  // V2: corner at (+X, -Z) - check East and North
+  const ao2 = computeAO(1, 0, 0, -1);
   
-  // V1: corner at (blockX+1, y, blockZ+1) - check East (+X) and South (+Z)
-  const ao1 = getVertexAO(blockX + 1, y, blockZ + 1, 1, 0, 0, 0, 0, 1, blockGrid, isOpaque, isAOTransparent);
-  
-  // V2: corner at (blockX+1, y, blockZ) - check East (+X) and North (-Z)
-  const ao2 = getVertexAO(blockX + 1, y, blockZ, 1, 0, 0, 0, 0, -1, blockGrid, isOpaque, isAOTransparent);
-  
-  // V3: corner at (blockX, y, blockZ) - check West (-X) and North (-Z)
-  const ao3 = getVertexAO(blockX, y, blockZ, -1, 0, 0, 0, 0, -1, blockGrid, isOpaque, isAOTransparent);
+  // V3: corner at (-X, -Z) - check West and North
+  const ao3 = computeAO(-1, 0, 0, -1);
   
   return [ao0, ao1, ao2, ao3];
 }

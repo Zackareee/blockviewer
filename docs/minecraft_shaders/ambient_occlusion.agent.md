@@ -82,15 +82,24 @@ Face vertices (looking down from +Y):
          |                    |
     V3(x,y,z) ---------- V2(x+1,y,z)
     
-Sample Y = y (one block above the face, in the air space)
+Sample Y = blockY + 1 (one block above the solid block, in the air space)
 ```
 
-| Vertex | Position | Side1 Offset | Side2 Offset | Corner Offset |
-|--------|----------|--------------|--------------|---------------|
-| V0 | (x, y, z+1) | (-1, 0, 0) | (0, 0, +1) | (-1, 0, +1) |
-| V1 | (x+1, y, z+1) | (+1, 0, 0) | (0, 0, +1) | (+1, 0, +1) |
-| V2 | (x+1, y, z) | (+1, 0, 0) | (0, 0, -1) | (+1, 0, -1) |
-| V3 | (x, y, z) | (-1, 0, 0) | (0, 0, -1) | (-1, 0, -1) |
+**IMPORTANT**: Offsets are relative to the BLOCK position (blockX, blockY, blockZ), NOT the vertex position!
+
+For a block at (blockX, blockY, blockZ), the neighbors to check are at Y = blockY + 1 (the face level):
+
+| Vertex | Corner | Side1 (XZ offset) | Side2 (XZ offset) | Corner = Side1+Side2 |
+|--------|--------|-------------------|-------------------|---------------------|
+| V0 | (-X, +Z) = Southwest | West: (-1, 0) | South: (0, +1) | SW: (-1, +1) |
+| V1 | (+X, +Z) = Southeast | East: (+1, 0) | South: (0, +1) | SE: (+1, +1) |
+| V2 | (+X, -Z) = Northeast | East: (+1, 0) | North: (0, -1) | NE: (+1, -1) |
+| V3 | (-X, -Z) = Northwest | West: (-1, 0) | North: (0, -1) | NW: (-1, -1) |
+
+Example for V2 of block at (0, 64, 0):
+- Side1: East block at (0+1, 65, 0) = (1, 65, 0)
+- Side2: North block at (0, 65, 0-1) = (0, 65, -1)
+- Corner: NE block at (0+1, 65, 0-1) = (1, 65, -1)
 
 ### BOTTOM Face (-Y normal)
 
