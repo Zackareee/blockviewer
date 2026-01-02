@@ -349,13 +349,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           isRotatable[id] = 1;
         }
         // AO-transparent blocks: don't block smooth lighting
-        // Includes glass, ice, leaves, slime, honey, non-cube blocks (except slabs), fluids
-        // Note: slabs are NOT AO transparent - they block light on their solid portions
+        // Includes glass, ice, leaves, slime, honey, non-cube blocks (including slabs), fluids
+        // Slabs are partial blocks - they don't fully occupy the block space,
+        // so they shouldn't cause full AO darkening on adjacent solid faces
         if (info.name.includes('glass') || info.name.includes('ice') || 
             info.name.includes('leaves') || info.name.includes('slime') ||
             info.name.includes('honey') || info.name.includes('water') ||
             info.name.includes('lava') || info.name.includes('barrier') ||
-            info.name.includes('light') || (registry.isNonCube(id) && !info.name.includes('_slab'))) {
+            info.name.includes('light') || registry.isNonCube(id)) {
           isAOTransparent[id] = 1;
         }
         // Check if this block has a side overlay (grass_block)
