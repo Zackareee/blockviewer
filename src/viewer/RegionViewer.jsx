@@ -513,12 +513,14 @@ function RegionScene({
   // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
   }, [regions, parseRegion, invalidate, enableLOD, textureAtlas]);
   
-  // Toggle model meshes visibility
+  // Toggle model meshes visibility (all partial block groups)
   useEffect(() => {
     const manager = managerRef.current;
     if (!manager) return;
     
     manager.modelGroup.visible = enableModelMeshes;
+    manager.transparentModelGroup.visible = enableModelMeshes;
+    manager.overlayModelGroup.visible = enableModelMeshes;
     invalidate(); // Re-render to show/hide model meshes
   }, [enableModelMeshes, invalidate]);
 

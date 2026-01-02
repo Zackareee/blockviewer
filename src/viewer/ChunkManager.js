@@ -441,28 +441,6 @@ export class ChunkManager {
     lod.autoUpdate = true;
     lod.frustumCulled = false; // Disable culling for LOD itself - children handle their own
     
-    // Track LOD level changes for debugging
-    lod.userData.currentLevel = -1;
-    lod.userData.levelDistances = [0, LOD_DISTANCE_1, LOD_DISTANCE_2, LOD_DISTANCE_3, LOD_DISTANCE_4];
-    const originalUpdate = lod.update.bind(lod);
-    lod.update = function(camera) {
-      const oldLevel = this.userData.currentLevel;
-      originalUpdate(camera);
-      // Find which level is now visible
-      let newLevel = -1;
-      for (let i = 0; i < this.levels.length; i++) {
-        if (this.levels[i].object.visible) {
-          newLevel = i;
-          break;
-        }
-      }
-      if (newLevel !== oldLevel) {
-        const dist = this.position.distanceTo(camera.position).toFixed(0);
-        console.log(`[LOD] Level changed: ${oldLevel} → ${newLevel} (distance: ${dist} blocks)`);
-        this.userData.currentLevel = newLevel;
-      }
-    };
-    
     group.add(lod);
     meshArray.push(lod);
     
@@ -1698,6 +1676,7 @@ export class ChunkManager {
     this.solidMaterial.dispose();
     this.waterMaterial.dispose();
     this.lavaMaterial.dispose();
+    this.glassMaterial.dispose();
     this.modelMaterial.dispose();
     this.transparentModelMaterial.dispose();
     this.overlayModelMaterial.dispose();
@@ -1705,6 +1684,7 @@ export class ChunkManager {
     this.scene.remove(this.solidGroup);
     this.scene.remove(this.waterGroup);
     this.scene.remove(this.lavaGroup);
+    this.scene.remove(this.glassGroup);
     this.scene.remove(this.modelGroup);
     this.scene.remove(this.transparentModelGroup);
     this.scene.remove(this.overlayModelGroup);
