@@ -20,6 +20,15 @@ export const BLOCK_ID_MASK = 0x0FFF;     // Bits 0-11 (4096 unique blocks)
 export const LEVEL_MASK = 0xF000;         // Bits 12-15 (16 levels)
 export const LEVEL_SHIFT = 12;
 
+// Slab type encoding (stored in bits 14-15, overlapping with level bits)
+// This is fine because slabs don't have fluid levels
+export const SLAB_SHIFT = 14;
+export const SLAB_MASK = 0xC000;          // Bits 14-15 (4 slab types)
+export const SLAB_NONE = 0;               // Not a slab
+export const SLAB_BOTTOM = 1;             // Bottom slab
+export const SLAB_TOP = 2;                // Top slab  
+export const SLAB_DOUBLE = 3;             // Double slab (full cube)
+
 // Region bounds (Minecraft region = 32x32 chunks)
 export const CHUNKS_PER_REGION = 32;
 export const REGION_SIZE_XZ = CHUNKS_PER_REGION * SECTION_SIZE; // 512 blocks

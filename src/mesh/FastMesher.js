@@ -4,7 +4,7 @@
  * Key optimization: Single pass through blocks, build all 6 face masks at once
  */
 
-import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, sectionToWorldY, makeSectionKey, parseSectionKey } from './BinaryGrid.js';
+import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, SLAB_MASK, SLAB_SHIFT, SLAB_DOUBLE, sectionToWorldY, makeSectionKey, parseSectionKey } from './BinaryGrid.js';
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
 import { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT, AXIS_MASK } from './ChunkDecoder.js';
 import { isRotatableBlock, getBlockSideOverlay } from '../assets/BlockTextureRegistry.js';
@@ -305,6 +305,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
   // Build lookup tables
   const isOpaque = new Uint8Array(4096);
   const isNonCube = new Uint8Array(4096); // Non-cube blocks skip greedy meshing
+  const isSlab = new Uint8Array(4096); // Slab blocks (type determined by block value metadata)
   const colorR = new Float32Array(4096);
   const colorG = new Float32Array(4096);
   const colorB = new Float32Array(4096);
@@ -338,17 +339,23 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         else if ((info.name.includes('glass') && !info.name.includes('_pane')) || info.name.includes('ice') || info.name.includes('leaves')) {
           isGlass[id] = 1;
         }
+        // Check if this block is a slab (slab type determined by block value bits)
+        // Double slabs are full cubes and can be greedy meshed
+        if (info.name.includes('_slab')) {
+          isSlab[id] = 1;
+        }
         // Check if this block is rotatable (logs, pillars, etc.)
         if (isRotatableBlock(info.name)) {
           isRotatable[id] = 1;
         }
         // AO-transparent blocks: don't block smooth lighting
-        // Includes glass, ice, leaves, slime, honey, non-cube blocks, fluids
+        // Includes glass, ice, leaves, slime, honey, non-cube blocks (except slabs), fluids
+        // Note: slabs are NOT AO transparent - they block light on their solid portions
         if (info.name.includes('glass') || info.name.includes('ice') || 
             info.name.includes('leaves') || info.name.includes('slime') ||
             info.name.includes('honey') || info.name.includes('water') ||
             info.name.includes('lava') || info.name.includes('barrier') ||
-            info.name.includes('light') || registry.isNonCube(id)) {
+            info.name.includes('light') || (registry.isNonCube(id) && !info.name.includes('_slab'))) {
           isAOTransparent[id] = 1;
         }
         // Check if this block has a side overlay (grass_block)
@@ -359,6 +366,51 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         }
       }
     }
+  }
+  
+  /**
+   * Check if a block value represents a full cube for greedy meshing purposes.
+   * Double slabs ARE full cubes even though their block ID is marked as non-cube.
+   * @param {number} value - The full 16-bit block value
+   * @returns {boolean} True if this block should be processed as a full cube
+   */
+  function isFullCube(value) {
+    const bid = value & BLOCK_ID_MASK;
+    if (bid === 0) return false;
+    if (!isOpaque[bid]) return false;
+    
+    // Slab blocks: only double slabs are full cubes
+    if (isSlab[bid]) {
+      const slabType = (value & SLAB_MASK) >> SLAB_SHIFT;
+      return slabType === SLAB_DOUBLE;
+    }
+    
+    // Other non-cube blocks (stairs, fences, etc.) are not full cubes
+    if (isNonCube[bid]) return false;
+    
+    return true;
+  }
+  
+  /**
+   * Check if a neighbor blocks a face (is a full opaque cube).
+   * @param {number} nValue - The neighbor's full 16-bit block value
+   * @returns {boolean} True if neighbor blocks the face
+   */
+  function neighborBlocksFace(nValue) {
+    const nid = nValue & BLOCK_ID_MASK;
+    if (nid === 0) return false;
+    if (!isOpaque[nid]) return false;
+    
+    // Slab neighbor: only double slabs fully block
+    if (isSlab[nid]) {
+      const slabType = (nValue & SLAB_MASK) >> SLAB_SHIFT;
+      return slabType === SLAB_DOUBLE;
+    }
+    
+    // Other non-cube blocks don't fully block
+    if (isNonCube[nid]) return false;
+    
+    return true;
   }
   
   /**
@@ -649,18 +701,21 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       const sliceBase = ly * S2;
       for (let j = 0; j < S2; j++) {
-        const bid = section[sliceBase + j] & BLOCK_ID_MASK;
-        if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
+        const value = section[sliceBase + j];
+        const bid = value & BLOCK_ID_MASK;
+        // Check if this block should be processed as a full cube (includes double slabs)
+        if (!isFullCube(value)) continue;
         
         // Check neighbor above
-        let nid = 0;
+        let nValue = 0;
         if (ly < 15) {
-          nid = section[sliceBase + S2 + j] & BLOCK_ID_MASK;
+          nValue = section[sliceBase + S2 + j];
         } else if (secTop) {
-          nid = secTop[j] & BLOCK_ID_MASK;
+          nValue = secTop[j];
         }
         
-        if (!isOpaque[nid] || isNonCube[nid]) {
+        // Only draw face if neighbor doesn't fully block it
+        if (!neighborBlocksFace(nValue)) {
           mask[j] = bid;
           hasFaces = true;
         }
@@ -778,17 +833,18 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       const sliceBase = ly * S2;
       for (let j = 0; j < S2; j++) {
-        const bid = section[sliceBase + j] & BLOCK_ID_MASK;
-        if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
+        const value = section[sliceBase + j];
+        const bid = value & BLOCK_ID_MASK;
+        if (!isFullCube(value)) continue;
         
-        let nid = 0;
+        let nValue = 0;
         if (ly > 0) {
-          nid = section[sliceBase - S2 + j] & BLOCK_ID_MASK;
+          nValue = section[sliceBase - S2 + j];
         } else if (secBot) {
-          nid = secBot[15 * S2 + j] & BLOCK_ID_MASK;
+          nValue = secBot[15 * S2 + j];
         }
         
-        if (!isOpaque[nid] || isNonCube[nid]) {
+        if (!neighborBlocksFace(nValue)) {
           mask[j] = bid;
           hasFaces = true;
         }
@@ -888,17 +944,18 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       for (let ly = 0; ly < S; ly++) {
         for (let lz = 0; lz < S; lz++) {
           const idx = ly * S2 + lz * S + lx;
-          const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
+          const value = section[idx];
+          const bid = value & BLOCK_ID_MASK;
+          if (!isFullCube(value)) continue;
           
-          let nid = 0;
+          let nValue = 0;
           if (lx < 15) {
-            nid = section[idx + 1] & BLOCK_ID_MASK;
+            nValue = section[idx + 1];
           } else if (secRight) {
-            nid = secRight[ly * S2 + lz * S] & BLOCK_ID_MASK;
+            nValue = secRight[ly * S2 + lz * S];
           }
           
-          if (!isOpaque[nid] || isNonCube[nid]) {
+          if (!neighborBlocksFace(nValue)) {
             mask[ly * S + lz] = bid;
             hasFaces = true;
           }
@@ -1009,17 +1066,18 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       for (let ly = 0; ly < S; ly++) {
         for (let lz = 0; lz < S; lz++) {
           const idx = ly * S2 + lz * S + lx;
-          const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
+          const value = section[idx];
+          const bid = value & BLOCK_ID_MASK;
+          if (!isFullCube(value)) continue;
           
-          let nid = 0;
+          let nValue = 0;
           if (lx > 0) {
-            nid = section[idx - 1] & BLOCK_ID_MASK;
+            nValue = section[idx - 1];
           } else if (secLeft) {
-            nid = secLeft[ly * S2 + lz * S + 15] & BLOCK_ID_MASK;
+            nValue = secLeft[ly * S2 + lz * S + 15];
           }
           
-          if (!isOpaque[nid] || isNonCube[nid]) {
+          if (!neighborBlocksFace(nValue)) {
             mask[ly * S + lz] = bid;
             hasFaces = true;
           }
@@ -1128,17 +1186,18 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       for (let ly = 0; ly < S; ly++) {
         for (let lx = 0; lx < S; lx++) {
           const idx = ly * S2 + lz * S + lx;
-          const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
+          const value = section[idx];
+          const bid = value & BLOCK_ID_MASK;
+          if (!isFullCube(value)) continue;
           
-          let nid = 0;
+          let nValue = 0;
           if (lz < 15) {
-            nid = section[idx + S] & BLOCK_ID_MASK;
+            nValue = section[idx + S];
           } else if (secFront) {
-            nid = secFront[ly * S2 + lx] & BLOCK_ID_MASK;
+            nValue = secFront[ly * S2 + lx];
           }
           
-          if (!isOpaque[nid] || isNonCube[nid]) {
+          if (!neighborBlocksFace(nValue)) {
             mask[ly * S + lx] = bid;
             hasFaces = true;
           }
@@ -1248,17 +1307,18 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       for (let ly = 0; ly < S; ly++) {
         for (let lx = 0; lx < S; lx++) {
           const idx = ly * S2 + lz * S + lx;
-          const bid = section[idx] & BLOCK_ID_MASK;
-          if (bid === 0 || !isOpaque[bid] || isNonCube[bid]) continue;
+          const value = section[idx];
+          const bid = value & BLOCK_ID_MASK;
+          if (!isFullCube(value)) continue;
           
-          let nid = 0;
+          let nValue = 0;
           if (lz > 0) {
-            nid = section[idx - S] & BLOCK_ID_MASK;
+            nValue = section[idx - S];
           } else if (secBack) {
-            nid = secBack[ly * S2 + 15 * S + lx] & BLOCK_ID_MASK;
+            nValue = secBack[ly * S2 + 15 * S + lx];
           }
           
-          if (!isOpaque[nid] || isNonCube[nid]) {
+          if (!neighborBlocksFace(nValue)) {
             mask[ly * S + lx] = bid;
             hasFaces = true;
           }
@@ -1601,8 +1661,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
     
     // Helper function to check if neighbor blocks glass face
     // Glass-to-glass faces are hidden (and same for leaves-to-leaves)
-    // Partial blocks (stairs, slabs, etc.) do NOT block glass/leaf faces - they don't fully cover
-    const blocksGlassFace = (nid) => (isOpaque[nid] && !isNonCube[nid]) || isGlass[nid];
+    // Partial blocks (stairs, bottom/top slabs) do NOT block glass/leaf faces - they don't fully cover
+    // Double slabs ARE full cubes and DO block glass faces
+    const blocksGlassFace = (nValue) => {
+      const nid = nValue & BLOCK_ID_MASK;
+      if (isGlass[nid]) return true;
+      // Use neighborBlocksFace to properly handle double slabs
+      return neighborBlocksFace(nValue);
+    };
     
     // Glass Face 0: Top (+Y)
     for (let ly = 0; ly < S; ly++) {
@@ -1614,14 +1680,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         const bid = section[sliceBase + j] & BLOCK_ID_MASK;
         if (bid === 0 || !isGlass[bid]) continue;
         
-        let nid = 0;
+        let nValue = 0;
         if (ly < 15) {
-          nid = section[sliceBase + S2 + j] & BLOCK_ID_MASK;
+          nValue = section[sliceBase + S2 + j];
         } else if (secTop) {
-          nid = secTop[j] & BLOCK_ID_MASK;
+          nValue = secTop[j];
         }
         
-        if (!blocksGlassFace(nid)) {
+        if (!blocksGlassFace(nValue)) {
           mask[j] = bid;
           hasFaces = true;
         }
@@ -1714,14 +1780,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
         const bid = section[sliceBase + j] & BLOCK_ID_MASK;
         if (bid === 0 || !isGlass[bid]) continue;
         
-        let nid = 0;
+        let nValue = 0;
         if (ly > 0) {
-          nid = section[sliceBase - S2 + j] & BLOCK_ID_MASK;
+          nValue = section[sliceBase - S2 + j];
         } else if (secBot) {
-          nid = secBot[15 * S2 + j] & BLOCK_ID_MASK;
+          nValue = secBot[15 * S2 + j];
         }
         
-        if (!blocksGlassFace(nid)) {
+        if (!blocksGlassFace(nValue)) {
           mask[j] = bid;
           hasFaces = true;
         }
@@ -1815,14 +1881,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const bid = section[idx] & BLOCK_ID_MASK;
           if (bid === 0 || !isGlass[bid]) continue;
           
-          let nid = 0;
+          let nValue = 0;
           if (lx < 15) {
-            nid = section[idx + 1] & BLOCK_ID_MASK;
+            nValue = section[idx + 1];
           } else if (secRight) {
-            nid = secRight[ly * S2 + lz * S] & BLOCK_ID_MASK;
+            nValue = secRight[ly * S2 + lz * S];
           }
           
-          if (!blocksGlassFace(nid)) {
+          if (!blocksGlassFace(nValue)) {
             mask[ly * S + lz] = bid;
             hasFaces = true;
           }
@@ -1917,14 +1983,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const bid = section[idx] & BLOCK_ID_MASK;
           if (bid === 0 || !isGlass[bid]) continue;
           
-          let nid = 0;
+          let nValue = 0;
           if (lx > 0) {
-            nid = section[idx - 1] & BLOCK_ID_MASK;
+            nValue = section[idx - 1];
           } else if (secLeft) {
-            nid = secLeft[ly * S2 + lz * S + 15] & BLOCK_ID_MASK;
+            nValue = secLeft[ly * S2 + lz * S + 15];
           }
           
-          if (!blocksGlassFace(nid)) {
+          if (!blocksGlassFace(nValue)) {
             mask[ly * S + lz] = bid;
             hasFaces = true;
           }
@@ -2019,14 +2085,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const bid = section[idx] & BLOCK_ID_MASK;
           if (bid === 0 || !isGlass[bid]) continue;
           
-          let nid = 0;
+          let nValue = 0;
           if (lz < 15) {
-            nid = section[idx + S] & BLOCK_ID_MASK;
+            nValue = section[idx + S];
           } else if (secFront) {
-            nid = secFront[ly * S2 + lx] & BLOCK_ID_MASK;
+            nValue = secFront[ly * S2 + lx];
           }
           
-          if (!blocksGlassFace(nid)) {
+          if (!blocksGlassFace(nValue)) {
             mask[ly * S + lx] = bid;
             hasFaces = true;
           }
@@ -2121,14 +2187,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const bid = section[idx] & BLOCK_ID_MASK;
           if (bid === 0 || !isGlass[bid]) continue;
           
-          let nid = 0;
+          let nValue = 0;
           if (lz > 0) {
-            nid = section[idx - S] & BLOCK_ID_MASK;
+            nValue = section[idx - S];
           } else if (secBack) {
-            nid = secBack[ly * S2 + 15 * S + lx] & BLOCK_ID_MASK;
+            nValue = secBack[ly * S2 + 15 * S + lx];
           }
           
-          if (!blocksGlassFace(nid)) {
+          if (!blocksGlassFace(nValue)) {
             mask[ly * S + lx] = bid;
             hasFaces = true;
           }
