@@ -100,6 +100,9 @@ function MovementRegression() {
  * Throttled LOD updater - incrementally updates LODs
  * PERFORMANCE: Now uses incremental updates (10 LODs per call) to avoid lag spikes
  * Updates happen every few frames to spread work evenly
+ * 
+ * NOTE: When DISABLE_LOD_OBJECTS is true in ChunkManager, this does nothing
+ * since there are no LOD objects to update.
  */
 function ThrottledLODUpdater({ managerRef }) {
   const frameCount = useRef(0);
@@ -111,6 +114,7 @@ function ThrottledLODUpdater({ managerRef }) {
     frameCount.current++;
     
     if (frameCount.current >= UPDATE_INTERVAL_FRAMES && managerRef.current) {
+      // This will be a no-op if there are no LOD objects
       managerRef.current.updateLODs(camera);
       frameCount.current = 0;
     }
@@ -364,7 +368,18 @@ function RegionScene({
     
     managerRef.current = manager;
     
+    // DEBUG: Expose manager to window for console debugging
+    if (typeof window !== 'undefined') {
+      window.__chunkManager = manager;
+      console.log('[RegionViewer] ChunkManager exposed as window.__chunkManager');
+      console.log('  - window.__chunkManager.printTriangleCounts() - Show triangle counts per group');
+      console.log('  - window.__chunkManager.setGroupVisible("glass", false) - Hide glass/leaves');
+    }
+    
     return () => {
+      if (typeof window !== 'undefined') {
+        window.__chunkManager = null;
+      }
       manager.dispose();
       managerRef.current = null;
     };

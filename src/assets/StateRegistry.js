@@ -41,6 +41,8 @@ const MODEL_ROTATION_BLOCKS = new Set([
   'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
   // 3D models with rotation variants
   'sea_pickle',
+  // Path blocks - have 4 rotation variants that would cause z-fighting if all rendered
+  'dirt_path', 'farmland',
 ]);
 
 /**

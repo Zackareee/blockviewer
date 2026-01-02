@@ -23,6 +23,12 @@ const FACE_NAME_TO_INDEX = {
   'west': FACE_WEST,
 };
 
+// DEBUG: Blocks to skip rendering (for testing/debugging)
+// Add block names here to temporarily disable their rendering
+const DEBUG_SKIP_BLOCKS = new Set([
+  // 'mangrove_roots',
+]);
+
 // Blocks that need position-based texture rotation (horizontal planes with random rotation variants)
 // These blocks have multiple Y-rotation variants in their blockstate that are selected based on position hash
 const POSITION_ROTATION_BLOCKS = new Set([
@@ -59,6 +65,8 @@ const MODEL_ROTATION_BLOCKS = new Set([
   'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
   // Sea pickle (has 4 rotation variants in blockstate)
   'sea_pickle',
+  // Path blocks (15 pixels tall, have 4 rotation variants that cause z-fighting if duplicated)
+  'dirt_path', 'farmland',
 ]);
 
 // Blocks that should have random XZ position offset within their block
@@ -402,6 +410,12 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
           stateGeometries[stateId] = null; // Mark as skipped
           continue;
         }
+      }
+      
+      // DEBUG: Skip specific blocks for testing
+      if (DEBUG_SKIP_BLOCKS.has(blockName)) {
+        stateGeometries[stateId] = null;
+        continue;
       }
       
       // Mark as processed (even if null)

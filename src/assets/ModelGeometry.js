@@ -344,8 +344,9 @@ class ModelGeometry {
       // Elements with only 1 face are always single-sided (used for glow/overlay effects)
       // This catches: standing torch bulbs (zero-thickness), wall torch bulbs (3x3x3),
       // repeater torch bulbs (3x3x3), comparator torch bulbs (3x3x3)
-      // Elements with 2 faces that are zero-thickness are also single-sided (double-sided thin panels)
-      const isSingleSidedElement = faceCount === 1 || ((isZeroThicknessX || isZeroThicknessY || isZeroThicknessZ) && faceCount === 2);
+      // NOTE: Elements with 2 faces (like azalea cross-pattern) are NOT single-sided -
+      // each face has proper winding and should render normally with FrontSide culling
+      const isSingleSidedElement = faceCount === 1;
 
       // Element-level rotation (optional)
       const elRot = element.rotation;
@@ -479,6 +480,11 @@ class ModelGeometry {
 
         // Generate normal (rotated if needed)
         let nx = faceNormal[0], ny = faceNormal[1], nz = faceNormal[2];
+        // Apply element rotation to normal first (if any)
+        if (hasElementRotation) {
+          [nx, ny, nz] = this._applyElementRotationToNormal(nx, ny, nz, elRot);
+        }
+        // Then apply block-level rotation
         if (rotX !== 0 || rotY !== 0) {
           [nx, ny, nz] = this._applyRotation(nx, ny, nz, rotMatrix);
         }
@@ -798,6 +804,40 @@ class ModelGeometry {
       ry + origin[1],
       rz + origin[2],
     ];
+  }
+
+  /**
+   * Apply element-level rotation to a normal vector
+   * Similar to _applyElementRotation but without origin offset or rescale
+   * since normals are direction vectors, not positions
+   */
+  _applyElementRotationToNormal(nx, ny, nz, rot) {
+    const angle = (rot.angle * Math.PI) / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    let rx, ry, rz;
+    switch (rot.axis) {
+      case 'x':
+        rx = nx;
+        ry = cos * ny - sin * nz;
+        rz = sin * ny + cos * nz;
+        break;
+      case 'y':
+        rx = cos * nx + sin * nz;
+        ry = ny;
+        rz = -sin * nx + cos * nz;
+        break;
+      case 'z':
+        rx = cos * nx - sin * ny;
+        ry = sin * nx + cos * ny;
+        rz = nz;
+        break;
+      default:
+        rx = nx; ry = ny; rz = nz;
+    }
+
+    return [rx, ry, rz];
   }
 
   /**

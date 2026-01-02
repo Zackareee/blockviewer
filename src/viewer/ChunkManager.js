@@ -27,6 +27,10 @@ import { generateLightmap, DAYTIME_PARAMS } from '../mesh/LightmapGenerator';
 // WebGL has a max index count limit (~30M). Use 25M to be safe.
 const MAX_INDICES_PER_DRAW = 25000000;
 
+// EXPERIMENT: Disable LOD objects entirely to test performance impact
+// When true, all meshes are added as regular meshes (no LOD switching)
+const DISABLE_LOD_OBJECTS = true;
+
 // Max concurrent region processing
 // Keep at 1-2 to avoid memory exhaustion with large worlds
 const MAX_CONCURRENT_REGIONS = 2;
@@ -502,6 +506,11 @@ export class ChunkManager {
    * LOD object is positioned at mesh center for distance calculation only.
    */
   _addMeshesWithLOD(meshData, lodMeshes, material, group, meshArray) {
+    // EXPERIMENT: Skip LOD and use regular meshes
+    if (DISABLE_LOD_OBJECTS) {
+      return this._addMeshesToScene(meshData, material, group, meshArray);
+    }
+    
     // If no LOD meshes, fall back to regular mesh
     if (!lodMeshes || (!lodMeshes.lod1 && !lodMeshes.lod2)) {
       return this._addMeshesToScene(meshData, material, group, meshArray);
@@ -585,6 +594,11 @@ export class ChunkManager {
   _addFluidMeshWithLOD(meshData, material, group, meshArray, meshCenter, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
     
+    // EXPERIMENT: Skip LOD and use regular meshes
+    if (DISABLE_LOD_OBJECTS) {
+      return this._addMeshesToScene(meshData, material, group, meshArray, renderOrder);
+    }
+    
     // Check if mesh needs splitting - if so, fall back to regular (always visible)
     if (meshData.indices.length > MAX_INDICES_PER_DRAW) {
       return this._addMeshesToScene(meshData, material, group, meshArray, renderOrder);
@@ -639,6 +653,11 @@ export class ChunkManager {
    */
   _addModelMeshWithLOD(meshData, lodMeshes, material, group, meshArray, meshCenter, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
+    
+    // EXPERIMENT: Skip LOD and use regular meshes
+    if (DISABLE_LOD_OBJECTS) {
+      return this._addMeshesToScene(meshData, material, group, meshArray, renderOrder);
+    }
     
     // If no LOD data or mesh needs splitting, fall back to regular mesh
     if (!lodMeshes || meshData.indices.length > MAX_INDICES_PER_DRAW) {
@@ -1660,6 +1679,12 @@ export class ChunkManager {
    */
   _addMeshWithLODFromBuffers(solidData, lodMeshes, material, group, meshArray) {
     if (!solidData || solidData.vertexCount === 0) return 0;
+    
+    // EXPERIMENT: Skip LOD and use regular meshes
+    if (DISABLE_LOD_OBJECTS) {
+      return this._addMeshFromBuffers(solidData, material, group, meshArray);
+    }
+    
     if (!lodMeshes || (!lodMeshes.lod1 && !lodMeshes.lod2)) {
       return this._addMeshFromBuffers(solidData, material, group, meshArray);
     }
@@ -1726,6 +1751,11 @@ export class ChunkManager {
    */
   _addFluidMeshWithLODFromBuffers(meshData, material, group, meshArray, meshCenter, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
+    
+    // EXPERIMENT: Skip LOD and use regular meshes
+    if (DISABLE_LOD_OBJECTS) {
+      return this._addMeshFromBuffers(meshData, material, group, meshArray, renderOrder);
+    }
     
     // Check if mesh is too large
     if (meshData.indices.length > MAX_INDICES_PER_DRAW) {
@@ -1949,6 +1979,73 @@ export class ChunkManager {
     updateLODArray(this.modelMeshes);
     updateLODArray(this.transparentModelMeshes);
     updateLODArray(this.overlayModelMeshes);
+  }
+
+  /**
+   * DEBUG: Toggle visibility of specific block groups
+   * Use this to diagnose performance issues by hiding different block types
+   * @param {string} groupName - 'solid', 'water', 'lava', 'glass', 'model', 'transparentModel', 'overlay'
+   * @param {boolean} visible - Whether to show the group
+   */
+  setGroupVisible(groupName, visible) {
+    const groups = {
+      solid: this.solidGroup,
+      water: this.waterGroup,
+      lava: this.lavaGroup,
+      glass: this.glassGroup,  // This includes leaves!
+      model: this.modelGroup,
+      transparentModel: this.transparentModelGroup,
+      overlay: this.overlayModelGroup,
+    };
+    
+    if (groups[groupName]) {
+      groups[groupName].visible = visible;
+      console.log(`[ChunkManager] ${groupName} group: ${visible ? 'VISIBLE' : 'HIDDEN'}`);
+    }
+  }
+  
+  /**
+   * DEBUG: Print triangle counts per group to console
+   * Helps diagnose which block types are most expensive
+   */
+  printTriangleCounts() {
+    const countTriangles = (meshArray, name) => {
+      let count = 0;
+      for (const mesh of meshArray) {
+        // Handle both regular meshes and LOD objects
+        if (mesh.isLOD) {
+          // Count from first (full detail) level
+          const geom = mesh.levels[0]?.object?.geometry;
+          const idx = geom?.getIndex();
+          if (idx) count += idx.count / 3;
+        } else {
+          const idx = mesh.geometry?.getIndex();
+          if (idx) count += idx.count / 3;
+        }
+      }
+      console.log(`[ChunkManager] ${name}: ${count.toLocaleString()} triangles (${meshArray.length} meshes)`);
+      return count;
+    };
+    
+    console.log('=== Triangle Counts by Group ===');
+    const solid = countTriangles(this.solidMeshes, 'Solid blocks');
+    const water = countTriangles(this.waterMeshes, 'Water');
+    const lava = countTriangles(this.lavaMeshes, 'Lava');
+    const glass = countTriangles(this.glassMeshes, 'Glass/Leaves/Ice');
+    const model = countTriangles(this.modelMeshes, 'Model blocks (stairs, slabs, etc.)');
+    const transparentModel = countTriangles(this.transparentModelMeshes, 'Transparent models (glass panes)');
+    const overlay = countTriangles(this.overlayModelMeshes, 'Overlay effects');
+    
+    const total = solid + water + lava + glass + model + transparentModel + overlay;
+    console.log(`[ChunkManager] TOTAL: ${total.toLocaleString()} triangles`);
+    console.log('================================');
+    
+    // Expose globally for easy console access
+    if (typeof window !== 'undefined') {
+      window.__triangleCounts = { solid, water, lava, glass, model, transparentModel, overlay, total };
+    }
+    
+    return { solid, water, lava, glass, model, transparentModel, overlay, total };
   }
 
   /**

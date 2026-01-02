@@ -44,12 +44,13 @@ void main() {
   // UV is (blockLight, skyLight) normalized to 0-1 with 0.5 texel offset for centering
   vLightUV = vec2((blockLight + 0.5) / 16.0, (skyLight + 0.5) / 16.0);
   
+  // Always compute the proper gl_Position for correct depth
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
-    gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
     vVisible = 0.0;
   } else {
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     vVisible = 1.0;
   }
 }
@@ -561,6 +562,7 @@ export function setMaterialTextureMode(material, useTextures) {
 const modelVertexShader = `
 uniform float uMinY;
 uniform float uMaxY;
+uniform float uMaxDistance;  // PERFORMANCE: Max distance to render partial blocks (0 = no limit)
 
 attribute vec2 modelUV;      // Model UV coordinates (from Minecraft model data)
 attribute float texIndex;    // Atlas texture index (0 to tilesPerRow*tilesPerCol-1)
@@ -595,13 +597,24 @@ void main() {
   // Pack light values as UV for lightmap sampling
   vLightUV = vec2((blockLight + 0.5) / 16.0, (skyLight + 0.5) / 16.0);
   
+  // Always compute the proper gl_Position for correct depth
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
-    gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
     vVisible = 0.0;
   } else {
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    vVisible = 1.0;
+    // PERFORMANCE: Distance-based culling for partial blocks
+    // Hide partial blocks beyond uMaxDistance from camera
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    float distToCamera = length(cameraPosition - worldPos.xyz);
+    
+    if (uMaxDistance > 0.0 && distToCamera > uMaxDistance) {
+      // Too far - mark as invisible (fragment shader will discard)
+      vVisible = 0.0;
+    } else {
+      vVisible = 1.0;
+    }
   }
 }
 `;
@@ -815,6 +828,7 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
+      uMaxDistance: { value: 64.0 },  // PERFORMANCE: Hide partial blocks beyond 64 blocks
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
@@ -832,6 +846,7 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
     vertexColors: true,
     transparent: false,    // Opaque models don't need transparency
     depthWrite: true,
+    depthTest: true,       // Ensure depth testing is enabled
   });
   
   return material;
@@ -849,6 +864,7 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
+      uMaxDistance: { value: 64.0 },  // PERFORMANCE: Hide partial blocks beyond 64 blocks
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
@@ -883,6 +899,7 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
     uniforms: {
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
+      uMaxDistance: { value: 64.0 },  // PERFORMANCE: Hide partial blocks beyond 64 blocks
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
