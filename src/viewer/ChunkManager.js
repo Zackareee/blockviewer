@@ -22,6 +22,7 @@ import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
 import { getBlockRegistry } from '../mesh/BlockRegistry';
+import { generateLightmap, DAYTIME_PARAMS } from '../mesh/LightmapGenerator';
 
 // WebGL has a max index count limit (~30M). Use 25M to be safe.
 const MAX_INDICES_PER_DRAW = 25000000;
@@ -64,12 +65,19 @@ export class ChunkManager {
     this.modelGroup = new THREE.Group(); // Opaque non-cube blocks (slabs, stairs, flowers, etc.)
     this.transparentModelGroup = new THREE.Group(); // Transparent non-cube blocks (glass panes, iron bars)
     this.overlayModelGroup = new THREE.Group(); // Overlay effects (torch bulb glow) - rendered with depthWrite: false
+    // Render order for proper depth sorting:
+    // 0: Solid blocks and opaque model blocks (write to depth)
+    // 0.5: Transparent model blocks (glass panes, iron bars - write to depth)
+    // 1: Water (transparent, no depth write)
+    // 2: Lava (transparent, no depth write)
+    // 3: Full glass blocks (transparent, write to depth)
+    // 4: Overlay effects (no depth write)
+    this.modelGroup.renderOrder = 0; // Same as solid - opaque partial blocks
+    this.transparentModelGroup.renderOrder = 0.5; // Render BEFORE water so depth is correct
     this.waterGroup.renderOrder = 1;
     this.lavaGroup.renderOrder = 2;
     this.glassGroup.renderOrder = 3; // Glass renders after water/lava
-    this.transparentModelGroup.renderOrder = 4; // Transparent models render after glass
-    this.overlayModelGroup.renderOrder = 5; // Overlay renders last (but doesn't write to depth)
-    this.modelGroup.renderOrder = 0; // Same as solid
+    this.overlayModelGroup.renderOrder = 4; // Overlay renders last (but doesn't write to depth)
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
     scene.add(this.lavaGroup);
@@ -82,15 +90,20 @@ export class ChunkManager {
     // When textures are enabled, use textured materials that can fall back to vertex colors
     const useTextures = this.textureMode !== 'solid' && this.textureAtlas;
     
+    // Generate lightmap texture for Minecraft-style lighting
+    this.lightmap = generateLightmap(DAYTIME_PARAMS);
+    console.log('[ChunkManager] Generated lightmap texture');
+    
     // Shared materials with Y-slice uniforms
     // Use textured material that supports both textures and vertex colors
-    this.solidMaterial = createTexturedMaterial(this.textureAtlas, useTextures);
+    // Pass lightmap to all materials for proper lighting
+    this.solidMaterial = createTexturedMaterial(this.textureAtlas, useTextures, this.lightmap);
     this.waterMaterial = createWaterMaterial(); // Water uses its own animated shader
     this.lavaMaterial = createLavaMaterial(); // Lava uses its own animated shader
-    this.glassMaterial = createTexturedGlassMaterial(this.textureAtlas, useTextures);
-    this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures); // Opaque non-cube blocks
-    this.transparentModelMaterial = createTransparentModelMaterial(this.textureAtlas, useTextures); // Transparent non-cube blocks (glass panes, iron bars)
-    this.overlayModelMaterial = createOverlayModelMaterial(this.textureAtlas, useTextures); // Overlay glow effects (torch bulbs)
+    this.glassMaterial = createTexturedGlassMaterial(this.textureAtlas, useTextures, this.lightmap);
+    this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Opaque non-cube blocks
+    this.transparentModelMaterial = createTransparentModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Transparent non-cube blocks (glass panes, iron bars)
+    this.overlayModelMaterial = createOverlayModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Overlay glow effects (torch bulbs)
     
     // Current meshes (arrays to support split meshes)
     this.solidMeshes = [];
@@ -322,7 +335,7 @@ export class ChunkManager {
   /**
    * Add meshes to scene from mesh data
    */
-  _addMeshesToScene(meshData, material, group, meshArray) {
+  _addMeshesToScene(meshData, material, group, meshArray, renderOrder = undefined) {
     const splitData = this._splitMeshData(meshData);
     
     for (const data of splitData) {
@@ -330,6 +343,9 @@ export class ChunkManager {
       if (geom) {
         const mesh = new THREE.Mesh(geom, material);
         mesh.frustumCulled = true;
+        if (renderOrder !== undefined) {
+          mesh.renderOrder = renderOrder;
+        }
         group.add(mesh);
         meshArray.push(mesh);
       }
@@ -445,12 +461,12 @@ export class ChunkManager {
    * At close range: show full detail fluid mesh
    * At LOD distance: hide completely (fluids are baked into LOD surface mesh)
    */
-  _addFluidMeshWithLOD(meshData, material, group, meshArray, meshCenter) {
+  _addFluidMeshWithLOD(meshData, material, group, meshArray, meshCenter, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
     
     // Check if mesh needs splitting - if so, fall back to regular (always visible)
     if (meshData.indices.length > MAX_INDICES_PER_DRAW) {
-      return this._addMeshesToScene(meshData, material, group, meshArray);
+      return this._addMeshesToScene(meshData, material, group, meshArray, renderOrder);
     }
     
     const geom = RegionMeshBuilder.createGeometry(meshData);
@@ -458,11 +474,17 @@ export class ChunkManager {
     
     // Create LOD object
     const lod = new THREE.LOD();
+    if (renderOrder !== undefined) {
+      lod.renderOrder = renderOrder;
+    }
     
     // Level 0: Full detail fluid mesh
     const mesh = new THREE.Mesh(geom, material);
     mesh.frustumCulled = true;
     mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+    if (renderOrder !== undefined) {
+      mesh.renderOrder = renderOrder;
+    }
     lod.addLevel(mesh, 0);
     
     // Level 1: Empty mesh (invisible) at LOD_DISTANCE_1
@@ -470,6 +492,9 @@ export class ChunkManager {
     const emptyGeom = new THREE.BufferGeometry();
     emptyGeom.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
     const emptyMesh = new THREE.Mesh(emptyGeom, material);
+    if (renderOrder !== undefined) {
+      emptyMesh.renderOrder = renderOrder;
+    }
     lod.addLevel(emptyMesh, LOD_DISTANCE_1);
     
     // Position LOD at same center as solid mesh
@@ -490,26 +515,32 @@ export class ChunkManager {
    * LOD2: Skip vines, saplings, crops (distance ~800)
    * LOD3: Only structural (slabs, stairs, walls) (distance ~1200)
    */
-  _addModelMeshWithLOD(meshData, lodMeshes, material, group, meshArray, meshCenter) {
+  _addModelMeshWithLOD(meshData, lodMeshes, material, group, meshArray, meshCenter, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
     
     // If no LOD data or mesh needs splitting, fall back to regular mesh
     if (!lodMeshes || meshData.indices.length > MAX_INDICES_PER_DRAW) {
-      return this._addMeshesToScene(meshData, material, group, meshArray);
+      return this._addMeshesToScene(meshData, material, group, meshArray, renderOrder);
     }
     
     const geom0 = RegionMeshBuilder.createGeometry(meshData);
     if (!geom0) {
-      return this._addMeshesToScene(meshData, material, group, meshArray);
+      return this._addMeshesToScene(meshData, material, group, meshArray, renderOrder);
     }
     
     // Create LOD object
     const lod = new THREE.LOD();
+    if (renderOrder !== undefined) {
+      lod.renderOrder = renderOrder;
+    }
     
     // Level 0: Full detail (all model blocks)
     const mesh0 = new THREE.Mesh(geom0, material);
     mesh0.frustumCulled = true;
     mesh0.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+    if (renderOrder !== undefined) {
+      mesh0.renderOrder = renderOrder;
+    }
     lod.addLevel(mesh0, 0);
     
     // Helper to add LOD level
@@ -520,6 +551,9 @@ export class ChunkManager {
       const mesh = new THREE.Mesh(geom, material);
       mesh.frustumCulled = true;
       mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+      if (renderOrder !== undefined) {
+        mesh.renderOrder = renderOrder;
+      }
       lod.addLevel(mesh, distance);
     };
     
@@ -537,6 +571,9 @@ export class ChunkManager {
     const emptyGeom = new THREE.BufferGeometry();
     emptyGeom.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
     const emptyMesh = new THREE.Mesh(emptyGeom, material);
+    if (renderOrder !== undefined) {
+      emptyMesh.renderOrder = renderOrder;
+    }
     lod.addLevel(emptyMesh, 2000);
     
     // Position LOD at mesh center
@@ -576,12 +613,12 @@ export class ChunkManager {
       }
       
       if (solidMesh) this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
-      if (waterMesh) this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
-      if (lavaMesh) this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
-      if (glassMesh) this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes);
+      if (waterMesh) this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
+      if (lavaMesh) this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
+      if (glassMesh) this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
       if (modelMesh) this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
-      if (transparentModelMesh) this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
-      if (overlayModelMesh) this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes);
+      if (transparentModelMesh) this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5);
+      if (overlayModelMesh) this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4);
       
       this.totalBlocks = stats.totalBlocks;
       this.loadedChunks = stats.chunksProcessed;
@@ -713,23 +750,23 @@ export class ChunkManager {
         // For water/lava/glass: use LOD to hide at distance (fluids baked into LOD surface)
         if (waterMesh) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLOD(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLOD(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter, 1);
           } else {
-            drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
+            drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
           }
         }
         if (lavaMesh) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLOD(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLOD(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter, 2);
           } else {
-            drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+            drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
           }
         }
         if (glassMesh) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLOD(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLOD(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter, 3);
           } else {
-            drawCalls += this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes);
+            drawCalls += this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
           }
         }
         
@@ -752,9 +789,9 @@ export class ChunkManager {
               lod2: modelLodMeshes.lod2Transparent,
               lod3: modelLodMeshes.lod3Transparent,
             };
-            drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter);
+            drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter, 0.5);
           } else {
-            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5);
           }
         }
         
@@ -767,9 +804,9 @@ export class ChunkManager {
               lod2: modelLodMeshes.lod2Overlay,
               lod3: modelLodMeshes.lod3Overlay,
             };
-            drawCalls += this._addModelMeshWithLOD(overlayModelMesh, overlayLodMeshes, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, meshCenter);
+            drawCalls += this._addModelMeshWithLOD(overlayModelMesh, overlayLodMeshes, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, meshCenter, 4);
           } else {
-            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes);
+            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4);
           }
         }
         
@@ -958,23 +995,23 @@ export class ChunkManager {
         // For water/lava/glass: use LOD to hide at distance (fluids baked into LOD surface)
         if (waterMesh) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLOD(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLOD(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter, 1);
           } else {
-            drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes);
+            drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
           }
         }
         if (lavaMesh) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLOD(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLOD(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter, 2);
           } else {
-            drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+            drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
           }
         }
         if (glassMesh) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLOD(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLOD(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter, 3);
           } else {
-            drawCalls += this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes);
+            drawCalls += this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
           }
         }
         
@@ -997,9 +1034,9 @@ export class ChunkManager {
               lod2: modelLodMeshes.lod2Transparent,
               lod3: modelLodMeshes.lod3Transparent,
             };
-            drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter);
+            drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter, 0.5);
           } else {
-            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes);
+            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5);
           }
         }
         
@@ -1012,9 +1049,9 @@ export class ChunkManager {
               lod2: modelLodMeshes.lod2Overlay,
               lod3: modelLodMeshes.lod3Overlay,
             };
-            drawCalls += this._addModelMeshWithLOD(overlayModelMesh, overlayLodMeshes, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, meshCenter);
+            drawCalls += this._addModelMeshWithLOD(overlayModelMesh, overlayLodMeshes, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, meshCenter, 4);
           } else {
-            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes);
+            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4);
           }
         }
         
@@ -1183,23 +1220,23 @@ export class ChunkManager {
         // Handle water/lava with LOD (hide at distance)
         if (result.water) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter, 1);
           } else {
-            drawCalls += this._addMeshFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes);
+            drawCalls += this._addMeshFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
           }
         }
         if (result.lava) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLODFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter, 2);
           } else {
-            drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+            drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
           }
         }
         if (result.glass) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLODFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter, 3);
           } else {
-            drawCalls += this._addMeshFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes);
+            drawCalls += this._addMeshFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
           }
         }
         
@@ -1330,23 +1367,23 @@ export class ChunkManager {
         // Handle water/lava/glass with LOD (hide at distance)
         if (result.water) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter, 1);
           } else {
-            drawCalls += this._addMeshFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes);
+            drawCalls += this._addMeshFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
           }
         }
         if (result.lava) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLODFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter, 2);
           } else {
-            drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes);
+            drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
           }
         }
         if (result.glass) {
           if (shouldGenerateLOD && meshCenter) {
-            drawCalls += this._addFluidMeshWithLODFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter);
+            drawCalls += this._addFluidMeshWithLODFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter, 3);
           } else {
-            drawCalls += this._addMeshFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes);
+            drawCalls += this._addMeshFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
           }
         }
         
@@ -1408,7 +1445,7 @@ export class ChunkManager {
   /**
    * Add mesh from raw buffers (used by streaming loader)
    */
-  _addMeshFromBuffers(meshData, material, group, meshArray) {
+  _addMeshFromBuffers(meshData, material, group, meshArray, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
     
     const geometry = this._createGeometryFromBuffers(meshData);
@@ -1416,6 +1453,9 @@ export class ChunkManager {
     
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = true;
+    if (renderOrder !== undefined) {
+      mesh.renderOrder = renderOrder;
+    }
     group.add(mesh);
     meshArray.push(mesh);
     
@@ -1512,12 +1552,12 @@ export class ChunkManager {
   /**
    * Add fluid mesh with LOD that hides it at distance (from raw buffers)
    */
-  _addFluidMeshWithLODFromBuffers(meshData, material, group, meshArray, meshCenter) {
+  _addFluidMeshWithLODFromBuffers(meshData, material, group, meshArray, meshCenter, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
     
     // Check if mesh is too large
     if (meshData.indices.length > MAX_INDICES_PER_DRAW) {
-      return this._addMeshFromBuffers(meshData, material, group, meshArray);
+      return this._addMeshFromBuffers(meshData, material, group, meshArray, renderOrder);
     }
     
     const geom = this._createGeometryFromBuffers(meshData);
@@ -1525,17 +1565,26 @@ export class ChunkManager {
     
     // Create LOD object
     const lod = new THREE.LOD();
+    if (renderOrder !== undefined) {
+      lod.renderOrder = renderOrder;
+    }
     
     // Level 0: Full detail fluid mesh
     const mesh = new THREE.Mesh(geom, material);
     mesh.frustumCulled = true;
     mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
+    if (renderOrder !== undefined) {
+      mesh.renderOrder = renderOrder;
+    }
     lod.addLevel(mesh, 0);
     
     // Level 1: Empty mesh (invisible) at LOD_DISTANCE_1
     const emptyGeom = new THREE.BufferGeometry();
     emptyGeom.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
     const emptyMesh = new THREE.Mesh(emptyGeom, material);
+    if (renderOrder !== undefined) {
+      emptyMesh.renderOrder = renderOrder;
+    }
     lod.addLevel(emptyMesh, LOD_DISTANCE_1);
     
     // Position LOD at same center as solid mesh

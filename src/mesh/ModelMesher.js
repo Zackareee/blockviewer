@@ -185,10 +185,11 @@ const INITIAL_VERTEX_COUNT = 200000;
  * @param {Object} options - Optional parameters
  * @param {TextureIndexLookup} options.textureIndexLookup - Texture atlas index lookup
  * @param {number} options.lodLevel - LOD level (0=full, 1-3=reduced detail)
- * @returns {Object} Mesh data {positions, normals, colors, indices, texIndices}
+ * @param {LightGrid} options.lightGrid - Light grid for per-vertex lighting
+ * @returns {Object} Mesh data {positions, normals, colors, indices, texIndices, skyLight, blockLight}
  */
 export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
-  const { textureIndexLookup = null, lodLevel = 0 } = options;
+  const { textureIndexLookup = null, lodLevel = 0, lightGrid = null } = options;
   
   // Select skip patterns based on LOD level
   let skipPatterns = null;
@@ -369,6 +370,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let tintTypes = new Float32Array(INITIAL_VERTEX_COUNT); // Biome tint type per vertex
   let shadeFlags = new Float32Array(INITIAL_VERTEX_COUNT); // Face shading flag per vertex (0=no shade, 1=shade)
   let singleSidedFlags = new Float32Array(INITIAL_VERTEX_COUNT); // Single-sided flag per vertex (0=double-sided, 1=cull backface)
+  let skyLightArr = new Float32Array(INITIAL_VERTEX_COUNT); // Sky light per vertex (0-15)
+  let blockLightArr = new Float32Array(INITIAL_VERTEX_COUNT); // Block light per vertex (0-15)
   let indices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
   
   let vertexCount = 0;
@@ -385,6 +388,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let tTintTypes = new Float32Array(INITIAL_VERTEX_COUNT);
   let tShadeFlags = new Float32Array(INITIAL_VERTEX_COUNT);
   let tSingleSidedFlags = new Float32Array(INITIAL_VERTEX_COUNT);
+  let tSkyLight = new Float32Array(INITIAL_VERTEX_COUNT);
+  let tBlockLight = new Float32Array(INITIAL_VERTEX_COUNT);
   let tIndices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
   
   let tVertexCount = 0;
@@ -401,6 +406,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let oTintTypes = new Float32Array(INITIAL_VERTEX_COUNT);
   let oShadeFlags = new Float32Array(INITIAL_VERTEX_COUNT);
   let oSingleSidedFlags = new Float32Array(INITIAL_VERTEX_COUNT);
+  let oSkyLight = new Float32Array(INITIAL_VERTEX_COUNT);
+  let oBlockLight = new Float32Array(INITIAL_VERTEX_COUNT);
   let oIndices = new Uint32Array(INITIAL_VERTEX_COUNT * 2);
   
   let oVertexCount = 0;
@@ -833,6 +840,65 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
               texIdx = textureIndexLookup.getIndex(blockId, faceDir);
             }
           }
+          
+          // Sample light for this face based on face direction
+          // For partial blocks (slabs, farmland, etc.), use smart light sampling:
+          // 1. For UP faces: sample from above (Y+1) - this is where sky light comes from
+          // 2. For other faces: sample from adjacent OR the block above if adjacent is solid
+          // Light sampling for model block faces:
+          // Key insight: Model blocks exist in air space. When a face points INTO
+          // a solid block, it should use the model block's own light (where there IS light),
+          // not the solid block's light (which would be 0).
+          let faceSkyLight = 15, faceBlockLight = 0;
+          if (lightGrid) {
+            // Actual world coordinates (before offset subtraction)
+            const worldX = baseX + lx;
+            const worldY = baseY + ly;
+            const worldZ = baseZ + lz;
+            
+            // Get the model block's own light - this is the primary source
+            // since model blocks occupy air space where light exists
+            const ownLight = lightGrid.getLight(worldX, worldY, worldZ);
+            
+            const faceDirName = cullInfo.faceDirection || cullInfo.cullface || 'up';
+            
+            // Direction offsets for each face
+            const faceOffsets = {
+              'up': [0, 1, 0],
+              'down': [0, -1, 0],
+              'east': [1, 0, 0],
+              'west': [-1, 0, 0],
+              'south': [0, 0, 1],
+              'north': [0, 0, -1],
+            };
+            
+            const offset = faceOffsets[faceDirName];
+            
+            if (offset) {
+              // We have a clear face direction - check the adjacent block
+              const adjX = worldX + offset[0];
+              const adjY = worldY + offset[1];
+              const adjZ = worldZ + offset[2];
+              const adjBlockId = grid.getBlockId(adjX, adjY, adjZ);
+              
+              // If adjacent is air or transparent, sample from there (more accurate)
+              // If adjacent is solid, use our own light (face is against a wall)
+              if (adjBlockId === 0 || !isFullOpaqueCube[adjBlockId]) {
+                const light = lightGrid.getLight(adjX, adjY, adjZ);
+                faceSkyLight = light.skyLight;
+                faceBlockLight = light.blockLight;
+              } else {
+                // Face is against a solid block - use our own position's light
+                faceSkyLight = ownLight.skyLight;
+                faceBlockLight = ownLight.blockLight;
+              }
+            } else {
+              // No clear face direction (cross-model plants, etc.)
+              // Use the block's own position - they're in air space and uniformly lit
+              faceSkyLight = ownLight.skyLight;
+              faceBlockLight = ownLight.blockLight;
+            }
+          }
 
           // Get the first source vertex index from the geometry
           const srcVertexStart = geom.indices[cullInfo.indexStart];
@@ -863,6 +929,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
               oTintTypes = growArray(oTintTypes, oCapacity);
               oShadeFlags = growArray(oShadeFlags, oCapacity);
               oSingleSidedFlags = growArray(oSingleSidedFlags, oCapacity);
+              oSkyLight = growArray(oSkyLight, oCapacity);
+              oBlockLight = growArray(oBlockLight, oCapacity);
               oIndices = growArrayUint(oIndices, oCapacity * 2);
             }
 
@@ -943,6 +1011,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             oSingleSidedFlags[oVertexCount + 1] = oSingleSidedValue;
             oSingleSidedFlags[oVertexCount + 2] = oSingleSidedValue;
             oSingleSidedFlags[oVertexCount + 3] = oSingleSidedValue;
+            oSkyLight[oVertexCount] = faceSkyLight;
+            oSkyLight[oVertexCount + 1] = faceSkyLight;
+            oSkyLight[oVertexCount + 2] = faceSkyLight;
+            oSkyLight[oVertexCount + 3] = faceSkyLight;
+            oBlockLight[oVertexCount] = faceBlockLight;
+            oBlockLight[oVertexCount + 1] = faceBlockLight;
+            oBlockLight[oVertexCount + 2] = faceBlockLight;
+            oBlockLight[oVertexCount + 3] = faceBlockLight;
             
             oVertexCount += 4;
             
@@ -967,6 +1043,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
               tTintTypes = growArray(tTintTypes, tCapacity);
               tShadeFlags = growArray(tShadeFlags, tCapacity);
               tSingleSidedFlags = growArray(tSingleSidedFlags, tCapacity);
+              tSkyLight = growArray(tSkyLight, tCapacity);
+              tBlockLight = growArray(tBlockLight, tCapacity);
               tIndices = growArrayUint(tIndices, tCapacity * 2);
             }
 
@@ -1049,6 +1127,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             tSingleSidedFlags[tVertexCount + 1] = tSingleSidedValue;
             tSingleSidedFlags[tVertexCount + 2] = tSingleSidedValue;
             tSingleSidedFlags[tVertexCount + 3] = tSingleSidedValue;
+            tSkyLight[tVertexCount] = faceSkyLight;
+            tSkyLight[tVertexCount + 1] = faceSkyLight;
+            tSkyLight[tVertexCount + 2] = faceSkyLight;
+            tSkyLight[tVertexCount + 3] = faceSkyLight;
+            tBlockLight[tVertexCount] = faceBlockLight;
+            tBlockLight[tVertexCount + 1] = faceBlockLight;
+            tBlockLight[tVertexCount + 2] = faceBlockLight;
+            tBlockLight[tVertexCount + 3] = faceBlockLight;
             
             tVertexCount += 4;
             
@@ -1073,6 +1159,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
               tintTypes = growArray(tintTypes, capacity);
               shadeFlags = growArray(shadeFlags, capacity);
               singleSidedFlags = growArray(singleSidedFlags, capacity);
+              skyLightArr = growArray(skyLightArr, capacity);
+              blockLightArr = growArray(blockLightArr, capacity);
               indices = growArrayUint(indices, capacity * 2);
             }
 
@@ -1156,6 +1244,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             singleSidedFlags[vertexCount + 1] = singleSidedValue;
             singleSidedFlags[vertexCount + 2] = singleSidedValue;
             singleSidedFlags[vertexCount + 3] = singleSidedValue;
+            skyLightArr[vertexCount] = faceSkyLight;
+            skyLightArr[vertexCount + 1] = faceSkyLight;
+            skyLightArr[vertexCount + 2] = faceSkyLight;
+            skyLightArr[vertexCount + 3] = faceSkyLight;
+            blockLightArr[vertexCount] = faceBlockLight;
+            blockLightArr[vertexCount + 1] = faceBlockLight;
+            blockLightArr[vertexCount + 2] = faceBlockLight;
+            blockLightArr[vertexCount + 3] = faceBlockLight;
             
             vertexCount += 4;
             
@@ -1182,6 +1278,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     indices: indices.subarray(0, indexCount),
     shadeFlags: shadeFlags.subarray(0, vertexCount),
     singleSidedFlags: singleSidedFlags.subarray(0, vertexCount),
+    skyLight: skyLightArr.subarray(0, vertexCount),
+    blockLight: blockLightArr.subarray(0, vertexCount),
     vertexCount,
     triangleCount: indexCount / 3,
   } : null;
@@ -1194,6 +1292,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     indices: tIndices.subarray(0, tIndexCount),
     shadeFlags: tShadeFlags.subarray(0, tVertexCount),
     singleSidedFlags: tSingleSidedFlags.subarray(0, tVertexCount),
+    skyLight: tSkyLight.subarray(0, tVertexCount),
+    blockLight: tBlockLight.subarray(0, tVertexCount),
     vertexCount: tVertexCount,
     triangleCount: tIndexCount / 3,
   } : null;
@@ -1207,6 +1307,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     indices: oIndices.subarray(0, oIndexCount),
     shadeFlags: oShadeFlags.subarray(0, oVertexCount),
     singleSidedFlags: oSingleSidedFlags.subarray(0, oVertexCount),
+    skyLight: oSkyLight.subarray(0, oVertexCount),
+    blockLight: oBlockLight.subarray(0, oVertexCount),
     vertexCount: oVertexCount,
     triangleCount: oIndexCount / 3,
   } : null;

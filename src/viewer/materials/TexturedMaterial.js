@@ -20,6 +20,8 @@ uniform float uMaxY;
 attribute float texIndex;    // Atlas texture index (0 to tilesPerRow*tilesPerCol-1)
 attribute float texRotation; // Texture rotation (0-3 for 90° increments)
 attribute float tintType;    // Biome tint type (0=none, 1=grass, 2=foliage, 3=spruce, 4=birch, 5=water)
+attribute float skyLight;    // Sky light level (0-15)
+attribute float blockLight;  // Block light level (0-15)
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -28,6 +30,7 @@ varying float vVisible;
 varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
+varying vec2 vLightUV;       // Light UV for lightmap sampling (blockLight/16, skyLight/16)
 
 void main() {
   vColor = color;
@@ -36,6 +39,10 @@ void main() {
   vTexIndex = texIndex;
   vTexRotation = texRotation;
   vTintType = tintType;
+  
+  // Pack light values as UV for lightmap sampling
+  // UV is (blockLight, skyLight) normalized to 0-1 with 0.5 texel offset for centering
+  vLightUV = vec2((blockLight + 0.5) / 16.0, (skyLight + 0.5) / 16.0);
   
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
@@ -51,8 +58,10 @@ void main() {
 const fragmentShader = `
 uniform sampler2D uAtlas;        // The texture atlas
 uniform sampler2D uColormap;     // Biome colormap texture (grass on top, foliage on bottom)
+uniform sampler2D uLightmap;     // 16x16 lightmap texture (X=block light, Y=sky light)
 uniform float uUseTextures;      // 0.0 = vertex colors only, 1.0 = use textures
 uniform float uUseTinting;       // 0.0 = no biome tinting, 1.0 = apply biome tinting
+uniform float uUseLightmap;      // 0.0 = fixed face shading, 1.0 = use lightmap
 uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
@@ -84,6 +93,7 @@ varying float vVisible;
 varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
+varying vec2 vLightUV;
 
 // Snap interpolated normal to nearest axis to prevent UV instability at sharp angles
 // This is needed because WebGL 1.0 doesn't support 'flat' interpolation
@@ -291,20 +301,33 @@ void main() {
   // Minecraft-style face shading (fixed brightness per face direction)
   // These values match Minecraft Java Edition's block face lighting
   vec3 snappedN = snapNormal(vNormal);
-  float shade = 1.0;
+  float faceShade = 1.0;
   
   if (abs(snappedN.y) > 0.5) {
     // Top face (Y+) = 1.0, Bottom face (Y-) = 0.5
-    shade = snappedN.y > 0.0 ? 1.0 : 0.5;
+    faceShade = snappedN.y > 0.0 ? 1.0 : 0.5;
   } else if (abs(snappedN.x) > 0.5) {
     // East/West faces (X±) = 0.6
-    shade = 0.6;
+    faceShade = 0.6;
   } else {
     // North/South faces (Z±) = 0.8
-    shade = 0.8;
+    faceShade = 0.8;
   }
   
-  gl_FragColor = vec4(finalColor * shade, alpha);
+  // Apply lighting: either from lightmap or fixed face shading
+  vec3 lightColor = vec3(1.0);
+  if (uUseLightmap > 0.5) {
+    // Sample lightmap using light UV (x = block light, y = sky light)
+    // The lightmap combines block and sky light into a final color
+    lightColor = texture2D(uLightmap, vLightUV).rgb;
+    // Apply face shading on top of lightmap
+    lightColor *= faceShade;
+  } else {
+    // Use fixed face shading only
+    lightColor = vec3(faceShade);
+  }
+  
+  gl_FragColor = vec4(finalColor * lightColor, alpha);
 }
 `;
 
@@ -362,10 +385,11 @@ function getAtlasUniforms(atlasData) {
 
 /**
  * Create a textured solid block material
- * @param {Object|THREE.Texture} atlasData - Material data { atlas, colormap, size, textureIndexLookup, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV } or legacy texture
+ * @param {Object|THREE.Texture} atlasData - Material data { atlas, colormap, lightmap, size, textureIndexLookup, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV } or legacy texture
  * @param {boolean} useTextures - Whether to use textures (false = vertex colors only)
+ * @param {THREE.Texture} lightmap - Optional lightmap texture (16x16)
  */
-export function createTexturedMaterial(atlasData = null, useTextures = false) {
+export function createTexturedMaterial(atlasData = null, useTextures = false, lightmap = null) {
   const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
@@ -374,8 +398,10 @@ export function createTexturedMaterial(atlasData = null, useTextures = false) {
       uMaxY: { value: 320 },
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
+      uLightmap: { value: lightmap || defaultTexture },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
+      uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -394,7 +420,7 @@ export function createTexturedMaterial(atlasData = null, useTextures = false) {
 /**
  * Create a textured material for transparent blocks (glass, ice)
  */
-export function createTexturedGlassMaterial(atlasData = null, useTextures = false) {
+export function createTexturedGlassMaterial(atlasData = null, useTextures = false, lightmap = null) {
   const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
@@ -403,8 +429,10 @@ export function createTexturedGlassMaterial(atlasData = null, useTextures = fals
       uMaxY: { value: 320 },
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
+      uLightmap: { value: lightmap || defaultTexture },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
+      uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -484,6 +512,8 @@ attribute float texRotation; // Texture rotation (0-3 for 90° increments)
 attribute float tintType;    // Biome tint type (0=none, 1=grass, 2=foliage, 3=spruce, 4=birch, 5=water)
 attribute float shadeFlag;   // Face shading flag (0=no shade, 1=apply directional shading)
 attribute float singleSided; // Single-sided flag (0=double-sided, 1=cull backface)
+attribute float skyLight;    // Sky light level (0-15)
+attribute float blockLight;  // Block light level (0-15)
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -494,6 +524,7 @@ varying float vTexRotation;
 varying float vTintType;
 varying float vShadeFlag;
 varying float vSingleSided;
+varying vec2 vLightUV;
 
 void main() {
   vColor = color;
@@ -504,6 +535,9 @@ void main() {
   vTintType = tintType;
   vShadeFlag = shadeFlag;
   vSingleSided = singleSided;
+  
+  // Pack light values as UV for lightmap sampling
+  vLightUV = vec2((blockLight + 0.5) / 16.0, (skyLight + 0.5) / 16.0);
   
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
@@ -519,8 +553,10 @@ void main() {
 const modelFragmentShader = `
 uniform sampler2D uAtlas;        // The texture atlas
 uniform sampler2D uColormap;     // Biome colormap texture (grass on top, foliage on bottom)
+uniform sampler2D uLightmap;     // 16x16 lightmap texture
 uniform float uUseTextures;      // 0.0 = vertex colors only, 1.0 = use textures
 uniform float uUseTinting;       // 0.0 = no biome tinting, 1.0 = apply biome tinting
+uniform float uUseLightmap;      // 0.0 = fixed face shading, 1.0 = use lightmap
 uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
@@ -549,6 +585,7 @@ varying vec3 vColor;
 varying vec3 vNormal;
 varying vec2 vModelUV;
 varying float vVisible;
+varying vec2 vLightUV;
 varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
@@ -680,20 +717,32 @@ void main() {
   
   // Minecraft-style face shading (only applied if shadeFlag is 1.0)
   // Cross-model plants like grass and ferns have shade: false in their model
-  float shade = 1.0;
+  float faceShade = 1.0;
   
   if (vShadeFlag > 0.5) {
     vec3 snappedN = snapNormal(vNormal);
     if (abs(snappedN.y) > 0.5) {
-      shade = snappedN.y > 0.0 ? 1.0 : 0.5;
+      faceShade = snappedN.y > 0.0 ? 1.0 : 0.5;
     } else if (abs(snappedN.x) > 0.5) {
-      shade = 0.6;
+      faceShade = 0.6;
     } else {
-      shade = 0.8;
+      faceShade = 0.8;
     }
   }
   
-  gl_FragColor = vec4(finalColor * shade, alpha);
+  // Apply lighting: either from lightmap or fixed face shading
+  vec3 lightColor = vec3(1.0);
+  if (uUseLightmap > 0.5) {
+    // Sample lightmap using light UV
+    lightColor = texture2D(uLightmap, vLightUV).rgb;
+    // Apply face shading on top of lightmap
+    lightColor *= faceShade;
+  } else {
+    // Use fixed face shading only
+    lightColor = vec3(faceShade);
+  }
+  
+  gl_FragColor = vec4(finalColor * lightColor, alpha);
 }
 `;
 
@@ -702,7 +751,7 @@ void main() {
  * Uses model UVs instead of triplanar mapping for correct texture on diagonal faces
  * Uses polygon offset to prevent z-fighting with full blocks
  */
-export function createTexturedModelMaterial(atlasData = null, useTextures = false) {
+export function createTexturedModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
   const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
@@ -711,8 +760,10 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
       uMaxY: { value: 320 },
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
+      uLightmap: { value: lightmap || defaultTexture },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
+      uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -734,7 +785,7 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
  * Uses single-sided rendering (FrontSide) to prevent back faces from being visible
  * through the transparent surfaces
  */
-export function createTransparentModelMaterial(atlasData = null, useTextures = false) {
+export function createTransparentModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
   const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
@@ -743,8 +794,10 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
       uMaxY: { value: 320 },
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
+      uLightmap: { value: lightmap || defaultTexture },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
+      uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -766,7 +819,7 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
  * Uses depthWrite: false so overlays don't occlude geometry behind them
  * This creates the effect of "glow" faces that appear behind solid geometry
  */
-export function createOverlayModelMaterial(atlasData = null, useTextures = false) {
+export function createOverlayModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
   const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
@@ -775,8 +828,10 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
       uMaxY: { value: 320 },
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
+      uLightmap: { value: lightmap || defaultTexture },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
+      uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -795,4 +850,5 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
 }
 
 export default createTexturedMaterial;
+
 
