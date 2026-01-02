@@ -297,6 +297,7 @@ function RegionScene({
   parseRegion,
   enableLOD,
   enableModelMeshes,
+  enableLighting,
   debugMode,
   onBlockHover,
   onProgress, 
@@ -647,6 +648,7 @@ export function RegionViewer({
         parseRegion={parseRegion}
         enableLOD={enableLOD}
         enableModelMeshes={enableModelMeshes}
+        enableLighting={enableLighting}
         debugMode={debugMode}
         onBlockHover={onBlockHover}
         onCameraUpdate={onCameraUpdate}
