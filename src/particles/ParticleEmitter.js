@@ -8,13 +8,18 @@
 /**
  * Particle types that should NOT collide with blocks (hasPhysics = false)
  * In MC, these extend BaseAshSmokeParticle which disables physics
+ * 
+ * NOTE: In vanilla MC, smoke passes through blocks. 
+ * For more realistic physics where smoke stops at ceilings, 
+ * remove 'campfire_cosy_smoke' and 'campfire_signal_smoke' from this set.
  */
 const SMOKE_PARTICLE_TYPES = new Set([
-  'smoke',
-  'large_smoke',
-  'campfire_cosy_smoke',
-  'campfire_signal_smoke',
-  'white_smoke',
+  'smoke',           // Torch smoke - small, passes through
+  'large_smoke',     // Furnace smoke - small, passes through
+  'white_smoke',     // Various - passes through
+  // Campfire smoke removed - now collides with blocks for more realistic behavior
+  // 'campfire_cosy_smoke',
+  // 'campfire_signal_smoke',
 ]);
 
 /**
