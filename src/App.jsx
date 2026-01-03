@@ -60,6 +60,9 @@ function App() {
   // Time of day (0-1: 0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
   const [timeOfDay, setTimeOfDay] = useState(0.35); // Default to mid-morning
   
+  // Brightness setting (0-100: 0=Moody, 100=Bright) - matches Minecraft's brightness slider
+  const [brightness, setBrightness] = useState(50); // Default to 50% like typical Minecraft settings
+  
   // Camera state for coordinates display (Minecraft spectator mode)
   const [cameraState, setCameraState] = useState({
     x: 0, y: 100, z: 0,
@@ -389,6 +392,7 @@ function App() {
             renderDistance={renderDistance}
             fogEnabled={fogEnabled}
             timeOfDay={timeOfDay}
+            brightness={brightness}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -740,6 +744,31 @@ function App() {
             />
             <span className="toggle-hint">
               Controls sun position and sky appearance
+            </span>
+          </div>
+          
+          {/* Brightness Slider - matches Minecraft's brightness setting */}
+          <div className="toggle-item" style={{ marginTop: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="toggle-label">
+                <span className="toggle-icon">☀️</span>
+                Brightness
+              </span>
+              <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                {brightness === 0 ? 'Moody' : brightness === 100 ? 'Bright' : `${brightness}%`}
+              </span>
+            </div>
+            <input 
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={brightness}
+              onChange={(e) => setBrightness(parseInt(e.target.value, 10))}
+              style={{ width: '100%', marginTop: '0.25rem' }}
+            />
+            <span className="toggle-hint">
+              0% = Moody (darkest), 100% = Bright (lightest)
             </span>
           </div>
         </section>

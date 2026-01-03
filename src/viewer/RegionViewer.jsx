@@ -462,6 +462,7 @@ function RegionScene({
   renderDistance = 0, // Chunk render distance (0 = unlimited)
   fogEnabled = true, // Distance fog (Minecraft-style haze)
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
+  brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -550,14 +551,14 @@ function RegionScene({
     }
   }, [renderDistance, invalidate]);
   
-  // Update lightmap when timeOfDay changes (day/night lighting cycle)
+  // Update lightmap when timeOfDay or brightness changes (day/night lighting cycle)
   useEffect(() => {
     const manager = managerRef.current;
     if (manager && manager.updateLightmapForTime) {
-      manager.updateLightmapForTime(timeOfDay);
+      manager.updateLightmapForTime(timeOfDay, brightness);
       invalidate();
     }
-  }, [timeOfDay, invalidate]);
+  }, [timeOfDay, brightness, invalidate]);
   
   // Update fog when fogEnabled, renderDistance, or skyColors change
   useEffect(() => {
@@ -884,6 +885,7 @@ export function RegionViewer({
   renderDistance = 0, // Chunk render distance in blocks (0 = unlimited)
   fogEnabled = true, // Distance fog (Minecraft-style haze)
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
+  brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -941,6 +943,7 @@ export function RegionViewer({
         renderDistance={renderDistance}
         fogEnabled={fogEnabled}
         timeOfDay={timeOfDay}
+        brightness={brightness}
       />
     </Canvas>
   );
