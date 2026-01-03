@@ -311,19 +311,21 @@ const BLOCK_EMITTERS = {
       },
       {
         type: 'lava', // Orange ember sparks - sputtering effect!
+        // MC: lifetime = (16 + random * 16 * 0.8) ticks = 16-29 ticks = 0.8-1.45 sec
+        // But they can bounce/rest on ground so extend lifetime
         rate: 1.5, // Occasional sparks
         offset: [0.5, 0.4, 0.5],
         offsetVariance: [0.3, 0.1, 0.3],
-        velocity: [0, 1.2, 0], // Pop UP (then falls due to gravity)
-        velocityVariance: [0.4, 0.5, 0.4], // Random arc trajectory
-        size: 0.12,
-        sizeVariance: 0.04,
-        lifetime: 1.2,
-        lifetimeVariance: 0.4,
-        color: [1.0, 0.6, 0.2], // Orange glow
+        velocity: [0, 1.5, 0], // Pop UP (then falls due to gravity)
+        velocityVariance: [0.5, 0.6, 0.5], // Random arc trajectory
+        size: 0.18, // Larger for visibility
+        sizeVariance: 0.05,
+        lifetime: 3.0, // Long enough to arc up, fall down, and rest
+        lifetimeVariance: 1.0,
+        color: [1.0, 1.0, 1.0], // Use texture color (lava.png is already orange)
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
+        fadeOut: 0.3,
         friction: 0.999, // MC: very little air resistance
         gravity: 0.75, // MC: heavy gravity - particles arc up then FALL back down
       },
@@ -634,16 +636,16 @@ const BLOCK_EMITTERS = {
         rate: 0.3, // Occasional sparks
         offset: [0.5, 1.0, 0.5], // Surface of lava
         offsetVariance: [0.4, 0.0, 0.4], // Spread across block
-        velocity: [0, 1.0, 0], // Pop UP (then falls due to gravity)
-        velocityVariance: [0.3, 0.4, 0.3], // Random arc trajectory
-        size: 0.15,
-        sizeVariance: 0.05,
-        lifetime: 1.5,
-        lifetimeVariance: 0.5,
-        color: [1.0, 0.6, 0.2], // Orange-red
+        velocity: [0, 1.5, 0], // Pop UP (then falls due to gravity)
+        velocityVariance: [0.4, 0.5, 0.4], // Random arc trajectory
+        size: 0.2, // Visible size
+        sizeVariance: 0.06,
+        lifetime: 3.5, // Long enough to arc and rest
+        lifetimeVariance: 1.0,
+        color: [1.0, 1.0, 1.0], // Use texture color (lava.png is already orange)
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.4,
+        fadeOut: 0.3,
         friction: 0.999, // MC: very little air resistance
         gravity: 0.75, // MC: heavy gravity - sputtering arc
       },
