@@ -298,21 +298,22 @@ const BLOCK_EMITTERS = {
         friction: 0.98,
       },
       {
-        type: 'lava', // Orange ember sparks - key visual element!
+        type: 'lava', // Orange ember sparks - sputtering effect!
         rate: 1.5, // Occasional sparks
         offset: [0.5, 0.4, 0.5],
         offsetVariance: [0.3, 0.1, 0.3],
-        velocity: [0, 0.3, 0], // Pop up
-        velocityVariance: [0.15, 0.2, 0.15], // Random trajectory
+        velocity: [0, 1.2, 0], // Pop UP (then falls due to gravity)
+        velocityVariance: [0.4, 0.5, 0.4], // Random arc trajectory
         size: 0.12,
         sizeVariance: 0.04,
-        lifetime: 0.8,
-        lifetimeVariance: 0.3,
+        lifetime: 1.2,
+        lifetimeVariance: 0.4,
         color: [1.0, 0.6, 0.2], // Orange glow
         alpha: 1.0,
         fadeIn: 0.0,
         fadeOut: 0.5,
-        friction: 0.95, // Slows down as it rises
+        friction: 0.999, // MC: very little air resistance
+        gravity: 0.75, // MC: heavy gravity - particles arc up then FALL back down
       },
       {
         type: 'smoke', // Small smoke wisps (in addition to big smoke)
@@ -613,7 +614,7 @@ const BLOCK_EMITTERS = {
   // LAVA PARTICLES
   // ============================================================================
   
-  // Lava block - occasional bubbles/sparks
+  // Lava block - occasional bubbles/sparks that sputter up and fall
   'lava': {
     particles: [
       {
@@ -621,17 +622,18 @@ const BLOCK_EMITTERS = {
         rate: 0.3, // Occasional sparks
         offset: [0.5, 1.0, 0.5], // Surface of lava
         offsetVariance: [0.4, 0.0, 0.4], // Spread across block
-        velocity: [0, 0.08, 0], // Pop up
-        velocityVariance: [0.05, 0.05, 0.05],
+        velocity: [0, 1.0, 0], // Pop UP (then falls due to gravity)
+        velocityVariance: [0.3, 0.4, 0.3], // Random arc trajectory
         size: 0.15,
         sizeVariance: 0.05,
-        lifetime: 1.0,
-        lifetimeVariance: 0.3,
+        lifetime: 1.5,
+        lifetimeVariance: 0.5,
         color: [1.0, 0.6, 0.2], // Orange-red
         alpha: 1.0,
         fadeIn: 0.0,
         fadeOut: 0.4,
-        friction: 0.94,
+        friction: 0.999, // MC: very little air resistance
+        gravity: 0.75, // MC: heavy gravity - sputtering arc
       },
     ],
   },
@@ -902,6 +904,7 @@ class EmitterInstance {
       fadeIn: config.fadeIn,
       fadeOut: config.fadeOut,
       friction: config.friction ?? 1.0,
+      gravity: config.gravity ?? 0, // For sputtering particles (lava uses 0.75)
     });
     
     // Debug: log first spawn

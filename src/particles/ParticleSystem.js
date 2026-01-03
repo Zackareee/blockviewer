@@ -46,6 +46,7 @@ class Particle {
     this.fadeIn = 0;
     this.fadeOut = 0.2;
     this.friction = 1.0;    // Velocity multiplier per tick (MC uses 0.96 for rising particles)
+    this.gravity = 0;       // Downward acceleration (MC uses 0.75 for lava "sputtering")
   }
   
   reset() {
@@ -63,6 +64,7 @@ class Particle {
     this.baseAlpha = 1;
     this.currentAlpha = 1;
     this.friction = 1.0;
+    this.gravity = 0;
   }
 }
 
@@ -126,6 +128,12 @@ class ParticlePool {
     
     for (const p of this.particles) {
       if (p.state !== PARTICLE_ALIVE) continue;
+      
+      // Apply gravity (accelerate downward)
+      // MC gravity is applied per tick, so scale by ticksElapsed
+      if (p.gravity !== 0) {
+        p.vy -= p.gravity * ticksElapsed * 0.05; // Scale factor for visual match
+      }
       
       // Apply physics - velocity to position
       p.x += p.vx * deltaTime;
@@ -336,6 +344,7 @@ export class ParticleSystem {
     particle.fadeIn = options.fadeIn ?? 0;
     particle.fadeOut = options.fadeOut ?? 0.2;
     particle.friction = options.friction ?? 1.0;
+    particle.gravity = options.gravity ?? 0;  // Downward acceleration (MC lava uses 0.75)
     
     // Get sprite info from atlas
     const spriteData = this.particleAtlas?.getParticleUV?.(type);
