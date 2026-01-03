@@ -60,12 +60,13 @@ export const DAYTIME_PARAMS = {
 };
 
 /**
- * Lightmap parameters for nighttime
+ * Lightmap parameters for nighttime (from Minecraft day.json)
+ * sky_light_factor: 0.24, sky_light_color: #7a7aff
  */
 export const NIGHTTIME_PARAMS = {
   ...DAYTIME_PARAMS,
-  skyFactor: 0.2,              // Moonlight is dimmer
-  skyLightColor: { r: 0.6, g: 0.7, b: 1.0 },  // Moonlight is blueish
+  skyFactor: 0.24,             // Moonlight brightness (from day.json)
+  skyLightColor: { r: 0.478, g: 0.478, b: 1.0 },  // #7a7aff - blueish moonlight
 };
 
 /**
@@ -286,17 +287,20 @@ export function getLightmapParamsForTime(timeOfDay) {
   const sunAngle = (timeOfDay - 0.25) * Math.PI * 2;
   const sunHeight = Math.sin(sunAngle);
   
-  // Interpolate skyFactor: 1.0 at noon, ~0.2 at midnight
-  // Using max(0, sunHeight) means we transition at sunrise/sunset
+  // From Minecraft day.json:
+  // - sky_light_factor: 1.0 (day, ticks 730-11270) -> 0.24 (night, ticks 13140-22860)
+  // - sky_light_color: #ffffff (day) -> #7a7aff (night) = (0.478, 0.478, 1.0)
+  
+  // Interpolate skyFactor: 1.0 at noon, 0.24 at midnight (Minecraft's exact values)
   const dayBlend = Math.max(0, sunHeight);
-  const skyFactor = 0.2 + 0.8 * dayBlend;
+  const skyFactor = 0.24 + 0.76 * dayBlend;  // 0.24 at night, 1.0 at day
   
   // Interpolate sky light color: white (day) -> blueish (night)
-  // Minecraft's moonlight has a cool blue tint
+  // Minecraft night color: #7a7aff = (122/255, 122/255, 255/255) = (0.478, 0.478, 1.0)
   const skyLightColor = {
-    r: 0.6 + 0.4 * dayBlend,  // 0.6 at night, 1.0 at day
-    g: 0.7 + 0.3 * dayBlend,  // 0.7 at night, 1.0 at day
-    b: 1.0,                   // Always 1.0 (blue stays constant)
+    r: 0.478 + 0.522 * dayBlend,  // 0.478 at night, 1.0 at day
+    g: 0.478 + 0.522 * dayBlend,  // 0.478 at night, 1.0 at day
+    b: 1.0,                       // Always 1.0
   };
   
   // Slightly reduce minimum brightness at night
