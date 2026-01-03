@@ -777,46 +777,53 @@ const BLOCK_EMITTERS = {
   
   'spore_blossom': {
     // Spore blossom spawns particles in a large area BELOW the block
+    // From SporeBlossomFallProvider.class and SporeBlossomAirProvider.class:
+    // - Color: RGB(0.32, 0.50, 0.22) - GREEN, not pink!
+    // - Lifetime: 64 ticks (3.2 seconds)
+    // - Y velocity: -0.8 blocks/sec (constant fall, no acceleration)
+    // - Size: 0.01 (very small)
     areaEmitter: true,  // Flag for special area-based spawning
     particles: [
       {
-        // Direct drips from the blossom itself
+        // Direct drips from the blossom itself (FallingParticle behavior)
+        // From SporeBlossomFallProvider: gravity 0.06, friction 0.98
         type: 'falling_spore_blossom',
-        rate: 3.0, // Steady drip from the block
+        rate: 2.0, // Steady drip from the block
         offset: [0.5, -0.1, 0.5], // Just below the block
         offsetVariance: [0.3, 0.0, 0.3], // Spread across block face
-        velocity: [0, -0.8, 0], // Fall down gently
-        velocityVariance: [0.1, 0.2, 0.1],
-        size: 0.12,
-        sizeVariance: 0.04,
-        lifetime: 4.0, // Long fall time
-        lifetimeVariance: 1.5,
-        color: [1.0, 0.6, 0.9], // Pink/magenta tint
+        velocity: [0, -0.04, 0], // Starts slow, then accelerates (gravity)
+        velocityVariance: [0.01, 0.0, 0.01],
+        size: 0.06, // Small drip particle
+        sizeVariance: 0.02,
+        lifetime: 3.2, // 64 ticks
+        lifetimeVariance: 0.8,
+        color: [0.32, 0.50, 0.22], // GREEN - from MC bytecode
         alpha: 0.9,
-        fadeIn: 0.0,
+        fadeIn: 0.1,
         fadeOut: 0.3,
-        friction: 0.995, // Very little air resistance
-        gravity: 0.15, // Light gravity - drifts down slowly
+        friction: 0.98, // From MC: 0.98 friction
+        gravity: 0.06, // From MC: starts slow, falls faster
         hasPhysics: true, // Lands on blocks
       },
       {
-        // Ambient spores in the air below (area effect)
+        // Ambient spores in the air below (SuspendedParticle behavior)
+        // From SporeBlossomAirProvider: Y velocity -0.8, very slow drift
         type: 'spore_blossom_air',
-        rate: 8.0, // ~14 attempts * 0.7 chance / 20 ticks * quality factor
+        rate: 5.0, // ~14 attempts * 0.7 chance / 20 ticks
         offset: [0.5, -8.0, 0.5], // Spawns well below the blossom
         offsetVariance: [10.0, 8.0, 10.0], // 10 block XZ radius, 16 block Y range
-        velocity: [0, -0.3, 0], // Gentle downward drift
-        velocityVariance: [0.15, 0.1, 0.15], // Random drift
-        size: 0.08,
-        sizeVariance: 0.03,
-        lifetime: 6.0, // Long-lasting ambient particles
-        lifetimeVariance: 2.0,
-        color: [1.0, 0.5, 0.85], // Pink/magenta
-        alpha: 0.7,
-        fadeIn: 0.2,
+        velocity: [0, -0.8, 0], // Constant downward drift (from MC: -0.8)
+        velocityVariance: [0.005, 0.0, 0.005], // Very little XZ variance
+        size: 0.05, // Tiny ambient particles
+        sizeVariance: 0.02,
+        lifetime: 4.0, // Long-lasting ambient particles
+        lifetimeVariance: 1.5,
+        color: [0.32, 0.50, 0.22], // GREEN - from MC bytecode
+        alpha: 0.8,
+        fadeIn: 0.1,
         fadeOut: 0.4,
-        friction: 0.98,
-        gravity: 0.05, // Very light gravity
+        friction: 1.0, // No friction - constant velocity fall
+        gravity: 0.0, // No gravity - constant speed fall
         hasPhysics: false, // Ambient particles pass through blocks
       },
     ],
