@@ -6,8 +6,48 @@
  */
 
 /**
+ * Candle wick positions for each candle count (in block coordinates 0-1)
+ * Extracted from Minecraft's template_*.json model files
+ * Format: [[x, y, z], ...] for each candle wick position
+ */
+const CANDLE_OFFSETS = {
+  // 1 candle: single center candle
+  1: [[0.5, 0.4375, 0.5]],  // (8, 7, 8) / 16
+  
+  // 2 candles: left and right
+  2: [
+    [0.375, 0.375, 0.5],    // (6, 6, 8) / 16
+    [0.625, 0.4375, 0.4375], // (10, 7, 7) / 16
+  ],
+  
+  // 3 candles: 3 positions
+  3: [
+    [0.5, 0.25, 0.625],     // (8, 4, 10) / 16
+    [0.375, 0.375, 0.5],    // (6, 6, 8) / 16
+    [0.5625, 0.4375, 0.4375], // (9, 7, 7) / 16
+  ],
+  
+  // 4 candles: 4 positions
+  4: [
+    [0.4375, 0.25, 0.5625],  // (7, 4, 9) / 16
+    [0.625, 0.375, 0.5625],  // (10, 6, 9) / 16
+    [0.375, 0.375, 0.375],   // (6, 6, 6) / 16
+    [0.5625, 0.4375, 0.375], // (9, 7, 6) / 16
+  ],
+};
+
+/**
+ * Candle cake wick position (single candle on cake)
+ */
+const CANDLE_CAKE_OFFSET = [0.5, 0.875, 0.5]; // Candle is higher on cake
+
+/**
  * Emitter configuration for different block types
  * Each entry defines what particles to spawn and how
+ * 
+ * Properties:
+ * - requiresLit: if true, only emit when block has lit=true property
+ * - particles: array of particle spawn configurations
  */
 const BLOCK_EMITTERS = {
   // Standing torch - Minecraft spawns at exact position, no variance
@@ -216,6 +256,7 @@ const BLOCK_EMITTERS = {
   
   // Campfire (cosy smoke - rises ~10 blocks)
   'campfire': {
+    requiresLit: true, // Only emit when lit=true
     particles: [
       {
         type: 'flame',
@@ -256,6 +297,7 @@ const BLOCK_EMITTERS = {
   
   // Soul campfire (blue flame, same smoke behavior)
   'soul_campfire': {
+    requiresLit: true,
     particles: [
       {
         type: 'soul_fire_flame',
@@ -300,6 +342,7 @@ const BLOCK_EMITTERS = {
   
   // Furnace (when lit) - emits smoke from top
   'furnace': {
+    requiresLit: true,
     particles: [
       {
         type: 'smoke',
@@ -323,6 +366,7 @@ const BLOCK_EMITTERS = {
   
   // Smoker - more smoke than furnace
   'smoker': {
+    requiresLit: true,
     particles: [
       {
         type: 'large_smoke',
@@ -346,6 +390,7 @@ const BLOCK_EMITTERS = {
   
   // Blast furnace - faster, smaller smoke
   'blast_furnace': {
+    requiresLit: true,
     particles: [
       {
         type: 'smoke',
@@ -369,10 +414,14 @@ const BLOCK_EMITTERS = {
   
   // ============================================================================
   // CANDLE PARTICLES
+  // Uses dynamic offsets based on 'candles' property (1-4)
+  // Offsets defined in CANDLE_OFFSETS constant above
   // ============================================================================
   
-  // Single candle
+  // Candle - supports 1-4 candles with multi-point emission
   'candle': {
+    requiresLit: true,
+    multiPoint: true, // Emit from multiple positions based on 'candles' property
     particles: [
       {
         type: 'small_flame',
@@ -413,6 +462,7 @@ const BLOCK_EMITTERS = {
   
   // Candle cake (single candle on cake)
   'candle_cake': {
+    requiresLit: true,
     particles: [
       {
         type: 'small_flame',
@@ -673,14 +723,42 @@ class EmitterInstance {
   }
   
   /**
+   * Get base offset for this particle, handling multi-point emitters (candles)
+   * @returns {[number, number, number]} Base offset in block coordinates
+   */
+  _getBaseOffset(config) {
+    // Handle multi-point candle emission
+    if (this.config.multiPoint && this.blockType.includes('candle') && !this.blockType.includes('cake')) {
+      // Get candle count from properties (1-4)
+      const candleCount = parseInt(this.properties.candles, 10) || 1;
+      const offsets = CANDLE_OFFSETS[candleCount] || CANDLE_OFFSETS[1];
+      
+      // Pick a random candle position to spawn at
+      const randomIndex = Math.floor(Math.random() * offsets.length);
+      return offsets[randomIndex];
+    }
+    
+    // Handle candle cake (single position, but different from regular candle)
+    if (this.blockType.includes('candle_cake')) {
+      return CANDLE_CAKE_OFFSET;
+    }
+    
+    // Default: use config offset
+    return config.offset;
+  }
+  
+  /**
    * Spawn a single particle with the given config
    */
   _spawnParticle(config, particleSystem) {
+    // Get base offset (handles multi-point emitters like candles)
+    const baseOffset = this._getBaseOffset(config);
+    
     // Calculate offset with variance
     const offset = [
-      config.offset[0] + (Math.random() - 0.5) * 2 * config.offsetVariance[0],
-      config.offset[1] + (Math.random() - 0.5) * 2 * config.offsetVariance[1],
-      config.offset[2] + (Math.random() - 0.5) * 2 * config.offsetVariance[2],
+      baseOffset[0] + (Math.random() - 0.5) * 2 * config.offsetVariance[0],
+      baseOffset[1] + (Math.random() - 0.5) * 2 * config.offsetVariance[1],
+      baseOffset[2] + (Math.random() - 0.5) * 2 * config.offsetVariance[2],
     ];
     
     // Apply wall torch facing adjustment
@@ -768,10 +846,22 @@ export class ParticleEmitterManager {
     const normalizedType = blockType.replace('minecraft:', '');
     
     // Check if this block type has an emitter config
-    if (!BLOCK_EMITTERS[normalizedType]) {
+    const config = BLOCK_EMITTERS[normalizedType];
+    if (!config) {
       // Debug: log unknown block types that might need emitter configs
       // console.log('[ParticleEmitterManager] No emitter config for:', normalizedType);
       return;
+    }
+    
+    // Check if block requires lit=true state
+    if (config.requiresLit) {
+      // Check the 'lit' property - can be boolean or string 'true'/'false'
+      const litValue = properties.lit;
+      const isLit = litValue === true || litValue === 'true';
+      if (!isLit) {
+        // Block is not lit - don't create emitter
+        return;
+      }
     }
     
     const key = `${x},${y},${z}`;
