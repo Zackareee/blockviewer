@@ -6,6 +6,18 @@
  */
 
 /**
+ * Particle types that should NOT collide with blocks (hasPhysics = false)
+ * In MC, these extend BaseAshSmokeParticle which disables physics
+ */
+const SMOKE_PARTICLE_TYPES = new Set([
+  'smoke',
+  'large_smoke',
+  'campfire_cosy_smoke',
+  'campfire_signal_smoke',
+  'white_smoke',
+]);
+
+/**
  * Candle wick positions for each candle count (in block coordinates 0-1)
  * Extracted from Minecraft's template_*.json model files
  * Format: [[x, y, z], ...] for each candle wick position
@@ -905,6 +917,9 @@ class EmitterInstance {
       fadeOut: config.fadeOut,
       friction: config.friction ?? 1.0,
       gravity: config.gravity ?? 0, // For sputtering particles (lava uses 0.75)
+      // hasPhysics: false for smoke particles (they pass through blocks)
+      // MC: BaseAshSmokeParticle sets hasPhysics = false
+      hasPhysics: config.hasPhysics ?? !SMOKE_PARTICLE_TYPES.has(config.type),
     });
     
     // Debug: log first spawn

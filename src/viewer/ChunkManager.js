@@ -1186,6 +1186,25 @@ export class ChunkManager {
     this.particleSystem = new ParticleSystem(particleAtlas);
     this.scene.add(this.particleSystem.getGroup());
     
+    // Set up collision function for particles
+    // Uses debugGrid if available, otherwise just checks Y >= 0
+    this.particleSystem.setCollisionFunction((x, y, z) => {
+      // If debug grid is available, use it for accurate collision
+      if (this.debugGrid) {
+        const blockData = this.debugGrid.getBlock(
+          Math.floor(x),
+          Math.floor(y),
+          Math.floor(z)
+        );
+        // Block ID 0 = air, anything else is solid (simplified)
+        if (blockData && blockData.blockId !== 0) {
+          return true;
+        }
+      }
+      // Fallback: simple floor at Y = 0
+      return y < 0;
+    });
+    
     console.log('[ChunkManager] Particle system initialized, atlas isBuilt:', particleAtlas?.isBuilt);
   }
 

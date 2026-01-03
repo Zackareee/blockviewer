@@ -47,6 +47,8 @@ class Particle {
     this.fadeOut = 0.2;
     this.friction = 1.0;    // Velocity multiplier per tick (MC uses 0.96 for rising particles)
     this.gravity = 0;       // Downward acceleration (MC uses 0.75 for lava "sputtering")
+    this.hasPhysics = true; // Whether particle collides with blocks (MC default: true)
+    this.onGround = false;  // Whether particle landed on ground
   }
   
   reset() {
@@ -65,6 +67,8 @@ class Particle {
     this.currentAlpha = 1;
     this.friction = 1.0;
     this.gravity = 0;
+    this.hasPhysics = true;
+    this.onGround = false;
   }
 }
 
@@ -120,8 +124,9 @@ class ParticlePool {
    * Update all alive particles
    * @param {number} deltaTime - Time since last update in seconds
    * @param {Function} updateFn - Custom update function (particle, dt) => boolean (false = kill)
+   * @param {Function} collisionFn - Collision check (x, y, z) => boolean (true = solid block)
    */
-  update(deltaTime, updateFn) {
+  update(deltaTime, updateFn, collisionFn) {
     // Convert deltaTime to tick-equivalent for friction
     // MC runs at 20 ticks/sec, so we apply friction proportionally
     const ticksElapsed = deltaTime * 20;
@@ -131,14 +136,56 @@ class ParticlePool {
       
       // Apply gravity (accelerate downward)
       // MC gravity is applied per tick, so scale by ticksElapsed
-      if (p.gravity !== 0) {
+      if (p.gravity !== 0 && !p.onGround) {
         p.vy -= p.gravity * ticksElapsed * 0.05; // Scale factor for visual match
       }
+      
+      // Store old position for collision resolution
+      const oldX = p.x, oldY = p.y, oldZ = p.z;
       
       // Apply physics - velocity to position
       p.x += p.vx * deltaTime;
       p.y += p.vy * deltaTime;
       p.z += p.vz * deltaTime;
+      
+      // Collision detection (only for particles with physics enabled)
+      if (p.hasPhysics && collisionFn) {
+        // Check if new position is inside a solid block
+        if (collisionFn(p.x, p.y, p.z)) {
+          // Check which axis caused collision and resolve
+          const collidesX = collisionFn(p.x, oldY, oldZ);
+          const collidesY = collisionFn(oldX, p.y, oldZ);
+          const collidesZ = collisionFn(oldX, oldY, p.z);
+          
+          if (collidesY) {
+            // Vertical collision - most common (ground/ceiling)
+            p.y = oldY;
+            if (p.vy < 0) {
+              // Hit ground - stop and mark as grounded
+              p.onGround = true;
+              p.vy = 0;
+              p.vx *= 0.7; // Friction when on ground
+              p.vz *= 0.7;
+            } else {
+              // Hit ceiling - just stop vertical motion
+              p.vy = 0;
+            }
+          }
+          if (collidesX) {
+            p.x = oldX;
+            p.vx = 0;
+          }
+          if (collidesZ) {
+            p.z = oldZ;
+            p.vz = 0;
+          }
+        } else {
+          // No longer on ground if we moved
+          if (p.onGround && p.vy !== 0) {
+            p.onGround = false;
+          }
+        }
+      }
       
       // Apply friction (velocity decay per tick)
       // For friction 0.96 and 1 tick: v *= 0.96
@@ -196,6 +243,9 @@ export class ParticleSystem {
     this.additiveMesh = null;
     this.normalMaterial = null;
     this.additiveMaterial = null;
+    
+    // Collision detection callback: (x, y, z) => boolean (true if solid block)
+    this.collisionFn = null;
     this.group = new THREE.Group();
     this.group.name = 'ParticleSystem';
     this.group.renderOrder = 10; // Render after everything else
@@ -345,6 +395,8 @@ export class ParticleSystem {
     particle.fadeOut = options.fadeOut ?? 0.2;
     particle.friction = options.friction ?? 1.0;
     particle.gravity = options.gravity ?? 0;  // Downward acceleration (MC lava uses 0.75)
+    particle.hasPhysics = options.hasPhysics ?? true;  // MC default: collides with blocks
+    particle.onGround = false;
     
     // Get sprite info from atlas
     const spriteData = this.particleAtlas?.getParticleUV?.(type);
@@ -421,13 +473,18 @@ export class ParticleSystem {
   }
   
   /**
+   * Set the collision detection function
+   * @param {Function} fn - (x, y, z) => boolean (true if position is inside a solid block)
+   */
+  setCollisionFunction(fn) {
+    this.collisionFn = fn;
+  }
+  
+  /**
    * Update a particle pool
    */
   _updatePool(pool, deltaTime) {
     pool.update(deltaTime, (p, dt) => {
-      // Add gravity for some particles
-      // p.vy -= 0.5 * dt; // Uncomment for gravity
-      
       // Calculate current alpha with fade in/out
       // Use baseAlpha as the starting point (never modify baseAlpha!)
       const ageNorm = p.age / p.lifetime;
@@ -461,7 +518,7 @@ export class ParticleSystem {
       }
       
       return true;
-    });
+    }, this.collisionFn); // Pass collision function for block collisions
   }
   
   /**
