@@ -273,5 +273,42 @@ export function lightLevelToUV(lightLevel) {
   return (lightLevel + 0.5) / 16;
 }
 
+/**
+ * Get lightmap parameters interpolated for a specific time of day
+ * Matches Minecraft's day/night lighting cycle
+ * 
+ * @param {number} timeOfDay - 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
+ * @returns {Object} Lightmap parameters for generateLightmap()
+ */
+export function getLightmapParamsForTime(timeOfDay) {
+  // Calculate sun height (-1 to 1, positive = day)
+  // timeOfDay: 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
+  const sunAngle = (timeOfDay - 0.25) * Math.PI * 2;
+  const sunHeight = Math.sin(sunAngle);
+  
+  // Interpolate skyFactor: 1.0 at noon, ~0.2 at midnight
+  // Using max(0, sunHeight) means we transition at sunrise/sunset
+  const dayBlend = Math.max(0, sunHeight);
+  const skyFactor = 0.2 + 0.8 * dayBlend;
+  
+  // Interpolate sky light color: white (day) -> blueish (night)
+  // Minecraft's moonlight has a cool blue tint
+  const skyLightColor = {
+    r: 0.6 + 0.4 * dayBlend,  // 0.6 at night, 1.0 at day
+    g: 0.7 + 0.3 * dayBlend,  // 0.7 at night, 1.0 at day
+    b: 1.0,                   // Always 1.0 (blue stays constant)
+  };
+  
+  // Slightly reduce minimum brightness at night
+  const minimumBrightness = 0.05 + 0.10 * dayBlend; // 0.05 at night, 0.15 at day
+  
+  return {
+    ...DAYTIME_PARAMS,
+    skyFactor,
+    skyLightColor,
+    minimumBrightness,
+  };
+}
+
 export default generateLightmap;
 

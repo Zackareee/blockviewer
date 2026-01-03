@@ -505,6 +505,15 @@ function RegionScene({
     }
   }, [renderDistance, invalidate]);
   
+  // Update lightmap when timeOfDay changes (day/night lighting cycle)
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.updateLightmapForTime) {
+      manager.updateLightmapForTime(timeOfDay);
+      invalidate();
+    }
+  }, [timeOfDay, invalidate]);
+  
   // Update fog when fogEnabled, renderDistance, or skyColors change
   useEffect(() => {
     const manager = managerRef.current;

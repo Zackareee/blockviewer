@@ -23,7 +23,7 @@ import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
 import { getBlockRegistry } from '../mesh/BlockRegistry';
-import { generateLightmap, DAYTIME_PARAMS } from '../mesh/LightmapGenerator';
+import { generateLightmap, DAYTIME_PARAMS, getLightmapParamsForTime } from '../mesh/LightmapGenerator';
 
 // WebGL has a max index count limit (~30M). Use 25M to be safe.
 const MAX_INDICES_PER_DRAW = 25000000;
@@ -201,6 +201,43 @@ export class ChunkManager {
     setMaterialLightingEnabled(this.transparentModelMaterial, enabled);
     setMaterialLightingEnabled(this.overlayModelMaterial, enabled);
     console.log(`[ChunkManager] Lighting: ${enabled ? 'enabled' : 'disabled'}`);
+  }
+  
+  /**
+   * Update lightmap based on time of day
+   * Regenerates the 16x16 lightmap texture with interpolated day/night parameters
+   * @param {number} timeOfDay - 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
+   */
+  updateLightmapForTime(timeOfDay) {
+    const params = getLightmapParamsForTime(timeOfDay);
+    
+    // Dispose old lightmap texture
+    if (this.lightmap) {
+      this.lightmap.dispose();
+    }
+    
+    // Generate new lightmap with time-adjusted parameters
+    this.lightmap = generateLightmap(params);
+    
+    // Update lightmap uniform on all materials that use it
+    if (this.solidMaterial?.uniforms?.uLightmap) {
+      this.solidMaterial.uniforms.uLightmap.value = this.lightmap;
+    }
+    if (this.glassMaterial?.uniforms?.uLightmap) {
+      this.glassMaterial.uniforms.uLightmap.value = this.lightmap;
+    }
+    if (this.modelMaterial?.uniforms?.uLightmap) {
+      this.modelMaterial.uniforms.uLightmap.value = this.lightmap;
+    }
+    if (this.transparentModelMaterial?.uniforms?.uLightmap) {
+      this.transparentModelMaterial.uniforms.uLightmap.value = this.lightmap;
+    }
+    if (this.overlayModelMaterial?.uniforms?.uLightmap) {
+      this.overlayModelMaterial.uniforms.uLightmap.value = this.lightmap;
+    }
+    if (this.instancedMaterial?.uniforms?.uLightmap) {
+      this.instancedMaterial.uniforms.uLightmap.value = this.lightmap;
+    }
   }
   
   /**
