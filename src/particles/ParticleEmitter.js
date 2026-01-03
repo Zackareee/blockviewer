@@ -203,83 +203,93 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   // CAMPFIRE PARTICLES
   // ============================================================================
+  // From CampfireSmokeParticle.class:
+  // - Scale: 3.0f (very large smoke puffs!)
+  // - Gravity: ~0.000003 (nearly zero - floats up)
+  // - Lifetime: 50-100 ticks for cosy (~2.5-5 sec), 100-180 for signal (~5-9 sec)
+  // - XZ velocity: random * 500f (creates horizontal drift)
+  // - Y velocity: passed from block spawn
+  // From CampfireBlock.class:
+  // - Spawns at block center + random XZ offset ±0.5
+  // - Y offset: 0.3-0.5 above block
+  // - Cosy smoke rises ~10 blocks, signal smoke ~24 blocks
   
-  // Campfire (normal smoke - rises ~10 blocks)
+  // Campfire (cosy smoke - rises ~10 blocks)
   'campfire': {
     particles: [
       {
         type: 'flame',
-        rate: 2.0,
-        offset: [0.5, 0.3, 0.5], // Center of campfire
-        offsetVariance: [0.2, 0.0, 0.2], // Spread across fire area
-        velocity: [0, 0.03, 0],
-        velocityVariance: [0.02, 0.01, 0.02],
-        size: 0.2,
+        rate: 3.0, // Multiple flames
+        offset: [0.5, 0.3, 0.5], // Center of campfire logs
+        offsetVariance: [0.3, 0.0, 0.3], // Spread across fire area
+        velocity: [0, 0.02, 0],
+        velocityVariance: [0.015, 0.01, 0.015],
+        size: 0.15,
         sizeVariance: 0.05,
-        lifetime: 0.8,
+        lifetime: 0.6,
         lifetimeVariance: 0.2,
         color: [1.0, 0.9, 0.6],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.6,
+        fadeOut: 0.5,
         friction: 0.96,
       },
       {
         type: 'campfire_cosy_smoke',
-        rate: 1.5,
-        offset: [0.5, 0.5, 0.5],
-        offsetVariance: [0.15, 0.0, 0.15],
-        velocity: [0, 0.15, 0], // Rises steadily
-        velocityVariance: [0.02, 0.05, 0.02],
-        size: 0.4, // Larger smoke puffs
-        sizeVariance: 0.1,
-        lifetime: 4.0, // Long-lived smoke
-        lifetimeVariance: 1.0,
+        rate: 2.5, // Frequent smoke puffs
+        offset: [0.5, 0.5, 0.5], // Above the flames
+        offsetVariance: [0.4, 0.0, 0.4], // Wide spread across campfire (MC uses ±0.5)
+        velocity: [0, 0.12, 0], // Rises ~10 blocks over lifetime (0.12 * 5s * 20 = ~12 blocks)
+        velocityVariance: [0.03, 0.02, 0.03], // Horizontal drift
+        size: 0.8, // Large smoke! (MC scale is 3.0 on base 0.25 = 0.75 quad size)
+        sizeVariance: 0.2, // Random size variation
+        lifetime: 5.0, // ~100 ticks = 5 seconds
+        lifetimeVariance: 1.5, // 50-130 ticks range
         color: [0.5, 0.5, 0.5],
-        alpha: 0.5,
-        fadeIn: 0.2,
-        fadeOut: 0.5,
-        friction: 0.99,
+        alpha: 0.6,
+        fadeIn: 0.15,
+        fadeOut: 0.4,
+        friction: 0.995, // Nearly no friction - MC gravity is ~0
       },
     ],
   },
   
-  // Soul campfire (blue flame)
+  // Soul campfire (blue flame, same smoke behavior)
   'soul_campfire': {
     particles: [
       {
         type: 'soul_fire_flame',
-        rate: 2.0,
+        rate: 3.0,
         offset: [0.5, 0.3, 0.5],
-        offsetVariance: [0.2, 0.0, 0.2],
-        velocity: [0, 0.03, 0],
-        velocityVariance: [0.02, 0.01, 0.02],
-        size: 0.2,
+        offsetVariance: [0.3, 0.0, 0.3],
+        velocity: [0, 0.02, 0],
+        velocityVariance: [0.015, 0.01, 0.015],
+        size: 0.15,
         sizeVariance: 0.05,
-        lifetime: 0.8,
+        lifetime: 0.6,
         lifetimeVariance: 0.2,
         color: [1.0, 1.0, 1.0],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.6,
+        fadeOut: 0.5,
         friction: 0.96,
       },
       {
         type: 'campfire_cosy_smoke',
-        rate: 1.5,
+        rate: 2.5,
         offset: [0.5, 0.5, 0.5],
-        offsetVariance: [0.15, 0.0, 0.15],
-        velocity: [0, 0.15, 0],
-        velocityVariance: [0.02, 0.05, 0.02],
-        size: 0.4,
-        sizeVariance: 0.1,
-        lifetime: 4.0,
-        lifetimeVariance: 1.0,
-        color: [0.4, 0.45, 0.5], // Slightly blue-tinted smoke
-        alpha: 0.5,
-        fadeIn: 0.2,
-        fadeOut: 0.5,
-        friction: 0.99,
+        offsetVariance: [0.4, 0.0, 0.4],
+        velocity: [0, 0.12, 0],
+        velocityVariance: [0.03, 0.02, 0.03],
+        size: 0.8,
+        sizeVariance: 0.2,
+        lifetime: 5.0,
+        lifetimeVariance: 1.5,
+        color: [0.4, 0.45, 0.5], // Slightly blue-tinted smoke for soul fire
+        alpha: 0.6,
+        fadeIn: 0.15,
+        fadeOut: 0.4,
+        friction: 0.995,
       },
     ],
   },
