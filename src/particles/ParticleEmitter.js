@@ -776,50 +776,50 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   'spore_blossom': {
-    // Spore blossom spawns particles in a large area BELOW the block
+    // Spore blossom hangs from ceiling - flower part is in LOWER portion of block (y ~0.3)
     // From SporeBlossomFallProvider.class and SporeBlossomAirProvider.class:
-    // - Color: RGB(0.32, 0.50, 0.22) - GREEN, not pink!
+    // - Color: RGB(0.32, 0.50, 0.22) - GREEN
     // - Lifetime: 64 ticks (3.2 seconds)
-    // - Y velocity: -0.8 blocks/sec (constant fall, no acceleration)
-    // - Size: 0.01 (very small)
-    areaEmitter: true,  // Flag for special area-based spawning
+    // - Ambient Y velocity: -0.8 in MC units (need to scale)
+    // - PARTICLE_XZ_RADIUS = 10, PARTICLE_Y_MAX = 16
+    areaEmitter: true,
     particles: [
       {
         // Direct drips from the blossom itself (FallingParticle behavior)
-        // From SporeBlossomFallProvider: gravity 0.06, friction 0.98
+        // Spore blossom flower hangs from ceiling at around y=0.3 in block space
         type: 'falling_spore_blossom',
-        rate: 2.0, // Steady drip from the block
-        offset: [0.5, -0.1, 0.5], // Just below the block
-        offsetVariance: [0.3, 0.0, 0.3], // Spread across block face
-        velocity: [0, -0.04, 0], // Starts slow, then accelerates (gravity)
-        velocityVariance: [0.01, 0.0, 0.01],
-        size: 0.06, // Small drip particle
+        rate: 2.5, // Steady drip from the block
+        offset: [0.5, 0.3, 0.5], // At the flower (hangs from ceiling)
+        offsetVariance: [0.25, 0.0, 0.25], // Spread across flower face
+        velocity: [0, -0.5, 0], // Start with initial downward velocity
+        velocityVariance: [0.02, 0.1, 0.02],
+        size: 0.08, // Small drip particle
         sizeVariance: 0.02,
-        lifetime: 3.2, // 64 ticks
-        lifetimeVariance: 0.8,
+        lifetime: 5.0, // Longer life to fall several blocks
+        lifetimeVariance: 1.5,
         color: [0.32, 0.50, 0.22], // GREEN - from MC bytecode
         alpha: 0.9,
         fadeIn: 0.1,
         fadeOut: 0.3,
-        friction: 0.98, // From MC: 0.98 friction
-        gravity: 0.06, // From MC: starts slow, falls faster
+        friction: 0.995, // Very slight friction
+        gravity: 0.8, // Accelerates downward (falls faster over time)
         hasPhysics: true, // Lands on blocks
       },
       {
-        // Ambient spores in the air below (SuspendedParticle behavior)
-        // From SporeBlossomAirProvider: Y velocity -0.8, very slow drift
+        // Ambient spores floating in the air below (SuspendedParticle behavior)
+        // Spawn in a large area below the blossom (MC: 10 block XZ radius, 16 blocks down)
         type: 'spore_blossom_air',
-        rate: 5.0, // ~14 attempts * 0.7 chance / 20 ticks
-        offset: [0.5, -8.0, 0.5], // Spawns well below the blossom
-        offsetVariance: [10.0, 8.0, 10.0], // 10 block XZ radius, 16 block Y range
-        velocity: [0, -0.8, 0], // Constant downward drift (from MC: -0.8)
-        velocityVariance: [0.005, 0.0, 0.005], // Very little XZ variance
-        size: 0.05, // Tiny ambient particles
+        rate: 4.0, // ~14 attempts * 0.7 chance / 20 ticks
+        offset: [0.5, -4.0, 0.5], // Center of spawn volume (8 blocks down from flower)
+        offsetVariance: [8.0, 4.0, 8.0], // Large spawn area
+        velocity: [0, -1.5, 0], // Constant downward drift
+        velocityVariance: [0.02, 0.2, 0.02],
+        size: 0.06,
         sizeVariance: 0.02,
-        lifetime: 4.0, // Long-lasting ambient particles
-        lifetimeVariance: 1.5,
+        lifetime: 6.0, // Long-lasting ambient particles
+        lifetimeVariance: 2.0,
         color: [0.32, 0.50, 0.22], // GREEN - from MC bytecode
-        alpha: 0.8,
+        alpha: 0.75,
         fadeIn: 0.1,
         fadeOut: 0.4,
         friction: 1.0, // No friction - constant velocity fall
