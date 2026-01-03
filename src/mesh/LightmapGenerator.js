@@ -14,17 +14,12 @@
 
 import * as THREE from 'three';
 
-// Minecraft's brightness curve - converts light level (0-1) to brightness (0-1)
+// Minecraft's exact brightness curve - converts light level (0-1) to brightness (0-1)
 // This creates the exponential falloff that makes low light levels much darker
+// From lightmap.fsh: level / (4.0 - 3.0 * level)
 function getBrightness(level) {
-  // level is normalized 0-1 (light level / 15)
-  // Original Minecraft: level / (4.0 - 3.0 * level)
-  // This is very aggressive - level 0.5 gives only 0.2 brightness
-  // We use a softer curve for outdoor daytime rendering
-  const minecraftCurve = level / (4.0 - 3.0 * level);
-  // Blend with linear for softer shadows in outdoor lighting
-  // This gives: level 0.5 → ~0.35 instead of 0.2
-  return minecraftCurve * 0.7 + level * 0.3;
+  // Level 0 → 0.000, Level 0.5 → 0.200, Level 1.0 → 1.000
+  return level / (4.0 - 3.0 * level);
 }
 
 // Minecraft's "notGamma" function - applies gamma-like correction
@@ -45,18 +40,18 @@ function notGamma(r, g, b) {
 
 /**
  * Default lightmap parameters for daytime (noon)
+ * Matches Minecraft's lightmap.fsh exactly
  */
 export const DAYTIME_PARAMS = {
-  ambientLightFactor: 0.0,     // 0 for overworld, 1 for nether/end
+  ambientLightFactor: 0.0,     // 0 for overworld, 0.1 for nether/end
   skyFactor: 1.0,              // Sky light strength
   blockFactor: 1.0,            // Block light strength
   nightVisionFactor: 0.0,      // Night vision effect (0-1)
   darknessScale: 0.0,          // Darkness effect
   darkenWorldFactor: 0.0,      // World darkening (rain, etc.)
-  brightnessFactor: 0.0,       // Brightness gamma setting
+  brightnessFactor: 0.0,       // Brightness gamma setting (0-1)
   skyLightColor: { r: 1.0, g: 1.0, b: 1.0 },  // Daylight color
-  ambientColor: { r: 0.1, g: 0.1, b: 0.1 },   // Ambient color
-  minimumBrightness: 0.15,     // Minimum ambient floor for outdoor lighting
+  ambientColor: { r: 0.0, g: 0.0, b: 0.0 },   // Ambient color (0 for overworld)
 };
 
 /**
@@ -97,7 +92,6 @@ export function generateLightmap(params = DAYTIME_PARAMS) {
     brightnessFactor,
     skyLightColor,
     ambientColor,
-    minimumBrightness = 0.1,  // Default minimum ambient floor
   } = params;
   
   for (let y = 0; y < size; y++) {
@@ -106,7 +100,7 @@ export function generateLightmap(params = DAYTIME_PARAMS) {
       const blockLevel = x / 15;
       const skyLevel = y / 15;
       
-      // Get brightness from Minecraft's curve
+      // Get brightness from Minecraft's exact curve
       const blockBrightness = getBrightness(blockLevel) * blockFactor;
       const skyBrightness = getBrightness(skyLevel) * skyFactor;
       
@@ -116,26 +110,17 @@ export function generateLightmap(params = DAYTIME_PARAMS) {
       let g = blockBrightness * ((blockBrightness * 0.6 + 0.4) * 0.6 + 0.4);
       let b = blockBrightness * (blockBrightness * blockBrightness * 0.6 + 0.4);
       
-      // Mix with ambient color
+      // Mix with ambient color (Minecraft: mix(color, AmbientColor, AmbientLightFactor))
       r = r * (1 - ambientLightFactor) + ambientColor.r * ambientLightFactor;
       g = g * (1 - ambientLightFactor) + ambientColor.g * ambientLightFactor;
       b = b * (1 - ambientLightFactor) + ambientColor.b * ambientLightFactor;
       
-      // Add sky light contribution
+      // Add sky light contribution (Minecraft: color += SkyLightColor * sky_brightness)
       r += skyLightColor.r * skyBrightness;
       g += skyLightColor.g * skyBrightness;
       b += skyLightColor.b * skyBrightness;
       
-      // Apply minimum brightness floor for outdoor areas with sky light
-      // This ensures shaded outdoor areas don't become pitch black
-      if (skyLevel > 0 && minimumBrightness > 0) {
-        const minFloor = minimumBrightness * skyLevel;  // Scale with sky level
-        r = Math.max(r, minFloor);
-        g = Math.max(g, minFloor);
-        b = Math.max(b, minFloor);
-      }
-      
-      // Mix with slight gray (from shader: mix(color, vec3(0.75), 0.04))
+      // Mix with slight gray to prevent pure black (from shader: mix(color, vec3(0.75), 0.04))
       r = r * 0.96 + 0.75 * 0.04;
       g = g * 0.96 + 0.75 * 0.04;
       b = b * 0.96 + 0.75 * 0.04;
@@ -276,7 +261,7 @@ export function lightLevelToUV(lightLevel) {
 
 /**
  * Get lightmap parameters interpolated for a specific time of day
- * Matches Minecraft's day/night lighting cycle
+ * Matches Minecraft's day/night lighting cycle from day.json
  * 
  * @param {number} timeOfDay - 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
  * @returns {Object} Lightmap parameters for generateLightmap()
@@ -303,14 +288,10 @@ export function getLightmapParamsForTime(timeOfDay) {
     b: 1.0,                       // Always 1.0
   };
   
-  // Slightly reduce minimum brightness at night
-  const minimumBrightness = 0.05 + 0.10 * dayBlend; // 0.05 at night, 0.15 at day
-  
   return {
     ...DAYTIME_PARAMS,
     skyFactor,
     skyLightColor,
-    minimumBrightness,
   };
 }
 

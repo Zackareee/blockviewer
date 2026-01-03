@@ -904,6 +904,9 @@ export function RegionViewer({
         stencil: false,    // PERFORMANCE: Disable stencil buffer if not needed
         depth: true,
       }}
+      // Disable Three.js color management - Minecraft works directly in sRGB without gamma correction
+      // This prevents automatic sRGB conversion that would wash out colors
+      flat={true}
       // Always render - demand mode can cause issues with LOD updates
       frameloop="always"
       // Performance settings - more aggressive DPR reduction
