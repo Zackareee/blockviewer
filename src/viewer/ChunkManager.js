@@ -430,6 +430,17 @@ export class ChunkManager {
   }
   
   /**
+   * Set the particle render distance
+   * Particles beyond this distance from the camera are not spawned
+   * @param {number} distance - Distance in chunks
+   */
+  setParticleDistance(distance) {
+    const distanceBlocks = distance * 16;
+    this.particleEmitterManager.setMaxDistance(distanceBlocks);
+    console.log(`[ChunkManager] Particle distance set to ${distance} chunks (${distanceBlocks} blocks)`);
+  }
+  
+  /**
    * Set fog parameters for distance haze (Minecraft-style)
    * @param {Object} fogParams - Fog parameters
    * @param {boolean} fogParams.enabled - Whether fog is enabled

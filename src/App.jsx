@@ -58,6 +58,10 @@ function App() {
   // Detail distance (partial blocks) is tied to this value
   const [renderDistance, setRenderDistance] = useState(8);
   
+  // Particle render distance - particles beyond this distance are not spawned
+  // Value is in chunks (1 chunk = 16 blocks), default 3 chunks = 48 blocks
+  const [particleDistance, setParticleDistance] = useState(3);
+  
   // Distance fog (Minecraft-style haze at render distance)
   const [fogEnabled, setFogEnabled] = useState(true);
   
@@ -409,6 +413,7 @@ function App() {
             fov={fov}
             partialBlockDistance={renderDistance === 0 ? 0 : renderDistance * 16}
             renderDistance={renderDistance}
+            particleDistance={particleDistance}
             fogEnabled={fogEnabled}
             timeOfDay={timeOfDay}
             brightness={brightness}
@@ -650,6 +655,28 @@ function App() {
                 // If slider is at max (65), set to 0 for unlimited
                 setRenderDistance(val > 64 ? 0 : val);
               }}
+              style={{ width: '100%', marginTop: '0.25rem' }}
+            />
+          </div>
+          
+          {/* Particle Distance Control */}
+          <div className="fov-control" style={{ marginTop: '0.75rem' }}>
+            <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="toggle-label">
+                <span className="toggle-icon">✨</span>
+                Particle Distance
+              </span>
+              <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                {particleDistance} chunks
+              </span>
+            </div>
+            <input 
+              type="range"
+              min="1"
+              max="16"
+              step="1"
+              value={particleDistance}
+              onChange={(e) => setParticleDistance(parseInt(e.target.value, 10))}
               style={{ width: '100%', marginTop: '0.25rem' }}
             />
           </div>

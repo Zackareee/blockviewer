@@ -865,8 +865,8 @@ export class ParticleEmitterManager {
     // Map of position key -> EmitterInstance
     this.emitters = new Map();
     
-    // Maximum distance from camera to update emitters
-    this.maxDistance = 64;
+    // Maximum distance from camera to update emitters (default: 3 chunks = 48 blocks)
+    this.maxDistance = 48;
     
     // Camera position for distance culling
     this.cameraX = 0;
