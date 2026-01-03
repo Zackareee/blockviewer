@@ -246,6 +246,10 @@ class ParticleAtlas {
     this.canvas.width = this.atlasWidth;
     this.canvas.height = this.atlasHeight;
     this.ctx = this.canvas.getContext('2d');
+    
+    // CRITICAL: Disable image smoothing for crisp pixel art
+    // Without this, smaller textures (8x8) scaled to larger tiles (16x16) become blurry
+    this.ctx.imageSmoothingEnabled = false;
 
     // Fill with transparent background
     this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
