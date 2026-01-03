@@ -31,6 +31,7 @@ varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
 varying vec2 vLightUV;       // Light UV for lightmap sampling (blockLight/16, skyLight/16)
+varying float vVertexDistance; // Horizontal distance from camera for fog
 
 void main() {
   vColor = color;
@@ -43,6 +44,10 @@ void main() {
   // Pack light values as UV for lightmap sampling
   // UV is (blockLight, skyLight) normalized to 0-1 with 0.5 texel offset for centering
   vLightUV = vec2((blockLight + 0.5) / 16.0, (skyLight + 0.5) / 16.0);
+  
+  // Calculate horizontal distance from camera for fog (like Minecraft's cylindrical fog)
+  vec2 horizDiff = cameraPosition.xz - position.xz;
+  vVertexDistance = length(horizDiff);
   
   // Always compute the proper gl_Position for correct depth
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -67,6 +72,12 @@ uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
 uniform vec2 uBorderUV;          // Border offset in UV space (1px)
+
+// Fog uniforms (like Minecraft)
+uniform vec3 uFogColor;          // Fog/sky color
+uniform float uFogStart;         // Distance where fog starts (in blocks)
+uniform float uFogEnd;           // Distance where fog is fully opaque (in blocks)
+uniform float uFogEnabled;       // 0.0 = no fog, 1.0 = fog enabled
 
 // Tint type constants (must match TINT_TYPE in biomeTinting.js)
 #define TINT_NONE 0
@@ -95,6 +106,20 @@ varying float vTexIndex;
 varying float vTexRotation;
 varying float vTintType;
 varying vec2 vLightUV;
+varying float vVertexDistance; // Horizontal distance from camera for fog
+
+// Minecraft-style linear fog calculation
+float linearFog(float distance, float fogStart, float fogEnd) {
+  if (distance <= fogStart) return 0.0;
+  if (distance >= fogEnd) return 1.0;
+  return (distance - fogStart) / (fogEnd - fogStart);
+}
+
+// Apply fog to a color (like Minecraft's apply_fog)
+vec3 applyFog(vec3 color, float distance, vec3 fogColor, float fogStart, float fogEnd) {
+  float fogValue = linearFog(distance, fogStart, fogEnd);
+  return mix(color, fogColor, fogValue);
+}
 
 // Snap interpolated normal to nearest axis to prevent UV instability at sharp angles
 // This is needed because WebGL 1.0 doesn't support 'flat' interpolation
@@ -384,7 +409,14 @@ void main() {
     lightColor = vec3(faceShade);
   }
   
-  gl_FragColor = vec4(finalColor * lightColor, alpha);
+  vec3 litColor = finalColor * lightColor;
+  
+  // Apply distance fog (like Minecraft's render distance haze)
+  if (uFogEnabled > 0.5) {
+    litColor = applyFog(litColor, vVertexDistance, uFogColor, uFogStart, uFogEnd);
+  }
+  
+  gl_FragColor = vec4(litColor, alpha);
 }
 `;
 
@@ -463,6 +495,12 @@ export function createTexturedMaterial(atlasData = null, useTextures = false, li
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      // Fog uniforms (Minecraft-style distance haze)
+      // Plains biome sky color: #78a7ff = RGB(120, 167, 255)
+      uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
+      uFogStart: { value: 100.0 },  // Start fading at 80% of render distance
+      uFogEnd: { value: 128.0 },    // Fully faded at render distance
+      uFogEnabled: { value: 0.0 },  // Disabled by default
     },
     vertexShader,
     fragmentShader,
@@ -494,6 +532,11 @@ export function createTexturedGlassMaterial(atlasData = null, useTextures = fals
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      // Fog uniforms (Minecraft-style distance haze)
+      uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
+      uFogStart: { value: 100.0 },
+      uFogEnd: { value: 200.0 },
+      uFogEnabled: { value: 0.0 },
     },
     vertexShader,
     fragmentShader,
@@ -583,6 +626,7 @@ varying float vTintType;
 varying float vShadeFlag;
 varying float vSingleSided;
 varying vec2 vLightUV;
+varying float vVertexDistance; // Horizontal distance from camera for fog
 
 void main() {
   vColor = color;
@@ -603,6 +647,7 @@ void main() {
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
     vVisible = 0.0;
+    vVertexDistance = 0.0;
   } else {
     // PERFORMANCE: Distance-based culling for partial blocks
     // Hide partial blocks beyond uMaxDistance from camera (horizontal distance only)
@@ -610,6 +655,9 @@ void main() {
     // Use horizontal distance only (XZ plane) - like Minecraft's chunk-based render distance
     vec2 horizDiff = cameraPosition.xz - worldPos.xz;
     float distToCamera = length(horizDiff);
+    
+    // Store distance for fog calculation
+    vVertexDistance = distToCamera;
     
     if (uMaxDistance > 0.0 && distToCamera > uMaxDistance) {
       // Too far - mark as invisible (fragment shader will discard)
@@ -633,6 +681,12 @@ uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
 uniform vec2 uBorderUV;          // Border offset in UV space (1px)
+
+// Fog uniforms (like Minecraft)
+uniform vec3 uFogColor;          // Fog/sky color
+uniform float uFogStart;         // Distance where fog starts (in blocks)
+uniform float uFogEnd;           // Distance where fog is fully opaque (in blocks)
+uniform float uFogEnabled;       // 0.0 = no fog, 1.0 = fog enabled
 
 // Tint type constants
 #define TINT_NONE 0
@@ -663,6 +717,20 @@ varying float vTexRotation;
 varying float vTintType;
 varying float vShadeFlag;
 varying float vSingleSided;
+varying float vVertexDistance; // Horizontal distance from camera for fog
+
+// Minecraft-style linear fog calculation
+float linearFog(float distance, float fogStart, float fogEnd) {
+  if (distance <= fogStart) return 0.0;
+  if (distance >= fogEnd) return 1.0;
+  return (distance - fogStart) / (fogEnd - fogStart);
+}
+
+// Apply fog to a color
+vec3 applyFog(vec3 color, float distance, vec3 fogColor, float fogStart, float fogEnd) {
+  float fogValue = linearFog(distance, fogStart, fogEnd);
+  return mix(color, fogColor, fogValue);
+}
 
 // Snap normal for face shading
 vec3 snapNormal(vec3 n) {
@@ -822,7 +890,14 @@ void main() {
     lightColor = vec3(faceShade);
   }
   
-  gl_FragColor = vec4(finalColor * lightColor, alpha);
+  vec3 litColor = finalColor * lightColor;
+  
+  // Apply distance fog (like Minecraft's render distance haze)
+  if (uFogEnabled > 0.5) {
+    litColor = applyFog(litColor, vVertexDistance, uFogColor, uFogStart, uFogEnd);
+  }
+  
+  gl_FragColor = vec4(litColor, alpha);
 }
 `;
 
@@ -850,6 +925,11 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      // Fog uniforms (Minecraft-style distance haze)
+      uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
+      uFogStart: { value: 100.0 },
+      uFogEnd: { value: 200.0 },
+      uFogEnabled: { value: 0.0 },
     },
     vertexShader: modelVertexShader,
     fragmentShader: modelFragmentShader,
@@ -887,6 +967,11 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      // Fog uniforms (Minecraft-style distance haze)
+      uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
+      uFogStart: { value: 100.0 },
+      uFogEnd: { value: 200.0 },
+      uFogEnabled: { value: 0.0 },
     },
     vertexShader: modelVertexShader,
     fragmentShader: modelFragmentShader,
@@ -923,6 +1008,11 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      // Fog uniforms (Minecraft-style distance haze)
+      uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
+      uFogStart: { value: 100.0 },
+      uFogEnd: { value: 200.0 },
+      uFogEnabled: { value: 0.0 },
     },
     vertexShader: modelVertexShader,
     fragmentShader: modelFragmentShader,
@@ -959,6 +1049,36 @@ export function setMaterialFastPath(material, enabled) {
   if (material && material.uniforms && material.uniforms.uFastPath) {
     material.uniforms.uFastPath.value = enabled ? 1.0 : 0.0;
     // No needsUpdate required - uniform changes take effect immediately
+  }
+}
+
+/**
+ * Set fog parameters on a material (Minecraft-style distance haze)
+ * @param {THREE.ShaderMaterial} material - The material to update
+ * @param {Object} fogParams - Fog parameters
+ * @param {boolean} fogParams.enabled - Whether fog is enabled
+ * @param {THREE.Color|Array} fogParams.color - Fog color (RGB)
+ * @param {number} fogParams.start - Distance where fog starts (in blocks)
+ * @param {number} fogParams.end - Distance where fog is fully opaque (in blocks)
+ */
+export function setMaterialFog(material, { enabled, color, start, end }) {
+  if (!material || !material.uniforms) return;
+  
+  if (material.uniforms.uFogEnabled !== undefined) {
+    material.uniforms.uFogEnabled.value = enabled ? 1.0 : 0.0;
+  }
+  if (material.uniforms.uFogColor !== undefined && color !== undefined) {
+    if (Array.isArray(color)) {
+      material.uniforms.uFogColor.value.set(color[0], color[1], color[2]);
+    } else if (color.isColor) {
+      material.uniforms.uFogColor.value.set(color.r, color.g, color.b);
+    }
+  }
+  if (material.uniforms.uFogStart !== undefined && start !== undefined) {
+    material.uniforms.uFogStart.value = start;
+  }
+  if (material.uniforms.uFogEnd !== undefined && end !== undefined) {
+    material.uniforms.uFogEnd.value = end;
   }
 }
 

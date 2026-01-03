@@ -1,0 +1,604 @@
+/**
+ * MinecraftSky - Accurate Minecraft sky rendering
+ * 
+ * Components:
+ * 1. Sky Dome - Gradient from horizon to zenith (biome-based color)
+ * 2. Sun - Textured quad that rotates with time
+ * 3. Clouds - Drifting cloud layer at fixed altitude
+ * 
+ * Based on Minecraft source:
+ * - assets/minecraft/textures/environment/celestial/sun.png
+ * - assets/minecraft/textures/environment/clouds.png
+ * - data/minecraft/timeline/day.json (sun_angle, sky_color tracks)
+ * - shaders/core/sky.vsh/fsh
+ * - shaders/core/rendertype_clouds.fsh
+ */
+
+import { useRef, useMemo, useEffect, useState } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
+
+// Paths to Minecraft textures in public folder
+// Using original Minecraft textures for accurate rendering
+const SUN_TEXTURE_PATH = '/textures/sun_original.png';
+const CLOUDS_TEXTURE_PATH = '/textures/clouds_original.png';
+
+// Minecraft sky constants
+const SKY_RADIUS = 1000; // Size of sky dome
+const SUN_DISTANCE = 900; // Distance from camera to sun
+const SUN_SIZE = 60; // Size of sun quad
+
+// Minecraft cloud constants (from rendertype_clouds.vsh)
+const CLOUD_HEIGHT = 192; // Y level for clouds (Minecraft default)
+const CLOUD_CELL_SIZE = 12; // Each cloud "pixel" = 12 blocks in world
+const CLOUD_SPEED = 0.4; // Blocks per second cloud drift (east direction)
+
+// Cloud face colors from Minecraft shader (rendertype_clouds.vsh faceColors array)
+const CLOUD_FACE_COLORS = {
+  bottom: [0.7, 0.7, 0.7],   // Darker underside
+  top: [1.0, 1.0, 1.0],     // Bright top
+  north: [0.8, 0.8, 0.8],   // Side shading
+  south: [0.8, 0.8, 0.8],
+  west: [0.9, 0.9, 0.9],
+  east: [0.9, 0.9, 0.9],
+};
+
+/**
+ * Sky Dome - Large sphere with gradient from horizon to zenith
+ * Uses a custom shader for smooth color blending
+ * Always follows camera so it appears infinite
+ */
+function SkyDome({ skyColor, horizonColor }) {
+  const meshRef = useRef();
+  const { camera } = useThree();
+  
+  const material = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uSkyColor: { value: new THREE.Color(skyColor) },
+        uHorizonColor: { value: new THREE.Color(horizonColor) },
+      },
+      vertexShader: `
+        varying vec3 vLocalPosition;
+        void main() {
+          vLocalPosition = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uSkyColor;
+        uniform vec3 uHorizonColor;
+        varying vec3 vLocalPosition;
+        
+        void main() {
+          // Calculate height factor (0 at horizon, 1 at zenith)
+          vec3 dir = normalize(vLocalPosition);
+          float heightFactor = max(0.0, dir.y);
+          
+          // Smooth gradient with bias towards horizon color near horizon
+          float t = pow(heightFactor, 0.5);
+          
+          vec3 color = mix(uHorizonColor, uSkyColor, t);
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `,
+      side: THREE.BackSide, // Render inside of sphere
+      depthWrite: false,
+    });
+  }, []);
+
+  // Update colors when props change
+  useEffect(() => {
+    material.uniforms.uSkyColor.value.set(skyColor);
+    material.uniforms.uHorizonColor.value.set(horizonColor);
+  }, [material, skyColor, horizonColor]);
+
+  // Follow camera position so sky dome always surrounds the player
+  useFrame(() => {
+    if (meshRef.current) {
+      meshRef.current.position.copy(camera.position);
+    }
+  });
+
+  return (
+    <mesh ref={meshRef} material={material} renderOrder={-1000}>
+      <sphereGeometry args={[SKY_RADIUS, 32, 32]} />
+    </mesh>
+  );
+}
+
+/**
+ * Sun - Textured quad that follows camera and rotates with time
+ * In Minecraft, sun rises in the east and sets in the west
+ * 
+ * Based on Minecraft's rendering:
+ * - Uses position_tex shader (simple textured quad)
+ * - Standard alpha blending with discard for alpha=0
+ * - ColorModulator applied (white for sun)
+ * - 32x32 pixel texture with nearest-neighbor filtering
+ */
+function Sun({ timeOfDay = 0.25 }) {
+  const meshRef = useRef();
+  const { camera } = useThree();
+  const [texture, setTexture] = useState(null);
+
+  // Load the actual Minecraft sun texture
+  useEffect(() => {
+    const loader = new THREE.TextureLoader();
+    loader.load(SUN_TEXTURE_PATH, (tex) => {
+      // Use linear filtering for smooth glow effect
+      tex.magFilter = THREE.LinearFilter;
+      tex.minFilter = THREE.LinearFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      setTexture(tex);
+    }, undefined, (err) => {
+      console.warn('[MinecraftSky] Failed to load sun texture, using fallback:', err);
+      setTexture(createFallbackSunTexture());
+    });
+  }, []);
+
+  // Create sun material with additive blending for glow effect
+  // With additive blending, transparent (black) areas add nothing to the scene
+  // This allows the semi-transparent glow region of the sun texture to show
+  const material = useMemo(() => {
+    if (!texture) return null;
+    
+    return new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,  // Black+transparent adds nothing, glow shows
+    });
+  }, [texture]);
+
+  useFrame(() => {
+    if (!meshRef.current) return;
+
+    // Calculate sun position based on time of day
+    // timeOfDay: 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
+    // Minecraft uses 24000 ticks per day, with noon at tick 6000
+    // Convert to angle: noon (0.5 in our system) = sun at zenith
+    const angle = (timeOfDay - 0.25) * Math.PI * 2;
+
+    // Sun rotates around X axis (east-west arc)
+    const sunX = camera.position.x;
+    const sunY = camera.position.y + Math.sin(angle) * SUN_DISTANCE;
+    const sunZ = camera.position.z - Math.cos(angle) * SUN_DISTANCE;
+
+    meshRef.current.position.set(sunX, sunY, sunZ);
+
+    // Always face camera
+    meshRef.current.lookAt(camera.position);
+  });
+
+  // Hide sun when below horizon (night time)
+  const sunAngle = (timeOfDay - 0.25) * Math.PI * 2;
+  const isVisible = Math.sin(sunAngle) > -0.1; // Slight buffer for sunrise/sunset
+
+  if (!isVisible || !material) return null;
+
+  return (
+    <mesh ref={meshRef} material={material} renderOrder={-999}>
+      <planeGeometry args={[SUN_SIZE, SUN_SIZE]} />
+    </mesh>
+  );
+}
+
+/**
+ * Clouds - Minecraft-accurate 3D volumetric cloud rendering
+ * 
+ * Based on Minecraft's rendertype_clouds shader:
+ * - clouds.png is a 256x256 1-bit grayscale texture (binary cloud/no-cloud)
+ * - Each pixel represents a 12x12x4 block cell in world space (12 wide, 4 tall)
+ * - Minecraft renders clouds as 3D voxels with different face shading:
+ *   - Top face: 1.0 (brightest)
+ *   - Bottom face: 0.7 (darkest)
+ *   - North/South: 0.8
+ *   - East/West: 0.9
+ * - Clouds fade with distance using linear_fog_value(distance, 0, FogCloudsEnd)
+ * - Clouds drift slowly eastward
+ */
+function Clouds({ opacity = 0.8, fogEnd = 800 }) {
+  const groupRef = useRef();
+  const { camera } = useThree();
+  const offsetRef = useRef(0);
+  const [cloudMap, setCloudMap] = useState(null);
+
+  // Load and parse the cloud texture into a binary map
+  useEffect(() => {
+    let mounted = true;
+    let loaded = false;
+    
+    // Set fallback after a short timeout if texture doesn't load
+    const fallbackTimer = setTimeout(() => {
+      if (mounted && !loaded) {
+        console.log('[MinecraftSky] Using fallback cloud map (timeout)');
+        setCloudMap(createFallbackCloudMap());
+      }
+    }, 500);
+    
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      clearTimeout(fallbackTimer);
+      loaded = true;
+      if (!mounted) return;
+      
+      console.log('[MinecraftSky] Cloud image loaded:', img.width, 'x', img.height);
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      
+      // Fill with black first (no clouds)
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, 256, 256);
+      
+      // Draw the image
+      ctx.drawImage(img, 0, 0, 256, 256);
+      const imageData = ctx.getImageData(0, 0, 256, 256);
+      
+      // Create binary cloud map (true = cloud, false = no cloud)
+      const map = new Array(256 * 256);
+      let cloudCount = 0;
+      for (let i = 0; i < 256 * 256; i++) {
+        const r = imageData.data[i * 4];
+        map[i] = r > 128;
+        if (map[i]) cloudCount++;
+      }
+      
+      console.log('[MinecraftSky] Cloud map:', cloudCount, 'cells');
+      setCloudMap(cloudCount > 0 ? map : createFallbackCloudMap());
+    };
+    
+    img.onerror = () => {
+      clearTimeout(fallbackTimer);
+      loaded = true;
+      if (!mounted) return;
+      console.warn('[MinecraftSky] Cloud texture failed, using fallback');
+      setCloudMap(createFallbackCloudMap());
+    };
+    
+    img.src = CLOUDS_TEXTURE_PATH;
+    
+    return () => {
+      mounted = false;
+      clearTimeout(fallbackTimer);
+    };
+  }, []);
+
+  // Build 3D cloud geometry with face-specific vertex colors
+  const { geometry, material } = useMemo(() => {
+    if (!cloudMap) return { geometry: null, material: null };
+
+    // Generate full 256x256 cloud tile (the pattern repeats every 256 cells = 3072 blocks)
+    // This ensures complete coverage of the tiling pattern
+    const MAP_SIZE = 256;
+    const cellWidth = CLOUD_CELL_SIZE; // 12 blocks
+    const cellHeight = 4; // 4 blocks tall
+    
+    const positions = [];
+    const colors = [];
+    const indices = [];
+    let vertexIndex = 0;
+    
+    // Helper to check if cloud exists (with wrapping)
+    const hasCloud = (x, z) => {
+      const wx = ((x % 256) + 256) % 256;
+      const wz = ((z % 256) + 256) % 256;
+      return cloudMap[wz * 256 + wx];
+    };
+    
+    // Add a face with vertex colors
+    // Vertices should be in counter-clockwise order when viewed from outside
+    const addFace = (verts, brightness) => {
+      for (const v of verts) {
+        positions.push(...v);
+        colors.push(...brightness);
+      }
+      // Standard CCW triangulation: [0,1,2] and [0,2,3]
+      indices.push(
+        vertexIndex, vertexIndex + 1, vertexIndex + 2,
+        vertexIndex, vertexIndex + 2, vertexIndex + 3
+      );
+      vertexIndex += 4;
+    };
+    
+    // Generate cloud cells for the full 256x256 tile
+    // Centered on origin so clouds span -1536 to +1536 in X and Z
+    const HALF = MAP_SIZE / 2; // 128
+    for (let cz = -HALF; cz < HALF; cz++) {
+      for (let cx = -HALF; cx < HALF; cx++) {
+        if (!hasCloud(cx, cz)) continue;
+        
+        const x0 = cx * cellWidth;
+        const x1 = x0 + cellWidth;
+        const y0 = 0;
+        const y1 = cellHeight;
+        const z0 = cz * cellWidth;
+        const z1 = z0 + cellWidth;
+        
+        // Top face (+Y) - CCW when viewed from above
+        addFace([
+          [x0, y1, z0],
+          [x0, y1, z1],
+          [x1, y1, z1],
+          [x1, y1, z0]
+        ], CLOUD_FACE_COLORS.top);
+        
+        // Bottom face (-Y) - CCW when viewed from below
+        addFace([
+          [x0, y0, z1],
+          [x0, y0, z0],
+          [x1, y0, z0],
+          [x1, y0, z1]
+        ], CLOUD_FACE_COLORS.bottom);
+        
+        // North face (-Z) - CCW when viewed from -Z
+        if (!hasCloud(cx, cz - 1)) {
+          addFace([
+            [x1, y0, z0],
+            [x0, y0, z0],
+            [x0, y1, z0],
+            [x1, y1, z0]
+          ], CLOUD_FACE_COLORS.north);
+        }
+        
+        // South face (+Z) - CCW when viewed from +Z
+        if (!hasCloud(cx, cz + 1)) {
+          addFace([
+            [x0, y0, z1],
+            [x1, y0, z1],
+            [x1, y1, z1],
+            [x0, y1, z1]
+          ], CLOUD_FACE_COLORS.south);
+        }
+        
+        // West face (-X) - CCW when viewed from -X
+        if (!hasCloud(cx - 1, cz)) {
+          addFace([
+            [x0, y0, z0],
+            [x0, y0, z1],
+            [x0, y1, z1],
+            [x0, y1, z0]
+          ], CLOUD_FACE_COLORS.west);
+        }
+        
+        // East face (+X) - CCW when viewed from +X
+        if (!hasCloud(cx + 1, cz)) {
+          addFace([
+            [x1, y0, z1],
+            [x1, y0, z0],
+            [x1, y1, z0],
+            [x1, y1, z1]
+          ], CLOUD_FACE_COLORS.east);
+        }
+      }
+    }
+    
+    console.log('[MinecraftSky] Cloud geometry: vertices=', positions.length / 3, 
+                'triangles=', indices.length / 3, 'colors=', colors.length / 3);
+    
+    if (positions.length === 0) {
+      console.warn('[MinecraftSky] No cloud geometry generated!');
+      return { geometry: null, material: null };
+    }
+    
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geom.setIndex(indices);
+    
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uCloudColor: { value: new THREE.Vector3(1.0, 1.0, 1.0) },
+        uCameraPos: { value: new THREE.Vector3(0, 0, 0) },
+        uFogCloudsEnd: { value: fogEnd },
+        uSkyColor: { value: new THREE.Vector3(0.47, 0.65, 1.0) }, // Sky color to fade into
+        uOpacity: { value: opacity },
+      },
+      vertexShader: `
+        // 'color' attribute is auto-injected by Three.js when vertexColors: true
+        varying vec3 vColor;
+        varying vec3 vWorldPos;
+        
+        void main() {
+          vColor = color;
+          vec4 worldPos = modelMatrix * vec4(position, 1.0);
+          vWorldPos = worldPos.xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uCloudColor;
+        uniform vec3 uCameraPos;
+        uniform float uFogCloudsEnd;
+        uniform vec3 uSkyColor;
+        uniform float uOpacity;
+        
+        varying vec3 vColor;
+        varying vec3 vWorldPos;
+        
+        float linearFogValue(float dist, float fogStart, float fogEnd) {
+          if (dist <= fogStart) return 0.0;
+          if (dist >= fogEnd) return 1.0;
+          return (dist - fogStart) / (fogEnd - fogStart);
+        }
+        
+        void main() {
+          float dist = length(vWorldPos - uCameraPos);
+          float fogValue = linearFogValue(dist, 0.0, uFogCloudsEnd);
+          
+          // Cloud base color with face shading
+          vec3 cloudColor = vColor * uCloudColor;
+          
+          // Blend towards sky color with distance (like Minecraft fog)
+          vec3 finalColor = mix(cloudColor, uSkyColor, fogValue);
+          
+          // Output as opaque - fog blends to sky, not transparent
+          gl_FragColor = vec4(finalColor, uOpacity);
+        }
+      `,
+      transparent: true,
+      depthWrite: true,  // Enable depth writing for proper face occlusion
+      depthTest: true,
+      side: THREE.FrontSide,
+      vertexColors: true,
+    });
+    
+    return { geometry: geom, material: mat };
+  }, [cloudMap, opacity, fogEnd]);
+
+  // Animate cloud drift - fixed world position with slow eastward drift
+  useFrame((_, delta) => {
+    if (!groupRef.current || !material) return;
+
+    // Slow eastward drift (positive X direction)
+    offsetRef.current += delta * CLOUD_SPEED;
+    
+    // Clouds stay fixed at world origin, only drift affects X position
+    // The cloud pattern is fixed in world space - cell at world (x, z) 
+    // always shows the same cloud pattern
+    groupRef.current.position.set(
+      offsetRef.current,
+      CLOUD_HEIGHT,
+      0
+    );
+
+    material.uniforms.uCameraPos.value.set(
+      camera.position.x,
+      camera.position.y,
+      camera.position.z
+    );
+  });
+
+  if (!geometry || !material) return null;
+
+  return (
+    <group ref={groupRef}>
+      <mesh geometry={geometry} material={material} renderOrder={-998} />
+    </group>
+  );
+}
+
+/**
+ * Creates a fallback binary cloud map (256x256 array of booleans)
+ */
+function createFallbackCloudMap() {
+  const map = new Array(256 * 256);
+  let cloudCount = 0;
+  
+  const noise = (x, y, scale) => {
+    const nx = Math.floor(x / scale);
+    const ny = Math.floor(y / scale);
+    const n = Math.sin(nx * 12.9898 + ny * 78.233) * 43758.5453;
+    return n - Math.floor(n);
+  };
+  
+  for (let z = 0; z < 256; z++) {
+    for (let x = 0; x < 256; x++) {
+      const n1 = noise(x, z, 8);
+      const n2 = noise(x, z, 16) * 0.5;
+      const n3 = noise(x, z, 32) * 0.25;
+      const value = (n1 + n2 + n3) / 1.75;
+      // Lower threshold for more clouds (0.4 instead of 0.5)
+      map[z * 256 + x] = value > 0.4;
+      if (map[z * 256 + x]) cloudCount++;
+    }
+  }
+  
+  console.log('[MinecraftSky] Fallback cloud map generated:', cloudCount, 'cells');
+  return map;
+}
+
+/**
+ * Fallback textures when actual textures aren't available
+ * 
+ * Minecraft's sun.png is a 32x32 image with:
+ * - A bright yellow/white center core
+ * - A semi-transparent glow region around it
+ */
+function createFallbackSunTexture() {
+  const size = 32; // Minecraft sun is 32x32
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  
+  // Clear to transparent
+  ctx.clearRect(0, 0, size, size);
+
+  // Create radial gradient for sun with glow
+  const centerX = size / 2;
+  const centerY = size / 2;
+  const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, size / 2);
+  
+  // Bright white/yellow center
+  gradient.addColorStop(0, 'rgba(255, 255, 240, 1.0)');    // Bright center
+  gradient.addColorStop(0.3, 'rgba(255, 255, 200, 1.0)');  // Yellow core
+  gradient.addColorStop(0.5, 'rgba(255, 245, 150, 0.8)');  // Glow start
+  gradient.addColorStop(0.7, 'rgba(255, 230, 100, 0.4)');  // Outer glow
+  gradient.addColorStop(1.0, 'rgba(255, 200, 50, 0.0)');   // Fade to transparent
+  
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.LinearFilter;  // Smooth for glow
+  texture.minFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+
+/**
+ * Main MinecraftSky component
+ * 
+ * Props:
+ * - enabled: Whether to render sky elements (default: true)
+ * - timeOfDay: Time of day from 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
+ * - skyColor: Primary sky color (default: Minecraft plains #78a7ff)
+ * - horizonColor: Horizon color for gradient (default: lighter blue)
+ * - cloudOpacity: Cloud opacity 0-1 (default: 0.8)
+ */
+export function MinecraftSky({
+  enabled = true,
+  timeOfDay = 0.35, // Default to mid-morning (pleasant lighting)
+  skyColor = '#78a7ff',
+  horizonColor = '#c8d8ff',
+  cloudOpacity = 0.8,
+}) {
+  const { scene } = useThree();
+
+  // Set scene background to null so our sky dome is visible
+  useEffect(() => {
+    if (enabled) {
+      scene.background = null;
+    }
+    return () => {
+      // Restore background if disabled
+      scene.background = new THREE.Color(skyColor);
+    };
+  }, [enabled, scene, skyColor]);
+
+  if (!enabled) return null;
+
+  return (
+    <group name="minecraft-sky">
+      {/* Sky dome with gradient */}
+      <SkyDome skyColor={skyColor} horizonColor={horizonColor} />
+
+      {/* Sun - loads actual Minecraft texture */}
+      <Sun timeOfDay={timeOfDay} />
+
+      {/* Clouds - loads actual Minecraft texture */}
+      <Clouds opacity={cloudOpacity} />
+    </group>
+  );
+}
+
+export default MinecraftSky;
+

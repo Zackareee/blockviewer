@@ -105,9 +105,11 @@ uniform float uUseTextures;
 uniform float uUseTinting;
 uniform float uUseLighting;
 
-// Atlas info
+// Atlas info - matching TexturedMaterial format
 uniform float uTilesPerRow;
-uniform float uTileSize;
+uniform float uTileFullSize;  // Full tile size in UV (includes border)
+uniform float uTextureSize;   // Usable texture size in UV (16px)
+uniform float uBorderSize;    // Border offset in UV (1px)
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -118,14 +120,20 @@ varying vec2 vLightUV;
 varying float vVisible;
 
 vec3 getBiomeTint(int tintType) {
-  // Sample from colormap based on tint type
-  // Colormap is 256x256, we sample from specific regions
+  // Sample from colormap for biome-tinted blocks
+  // Use plains biome coords: temp=0.8, downfall=0.4
+  float temp = 0.8;
+  float downfall = 0.4;
+  float adjustedDownfall = downfall * temp;
+  float u = 1.0 - temp;
+  float v = 1.0 - adjustedDownfall;
+  
   if (tintType == 1) {
-    // Grass tint - sample from grass colormap region
-    return texture2D(uColormap, vec2(0.5, 0.5)).rgb;
+    // Grass tint - top half of colormap
+    return texture2D(uColormap, vec2(u, v * 0.5)).rgb;
   } else if (tintType == 2) {
-    // Foliage tint
-    return texture2D(uColormap, vec2(0.5, 0.5)).rgb;
+    // Foliage tint - bottom half of colormap
+    return texture2D(uColormap, vec2(u, 0.5 + v * 0.5)).rgb;
   }
   return vec3(1.0);
 }
@@ -137,13 +145,14 @@ void main() {
   float alpha = 1.0;
   
   if (uUseTextures > 0.5) {
-    // Calculate atlas UV
+    // Calculate atlas UV with proper border handling
     float tileIndex = floor(vTexIndex + 0.5);
-    float tileY = floor(tileIndex / uTilesPerRow);
-    float tileX = tileIndex - tileY * uTilesPerRow;
+    float col = mod(tileIndex, uTilesPerRow);
+    float row = floor(tileIndex / uTilesPerRow);
     
-    vec2 tileOrigin = vec2(tileX, tileY) * uTileSize;
-    vec2 atlasUV = tileOrigin + vModelUV * uTileSize;
+    // Calculate atlas UV: offset to tile + border + UV within texture
+    vec2 atlasOffset = vec2(col, row) * uTileFullSize;
+    vec2 atlasUV = atlasOffset + uBorderSize + vModelUV * uTextureSize;
     
     vec4 texColor = texture2D(uAtlas, atlasUV);
     
@@ -152,7 +161,10 @@ void main() {
     
     // Apply biome tinting
     int tintType = int(vTintType + 0.5);
-    vec3 tintColor = getBiomeTint(tintType);
+    vec3 tintColor = vec3(1.0);
+    if (uUseTinting > 0.5 && tintType > 0) {
+      tintColor = getBiomeTint(tintType);
+    }
     
     finalColor = texColor.rgb * tintColor;
     alpha = texColor.a;
@@ -174,10 +186,16 @@ void main() {
  * Create an instanced material for cross-pattern blocks
  */
 export function createInstancedModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
+  // Extract atlas data - match the format used by TexturedMaterial
   const atlas = atlasData?.atlas || null;
   const colormap = atlasData?.colormap || null;
+  
+  // Calculate UV sizes matching TexturedMaterial's getAtlasUniforms
   const tilesPerRow = atlasData?.tilesPerRow || 32;
-  const tileSize = atlasData?.tileSize || (1 / tilesPerRow);
+  const atlasWidth = atlasData?.atlasWidth || (tilesPerRow * 18); // 16px + 2px border
+  const tileFullSize = 18 / atlasWidth; // Full tile size in UV (includes 1px border each side)
+  const textureSize = 16 / atlasWidth; // Usable texture size in UV
+  const borderSize = 1 / atlasWidth; // Border offset in UV
   
   const defaultTexture = new THREE.DataTexture(
     new Uint8Array([255, 255, 255, 255]),
@@ -198,7 +216,9 @@ export function createInstancedModelMaterial(atlasData = null, useTextures = fal
       uUseTinting: { value: colormap ? 1.0 : 0.0 },
       uUseLighting: { value: lightmap ? 1.0 : 0.0 },
       uTilesPerRow: { value: tilesPerRow },
-      uTileSize: { value: tileSize },
+      uTileFullSize: { value: tileFullSize },
+      uTextureSize: { value: textureSize },
+      uBorderSize: { value: borderSize },
     },
     vertexShader: instancedVertexShader,
     fragmentShader: instancedFragmentShader,

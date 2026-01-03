@@ -57,6 +57,12 @@ function App() {
   // 0 = unlimited (show all chunks), value is in chunks (1 chunk = 16 blocks)
   const [renderDistance, setRenderDistance] = useState(8);
   
+  // Distance fog (Minecraft-style haze at render distance)
+  const [fogEnabled, setFogEnabled] = useState(true);
+  
+  // Time of day (0-1: 0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
+  const [timeOfDay, setTimeOfDay] = useState(0.35); // Default to mid-morning
+  
   // Camera state for coordinates display (Minecraft spectator mode)
   const [cameraState, setCameraState] = useState({
     x: 0, y: 100, z: 0,
@@ -384,6 +390,8 @@ function App() {
             fov={fov}
             partialBlockDistance={partialBlockDistance === 0 ? 0 : partialBlockDistance * 16}
             renderDistance={renderDistance}
+            fogEnabled={fogEnabled}
+            timeOfDay={timeOfDay}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -715,6 +723,55 @@ function App() {
             />
             <span className="toggle-hint">
               Chunks beyond this are hidden until you move closer (3-64, max = unlimited)
+            </span>
+          </div>
+          
+          {/* Distance Fog Toggle */}
+          <div className="toggle-item" style={{ marginTop: '0.75rem' }}>
+            <label className="toggle-label">
+              <input
+                type="checkbox"
+                checked={fogEnabled}
+                onChange={(e) => setFogEnabled(e.target.checked)}
+              />
+              <span className="toggle-icon">🌫️</span>
+              Distance Fog
+            </label>
+            <span className="toggle-hint">
+              Minecraft-style haze at render distance edge
+            </span>
+          </div>
+          
+          {/* Time of Day Control */}
+          <div className="fov-control" style={{ marginTop: '0.75rem' }}>
+            <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="toggle-label">
+                <span className="toggle-icon">☀️</span>
+                Time of Day
+              </span>
+              <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                {(() => {
+                  // Convert 0-1 to Minecraft time (0=midnight, 6000=noon, 12000=sunset, 18000=midnight)
+                  // Our timeOfDay: 0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset
+                  const hours = Math.floor(timeOfDay * 24);
+                  const mins = Math.floor((timeOfDay * 24 - hours) * 60);
+                  // Map to 6am = sunrise (0.25), noon = 0.5, 6pm = 0.75, midnight = 0
+                  const displayHour = (hours + 6) % 24;
+                  return `${displayHour.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                })()}
+              </span>
+            </div>
+            <input 
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={timeOfDay}
+              onChange={(e) => setTimeOfDay(parseFloat(e.target.value))}
+              style={{ width: '100%', marginTop: '0.25rem' }}
+            />
+            <span className="toggle-hint">
+              Controls sun position and sky appearance
             </span>
           </div>
         </section>

@@ -16,6 +16,7 @@ import { AdaptiveDpr, PerformanceMonitor } from '@react-three/drei';
 import { SpectatorControls } from './SpectatorControls';
 import { ChunkManager } from './ChunkManager';
 import { getBlockNameFromColor } from '../data/blockColors';
+import { MinecraftSky } from './MinecraftSky';
 import * as THREE from 'three';
 
 /**
@@ -59,6 +60,39 @@ function DynamicFOV({ fov }) {
       invalidate();
     }
   }, [camera, fov, invalidate]);
+  
+  return null;
+}
+
+/**
+ * Dynamic fog setup - configures Three.js fog to match render distance
+ * The actual sky rendering is handled by MinecraftSky component
+ * 
+ * Minecraft plains biome sky color: #78a7ff (from worldgen/biome/plains.json)
+ * RGB: (120, 167, 255) -> normalized: (0.471, 0.655, 1.0)
+ */
+function DynamicFog({ fogEnabled, renderDistance }) {
+  const { scene, invalidate } = useThree();
+  
+  useEffect(() => {
+    // Minecraft plains biome sky color: #78a7ff
+    const skyColor = new THREE.Color(0x78a7ff);
+    
+    // Calculate fog distances based on render distance
+    // Minecraft fog starts at ~80% of render distance and ends at render distance
+    const renderDistanceBlocks = renderDistance === 0 ? 256 : renderDistance * 16;
+    const fogStart = renderDistanceBlocks * 0.8;
+    const fogEnd = renderDistanceBlocks;
+    
+    // Set Three.js scene fog (as backup, but our shader fog is primary)
+    if (fogEnabled) {
+      scene.fog = new THREE.Fog(skyColor, fogStart, fogEnd);
+    } else {
+      scene.fog = null;
+    }
+    
+    invalidate();
+  }, [scene, fogEnabled, renderDistance, invalidate]);
   
   return null;
 }
@@ -382,6 +416,8 @@ function RegionScene({
   initialCameraPosition,
   partialBlockDistance = 48, // Render distance for partial blocks (grass, flowers, slabs, etc.)
   renderDistance = 0, // Chunk render distance (0 = unlimited)
+  fogEnabled = true, // Distance fog (Minecraft-style haze)
+  timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -456,6 +492,30 @@ function RegionScene({
       invalidate();
     }
   }, [renderDistance, invalidate]);
+  
+  // Update fog when fogEnabled or renderDistance changes
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.setFog) {
+      // Calculate fog distances based on render distance
+      // Minecraft fog starts at ~80% of render distance and ends at render distance
+      const renderDistanceBlocks = renderDistance === 0 ? 256 : renderDistance * 16;
+      const fogStart = renderDistanceBlocks * 0.8;
+      const fogEnd = renderDistanceBlocks;
+      
+      // Minecraft plains biome sky color: #78a7ff
+      // RGB(120, 167, 255) -> normalized (0.471, 0.655, 1.0)
+      const skyColor = [120/255, 167/255, 255/255]; // #78a7ff
+      
+      manager.setFog({
+        enabled: fogEnabled,
+        color: skyColor,
+        start: fogStart,
+        end: fogEnd,
+      });
+      invalidate();
+    }
+  }, [fogEnabled, renderDistance, invalidate]);
   
   // Load single region chunks
   // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
@@ -674,6 +734,15 @@ function RegionScene({
   
   return (
     <>
+      {/* Minecraft sky with sun, clouds, and gradient dome */}
+      <MinecraftSky 
+        enabled={fogEnabled}
+        timeOfDay={timeOfDay}
+        skyColor="#78a7ff"
+        horizonColor="#c8d8ff"
+        cloudOpacity={0.8}
+      />
+      
       <SpectatorControls 
         ref={spectatorRef}
         initialPosition={cameraPositionRef.current}
@@ -736,6 +805,8 @@ export function RegionViewer({
   fov = 60,  // Vertical FOV in degrees (Minecraft also uses vertical FOV internally)
   partialBlockDistance = 48, // Render distance for partial blocks (0 = unlimited)
   renderDistance = 0, // Chunk render distance in blocks (0 = unlimited)
+  fogEnabled = true, // Distance fog (Minecraft-style haze)
+  timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -762,9 +833,8 @@ export function RegionViewer({
       dpr={[0.5, 1.0]} // PERFORMANCE: Cap at 1.0 instead of 1.5 - reduces fill rate significantly
       performance={{ min: 0.3 }} // Allow more aggressive quality reduction
     >
-      <color attach="background" args={['#1a1a2e']} />
-      {/* PERFORMANCE: Fog now matches reduced far plane - hides pop-in */}
-      <fog attach="fog" args={['#1a1a2e', 500, 2400]} />
+      {/* Dynamic fog - matches fog to render distance (like Minecraft) */}
+      <DynamicFog fogEnabled={fogEnabled} renderDistance={renderDistance} />
       
       {/* Dynamic FOV updater - responds to prop changes */}
       <DynamicFOV fov={fov} />
@@ -790,6 +860,8 @@ export function RegionViewer({
         textureAtlas={textureAtlas}
         partialBlockDistance={partialBlockDistance}
         renderDistance={renderDistance}
+        fogEnabled={fogEnabled}
+        timeOfDay={timeOfDay}
       />
     </Canvas>
   );

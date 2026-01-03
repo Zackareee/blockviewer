@@ -13,6 +13,38 @@ import { BlockCategory } from './BlockRegistry.js';
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
 import { buildTintTypeLookup } from '../data/biomeTinting.js';
 
+// ============================================================================
+// GPU INSTANCING SUPPORT
+// Blocks that should use GPU instancing when they have many instances
+// These are simple cross-pattern blocks with identical geometry
+// ============================================================================
+
+// Minimum instance count to trigger instancing (below this, use regular geometry)
+const INSTANCING_THRESHOLD = 50;
+
+// Blocks eligible for GPU instancing (simple cross-pattern blocks)
+// These have identical geometry regardless of state properties
+const INSTANCEABLE_BLOCKS = new Set([
+  // Grass and ferns (most common - huge performance gain)
+  'short_grass', 'tall_grass', 'fern', 'large_fern',
+  // Nether vegetation
+  'nether_sprouts', 'crimson_roots', 'warped_roots',
+  // Flowers
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower', 'eyeblossom',
+  // Dead plants
+  'dead_bush',
+  // Saplings
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
+  // Cave plants
+  'hanging_roots',
+  // Mushrooms (small)
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+]);
+
 // Map face name to face index constant
 const FACE_NAME_TO_INDEX = {
   'up': FACE_UP,
@@ -313,7 +345,21 @@ const INITIAL_VERTEX_COUNT = 200000;
  * @returns {Object} Mesh data {positions, normals, colors, indices, texIndices, skyLight, blockLight}
  */
 export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
-  const { textureIndexLookup = null, lodLevel = 0, lightGrid = null } = options;
+  const { 
+    textureIndexLookup = null, 
+    lodLevel = 0, 
+    lightGrid = null, 
+    skipStateIds = null,
+    // CPU-side distance culling - skip generating geometry for blocks beyond this distance
+    // Set to 0 to disable (default behavior for LOD0)
+    cpuCullDistance = 0,
+    // Reference point for distance culling (world coordinates)
+    cpuCullCenter = null,
+  } = options;
+  
+  // Pre-compute squared distance for faster comparison (avoid sqrt)
+  const cpuCullDistanceSq = cpuCullDistance > 0 ? cpuCullDistance * cpuCullDistance : 0;
+  const doCpuCull = cpuCullDistanceSq > 0 && cpuCullCenter !== null;
   
   // Select skip patterns based on LOD level
   let skipPatterns = null;
@@ -581,6 +627,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     for (let i = 0; i < 4096; i++) {
       const stateId = stateSection[i];
       if (stateId === 0) continue;
+      
+      // Skip states that are being handled by instancing
+      if (skipStateIds && skipStateIds.has(stateId)) continue;
 
       // Fast array lookup instead of Map lookup
       const geometries = stateGeometries[stateId];
@@ -600,6 +649,16 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       const wx = baseX + lx - ox;
       const wy = baseY + ly - oy;
       const wz = baseZ + lz - oz;
+      
+      // CPU-side distance culling - skip geometry generation for far blocks
+      // This is a major performance win: we avoid generating vertices that would just be discarded in shader
+      if (doCpuCull) {
+        const dx = wx - cpuCullCenter.x;
+        const dy = wy - cpuCullCenter.y;
+        const dz = wz - cpuCullCenter.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        if (distSq > cpuCullDistanceSq) continue;
+      }
 
       // Get block color
       const r = colorR[blockId];
@@ -1526,8 +1585,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             indexCount += 6;
             
             // For cross-model plants (shade: false), emit backface with reversed winding
-            // This allows using FrontSide material which is much faster than DoubleSide
-            // Only cross-model elements need backfaces - opaque blocks like slabs/stairs don't
+            // These blocks need to be visible from both sides
             if (!cullInfo.singleSided && cullInfo.shade === false) {
               // Ensure capacity for backface indices
               if (indexCount + 6 > indices.length) {
@@ -1650,6 +1708,229 @@ export function buildModelMeshesWithLOD(grid, stateGrid, registry, stateRegistry
   const lod3 = buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset, { ...options, lodLevel: 3 });
   
   return { lod0, lod1, lod2, lod3 };
+}
+
+/**
+ * Build model meshes with GPU instancing for repeated blocks
+ * 
+ * This is an optimized version that uses GPU instancing for blocks that appear
+ * many times with the same geometry (grass, flowers, etc.). This dramatically
+ * reduces vertex count and draw calls.
+ * 
+ * @param {BinaryGrid} grid - Block data
+ * @param {BlockStateGrid} stateGrid - State IDs for non-cube blocks
+ * @param {BlockRegistry} registry - Block type info
+ * @param {StateRegistry} stateRegistry - State to geometry mapping
+ * @param {Object} offset - World offset {x, y, z}
+ * @param {Object} options - Optional parameters
+ * @returns {Object} { opaque, transparent, overlay, instances }
+ */
+export function buildModelMeshesWithInstancing(grid, stateGrid, registry, stateRegistry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
+  const { 
+    textureIndexLookup = null, 
+    lodLevel = 0, 
+    lightGrid = null,
+    cpuCullDistance = 0,
+    cpuCullCenter = null,
+  } = options;
+  
+  // TEMPORARY: Disable instancing until it's fully debugged
+  // Just use regular mesh generation for all blocks
+  const DISABLE_INSTANCING = true;
+  if (DISABLE_INSTANCING) {
+    const regularMeshes = buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset, options);
+    return {
+      ...(regularMeshes || {}),
+      instances: null,
+    };
+  }
+  
+  // Pre-compute squared distance for faster comparison
+  const cpuCullDistanceSq = cpuCullDistance > 0 ? cpuCullDistance * cpuCullDistance : 0;
+  const doCpuCull = cpuCullDistanceSq > 0 && cpuCullCenter !== null;
+  
+  // First pass: Count instances per block type to decide which to instance
+  const instanceCounts = new Map(); // stateId -> count
+  const instanceableStates = new Set(); // stateIds that should use instancing
+  
+  // Collect unique state IDs and count them
+  for (const [, stateSection] of stateGrid.sections) {
+    for (let i = 0; i < 4096; i++) {
+      const stateId = stateSection[i];
+      if (stateId === 0) continue;
+      
+      const state = stateRegistry.getState(stateId);
+      if (!state) continue;
+      
+      const blockName = state.blockName;
+      
+      // Only count instanceable blocks
+      if (INSTANCEABLE_BLOCKS.has(blockName)) {
+        instanceCounts.set(stateId, (instanceCounts.get(stateId) || 0) + 1);
+      }
+    }
+  }
+  
+  // Mark states that have enough instances to benefit from instancing
+  for (const [stateId, count] of instanceCounts) {
+    if (count >= INSTANCING_THRESHOLD) {
+      instanceableStates.add(stateId);
+    }
+  }
+  
+  // Second pass: Collect instance data for instanceable blocks
+  // Instance data: { stateId -> { positions, rotations, tintTypes, lights, blockName, texIndex } }
+  const instanceData = new Map();
+  
+  // Initialize instance data for each instanceable state
+  for (const stateId of instanceableStates) {
+    const count = instanceCounts.get(stateId);
+    const state = stateRegistry.getState(stateId);
+    
+    // Get texture index for this block
+    // Cross-pattern blocks use 'faces' (non-cullable), not 'cullFaces'
+    let texIndex = 0;
+    if (textureIndexLookup) {
+      const geometries = stateRegistry.getGeometrySync(stateId);
+      if (geometries && geometries.length > 0) {
+        const geom = geometries[0];
+        // Try faces first (cross-pattern blocks), then cullFaces
+        const faceArray = (geom.faces && geom.faces.length > 0) ? geom.faces : geom.cullFaces;
+        if (faceArray && faceArray.length > 0) {
+          const firstFace = faceArray[0];
+          if (firstFace.texture) {
+            texIndex = textureIndexLookup.getIndexByPath(firstFace.texture);
+          }
+        }
+      }
+    }
+    
+    instanceData.set(stateId, {
+      positions: new Float32Array(count * 3),
+      rotations: new Float32Array(count),
+      tintTypes: new Float32Array(count),
+      lights: new Float32Array(count * 2), // blockLight, skyLight
+      blockName: state.blockName,
+      texIndex,
+      count: 0, // Current fill index
+    });
+  }
+  
+  // Build tint type lookup
+  const tintTypeLookup = buildTintTypeLookup(registry);
+  
+  const ox = offset.x, oy = offset.y, oz = offset.z;
+  
+  // Collect instance data
+  for (const [sectionKey, stateSection] of stateGrid.sections) {
+    const { chunkX, chunkZ, sectionY } = parseSectionKey(sectionKey);
+    const baseX = chunkX * 16;
+    const baseY = sectionToWorldY(sectionY);
+    const baseZ = chunkZ * 16;
+    
+    // Get corresponding block data section
+    const blockSection = grid.getSection(chunkX, chunkZ, sectionY);
+    if (!blockSection) continue;
+    
+    for (let i = 0; i < 4096; i++) {
+      const stateId = stateSection[i];
+      if (stateId === 0) continue;
+      
+      // Only process instanceable states
+      if (!instanceableStates.has(stateId)) continue;
+      
+      const blockValue = blockSection[i];
+      if (blockValue === 0) continue;
+      
+      const blockId = blockValue & BLOCK_ID_MASK;
+      
+      // Local coordinates
+      const lx = i & 15;
+      const lz = (i >> 4) & 15;
+      const ly = i >> 8;
+      
+      // World position (offset applied)
+      const wx = baseX + lx - ox;
+      const wy = baseY + ly - oy;
+      const wz = baseZ + lz - oz;
+      
+      // CPU-side distance culling for instanced blocks
+      if (doCpuCull) {
+        const dx = wx - cpuCullCenter.x;
+        const dy = wy - cpuCullCenter.y;
+        const dz = wz - cpuCullCenter.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        if (distSq > cpuCullDistanceSq) continue;
+      }
+      
+      // Get instance data for this state
+      const data = instanceData.get(stateId);
+      const idx = data.count;
+      
+      // Store position
+      data.positions[idx * 3] = wx;
+      data.positions[idx * 3 + 1] = wy;
+      data.positions[idx * 3 + 2] = wz;
+      
+      // Get rotation from position hash
+      const rotation = getPositionRotation(baseX + lx, baseY + ly, baseZ + lz);
+      data.rotations[idx] = rotation;
+      
+      // Tint type
+      data.tintTypes[idx] = tintTypeLookup[blockId];
+      
+      // Light levels
+      if (lightGrid) {
+        const light = lightGrid.getLight(baseX + lx, baseY + ly, baseZ + lz);
+        data.lights[idx * 2] = light.blockLight;
+        data.lights[idx * 2 + 1] = light.skyLight;
+      } else {
+        data.lights[idx * 2] = 0;
+        data.lights[idx * 2 + 1] = 15;
+      }
+      
+      data.count++;
+    }
+  }
+  
+  // Now build regular meshes for non-instanceable blocks
+  // Use a modified version of buildModelMeshes that skips instanceable blocks
+  const regularMeshes = buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset, {
+    ...options,
+    skipStateIds: instanceableStates, // Pass the set of states to skip
+  });
+  
+  // Convert instance data map to array format for easier consumption
+  const instanceGroups = [];
+  for (const [stateId, data] of instanceData) {
+    if (data.count === 0) continue;
+    
+    // Trim arrays to actual count
+    instanceGroups.push({
+      stateId,
+      blockName: data.blockName,
+      texIndex: data.texIndex,
+      positions: data.positions.subarray(0, data.count * 3),
+      rotations: data.rotations.subarray(0, data.count),
+      tintTypes: data.tintTypes.subarray(0, data.count),
+      lights: data.lights.subarray(0, data.count * 2),
+      instanceCount: data.count,
+    });
+  }
+  
+  // Log instancing stats
+  const totalInstanced = instanceGroups.reduce((sum, g) => sum + g.instanceCount, 0);
+  if (totalInstanced > 0) {
+    console.log(`[ModelMesher] GPU Instancing: ${totalInstanced.toLocaleString()} blocks in ${instanceGroups.length} groups`);
+    for (const g of instanceGroups) {
+      console.log(`  - ${g.blockName}: ${g.instanceCount.toLocaleString()} instances`);
+    }
+  }
+  
+  return {
+    ...(regularMeshes || {}),
+    instances: instanceGroups.length > 0 ? instanceGroups : null,
+  };
 }
 
 /**

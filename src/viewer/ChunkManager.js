@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { createGlassMaterial } from './materials/GlassMaterial';
-import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled, setMaterialFastPath } from './materials/TexturedMaterial';
+import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled, setMaterialFastPath, setMaterialFog } from './materials/TexturedMaterial';
 import { createInstancedModelMaterial, createInstancedMesh, createCrossGeometry } from './materials/InstancedModelMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
@@ -334,10 +334,33 @@ export class ChunkManager {
   
   /**
    * Get current render distance
-   * @returns {number} Distance in blocks (0 = unlimited)
+   * @returns {number} Distance in chunks (0 = unlimited)
    */
   getRenderDistance() {
     return this.renderDistance || 0;
+  }
+  
+  /**
+   * Set fog parameters for distance haze (Minecraft-style)
+   * @param {Object} fogParams - Fog parameters
+   * @param {boolean} fogParams.enabled - Whether fog is enabled
+   * @param {THREE.Color|Array} fogParams.color - Fog color (RGB 0-1)
+   * @param {number} fogParams.start - Distance where fog starts (in blocks)
+   * @param {number} fogParams.end - Distance where fog is fully opaque (in blocks)
+   */
+  setFog({ enabled, color, start, end }) {
+    const fogParams = { enabled, color, start, end };
+    
+    // Apply fog to all materials
+    setMaterialFog(this.solidMaterial, fogParams);
+    setMaterialFog(this.waterMaterial, fogParams);
+    setMaterialFog(this.lavaMaterial, fogParams);
+    setMaterialFog(this.glassMaterial, fogParams);
+    setMaterialFog(this.modelMaterial, fogParams);
+    setMaterialFog(this.transparentModelMaterial, fogParams);
+    setMaterialFog(this.overlayModelMaterial, fogParams);
+    
+    console.log(`[ChunkManager] Fog ${enabled ? 'enabled' : 'disabled'}${enabled ? ` (${start}-${end} blocks)` : ''}`);
   }
   
   /**

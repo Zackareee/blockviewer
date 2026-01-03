@@ -12,7 +12,7 @@ import { decodeChunk } from './ChunkDecoder.js';
 import { buildGridMeshes } from './FastMesher.js';
 import { buildGridMeshesParallel } from './ParallelMesher.js';
 import { buildSimplifiedMesh } from './SimplifiedMesher.js';
-import { buildModelMeshes } from './ModelMesher.js';
+import { buildModelMeshes, buildModelMeshesWithInstancing } from './ModelMesher.js';
 import { getStateRegistry } from '../assets/StateRegistry.js';
 import { LightGrid } from './LightGrid.js';
 import { propagateSkyLight } from './LightPropagator.js';
@@ -199,6 +199,7 @@ export class RegionMeshBuilder {
     let transparentModelMesh = null;
     let overlayModelMesh = null;
     let modelLodMeshes = null;
+    let instanceGroups = null; // GPU instancing data for repeated blocks
     if (enableModelMeshes && stateGrid && stateGrid.stateCount > 0) {
       this.onProgress?.('modelMeshing', 0, 100, 'Building model meshes...');
       const modelStart = performance.now();
@@ -207,18 +208,19 @@ export class RegionMeshBuilder {
         // Precompute geometry for all registered block states
         await stateRegistry.precomputeAll();
         
-        // Build model meshes using pre-computed geometry
+        // Build model meshes using pre-computed geometry with GPU instancing
         const modelOptions = {
           textureIndexLookup: this.textureIndexLookup,
           lightGrid,
         };
-        const modelResult = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
+        const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
         
-        // Extract opaque, transparent, and overlay meshes from result
+        // Extract opaque, transparent, overlay meshes AND instance data from result
         if (modelResult) {
           modelMesh = modelResult.opaque;
           transparentModelMesh = modelResult.transparent;
           overlayModelMesh = modelResult.overlay;
+          instanceGroups = modelResult.instances; // GPU instancing data
         }
         
         // Generate LOD levels for model meshes when LOD is enabled
@@ -257,8 +259,15 @@ export class RegionMeshBuilder {
         stats.transparentModelTriangles = transparentModelMesh?.triangleCount || 0;
         stats.overlayModelTriangles = overlayModelMesh?.triangleCount || 0;
         
-        if (stats.modelTriangles > 0) {
-          console.log(`[RegionMeshBuilder] Model meshes: ${stats.modelTriangles.toLocaleString()} triangles (${stats.opaqueModelTriangles.toLocaleString()} opaque, ${stats.transparentModelTriangles.toLocaleString()} transparent, ${stats.overlayModelTriangles.toLocaleString()} overlay) in ${stats.modelMeshTimeMs.toFixed(0)}ms`);
+        // Track instancing stats
+        if (instanceGroups && instanceGroups.length > 0) {
+          stats.instancedBlocks = instanceGroups.reduce((sum, g) => sum + g.instanceCount, 0);
+          stats.instanceGroups = instanceGroups.length;
+        }
+        
+        if (stats.modelTriangles > 0 || stats.instancedBlocks > 0) {
+          const instanceInfo = stats.instancedBlocks ? ` + ${stats.instancedBlocks.toLocaleString()} instanced in ${stats.instanceGroups} groups` : '';
+          console.log(`[RegionMeshBuilder] Model meshes: ${stats.modelTriangles.toLocaleString()} triangles (${stats.opaqueModelTriangles.toLocaleString()} opaque, ${stats.transparentModelTriangles.toLocaleString()} transparent, ${stats.overlayModelTriangles.toLocaleString()} overlay)${instanceInfo} in ${stats.modelMeshTimeMs.toFixed(0)}ms`);
         }
       } catch (err) {
         console.warn('[RegionMeshBuilder] Model mesh generation failed:', err.message);
@@ -320,6 +329,7 @@ export class RegionMeshBuilder {
       modelMesh, // Opaque non-cube block geometry (slabs, stairs, flowers, etc.)
       transparentModelMesh, // Transparent non-cube block geometry (glass panes, iron bars)
       overlayModelMesh, // Overlay glow effects (torch bulb panels) - rendered with depthWrite: false
+      instanceGroups, // GPU instancing data for repeated blocks (grass, flowers, etc.)
       lodMeshes,
       modelLodMeshes, // LOD levels for model meshes (skip decorative at distance)
       offset,
