@@ -288,6 +288,48 @@ function canMergeBlockAO(baseAO, blockX, blockY, blockZ, blockGrid, isOpaque, is
 }
 
 /**
+ * Get the light values at a face position for merge checking.
+ * For TOP faces, samples at Y+1 (the face level in air space).
+ * Returns both sky light and block light since both can vary across the scene.
+ * 
+ * @param {LightGrid} lightGrid - Light grid
+ * @param {number} blockX, blockY, blockZ - Block position
+ * @param {string} face - Face direction: 'top', 'bottom', 'east', 'west', 'north', 'south'
+ * @returns {{skyLight: number, blockLight: number}} Light levels at the face
+ */
+function getFaceLightForMerge(lightGrid, blockX, blockY, blockZ, face) {
+  if (!lightGrid) return { skyLight: 15, blockLight: 0 };
+  
+  // Sample light from the air block adjacent to the face
+  let sampleX = blockX, sampleY = blockY, sampleZ = blockZ;
+  switch (face) {
+    case 'top': sampleY = blockY + 1; break;
+    case 'bottom': sampleY = blockY - 1; break;
+    case 'east': sampleX = blockX + 1; break;
+    case 'west': sampleX = blockX - 1; break;
+    case 'south': sampleZ = blockZ + 1; break;
+    case 'north': sampleZ = blockZ - 1; break;
+  }
+  
+  return lightGrid.getLight(sampleX, sampleY, sampleZ);
+}
+
+/**
+ * Check if blocks can be merged based on their light values.
+ * Blocks can only merge if both sky light AND block light are identical or very close.
+ * This prevents lighting discontinuities when greedy meshing near light sources or shadows.
+ * 
+ * @param {{skyLight: number, blockLight: number}} baseLight - Light of the first block
+ * @param {{skyLight: number, blockLight: number}} checkLight - Light of the block to check
+ * @param {number} threshold - Maximum allowed difference (0 = exact match required)
+ * @returns {boolean} true if blocks can be merged
+ */
+function canMergeBlockLight(baseLight, checkLight, threshold = 0) {
+  return Math.abs(baseLight.skyLight - checkLight.skyLight) <= threshold &&
+         Math.abs(baseLight.blockLight - checkLight.blockLight) <= threshold;
+}
+
+/**
  * Build all meshes for a region
  * @param {BinaryGrid} grid - The block grid
  * @param {BlockRegistry} registry - Block registry
@@ -751,8 +793,9 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
-      // Greedy merge with strict AO matching
-      // Only merge blocks that have IDENTICAL AO at all 4 corners
+      // Greedy merge with strict AO and light matching
+      // Only merge blocks that have IDENTICAL AO at all 4 corners AND similar block light
+      // This prevents lighting discontinuities near light sources like torches
       visited.fill(0);
       const blockY = baseY + ly; // Block Y position
       
@@ -768,21 +811,34 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           // Get AO signature of starting block's 4 corners
           const startAO = getTopFaceAO(worldX, blockY, worldZ, grid, isOpaque, isAOTransparent);
           
-          // Expand width (+X) only if next block has identical AO
+          // Get light of starting block for merge checking
+          const startLight = lightGrid ? getFaceLightForMerge(lightGrid, worldX, blockY, worldZ, 'top') : { skyLight: 15, blockLight: 0 };
+          
+          // Expand width (+X) only if next block has identical AO AND similar light
           // Note: Rotation is now computed per-fragment in the shader, so we can merge freely
           let w = 1;
           while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
             if (!canMergeBlockAO(startAO, worldX + w, blockY, worldZ, grid, isOpaque, isAOTransparent)) break;
+            // Also check block light - don't merge blocks with different lighting
+            if (lightGrid) {
+              const checkLight = getFaceLightForMerge(lightGrid, worldX + w, blockY, worldZ, 'top');
+              if (!canMergeBlockLight(startLight, checkLight, 0)) break;
+            }
             w++;
           }
           
-          // Expand height (+Z) only if all blocks in row have identical AO
+          // Expand height (+Z) only if all blocks in row have identical AO AND similar light
           let h = 1;
           outer: while (jj + h < S) {
             for (let k = 0; k < w; k++) {
               const ci = (jj + h) * S + ii + k;
               if (visited[ci] || mask[ci] !== bid) break outer;
               if (!canMergeBlockAO(startAO, worldX + k, blockY, worldZ + h, grid, isOpaque, isAOTransparent)) break outer;
+              // Also check block light
+              if (lightGrid) {
+                const checkLight = getFaceLightForMerge(lightGrid, worldX + k, blockY, worldZ + h, 'top');
+                if (!canMergeBlockLight(startLight, checkLight, 0)) break outer;
+              }
             }
             h++;
           }
@@ -833,48 +889,22 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            // FAST PATH: Use direct section access for light sampling when available
-            // For top faces, light is sampled from Y+1 (above the block)
-            const lightY = ly + 1;
-            const activeLightSec = lightY >= S ? lightSecTop : lightSec;
-            const localLightY = lightY >= S ? 0 : lightY;
-            
+            // Smooth light sampling: sample from 4 blocks touching each vertex corner
+            // This properly averages block light from neighboring blocks, avoiding
+            // discontinuities near light sources like torches.
             // AO brightness multipliers
             const aoBrightness = [0.5, 0.7, 0.85, 1.0];
             
-            if (activeLightSec) {
-              // Fast path: direct section access for single-block quads within section
-              if (w === 1 && h === 1 && ii < S && jj < S) {
-                const li = localLightY * S2 + jj * S + ii;
-                const lv = activeLightSec[li];
-                const baseSky = lv & 0xF;
-                const baseBlock = lv >> 4;
-                skyL0 = baseSky * aoBrightness[startAO[0]];
-                skyL1 = baseSky * aoBrightness[startAO[1]];
-                skyL2 = baseSky * aoBrightness[startAO[2]];
-                skyL3 = baseSky * aoBrightness[startAO[3]];
-                blockL0 = baseBlock * aoBrightness[startAO[0]];
-                blockL1 = baseBlock * aoBrightness[startAO[1]];
-                blockL2 = baseBlock * aoBrightness[startAO[2]];
-                blockL3 = baseBlock * aoBrightness[startAO[3]];
-              } else {
-                // Merged quad or edge case - sample at each corner
-                const l0 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, startAO[0], grid, isOpaque, isAOTransparent, 'xz');
-                const l1 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, startAO[1], grid, isOpaque, isAOTransparent, 'xz');
-                const l2 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, startAO[2], grid, isOpaque, isAOTransparent, 'xz');
-                const l3 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, startAO[3], grid, isOpaque, isAOTransparent, 'xz');
-                skyL0 = l0.skyLight; blockL0 = l0.blockLight;
-                skyL1 = l1.skyLight; blockL1 = l1.blockLight;
-                skyL2 = l2.skyLight; blockL2 = l2.blockLight;
-                skyL3 = l3.skyLight; blockL3 = l3.blockLight;
-              }
-            } else {
-              // No light section - use default sky light with AO
-              skyL0 = 15 * aoBrightness[startAO[0]];
-              skyL1 = 15 * aoBrightness[startAO[1]];
-              skyL2 = 15 * aoBrightness[startAO[2]];
-              skyL3 = 15 * aoBrightness[startAO[3]];
-            }
+            // Sample light at each vertex corner position
+            // Vertex positions: V0(x, y, z+h), V1(x+w, y, z+h), V2(x+w, y, z), V3(x, y, z)
+            const l0 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, startAO[0], grid, isOpaque, isAOTransparent, 'xz');
+            const l1 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, startAO[1], grid, isOpaque, isAOTransparent, 'xz');
+            const l2 = sampleVertexLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, startAO[2], grid, isOpaque, isAOTransparent, 'xz');
+            const l3 = sampleVertexLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, startAO[3], grid, isOpaque, isAOTransparent, 'xz');
+            skyL0 = l0.skyLight; blockL0 = l0.blockLight;
+            skyL1 = l1.skyLight; blockL1 = l1.blockLight;
+            skyL2 = l2.skyLight; blockL2 = l2.blockLight;
+            skyL3 = l3.skyLight; blockL3 = l3.blockLight;
           }
           
           for (let v = 0; v < 4; v++) {
@@ -921,20 +951,40 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       if (!hasFaces) continue;
       
       visited.fill(0);
+      const blockY = baseY + ly; // Block Y position for BOTTOM face
+      
       for (let jj = 0; jj < S; jj++) {
         for (let ii = 0; ii < S; ii++) {
           const mi = jj * S + ii;
           if (visited[mi] || mask[mi] === 0) continue;
           
           const bid = mask[mi];
+          const worldX = baseX + ii;
+          const worldZ = baseZ + jj;
+          
+          // Get light of starting block for merge checking
+          const startLight = lightGrid ? getFaceLightForMerge(lightGrid, worldX, blockY, worldZ, 'bottom') : { skyLight: 15, blockLight: 0 };
+          
           let w = 1;
-          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) w++;
+          while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
+            // Check block light - don't merge blocks with different lighting
+            if (lightGrid) {
+              const checkLight = getFaceLightForMerge(lightGrid, worldX + w, blockY, worldZ, 'bottom');
+              if (!canMergeBlockLight(startLight, checkLight, 0)) break;
+            }
+            w++;
+          }
           
           let h = 1;
           outer: while (jj + h < S) {
             for (let k = 0; k < w; k++) {
               const ci = (jj + h) * S + ii + k;
               if (visited[ci] || mask[ci] !== bid) break outer;
+              // Check block light
+              if (lightGrid) {
+                const checkLight = getFaceLightForMerge(lightGrid, worldX + k, blockY, worldZ + h, 'bottom');
+                if (!canMergeBlockLight(startLight, checkLight, 0)) break outer;
+              }
             }
             h++;
           }
