@@ -68,8 +68,8 @@ class StateRegistry {
     // Block name → Set of state IDs for that block
     this.byBlock = new Map();
     
-    // Next available ID
-    this.nextId = 0;
+    // Next available ID (start at 1; 0 is reserved as "no state" sentinel)
+    this.nextId = 1;
     
     // Resolver references (set on init)
     this.blockstateResolver = null;
