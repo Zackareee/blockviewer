@@ -779,8 +779,7 @@ const BLOCK_EMITTERS = {
     // Spore blossom hangs from ceiling - flower part is in LOWER portion of block (y ~0.3)
     // From SporeBlossomFallProvider.class and SporeBlossomAirProvider.class:
     // - Color: RGB(0.32, 0.50, 0.22) - GREEN
-    // - Lifetime: 64 ticks (3.2 seconds)
-    // - Ambient Y velocity: -0.8 in MC units (need to scale)
+    // - Particles should drift down gently like pollen/spores
     // - PARTICLE_XZ_RADIUS = 10, PARTICLE_Y_MAX = 16
     areaEmitter: true,
     particles: [
@@ -791,18 +790,18 @@ const BLOCK_EMITTERS = {
         rate: 2.5, // Steady drip from the block
         offset: [0.5, 0.3, 0.5], // At the flower (hangs from ceiling)
         offsetVariance: [0.25, 0.0, 0.25], // Spread across flower face
-        velocity: [0, -0.5, 0], // Start with initial downward velocity
-        velocityVariance: [0.02, 0.1, 0.02],
-        size: 0.08, // Small drip particle
-        sizeVariance: 0.02,
-        lifetime: 5.0, // Longer life to fall several blocks
-        lifetimeVariance: 1.5,
+        velocity: [0, -0.2, 0], // Gentle initial fall
+        velocityVariance: [0.03, 0.05, 0.03],
+        size: 0.15, // Visible pollen-like particle
+        sizeVariance: 0.04,
+        lifetime: 6.0, // Long life for gentle fall
+        lifetimeVariance: 2.0,
         color: [0.32, 0.50, 0.22], // GREEN - from MC bytecode
         alpha: 0.9,
         fadeIn: 0.1,
         fadeOut: 0.3,
-        friction: 0.995, // Very slight friction
-        gravity: 0.8, // Accelerates downward (falls faster over time)
+        friction: 0.995,
+        gravity: 0.3, // Gentle acceleration - drifts down slowly
         hasPhysics: true, // Lands on blocks
       },
       {
@@ -810,14 +809,14 @@ const BLOCK_EMITTERS = {
         // Spawn in a large area below the blossom (MC: 10 block XZ radius, 16 blocks down)
         type: 'spore_blossom_air',
         rate: 4.0, // ~14 attempts * 0.7 chance / 20 ticks
-        offset: [0.5, -4.0, 0.5], // Center of spawn volume (8 blocks down from flower)
+        offset: [0.5, -4.0, 0.5], // Center of spawn volume
         offsetVariance: [8.0, 4.0, 8.0], // Large spawn area
-        velocity: [0, -1.5, 0], // Constant downward drift
-        velocityVariance: [0.02, 0.2, 0.02],
-        size: 0.06,
-        sizeVariance: 0.02,
-        lifetime: 6.0, // Long-lasting ambient particles
-        lifetimeVariance: 2.0,
+        velocity: [0, -0.6, 0], // Gentle constant downward drift
+        velocityVariance: [0.03, 0.1, 0.03],
+        size: 0.12, // Visible floating spore
+        sizeVariance: 0.03,
+        lifetime: 8.0, // Long-lasting ambient particles
+        lifetimeVariance: 3.0,
         color: [0.32, 0.50, 0.22], // GREEN - from MC bytecode
         alpha: 0.75,
         fadeIn: 0.1,
