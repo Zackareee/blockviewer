@@ -432,8 +432,9 @@ export class ParticleSystem {
    * Update all particles
    * @param {number} deltaTime - Time since last update in seconds
    * @param {number} time - Total elapsed time in seconds
+   * @param {THREE.Camera} camera - Camera for depth sorting
    */
-  update(deltaTime, time) {
+  update(deltaTime, time, camera) {
     // Skip if not initialized
     if (!this.normalMesh || !this.additiveMesh) return;
     
@@ -452,16 +453,20 @@ export class ParticleSystem {
       return;
     }
     
+    // Get camera position for depth sorting
+    const camPos = camera ? camera.position : null;
+    
     // Update particle pools with physics
     if (normalAlive > 0) this._updatePool(this.normalPool, deltaTime);
     if (additiveAlive > 0) this._updatePool(this.additivePool, deltaTime);
     
-    // Sync buffers (only for pools that have particles)
+    // Sync buffers with depth sorting (back-to-front for proper transparency)
+    // Only sort normal pool (smoke, etc.) - additive blending is order-independent
     if (normalAlive > 0 || this.normalMesh.count > 0) {
-      this._syncBuffers(this.normalPool, this.normalMesh, this.normalBuffers);
+      this._syncBuffers(this.normalPool, this.normalMesh, this.normalBuffers, camPos, true);
     }
     if (additiveAlive > 0 || this.additiveMesh.count > 0) {
-      this._syncBuffers(this.additivePool, this.additiveMesh, this.additiveBuffers);
+      this._syncBuffers(this.additivePool, this.additiveMesh, this.additiveBuffers, camPos, false);
     }
     
     this.updateCount++;
@@ -523,14 +528,34 @@ export class ParticleSystem {
   
   /**
    * Sync particle pool data to GPU buffers
+   * @param {ParticlePool} pool - Particle pool to sync
+   * @param {THREE.InstancedMesh} mesh - Instanced mesh to update
+   * @param {Object} buffers - GPU attribute buffers
+   * @param {THREE.Vector3|null} camPos - Camera position for sorting
+   * @param {boolean} sortByDepth - Whether to sort particles back-to-front
    */
-  _syncBuffers(pool, mesh, buffers) {
-    let visibleCount = 0;
-    
+  _syncBuffers(pool, mesh, buffers, camPos, sortByDepth) {
+    // Collect alive particles
+    const aliveParticles = [];
     for (const p of pool.particles) {
-      if (p.state !== PARTICLE_ALIVE) continue;
-      
-      const i = visibleCount;
+      if (p.state === PARTICLE_ALIVE) {
+        aliveParticles.push(p);
+      }
+    }
+    
+    // Sort back-to-front (farthest first) for proper transparency
+    // Only sort if we have camera position and sorting is enabled
+    if (sortByDepth && camPos && aliveParticles.length > 1) {
+      aliveParticles.sort((a, b) => {
+        const distA = (a.x - camPos.x) ** 2 + (a.y - camPos.y) ** 2 + (a.z - camPos.z) ** 2;
+        const distB = (b.x - camPos.x) ** 2 + (b.y - camPos.y) ** 2 + (b.z - camPos.z) ** 2;
+        return distB - distA; // Farthest first
+      });
+    }
+    
+    // Write sorted particles to buffers
+    for (let i = 0; i < aliveParticles.length; i++) {
+      const p = aliveParticles[i];
       
       // Position
       buffers.position.array[i * 3] = p.x;
@@ -553,12 +578,10 @@ export class ParticleSystem {
       
       // Alpha (use currentAlpha which includes fade calculations)
       buffers.alpha.array[i] = p.currentAlpha;
-      
-      visibleCount++;
     }
     
     // Update buffer counts
-    mesh.count = visibleCount;
+    mesh.count = aliveParticles.length;
     
     // Mark buffers as needing update
     buffers.position.needsUpdate = true;

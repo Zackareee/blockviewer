@@ -1229,8 +1229,8 @@ export class ChunkManager {
     // Update emitters (spawn new particles)
     this.particleEmitterManager.update(deltaTime, this.particleSystem);
     
-    // Update particle physics and rendering
-    this.particleSystem.update(deltaTime, time);
+    // Update particle physics and rendering (pass camera for depth sorting)
+    this.particleSystem.update(deltaTime, time, camera);
   }
 
   /**
