@@ -150,6 +150,140 @@ const PARTICLE_DEFINITIONS = {
     animated: false,
     blendMode: 'additive',
   },
+  // Spore blossom particles (uses drip_fall texture)
+  spore_blossom_air: {
+    textures: ['textures/particle/drip_fall.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  falling_spore_blossom: {
+    textures: ['textures/particle/drip_fall.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  // Cherry leaf particles
+  cherry_leaves: {
+    textures: [
+      'textures/particle/cherry_0.png',
+      'textures/particle/cherry_1.png',
+      'textures/particle/cherry_2.png',
+      'textures/particle/cherry_3.png',
+      'textures/particle/cherry_4.png',
+      'textures/particle/cherry_5.png',
+      'textures/particle/cherry_6.png',
+      'textures/particle/cherry_7.png',
+      'textures/particle/cherry_8.png',
+      'textures/particle/cherry_9.png',
+      'textures/particle/cherry_10.png',
+      'textures/particle/cherry_11.png',
+    ],
+    animated: true,
+    frametime: 4,
+    blendMode: 'normal',
+  },
+  // Mycelium spores
+  mycelium: {
+    textures: ['textures/particle/generic_0.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  // Dripping particles (water/lava/honey/obsidian)
+  dripping_water: {
+    textures: ['textures/particle/drip_hang.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  falling_water: {
+    textures: ['textures/particle/drip_fall.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  dripping_lava: {
+    textures: ['textures/particle/drip_hang.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  falling_lava: {
+    textures: ['textures/particle/drip_fall.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  dripping_honey: {
+    textures: ['textures/particle/drip_hang.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  falling_honey: {
+    textures: ['textures/particle/drip_fall.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  dripping_obsidian_tear: {
+    textures: ['textures/particle/drip_hang.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  falling_obsidian_tear: {
+    textures: ['textures/particle/drip_fall.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  // Portal particle
+  portal: {
+    textures: [
+      'textures/particle/generic_7.png',
+      'textures/particle/generic_6.png',
+      'textures/particle/generic_5.png',
+      'textures/particle/generic_4.png',
+      'textures/particle/generic_3.png',
+      'textures/particle/generic_2.png',
+      'textures/particle/generic_1.png',
+      'textures/particle/generic_0.png',
+    ],
+    animated: true,
+    frametime: 3,
+    blendMode: 'additive',
+  },
+  // Wither rose smoke
+  wither_smoke: {
+    textures: [
+      'textures/particle/generic_7.png',
+      'textures/particle/generic_6.png',
+      'textures/particle/generic_5.png',
+      'textures/particle/generic_4.png',
+      'textures/particle/generic_3.png',
+      'textures/particle/generic_2.png',
+      'textures/particle/generic_1.png',
+      'textures/particle/generic_0.png',
+    ],
+    animated: true,
+    frametime: 5,
+    blendMode: 'normal',
+  },
+  // Note particle
+  note: {
+    textures: ['textures/particle/note.png'],
+    animated: false,
+    blendMode: 'additive',
+  },
+  // Dust/redstone particle
+  dust: {
+    textures: ['textures/particle/generic_0.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  // Nectar (beehive)
+  falling_nectar: {
+    textures: ['textures/particle/drip_fall.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  // Firefly
+  firefly: {
+    textures: ['textures/particle/glow.png'],
+    animated: false,
+    blendMode: 'additive',
+  },
 };
 
 /**

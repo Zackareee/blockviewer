@@ -764,6 +764,63 @@ const BLOCK_EMITTERS = {
       },
     ],
   },
+  
+  // ============================================================================
+  // SPORE BLOSSOM PARTICLES
+  // From SporeBlossomBlock.class:
+  // - ADD_PARTICLE_ATTEMPTS = 14 (per animateTick)
+  // - PARTICLE_XZ_RADIUS = 10 blocks (horizontal spawn radius)
+  // - PARTICLE_Y_MAX = 16 blocks (max downward distance)
+  // - 0.7 probability per attempt
+  // - Uses FALLING_SPORE_BLOSSOM (drip from block) + SPORE_BLOSSOM_AIR (ambient area)
+  // ============================================================================
+  
+  'spore_blossom': {
+    // Spore blossom spawns particles in a large area BELOW the block
+    areaEmitter: true,  // Flag for special area-based spawning
+    particles: [
+      {
+        // Direct drips from the blossom itself
+        type: 'falling_spore_blossom',
+        rate: 3.0, // Steady drip from the block
+        offset: [0.5, -0.1, 0.5], // Just below the block
+        offsetVariance: [0.3, 0.0, 0.3], // Spread across block face
+        velocity: [0, -0.8, 0], // Fall down gently
+        velocityVariance: [0.1, 0.2, 0.1],
+        size: 0.12,
+        sizeVariance: 0.04,
+        lifetime: 4.0, // Long fall time
+        lifetimeVariance: 1.5,
+        color: [1.0, 0.6, 0.9], // Pink/magenta tint
+        alpha: 0.9,
+        fadeIn: 0.0,
+        fadeOut: 0.3,
+        friction: 0.995, // Very little air resistance
+        gravity: 0.15, // Light gravity - drifts down slowly
+        hasPhysics: true, // Lands on blocks
+      },
+      {
+        // Ambient spores in the air below (area effect)
+        type: 'spore_blossom_air',
+        rate: 8.0, // ~14 attempts * 0.7 chance / 20 ticks * quality factor
+        offset: [0.5, -8.0, 0.5], // Spawns well below the blossom
+        offsetVariance: [10.0, 8.0, 10.0], // 10 block XZ radius, 16 block Y range
+        velocity: [0, -0.3, 0], // Gentle downward drift
+        velocityVariance: [0.15, 0.1, 0.15], // Random drift
+        size: 0.08,
+        sizeVariance: 0.03,
+        lifetime: 6.0, // Long-lasting ambient particles
+        lifetimeVariance: 2.0,
+        color: [1.0, 0.5, 0.85], // Pink/magenta
+        alpha: 0.7,
+        fadeIn: 0.2,
+        fadeOut: 0.4,
+        friction: 0.98,
+        gravity: 0.05, // Very light gravity
+        hasPhysics: false, // Ambient particles pass through blocks
+      },
+    ],
+  },
 };
 
 // ============================================================================

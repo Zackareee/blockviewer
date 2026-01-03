@@ -44,8 +44,8 @@ This document tracks all particle types and particle-emitting blocks for impleme
 ### Spore/Ambient Particles
 | Particle Type | Texture Size | Animated | Status |
 |---------------|--------------|----------|--------|
-| `spore_blossom_air` | 8x8 | No | ⬜ Not implemented |
-| `falling_spore_blossom` | 8x8 | No | ⬜ Not implemented |
+| `spore_blossom_air` | 8x8 | No | ✅ Implemented |
+| `falling_spore_blossom` | 8x8 | No | ✅ Implemented |
 | `falling_nectar` | 8x8 | No | ⬜ Not implemented |
 | `crimson_spore` | 8x8 | No | ⬜ Not implemented |
 | `warped_spore` | 8x8 | No | ⬜ Not implemented |
@@ -232,7 +232,7 @@ This document tracks all particle types and particle-emitting blocks for impleme
 ### Nature/Biome Blocks
 | Block | Particles Used | State Condition | Status |
 |-------|----------------|-----------------|--------|
-| `spore_blossom` | spore_blossom_air, falling_spore_blossom | Always | ⬜ Not implemented |
+| `spore_blossom` | spore_blossom_air, falling_spore_blossom | Always | ✅ Implemented |
 | `mycelium` | mycelium | Random | ⬜ Not implemented |
 | `cherry_leaves` | cherry_leaves | Random | ⬜ Not implemented |
 | `pale_oak_leaves` | pale_oak_leaves | Random | ⬜ Not implemented |
@@ -302,7 +302,7 @@ This document tracks all particle types and particle-emitting blocks for impleme
 ### 🟡 Medium Effort (Minor code changes)
 | Feature | Work Needed |
 |---------|-------------|
-| Spore Blossom | Negative Y offset spawning, area effect |
+| ~~Spore Blossom~~ | ~~Negative Y offset spawning, area effect~~ ✅ |
 | Mycelium | Simple rising particle, random spawn |
 | Cherry/Pale Oak Leaves | Random falling leaf particles |
 | Crying Obsidian | Drip particle system (hang → fall → land) |
@@ -333,8 +333,8 @@ This document tracks all particle types and particle-emitting blocks for impleme
 ## Quick Stats
 - **Total Particle Types**: ~100
 - **Total Particle-Emitting Block Types**: ~60+
-- **Implemented**: ~35 block variants
-- **Remaining**: ~25+ unique implementations needed
+- **Implemented**: ~36 block variants (including spore blossom)
+- **Remaining**: ~24+ unique implementations needed
 
 ---
 
