@@ -442,84 +442,87 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   // Candle - supports 1-4 candles with multi-point emission
-  // Increased rates for more visible flickering effect
+  // From FlameParticle.class / RisingParticle.class:
+  // - Lifetime: 8-12 ticks (0.4-0.6 sec), our flames look better with 0.6-1.0
+  // - SMALL_FLAME is FlameParticle.scale(0.5)
+  // - Friction: 0.96 per tick
   'candle': {
     requiresLit: true,
     multiPoint: true, // Emit from multiple positions based on 'candles' property
     particles: [
       {
         type: 'small_flame',
-        rate: 8.0, // High rate for constant flickering appearance
+        rate: 6.0, // Steady flame appearance
         offset: [0.5, 0.5, 0.5], // Overridden by CANDLE_OFFSETS for multi-point
         offsetVariance: [0.0, 0.0, 0.0], // No variance - exact wick position
-        velocity: [0, 0.08, 0], // Noticeable upward movement
-        velocityVariance: [0.02, 0.02, 0.02],
-        size: 0.1, // Slightly larger for visibility
+        velocity: [0, 0.03, 0], // Slow rise - candle flames hover more than rise
+        velocityVariance: [0.015, 0.01, 0.015], // Small variance
+        size: 0.12, // Visible flame
         sizeVariance: 0.03,
-        lifetime: 0.4, // Short-lived for flickering
-        lifetimeVariance: 0.1,
-        color: [1.0, 0.9, 0.6],
+        lifetime: 0.8, // Longer lasting - 16 ticks (MC: 8-12 base + we want overlap)
+        lifetimeVariance: 0.2,
+        color: [1.0, 0.95, 0.8], // Warmer, less saturated
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.4,
-        friction: 0.98,
+        fadeOut: 0.5, // Gradual fade
+        friction: 0.96, // MC friction
       },
       {
         type: 'smoke',
-        rate: 3.0, // More frequent smoke wisps
+        rate: 2.0, // Occasional smoke wisps
         offset: [0.5, 0.55, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.15, 0], // Visible rise
-        velocityVariance: [0.03, 0.03, 0.03],
-        size: 0.08,
+        velocity: [0, 0.08, 0], // Rises above flame
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.06,
         sizeVariance: 0.02,
-        lifetime: 0.8,
-        lifetimeVariance: 0.2,
+        lifetime: 1.0,
+        lifetimeVariance: 0.3,
         color: [0.6, 0.6, 0.6],
-        alpha: 0.35,
+        alpha: 0.3,
         fadeIn: 0.1,
-        fadeOut: 0.5,
+        fadeOut: 0.6,
         friction: 0.98,
       },
     ],
   },
   
-  // Candle cake (single candle on cake) - same spawn rate as candle
+  // Candle cake (single candle on cake) - same settings as regular candle
   'candle_cake': {
     requiresLit: true,
     particles: [
       {
         type: 'small_flame',
-        rate: 8.0, // Same rate as regular candle
+        rate: 6.0,
         offset: [0.5, 0.9, 0.5], // Higher on cake
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.08, 0],
-        velocityVariance: [0.02, 0.02, 0.02],
-        size: 0.1,
+        velocity: [0, 0.03, 0],
+        velocityVariance: [0.015, 0.01, 0.015],
+        size: 0.12,
         sizeVariance: 0.03,
-        lifetime: 0.4,
-        lifetimeVariance: 0.1,
-        color: [1.0, 0.9, 0.6],
+        lifetime: 0.8,
+        lifetimeVariance: 0.2,
+        color: [1.0, 0.95, 0.8],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.4,
-        friction: 0.98,
+        fadeOut: 0.5,
+        friction: 0.96,
       },
       {
         type: 'smoke',
-        rate: 3.0, // Same rate as regular candle
+        rate: 2.0,
         offset: [0.5, 0.95, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.15, 0],
-        velocityVariance: [0.03, 0.03, 0.03],
-        size: 0.08,
+        velocity: [0, 0.08, 0],
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.06,
         sizeVariance: 0.02,
-        lifetime: 0.8,
-        lifetimeVariance: 0.2,
+        lifetime: 1.0,
+        lifetimeVariance: 0.3,
         color: [0.6, 0.6, 0.6],
-        alpha: 0.35,
+        alpha: 0.3,
         fadeIn: 0.1,
-        fadeOut: 0.5,
+        fadeOut: 0.6,
         friction: 0.98,
       },
     ],
