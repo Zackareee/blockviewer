@@ -273,19 +273,16 @@ const BLOCK_EMITTERS = {
   // - Cosy smoke rises ~10 blocks, signal smoke ~24 blocks
   
   // Campfire (cosy smoke - rises ~10 blocks)
+  // From CampfireBlock.class - spawns: FLAME, CAMPFIRE_COSY_SMOKE, LAVA, SMOKE
   // From CampfireSmokeParticle.class:
   // - scale: 3.0 (large smoke puffs)
   // - gravity: 0.000003 (near zero - floats up steadily)
-  // Adjusted for visual match:
-  // - velocity: 0.8 blocks/sec (gentler rise)
-  // - lifetime: 12 sec (creates tall smoke column)
-  // - 0.8 * 12 = ~10 blocks rise
   'campfire': {
     requiresLit: true, // Only emit when lit=true
     particles: [
       {
         type: 'flame',
-        rate: 5.0, // Multiple active flames
+        rate: 4.0, // Active flames
         offset: [0.5, 0.3, 0.5], // Center of campfire logs
         offsetVariance: [0.35, 0.0, 0.35], // Spread across fire area
         velocity: [0, 0.15, 0],
@@ -297,6 +294,40 @@ const BLOCK_EMITTERS = {
         color: [1.0, 0.9, 0.6],
         alpha: 1.0,
         fadeIn: 0.0,
+        fadeOut: 0.4,
+        friction: 0.98,
+      },
+      {
+        type: 'lava', // Orange ember sparks - key visual element!
+        rate: 1.5, // Occasional sparks
+        offset: [0.5, 0.4, 0.5],
+        offsetVariance: [0.3, 0.1, 0.3],
+        velocity: [0, 0.3, 0], // Pop up
+        velocityVariance: [0.15, 0.2, 0.15], // Random trajectory
+        size: 0.12,
+        sizeVariance: 0.04,
+        lifetime: 0.8,
+        lifetimeVariance: 0.3,
+        color: [1.0, 0.6, 0.2], // Orange glow
+        alpha: 1.0,
+        fadeIn: 0.0,
+        fadeOut: 0.5,
+        friction: 0.95, // Slows down as it rises
+      },
+      {
+        type: 'smoke', // Small smoke wisps (in addition to big smoke)
+        rate: 2.0,
+        offset: [0.5, 0.45, 0.5],
+        offsetVariance: [0.3, 0.0, 0.3],
+        velocity: [0, 0.25, 0],
+        velocityVariance: [0.05, 0.05, 0.05],
+        size: 0.15,
+        sizeVariance: 0.05,
+        lifetime: 1.2,
+        lifetimeVariance: 0.4,
+        color: [0.5, 0.5, 0.5],
+        alpha: 0.5,
+        fadeIn: 0.1,
         fadeOut: 0.4,
         friction: 0.98,
       },
@@ -320,13 +351,13 @@ const BLOCK_EMITTERS = {
     ],
   },
   
-  // Soul campfire (blue flame, same smoke behavior)
+  // Soul campfire (blue flame, same smoke behavior - no lava sparks)
   'soul_campfire': {
     requiresLit: true,
     particles: [
       {
         type: 'soul_fire_flame',
-        rate: 5.0,
+        rate: 4.0,
         offset: [0.5, 0.3, 0.5],
         offsetVariance: [0.35, 0.0, 0.35],
         velocity: [0, 0.15, 0],
@@ -338,6 +369,23 @@ const BLOCK_EMITTERS = {
         color: [1.0, 1.0, 1.0],
         alpha: 1.0,
         fadeIn: 0.0,
+        fadeOut: 0.4,
+        friction: 0.98,
+      },
+      {
+        type: 'smoke', // Small smoke wisps
+        rate: 2.0,
+        offset: [0.5, 0.45, 0.5],
+        offsetVariance: [0.3, 0.0, 0.3],
+        velocity: [0, 0.25, 0],
+        velocityVariance: [0.05, 0.05, 0.05],
+        size: 0.15,
+        sizeVariance: 0.05,
+        lifetime: 1.2,
+        lifetimeVariance: 0.4,
+        color: [0.45, 0.5, 0.55], // Slightly blue-tinted
+        alpha: 0.5,
+        fadeIn: 0.1,
         fadeOut: 0.4,
         friction: 0.98,
       },
