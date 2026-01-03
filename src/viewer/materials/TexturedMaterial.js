@@ -170,19 +170,12 @@ vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize, float vertexDistance)
   }
   
   // RGSS offsets - rotated 26.6° for optimal coverage
-  const vec2 offsets[4] = vec2[4](
-    vec2(0.125, 0.375),
-    vec2(-0.125, -0.375),
-    vec2(0.375, -0.125),
-    vec2(-0.375, 0.125)
-  );
-  
-  // Sample at 4 rotated positions
+  // Using explicit samples instead of array for GLSL ES 1.0 compatibility
   vec4 rgssColor = vec4(0.0);
-  for (int i = 0; i < 4; i++) {
-    vec2 sampleUV = uv + offsets[i] * pixelSize;
-    rgssColor += texture2D(source, sampleUV);
-  }
+  rgssColor += texture2D(source, uv + vec2(0.125, 0.375) * pixelSize);
+  rgssColor += texture2D(source, uv + vec2(-0.125, -0.375) * pixelSize);
+  rgssColor += texture2D(source, uv + vec2(0.375, -0.125) * pixelSize);
+  rgssColor += texture2D(source, uv + vec2(-0.375, 0.125) * pixelSize);
   rgssColor *= 0.25;
   
   // Get nearest sample for blending
@@ -989,18 +982,13 @@ vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize, float vertexDistance)
     return sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
   }
   
-  const vec2 offsets[4] = vec2[4](
-    vec2(0.125, 0.375),
-    vec2(-0.125, -0.375),
-    vec2(0.375, -0.125),
-    vec2(-0.375, 0.125)
-  );
-  
+  // RGSS offsets - rotated 26.6° for optimal coverage
+  // Using explicit samples instead of array for GLSL ES 1.0 compatibility
   vec4 rgssColor = vec4(0.0);
-  for (int i = 0; i < 4; i++) {
-    vec2 sampleUV = uv + offsets[i] * pixelSize;
-    rgssColor += texture2D(source, sampleUV);
-  }
+  rgssColor += texture2D(source, uv + vec2(0.125, 0.375) * pixelSize);
+  rgssColor += texture2D(source, uv + vec2(-0.125, -0.375) * pixelSize);
+  rgssColor += texture2D(source, uv + vec2(0.375, -0.125) * pixelSize);
+  rgssColor += texture2D(source, uv + vec2(-0.375, 0.125) * pixelSize);
   rgssColor *= 0.25;
   
   vec4 nearestColor = sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
