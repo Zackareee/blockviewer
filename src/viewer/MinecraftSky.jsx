@@ -21,12 +21,17 @@ import * as THREE from 'three';
 // Paths to Minecraft textures in public folder
 // Using original Minecraft textures for accurate rendering
 const SUN_TEXTURE_PATH = '/textures/sun_original.png';
+const MOON_TEXTURE_PATH = '/textures/moon_full.png';
 const CLOUDS_TEXTURE_PATH = '/textures/clouds_original.png';
 
 // Minecraft sky constants
 const SKY_RADIUS = 1000; // Size of sky dome
+// Minecraft renders sun/moon at distance 100 with size 30
+// Scaled up proportionally: 900/100 = 9x, so size = 30*9 = 270
 const SUN_DISTANCE = 900; // Distance from camera to sun
-const SUN_SIZE = 60; // Size of sun quad
+const SUN_SIZE = 270; // Size of sun quad (matches Minecraft's angular size)
+const MOON_DISTANCE = 900; // Distance from camera to moon (same as sun)
+const MOON_SIZE = 270; // Size of moon quad (same size as sun in Minecraft)
 
 // Minecraft cloud constants (from rendertype_clouds.vsh)
 const CLOUD_HEIGHT = 192; // Y level for clouds (Minecraft default)
@@ -210,6 +215,7 @@ function SkyDome({ skyColor, horizonColor }) {
       `,
       side: THREE.BackSide, // Render inside of sphere
       depthWrite: false,
+      depthTest: false, // Don't test depth - always render as background
     });
   }, []);
 
@@ -252,13 +258,12 @@ function Sun({ timeOfDay = 0.25 }) {
   useEffect(() => {
     const loader = new THREE.TextureLoader();
     loader.load(SUN_TEXTURE_PATH, (tex) => {
-      // Use linear filtering for smooth glow effect
-      tex.magFilter = THREE.LinearFilter;
-      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
       tex.colorSpace = THREE.SRGBColorSpace;
       setTexture(tex);
     }, undefined, (err) => {
-      console.warn('[MinecraftSky] Failed to load sun texture, using fallback:', err);
+      console.warn('[MinecraftSky] Failed to load sun texture:', err);
       setTexture(createFallbackSunTexture());
     });
   }, []);
@@ -273,8 +278,10 @@ function Sun({ timeOfDay = 0.25 }) {
       map: texture,
       transparent: true,
       depthWrite: false,
+      depthTest: false,  // Sun is at infinity - never test depth
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,  // Black+transparent adds nothing, glow shows
+      fog: false,  // Don't apply scene fog to celestial bodies
     });
   }, [texture]);
 
@@ -309,6 +316,124 @@ function Sun({ timeOfDay = 0.25 }) {
       <planeGeometry args={[SUN_SIZE, SUN_SIZE]} />
     </mesh>
   );
+}
+
+/**
+ * Moon - Textured quad opposite the sun
+ * 
+ * Based on Minecraft's rendering:
+ * - 8 moon phases that cycle every 8 in-game days
+ * - Position is 180° opposite from sun
+ * - Uses same rotation arc as sun (east-west)
+ * - Visible at night, fades during day
+ */
+function Moon({ timeOfDay = 0.25 }) {
+  const meshRef = useRef();
+  const { camera } = useThree();
+  const [texture, setTexture] = useState(null);
+
+  // Load the actual Minecraft moon texture
+  useEffect(() => {
+    const loader = new THREE.TextureLoader();
+    loader.load(MOON_TEXTURE_PATH, (tex) => {
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      setTexture(tex);
+    }, undefined, (err) => {
+      console.warn('[MinecraftSky] Failed to load moon texture:', err);
+      setTexture(createFallbackMoonTexture());
+    });
+  }, []);
+
+  // Create moon material - additive blending to show against dark sky
+  const material = useMemo(() => {
+    if (!texture) return null;
+    
+    return new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,  // Moon is at infinity - never test depth
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, // Additive to glow against dark sky
+      fog: false,  // Don't apply scene fog to celestial bodies
+    });
+  }, [texture]);
+
+  useFrame(() => {
+    if (!meshRef.current) return;
+
+    // Calculate moon position - 180° (π) offset from sun
+    // timeOfDay: 0 = midnight (moon at zenith), 0.5 = noon (moon below horizon)
+    const angle = (timeOfDay - 0.25) * Math.PI * 2 + Math.PI; // +π for opposite side
+
+    // Moon rotates around X axis (east-west arc), opposite to sun
+    const moonX = camera.position.x;
+    const moonY = camera.position.y + Math.sin(angle) * MOON_DISTANCE;
+    const moonZ = camera.position.z - Math.cos(angle) * MOON_DISTANCE;
+
+    meshRef.current.position.set(moonX, moonY, moonZ);
+
+    // Always face camera
+    meshRef.current.lookAt(camera.position);
+  });
+
+  // Hide moon when below horizon (day time)
+  // Moon angle is offset by π from sun
+  const moonAngle = (timeOfDay - 0.25) * Math.PI * 2 + Math.PI;
+  const isVisible = Math.sin(moonAngle) > -0.1; // Slight buffer for moonrise/moonset
+
+  if (!isVisible || !material) return null;
+
+  return (
+    <mesh ref={meshRef} material={material} renderOrder={-998}>
+      <planeGeometry args={[MOON_SIZE, MOON_SIZE]} />
+    </mesh>
+  );
+}
+
+/**
+ * Create a fallback moon texture if loading fails
+ */
+function createFallbackMoonTexture() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Dark transparent background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+  ctx.fillRect(0, 0, size, size);
+
+  // Draw a simple moon circle
+  const centerX = size / 2;
+  const centerY = size / 2;
+  const radius = size * 0.4;
+
+  // Moon body - slightly warm gray
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  ctx.fillStyle = '#e8e8d8';
+  ctx.fill();
+
+  // Add some crater-like darker spots
+  ctx.fillStyle = 'rgba(180, 180, 170, 0.6)';
+  ctx.beginPath();
+  ctx.arc(centerX - 8, centerY - 5, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(centerX + 10, centerY + 8, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(centerX + 5, centerY - 10, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  return texture;
 }
 
 /**
@@ -744,6 +869,9 @@ export function MinecraftSky({
 
       {/* Sun - loads actual Minecraft texture */}
       <Sun timeOfDay={timeOfDay} />
+
+      {/* Moon - opposite side of sky from sun */}
+      <Moon timeOfDay={timeOfDay} />
 
       {/* Clouds - loads actual Minecraft texture */}
       <Clouds opacity={cloudOpacity} skyColor={colors.horizonColor} />
