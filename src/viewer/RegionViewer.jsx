@@ -482,6 +482,7 @@ function RegionScene({
   partialBlockDistance = 48, // Render distance for partial blocks (grass, flowers, slabs, etc.)
   renderDistance = 0, // Chunk render distance (0 = unlimited)
   particleDistance = 3, // Particle render distance in chunks (default 3)
+  particleQuality = 'all', // Particle quality: 'all', 'decreased', 'minimal'
   fogEnabled = true, // Distance fog (Minecraft-style haze)
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
   brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
@@ -593,6 +594,14 @@ function RegionScene({
       manager.setParticleDistance(particleDistance);
     }
   }, [particleDistance]);
+  
+  // Update particle quality when it changes
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.setParticleQuality) {
+      manager.setParticleQuality(particleQuality);
+    }
+  }, [particleQuality]);
   
   // Update lightmap when timeOfDay or brightness changes (day/night lighting cycle)
   useEffect(() => {
@@ -937,6 +946,7 @@ export function RegionViewer({
   partialBlockDistance = 48, // Render distance for partial blocks (0 = unlimited)
   renderDistance = 0, // Chunk render distance in blocks (0 = unlimited)
   particleDistance = 3, // Particle render distance in chunks
+  particleQuality = 'all', // Particle quality: 'all', 'decreased', 'minimal'
   fogEnabled = true, // Distance fog (Minecraft-style haze)
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
   brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
@@ -999,6 +1009,7 @@ export function RegionViewer({
         partialBlockDistance={partialBlockDistance}
         renderDistance={renderDistance}
         particleDistance={particleDistance}
+        particleQuality={particleQuality}
         fogEnabled={fogEnabled}
         timeOfDay={timeOfDay}
         brightness={brightness}

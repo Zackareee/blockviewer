@@ -441,6 +441,16 @@ export class ChunkManager {
   }
   
   /**
+   * Set the particle quality level
+   * Affects spawn rate multiplier: 'all' = 100%, 'decreased' = 67%, 'minimal' = 10%
+   * @param {string} quality - 'all', 'decreased', or 'minimal'
+   */
+  setParticleQuality(quality) {
+    this.particleEmitterManager.setQuality(quality);
+    console.log(`[ChunkManager] Particle quality set to ${quality}`);
+  }
+  
+  /**
    * Set fog parameters for distance haze (Minecraft-style)
    * @param {Object} fogParams - Fog parameters
    * @param {boolean} fogParams.enabled - Whether fog is enabled

@@ -62,6 +62,10 @@ function App() {
   // Value is in chunks (1 chunk = 16 blocks), default 3 chunks = 48 blocks
   const [particleDistance, setParticleDistance] = useState(3);
   
+  // Particle quality setting - matches Minecraft's particle options
+  // 'all' = 100%, 'decreased' = 67%, 'minimal' = 10%
+  const [particleQuality, setParticleQuality] = useState('all');
+  
   // Distance fog (Minecraft-style haze at render distance)
   const [fogEnabled, setFogEnabled] = useState(true);
   
@@ -414,6 +418,7 @@ function App() {
             partialBlockDistance={renderDistance === 0 ? 0 : renderDistance * 16}
             renderDistance={renderDistance}
             particleDistance={particleDistance}
+            particleQuality={particleQuality}
             fogEnabled={fogEnabled}
             timeOfDay={timeOfDay}
             brightness={brightness}
@@ -789,6 +794,27 @@ function App() {
               Clouds
             </span>
           </label>
+          <button 
+            className="toggle-option enabled"
+            style={{ 
+              marginTop: '0.5rem', 
+              width: '100%', 
+              textAlign: 'left',
+              cursor: 'pointer',
+              border: 'none',
+              background: 'rgba(255,255,255,0.05)',
+            }}
+            onClick={() => {
+              // Cycle: all -> decreased -> minimal -> all
+              const cycle = { 'all': 'decreased', 'decreased': 'minimal', 'minimal': 'all' };
+              setParticleQuality(cycle[particleQuality]);
+            }}
+          >
+            <span className="toggle-label">
+              <span className="toggle-icon">✨</span>
+              Particles: {particleQuality === 'all' ? 'All' : particleQuality === 'decreased' ? 'Decreased' : 'Minimal'}
+            </span>
+          </button>
           <label className={`toggle-option ${debugMode ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
             <input 
               type="checkbox"

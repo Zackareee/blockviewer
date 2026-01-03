@@ -731,6 +731,7 @@ class EmitterInstance {
     this.config = BLOCK_EMITTERS[blockType];
     this.timers = []; // Spawn timers for each particle type
     this.active = true;
+    this.qualityMultiplier = 1.0; // Applied to spawn rates (set by manager)
     
     // Initialize spawn timers
     if (this.config) {
@@ -754,7 +755,11 @@ class EmitterInstance {
       const pConfig = this.config.particles[i];
       this.timers[i] += deltaTime;
       
-      const spawnInterval = 1.0 / pConfig.rate;
+      // Apply quality multiplier to spawn rate
+      const effectiveRate = pConfig.rate * this.qualityMultiplier;
+      if (effectiveRate <= 0) continue; // Skip if quality is too low
+      
+      const spawnInterval = 1.0 / effectiveRate;
       
       while (this.timers[i] >= spawnInterval) {
         this.timers[i] -= spawnInterval;
@@ -857,6 +862,13 @@ class EmitterInstance {
   }
 }
 
+// Quality multipliers matching Minecraft's particle settings
+const QUALITY_MULTIPLIERS = {
+  'all': 1.0,       // 100% - full particle rate
+  'decreased': 0.67, // 67% - 33% reduction
+  'minimal': 0.1,    // 10% - heavily reduced
+};
+
 /**
  * ParticleEmitterManager - Manages all emitter instances
  */
@@ -867,6 +879,10 @@ export class ParticleEmitterManager {
     
     // Maximum distance from camera to update emitters (default: 3 chunks = 48 blocks)
     this.maxDistance = 48;
+    
+    // Quality setting: 'all', 'decreased', 'minimal'
+    this.quality = 'all';
+    this.qualityMultiplier = 1.0;
     
     // Camera position for distance culling
     this.cameraX = 0;
@@ -911,6 +927,7 @@ export class ParticleEmitterManager {
     if (this.emitters.has(key)) return;
     
     const emitter = new EmitterInstance(normalizedType, x, y, z, properties);
+    emitter.qualityMultiplier = this.qualityMultiplier; // Apply current quality setting
     this.emitters.set(key, emitter);
   }
   
@@ -994,6 +1011,27 @@ export class ParticleEmitterManager {
    */
   setMaxDistance(distance) {
     this.maxDistance = distance;
+  }
+  
+  /**
+   * Set particle quality level
+   * @param {string} quality - 'all', 'decreased', or 'minimal'
+   */
+  setQuality(quality) {
+    this.quality = quality;
+    this.qualityMultiplier = QUALITY_MULTIPLIERS[quality] || 1.0;
+    
+    // Update all existing emitters with the new quality multiplier
+    for (const emitter of this.emitters.values()) {
+      emitter.qualityMultiplier = this.qualityMultiplier;
+    }
+  }
+  
+  /**
+   * Get current quality multiplier
+   */
+  getQualityMultiplier() {
+    return this.qualityMultiplier;
   }
 }
 
