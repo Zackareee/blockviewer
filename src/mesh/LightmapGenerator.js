@@ -41,6 +41,14 @@ function notGamma(r, g, b) {
 /**
  * Default lightmap parameters for daytime (noon)
  * Matches Minecraft's lightmap.fsh exactly
+ * 
+ * Note: brightnessFactor corresponds to Minecraft's "Brightness" slider:
+ * - 0.0 = "Moody" (darkest, rarely used)
+ * - 0.5 = Default/medium
+ * - 1.0 = "Bright" (maximum brightness boost for dark areas)
+ * 
+ * The notGamma function applied at brightnessFactor provides significant
+ * brightness boost to dark areas (e.g., 0.2 → 0.59 at 100%, 0.2 → 0.40 at 50%)
  */
 export const DAYTIME_PARAMS = {
   ambientLightFactor: 0.0,     // 0 for overworld, 0.1 for nether/end
@@ -49,7 +57,7 @@ export const DAYTIME_PARAMS = {
   nightVisionFactor: 0.0,      // Night vision effect (0-1)
   darknessScale: 0.0,          // Darkness effect
   darkenWorldFactor: 0.0,      // World darkening (rain, etc.)
-  brightnessFactor: 0.0,       // Brightness gamma setting (0-1)
+  brightnessFactor: 0.5,       // Brightness gamma setting (0-1) - 0.5 matches typical player settings
   skyLightColor: { r: 1.0, g: 1.0, b: 1.0 },  // Daylight color
   ambientColor: { r: 0.0, g: 0.0, b: 0.0 },   // Ambient color (0 for overworld)
 };
