@@ -508,32 +508,21 @@ class ParticleAtlas {
 
   /**
    * Detect texture size from particle textures
+   * Uses the MAXIMUM size found to accommodate all textures (8x8 and 16x16)
    */
   _detectTextureSize(packManager, texturePaths) {
-    // Try common particle textures
-    const preferredTextures = [
-      'textures/particle/flame.png',
-      'textures/particle/generic_0.png',
-      'textures/particle/bubble.png',
-    ];
+    let maxSize = DEFAULT_PARTICLE_SIZE;
     
-    for (const path of preferredTextures) {
-      const bitmap = packManager.getParticleTexture(path);
-      if (bitmap && bitmap.width > 0) {
-        console.log(`[ParticleAtlas] Detected ${bitmap.width}x${bitmap.width} resolution from ${path}`);
-        return bitmap.width;
-      }
-    }
-    
-    // Fall back to first valid texture
+    // Scan all textures to find the largest
     for (const path of texturePaths) {
       const bitmap = packManager.getParticleTexture(path);
-      if (bitmap && bitmap.width > 0) {
-        return bitmap.width;
+      if (bitmap && bitmap.width > maxSize) {
+        maxSize = bitmap.width;
       }
     }
     
-    return DEFAULT_PARTICLE_SIZE;
+    console.log(`[ParticleAtlas] Using ${maxSize}x${maxSize} tile size (max found across all particles)`);
+    return maxSize;
   }
 
   /**
