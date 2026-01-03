@@ -259,11 +259,25 @@ vec3 getBiomeTint(int tintType) {
   return vec3(1.0);
 }
 
+// Animation result structure for interpolation support
+// Returns current atlas index, next atlas index, and blend factor
+struct AnimResult {
+  float currentIndex;
+  float nextIndex;
+  float blend; // 0.0 = show current, 1.0 = show next
+};
+
 // Calculate animated texture index based on time
 // Reads animation metadata from uAnimationData texture and looks up frame in uFrameSequence
 // This supports custom frame orders (like lava which plays 0->19->18->1)
-float getAnimatedTexIndex(float texIndex) {
-  if (uTotalTiles <= 0.0) return texIndex;
+// Also supports smooth interpolation between frames for textures with interpolate=true
+AnimResult getAnimatedTexData(float texIndex) {
+  AnimResult result;
+  result.currentIndex = texIndex;
+  result.nextIndex = texIndex;
+  result.blend = 0.0;
+  
+  if (uTotalTiles <= 0.0) return result;
   
   // Sample animation data for this texture index
   // Animation data is stored as: (sequenceStart, cycleLength, frametime, interpolate)
@@ -273,10 +287,10 @@ float getAnimatedTexIndex(float texIndex) {
   float sequenceStart = animData.r;
   float cycleLength = animData.g;
   float frametime = animData.b;
-  // float interpolate = animData.a; // For future interpolation support
+  float interpolate = animData.a;
   
   // If not animated (cycleLength <= 1), return the original index
-  if (cycleLength <= 1.0) return texIndex;
+  if (cycleLength <= 1.0) return result;
   
   // Convert time to Minecraft ticks (20 ticks per second)
   float ticks = uTime * 20.0;
@@ -284,15 +298,27 @@ float getAnimatedTexIndex(float texIndex) {
   // Calculate current position in animation cycle
   float ticksPerCycle = frametime * cycleLength;
   float cycleTicks = mod(ticks, ticksPerCycle);
-  float currentCycleFrame = floor(cycleTicks / frametime);
+  float exactFrame = cycleTicks / frametime;
+  float currentCycleFrame = floor(exactFrame);
+  float nextCycleFrame = mod(currentCycleFrame + 1.0, cycleLength);
   
-  // Look up the actual atlas index from the frame sequence texture
-  // The sequence texture stores the pre-computed atlas index for each cycle position
-  float seqIndex = sequenceStart + currentCycleFrame;
-  float seqU = (seqIndex + 0.5) / uSequenceLength;
-  float atlasIndex = texture2D(uFrameSequence, vec2(seqU, 0.5)).r;
+  // Look up the actual atlas indices from the frame sequence texture
+  float seqU1 = (sequenceStart + currentCycleFrame + 0.5) / uSequenceLength;
+  float seqU2 = (sequenceStart + nextCycleFrame + 0.5) / uSequenceLength;
   
-  return atlasIndex;
+  result.currentIndex = texture2D(uFrameSequence, vec2(seqU1, 0.5)).r;
+  result.nextIndex = texture2D(uFrameSequence, vec2(seqU2, 0.5)).r;
+  
+  // Calculate blend factor only if interpolation is enabled
+  result.blend = interpolate > 0.5 ? fract(exactFrame) : 0.0;
+  
+  return result;
+}
+
+// Simple wrapper that returns just the current frame (for non-interpolated sampling)
+float getAnimatedTexIndex(float texIndex) {
+  AnimResult anim = getAnimatedTexData(texIndex);
+  return anim.currentIndex;
 }
 
 // Get UV coordinates for a face based on world position and normal (triplanar)
@@ -385,24 +411,28 @@ void main() {
     // Final safety clamp on localUV (belt and suspenders approach)
     localUV = clamp(localUV, 0.0, 1.0);
     
-    // Get animated texture index (returns original if not animated)
-    float animatedTexIndex = getAnimatedTexIndex(vTexIndex);
-    
-    // Calculate tile position from texture index
+    // Get animated texture data (supports interpolation between frames)
+    AnimResult anim = getAnimatedTexData(vTexIndex);
     float tilesPerRow = uAtlasSize.x;
-    float col = mod(animatedTexIndex, tilesPerRow);
-    float row = floor(animatedTexIndex / tilesPerRow);
     
-    // Calculate atlas offset for this tile (using actual tile UV size, not 1/tilesPerRow)
-    vec2 atlasOffset = vec2(col, row) * uTileUV;
+    // Calculate atlas UV for current frame
+    float col1 = mod(anim.currentIndex, tilesPerRow);
+    float row1 = floor(anim.currentIndex / tilesPerRow);
+    vec2 atlasOffset1 = vec2(col1, row1) * uTileUV;
+    vec2 atlasUV1 = atlasOffset1 + uBorderUV + localUV * uTextureUV;
     
-    // Add border offset to get to the actual texture area
-    // The atlas has 1-pixel borders around each tile to prevent bleeding, so we just
-    // offset by the border and use the full texture area
-    vec2 atlasUV = atlasOffset + uBorderUV + localUV * uTextureUV;
+    // Sample current frame
+    vec4 texColor = texture2D(uAtlas, atlasUV1);
     
-    // Sample the texture
-    vec4 texColor = texture2D(uAtlas, atlasUV);
+    // If interpolation is needed, sample next frame and blend
+    if (anim.blend > 0.0) {
+      float col2 = mod(anim.nextIndex, tilesPerRow);
+      float row2 = floor(anim.nextIndex / tilesPerRow);
+      vec2 atlasOffset2 = vec2(col2, row2) * uTileUV;
+      vec2 atlasUV2 = atlasOffset2 + uBorderUV + localUV * uTextureUV;
+      vec4 texColor2 = texture2D(uAtlas, atlasUV2);
+      texColor = mix(texColor, texColor2, anim.blend);
+    }
     
     // Handle transparency
     if (texColor.a < 0.1) discard;
@@ -851,37 +881,53 @@ vec2 rotateUV(vec2 uv, int rot) {
   return clamp(centered + 0.5, 0.0, 1.0);
 }
 
-// Calculate animated texture index based on time
-// Uses frame sequence texture to support custom frame orders
-float getAnimatedTexIndex(float texIndex) {
-  if (uTotalTiles <= 0.0) return texIndex;
+// Animation result structure for interpolation support
+struct AnimResult {
+  float currentIndex;
+  float nextIndex;
+  float blend;
+};
+
+// Calculate animated texture data with interpolation support
+AnimResult getAnimatedTexData(float texIndex) {
+  AnimResult result;
+  result.currentIndex = texIndex;
+  result.nextIndex = texIndex;
+  result.blend = 0.0;
+  
+  if (uTotalTiles <= 0.0) return result;
   
   // Sample animation data for this texture index
-  // Animation data is stored as: (sequenceStart, cycleLength, frametime, interpolate)
   float u = (texIndex + 0.5) / uTotalTiles;
   vec4 animData = texture2D(uAnimationData, vec2(u, 0.5));
   
   float sequenceStart = animData.r;
   float cycleLength = animData.g;
   float frametime = animData.b;
+  float interpolate = animData.a;
   
-  // If not animated (cycleLength <= 1), return the original index
-  if (cycleLength <= 1.0) return texIndex;
+  if (cycleLength <= 1.0) return result;
   
-  // Convert time to Minecraft ticks (20 ticks per second)
   float ticks = uTime * 20.0;
-  
-  // Calculate current position in animation cycle
   float ticksPerCycle = frametime * cycleLength;
   float cycleTicks = mod(ticks, ticksPerCycle);
-  float currentCycleFrame = floor(cycleTicks / frametime);
+  float exactFrame = cycleTicks / frametime;
+  float currentCycleFrame = floor(exactFrame);
+  float nextCycleFrame = mod(currentCycleFrame + 1.0, cycleLength);
   
-  // Look up the actual atlas index from the frame sequence texture
-  float seqIndex = sequenceStart + currentCycleFrame;
-  float seqU = (seqIndex + 0.5) / uSequenceLength;
-  float atlasIndex = texture2D(uFrameSequence, vec2(seqU, 0.5)).r;
+  float seqU1 = (sequenceStart + currentCycleFrame + 0.5) / uSequenceLength;
+  float seqU2 = (sequenceStart + nextCycleFrame + 0.5) / uSequenceLength;
   
-  return atlasIndex;
+  result.currentIndex = texture2D(uFrameSequence, vec2(seqU1, 0.5)).r;
+  result.nextIndex = texture2D(uFrameSequence, vec2(seqU2, 0.5)).r;
+  result.blend = interpolate > 0.5 ? fract(exactFrame) : 0.0;
+  
+  return result;
+}
+
+float getAnimatedTexIndex(float texIndex) {
+  AnimResult anim = getAnimatedTexData(texIndex);
+  return anim.currentIndex;
 }
 
 // Sample biome colormap using Minecraft's formula
@@ -950,21 +996,28 @@ void main() {
     // Clamp UV to valid range
     localUV = clamp(localUV, 0.0, 1.0);
     
-    // Get animated texture index (returns original if not animated)
-    float animatedTexIndex = getAnimatedTexIndex(vTexIndex);
-    
-    // Calculate tile position from texture index
+    // Get animated texture data with interpolation support
+    AnimResult anim = getAnimatedTexData(vTexIndex);
     float tilesPerRow = uAtlasSize.x;
-    float col = mod(animatedTexIndex, tilesPerRow);
-    float row = floor(animatedTexIndex / tilesPerRow);
     
-    // Calculate atlas UV
-    // The atlas has 1-pixel borders around each tile to prevent bleeding
-    vec2 atlasOffset = vec2(col, row) * uTileUV;
-    vec2 atlasUV = atlasOffset + uBorderUV + localUV * uTextureUV;
+    // Calculate atlas UV for current frame
+    float col1 = mod(anim.currentIndex, tilesPerRow);
+    float row1 = floor(anim.currentIndex / tilesPerRow);
+    vec2 atlasOffset1 = vec2(col1, row1) * uTileUV;
+    vec2 atlasUV1 = atlasOffset1 + uBorderUV + localUV * uTextureUV;
     
-    // Sample texture
-    vec4 texColor = texture2D(uAtlas, atlasUV);
+    // Sample current frame
+    vec4 texColor = texture2D(uAtlas, atlasUV1);
+    
+    // If interpolation is needed, sample next frame and blend
+    if (anim.blend > 0.0) {
+      float col2 = mod(anim.nextIndex, tilesPerRow);
+      float row2 = floor(anim.nextIndex / tilesPerRow);
+      vec2 atlasOffset2 = vec2(col2, row2) * uTileUV;
+      vec2 atlasUV2 = atlasOffset2 + uBorderUV + localUV * uTextureUV;
+      vec4 texColor2 = texture2D(uAtlas, atlasUV2);
+      texColor = mix(texColor, texColor2, anim.blend);
+    }
     
     // Handle transparency
     if (texColor.a < 0.1) discard;

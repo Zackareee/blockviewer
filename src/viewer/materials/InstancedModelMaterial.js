@@ -124,32 +124,52 @@ varying float vTintType;
 varying vec2 vLightUV;
 varying float vVisible;
 
-// Calculate animated texture index based on time
-// Uses frame sequence texture to support custom frame orders
-float getAnimatedTexIndex(float texIndex) {
-  if (uTotalTiles <= 0.0) return texIndex;
+// Animation result structure for interpolation support
+struct AnimResult {
+  float currentIndex;
+  float nextIndex;
+  float blend;
+};
+
+// Calculate animated texture data with interpolation support
+AnimResult getAnimatedTexData(float texIndex) {
+  AnimResult result;
+  result.currentIndex = texIndex;
+  result.nextIndex = texIndex;
+  result.blend = 0.0;
   
-  // Sample animation data: (sequenceStart, cycleLength, frametime, interpolate)
+  if (uTotalTiles <= 0.0) return result;
+  
   float u = (texIndex + 0.5) / uTotalTiles;
   vec4 animData = texture2D(uAnimationData, vec2(u, 0.5));
   
   float sequenceStart = animData.r;
   float cycleLength = animData.g;
   float frametime = animData.b;
+  float interpolate = animData.a;
   
-  if (cycleLength <= 1.0) return texIndex;
+  if (cycleLength <= 1.0) return result;
   
   float ticks = uTime * 20.0;
   float ticksPerCycle = frametime * cycleLength;
   float cycleTicks = mod(ticks, ticksPerCycle);
-  float currentCycleFrame = floor(cycleTicks / frametime);
+  float exactFrame = cycleTicks / frametime;
+  float currentCycleFrame = floor(exactFrame);
+  float nextCycleFrame = mod(currentCycleFrame + 1.0, cycleLength);
   
-  // Look up actual atlas index from frame sequence texture
-  float seqIndex = sequenceStart + currentCycleFrame;
-  float seqU = (seqIndex + 0.5) / uSequenceLength;
-  float atlasIndex = texture2D(uFrameSequence, vec2(seqU, 0.5)).r;
+  float seqU1 = (sequenceStart + currentCycleFrame + 0.5) / uSequenceLength;
+  float seqU2 = (sequenceStart + nextCycleFrame + 0.5) / uSequenceLength;
   
-  return atlasIndex;
+  result.currentIndex = texture2D(uFrameSequence, vec2(seqU1, 0.5)).r;
+  result.nextIndex = texture2D(uFrameSequence, vec2(seqU2, 0.5)).r;
+  result.blend = interpolate > 0.5 ? fract(exactFrame) : 0.0;
+  
+  return result;
+}
+
+float getAnimatedTexIndex(float texIndex) {
+  AnimResult anim = getAnimatedTexData(texIndex);
+  return anim.currentIndex;
 }
 
 vec3 getBiomeTint(int tintType) {
@@ -178,16 +198,26 @@ void main() {
   float alpha = 1.0;
   
   if (uUseTextures > 0.5) {
-    // Get animated texture index (returns original if not animated)
-    float tileIndex = getAnimatedTexIndex(floor(vTexIndex + 0.5));
-    float col = mod(tileIndex, uTilesPerRow);
-    float row = floor(tileIndex / uTilesPerRow);
+    // Get animated texture data with interpolation support
+    AnimResult anim = getAnimatedTexData(floor(vTexIndex + 0.5));
     
-    // Calculate atlas UV: offset to tile + border + UV within texture
-    vec2 atlasOffset = vec2(col, row) * uTileFullSize;
-    vec2 atlasUV = atlasOffset + uBorderSize + vModelUV * uTextureSize;
+    // Calculate atlas UV for current frame
+    float col1 = mod(anim.currentIndex, uTilesPerRow);
+    float row1 = floor(anim.currentIndex / uTilesPerRow);
+    vec2 atlasOffset1 = vec2(col1, row1) * uTileFullSize;
+    vec2 atlasUV1 = atlasOffset1 + uBorderSize + vModelUV * uTextureSize;
     
-    vec4 texColor = texture2D(uAtlas, atlasUV);
+    vec4 texColor = texture2D(uAtlas, atlasUV1);
+    
+    // If interpolation is needed, sample next frame and blend
+    if (anim.blend > 0.0) {
+      float col2 = mod(anim.nextIndex, uTilesPerRow);
+      float row2 = floor(anim.nextIndex / uTilesPerRow);
+      vec2 atlasOffset2 = vec2(col2, row2) * uTileFullSize;
+      vec2 atlasUV2 = atlasOffset2 + uBorderSize + vModelUV * uTextureSize;
+      vec4 texColor2 = texture2D(uAtlas, atlasUV2);
+      texColor = mix(texColor, texColor2, anim.blend);
+    }
     
     // Alpha test
     if (texColor.a < 0.1) discard;
