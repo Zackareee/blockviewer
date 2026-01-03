@@ -138,6 +138,31 @@ function getFogMultiplier(ticks) {
 }
 
 /**
+ * Get star brightness based on time (from day.json star_brightness track)
+ * Returns 0-1 value (0 = invisible, 0.5 = full night brightness)
+ */
+function getStarBrightness(ticks) {
+  // Keyframes from day.json minecraft:visual/star_brightness
+  const keyframes = [
+    { tick: 92, value: 0.037 },
+    { tick: 627, value: 0.0 },      // Dawn - stars fade out
+    { tick: 11373, value: 0.0 },    // Day - no stars
+    { tick: 11732, value: 0.016 },  // Dusk begins
+    { tick: 11959, value: 0.044 },
+    { tick: 12399, value: 0.143 },
+    { tick: 12729, value: 0.258 },
+    { tick: 13228, value: 0.5 },    // Night - full brightness
+    { tick: 22772, value: 0.5 },    // Night continues
+    { tick: 23032, value: 0.364 },  // Dawn begins
+    { tick: 23356, value: 0.225 },
+    { tick: 23758, value: 0.101 },
+  ];
+  
+  const { prevValue, nextValue, t } = interpolateKeyframes(ticks, keyframes);
+  return prevValue + (nextValue - prevValue) * t;
+}
+
+/**
  * Calculate sky colors based on time of day
  * Returns { skyColor, horizonColor, fogColor } as THREE.Color objects
  */
@@ -278,7 +303,7 @@ function Sun({ timeOfDay = 0.25 }) {
       map: texture,
       transparent: true,
       depthWrite: false,
-      depthTest: false,  // Sun is at infinity - never test depth
+      depthTest: true,  // Test depth so terrain blocks the sun
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,  // Black+transparent adds nothing, glow shows
       fog: false,  // Don't apply scene fog to celestial bodies
@@ -354,7 +379,7 @@ function Moon({ timeOfDay = 0.25 }) {
       map: texture,
       transparent: true,
       depthWrite: false,
-      depthTest: false,  // Moon is at infinity - never test depth
+      depthTest: true,  // Test depth so terrain blocks the moon
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending, // Additive to glow against dark sky
       fog: false,  // Don't apply scene fog to celestial bodies
@@ -434,6 +459,150 @@ function createFallbackMoonTexture() {
   texture.magFilter = THREE.LinearFilter;
   texture.minFilter = THREE.LinearFilter;
   return texture;
+}
+
+/**
+ * Stars - Minecraft-accurate star rendering
+ * 
+ * Based on Minecraft's stars rendering (from minecraft.wiki):
+ * - Uses fixed seed 10842 for deterministic pattern
+ * - 1500 stars attempted
+ * - Each star is a small quad (square), not a point
+ * - Brightness controlled by star_brightness timeline track
+ * - Rotate with time (star_angle track)
+ */
+const STAR_COUNT = 1500; // Number of stars (same as Minecraft)
+const STAR_RADIUS = 900; // Distance from camera (same as sun/moon to avoid depth issues)
+const STAR_SEED = 10842; // Minecraft's fixed seed for stars
+// Minecraft star size: base 0.15 + random * 0.1 at radius 100
+// Scale factor to maintain angular size at radius 900: 900/100 = 9
+const STAR_SCALE = 9;
+
+// Seeded random number generator (simple LCG)
+function seededRandom(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return s / 0x7fffffff;
+  };
+}
+
+function Stars({ timeOfDay = 0.5 }) {
+  const meshRef = useRef();
+  const { camera } = useThree();
+  
+  // Generate star geometry once using seeded random
+  const { geometry, material } = useMemo(() => {
+    const random = seededRandom(STAR_SEED);
+    
+    // Each star is a quad (4 vertices, 2 triangles)
+    const positions = [];
+    const indices = [];
+    let vertexIndex = 0;
+    
+    for (let i = 0; i < STAR_COUNT; i++) {
+      // Random position on sphere using Minecraft's method
+      // Stars are placed on FULL sphere (not just upper hemisphere)
+      const d0 = random() * 2.0 - 1.0;
+      const d1 = random() * 2.0 - 1.0;
+      const d2 = random() * 2.0 - 1.0;
+      const d3 = 0.15 + random() * 0.1; // Star size variation
+      
+      // Calculate distance from origin
+      const d4 = d0 * d0 + d1 * d1 + d2 * d2;
+      
+      // Skip if too close to center (normalize would explode) or outside unit sphere
+      // Minecraft places stars on the full sphere, visibility is controlled by rotation
+      if (d4 < 1.0 && d4 > 0.01) {
+        // Normalize and scale to sphere radius
+        const dist = 1.0 / Math.sqrt(d4);
+        const x = d0 * dist * STAR_RADIUS;
+        const y = d1 * dist * STAR_RADIUS;
+        const z = d2 * dist * STAR_RADIUS;
+        
+        // Create quad facing the origin (camera)
+        // Star size: Minecraft uses 0.15 + random * 0.1, scaled for our radius
+        const starSize = d3 * STAR_SCALE;
+        
+        // Simple quad perpendicular to view direction
+        const toCenter = new THREE.Vector3(-x, -y, -z).normalize();
+        const up = new THREE.Vector3(0, 1, 0);
+        const right = new THREE.Vector3().crossVectors(up, toCenter).normalize();
+        const quadUp = new THREE.Vector3().crossVectors(toCenter, right).normalize();
+        
+        // Handle edge case when toCenter is parallel to up vector
+        if (right.lengthSq() < 0.001) {
+          right.set(1, 0, 0);
+          quadUp.crossVectors(toCenter, right).normalize();
+        }
+        
+        // Four corners of the star quad
+        const corners = [
+          [-1, -1], [1, -1], [1, 1], [-1, 1]
+        ];
+        
+        for (const [cx, cy] of corners) {
+          positions.push(
+            x + right.x * cx * starSize + quadUp.x * cy * starSize,
+            y + right.y * cx * starSize + quadUp.y * cy * starSize,
+            z + right.z * cx * starSize + quadUp.z * cy * starSize
+          );
+        }
+        
+        // Two triangles for the quad
+        indices.push(
+          vertexIndex, vertexIndex + 1, vertexIndex + 2,
+          vertexIndex, vertexIndex + 2, vertexIndex + 3
+        );
+        vertexIndex += 4;
+      }
+    }
+    
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geom.setIndex(indices);
+    
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      depthTest: true, // Test depth so terrain blocks stars
+      fog: false, // Not affected by fog
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    
+    return { geometry: geom, material: mat };
+  }, []);
+  
+  // Update star brightness and position based on time
+  useFrame(() => {
+    if (!meshRef.current || !material) return;
+    
+    // Calculate star brightness from timeline
+    const ticks = timeOfDayToTicks(timeOfDay);
+    const brightness = getStarBrightness(ticks);
+    
+    // Update material opacity
+    material.opacity = brightness;
+    
+    // Stars follow camera position (they're at infinity)
+    meshRef.current.position.copy(camera.position);
+    
+    // Stars rotate with time (star_angle track - opposite to sun)
+    const starAngle = (timeOfDay - 0.25) * Math.PI * 2;
+    meshRef.current.rotation.x = starAngle;
+  });
+  
+  // Don't render if brightness is 0
+  const ticks = timeOfDayToTicks(timeOfDay);
+  const brightness = getStarBrightness(ticks);
+  if (brightness < 0.01) return null;
+  
+  return (
+    <mesh ref={meshRef} geometry={geometry} material={material} renderOrder={-999} />
+  );
 }
 
 /**
@@ -872,6 +1041,9 @@ export function MinecraftSky({
 
       {/* Moon - opposite side of sky from sun */}
       <Moon timeOfDay={timeOfDay} />
+
+      {/* Stars - visible at night */}
+      <Stars timeOfDay={timeOfDay} />
 
       {/* Clouds - loads actual Minecraft texture */}
       <Clouds opacity={cloudOpacity} skyColor={colors.horizonColor} />
