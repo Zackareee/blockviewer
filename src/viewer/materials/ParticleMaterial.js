@@ -135,6 +135,14 @@ void main() {
 export function createParticleMaterial(particleAtlas) {
   const materialData = particleAtlas ? particleAtlas.getMaterialData() : null;
   
+  // Ensure nearest neighbor filtering for pixel art look
+  if (materialData?.atlas) {
+    materialData.atlas.magFilter = THREE.NearestFilter;
+    materialData.atlas.minFilter = THREE.NearestFilter;
+    materialData.atlas.generateMipmaps = false;
+    materialData.atlas.needsUpdate = true;
+  }
+  
   const material = new THREE.ShaderMaterial({
     vertexShader: particleVertexShader,
     fragmentShader: particleFragmentShader,
@@ -169,6 +177,14 @@ export function createParticleMaterial(particleAtlas) {
 export function createAdditiveParticleMaterial(particleAtlas) {
   const materialData = particleAtlas ? particleAtlas.getMaterialData() : null;
   console.log('[ParticleMaterial] Creating additive material, atlas:', !!materialData?.atlas, 'tilesPerRow:', materialData?.tilesPerRow);
+  
+  // Ensure nearest neighbor filtering for pixel art look
+  if (materialData?.atlas) {
+    materialData.atlas.magFilter = THREE.NearestFilter;
+    materialData.atlas.minFilter = THREE.NearestFilter;
+    materialData.atlas.generateMipmaps = false;
+    materialData.atlas.needsUpdate = true;
+  }
   
   const material = new THREE.ShaderMaterial({
     vertexShader: particleVertexShader,
