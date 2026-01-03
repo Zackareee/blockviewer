@@ -200,7 +200,9 @@ function ChunkVisibilityUpdater({ managerRef }) {
  * Runs every frame to drive texture animations (water, lava, etc.)
  */
 function AnimationUpdater({ managerRef }) {
-  useFrame((state) => {
+  // useFrame provides delta as second argument - use it directly instead of clock.getDelta()
+  // clock.getDelta() can return incorrect values if called multiple times per frame
+  useFrame((state, delta) => {
     const manager = managerRef.current;
     if (!manager) return;
     
@@ -244,6 +246,13 @@ function AnimationUpdater({ managerRef }) {
     // Update lava material (animated lava textures)
     if (manager.lavaMaterial?.uniforms?.uTime) {
       manager.lavaMaterial.uniforms.uTime.value = time;
+    }
+    
+    // Update particle system
+    if (manager.updateParticles) {
+      // Use delta from useFrame callback - this is the correct frame delta time
+      const deltaTime = delta || 1/60;
+      manager.updateParticles(deltaTime, time, state.camera);
     }
   });
   
@@ -339,10 +348,11 @@ function useBlockHover(debugMode, onBlockHover) {
           worldNormal.applyMatrix3(normalMatrix).normalize();
         }
         
-        // Get block position (step slightly into the block)
-        const blockX = Math.floor(point.x - worldNormal.x * 0.01);
-        const blockY = Math.floor(point.y - worldNormal.y * 0.01);
-        const blockZ = Math.floor(point.z - worldNormal.z * 0.01);
+        // Get block position (step into the block from the hit surface)
+        // Use 0.5 to reliably get inside the block (blocks are 1 unit)
+        const blockX = Math.floor(point.x - worldNormal.x * 0.5);
+        const blockY = Math.floor(point.y - worldNormal.y * 0.5);
+        const blockZ = Math.floor(point.z - worldNormal.z * 0.5);
         
         // Skip if same block
         const prev = hoveredBlockRef.current;
@@ -467,6 +477,7 @@ function RegionScene({
   spectatorRef,
   textureMode,
   textureAtlas,
+  particleAtlas,
   initialCameraPosition,
   partialBlockDistance = 48, // Render distance for partial blocks (grass, flowers, slabs, etc.)
   renderDistance = 0, // Chunk render distance (0 = unlimited)
@@ -474,6 +485,7 @@ function RegionScene({
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
   brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
   enableRGSS = true, // RGSS anti-aliasing for textures
+  cloudsEnabled = true, // Show clouds
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -514,6 +526,8 @@ function RegionScene({
     
     managerRef.current = manager;
     
+    // Note: Particle system is initialized in a separate useEffect when particleAtlas is available
+    
     // DEBUG: Expose manager to window for console debugging
     if (typeof window !== 'undefined') {
       window.__chunkManager = manager;
@@ -532,6 +546,15 @@ function RegionScene({
       managerRef.current = null;
     };
   }, [scene, invalidate]);
+  
+  // Initialize particle system when particle atlas becomes available
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && particleAtlas) {
+      console.log('[RegionViewer] Initializing particle system with atlas');
+      manager.initParticleSystem(particleAtlas);
+    }
+  }, [particleAtlas]);
   
   // Update texture mode when it changes
   useEffect(() => {
@@ -829,7 +852,7 @@ function RegionScene({
       <MinecraftSky 
         enabled={fogEnabled}
         timeOfDay={timeOfDay}
-        cloudOpacity={0.8}
+        cloudOpacity={cloudsEnabled ? 0.8 : 0}
         onColorsChange={handleColorsChange}
       />
       
@@ -900,6 +923,7 @@ export function RegionViewer({
   spectatorRef = null,
   textureMode = 'solid',
   textureAtlas = null,
+  particleAtlas = null, // Particle texture atlas for flames, smoke, etc.
   fov = 60,  // Vertical FOV in degrees (Minecraft also uses vertical FOV internally)
   partialBlockDistance = 48, // Render distance for partial blocks (0 = unlimited)
   renderDistance = 0, // Chunk render distance in blocks (0 = unlimited)
@@ -907,6 +931,7 @@ export function RegionViewer({
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
   brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
   enableRGSS = true, // RGSS anti-aliasing for textures
+  cloudsEnabled = true, // Show clouds
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -960,12 +985,14 @@ export function RegionViewer({
         onStats={handleStats}
         textureMode={textureMode}
         textureAtlas={textureAtlas}
+        particleAtlas={particleAtlas}
         partialBlockDistance={partialBlockDistance}
         renderDistance={renderDistance}
         fogEnabled={fogEnabled}
         timeOfDay={timeOfDay}
         brightness={brightness}
         enableRGSS={enableRGSS}
+        cloudsEnabled={cloudsEnabled}
       />
     </Canvas>
   );

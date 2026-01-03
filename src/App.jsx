@@ -7,6 +7,7 @@ import {
   getTextureAtlas,
   TEXTURE_MODE 
 } from './assets';
+import { getParticleAtlas } from './assets/ParticleAtlas';
 import { getBlockColorsNumeric, BLOCK_COLORS } from './data/blockColors';
 import { getBlockRegistry } from './mesh/BlockRegistry';
 import { getRandomRotationRegistry } from './assets/RandomRotationRegistry';
@@ -35,6 +36,9 @@ function App() {
   // Region files for progressive loading
   const [regionFiles, setRegionFiles] = useState([]);
   
+  // Rerender key - increment to force RegionViewer remount (useful after React hot-reload)
+  const [rerenderKey, setRerenderKey] = useState(0);
+  
   // Model meshes toggle (non-cube blocks like slabs, stairs, flowers)
   const [enableModelMeshes, setEnableModelMeshes] = useState(true);
   
@@ -47,7 +51,7 @@ function App() {
   
   // Camera FOV (vertical degrees) - Minecraft uses vertical FOV internally
   // Default 60, but can be adjusted to match specific Minecraft screenshots
-  const [fov, setFov] = useState(60);
+  const [fov, setFov] = useState(70);
   
   // Chunk render distance - chunks beyond this are hidden until player moves closer
   // 0 = unlimited (show all chunks), value is in chunks (1 chunk = 16 blocks)
@@ -66,6 +70,9 @@ function App() {
   // RGSS anti-aliasing (Rotated Grid Super-Sampling) - Minecraft's texture smoothing
   const [enableRGSS, setEnableRGSS] = useState(true);
   
+  // Clouds toggle
+  const [cloudsEnabled, setCloudsEnabled] = useState(true);
+  
   // Camera state for coordinates display (Minecraft spectator mode)
   const [cameraState, setCameraState] = useState({
     x: 0, y: 100, z: 0,
@@ -82,10 +89,11 @@ function App() {
   const spectatorRef = useRef(null);
   
   // Texture pack state
-  const [textureMode, setTextureMode] = useState(TEXTURE_MODE.SOLID_COLOR);
+  const [textureMode, setTextureMode] = useState(TEXTURE_MODE.DEFAULT_PACK);
   const [texturePackLoading, setTexturePackLoading] = useState(false);
   const [texturePackInfo, setTexturePackInfo] = useState(null);
   const [textureAtlas, setTextureAtlas] = useState(null);
+  const [particleAtlas, setParticleAtlas] = useState(null);
   const [atlasDebugUrl, setAtlasDebugUrl] = useState(null); // Debug: atlas preview
   
   // Load default texture pack when mode changes to default
@@ -132,6 +140,12 @@ function App() {
       
       // Build the TextureIndexLookup which maps (blockId, face) -> atlas index
       atlas.buildTextureIndexLookup(blockRegistry);
+      
+      // Build particle atlas for torch flames, smoke, etc.
+      const pAtlas = getParticleAtlas();
+      const particleBuildSuccess = await pAtlas.build(packManager);
+      console.log('[App] Particle atlas built:', particleBuildSuccess, 'isBuilt:', pAtlas.isBuilt, 'textures:', pAtlas.particleLookup?.size || 0);
+      setParticleAtlas(pAtlas);
       
       // Set the material data (includes atlas, textureIndexLookup, and size)
       setTextureAtlas(atlas.getMaterialData());
@@ -378,6 +392,7 @@ function App() {
         )}
         {hasContent && !loading ? (
           <RegionViewer
+            key={rerenderKey}
             chunks={chunks}
             regions={regionFiles}
             parseRegion={parseMCAFile}
@@ -390,6 +405,7 @@ function App() {
             spectatorRef={spectatorRef}
             textureMode={textureMode}
             textureAtlas={textureAtlas}
+            particleAtlas={particleAtlas}
             fov={fov}
             partialBlockDistance={renderDistance === 0 ? 0 : renderDistance * 16}
             renderDistance={renderDistance}
@@ -397,6 +413,7 @@ function App() {
             timeOfDay={timeOfDay}
             brightness={brightness}
             enableRGSS={enableRGSS}
+            cloudsEnabled={cloudsEnabled}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -423,43 +440,28 @@ function App() {
           <span className="version">v2.0</span>
         </div>
 
-        {/* Coordinates Display - Minecraft style (read-only) */}
-        <section className="panel-section coordinates-section">
-          <div className="coordinates-display">
-            <div className="coord-row">
-              <span className="coord-label">XYZ:</span>
-              <span className="coord-value">
-                {cameraState.x.toFixed(3)} / {cameraState.y.toFixed(3)} / {cameraState.z.toFixed(3)}
-              </span>
-            </div>
-            <div className="coord-row">
-              <span className="coord-label">Facing:</span>
-              <span className="coord-value">
-                {cameraState.direction} ({cameraState.axis})
-              </span>
-            </div>
-            <div className="coord-row">
-              <span className="coord-label">Rotation:</span>
-              <span className="coord-value">
-                {cameraState.yaw.toFixed(1)} / {cameraState.pitch.toFixed(1)}
-              </span>
-            </div>
-            
-            <div className="command-input-wrapper">
-              <input
-                type="text"
-                className="command-input"
-                value={commandInput}
-                onChange={(e) => setCommandInput(e.target.value)}
-                onKeyDown={handleCommandSubmit}
-                placeholder="/teleport x y z [yaw] [pitch]"
-                spellCheck={false}
-              />
-              {commandError && (
-                <div className="command-error">{commandError}</div>
-              )}
-            </div>
+        {/* Compact Coordinates Display */}
+        <section className="panel-section coordinates-section-compact">
+          <div className="coords-compact">
+            <span className="coords-xyz">
+              {cameraState.x.toFixed(1)}, {cameraState.y.toFixed(1)}, {cameraState.z.toFixed(1)}
+            </span>
+            <span className="coords-facing">
+              {cameraState.direction} ({cameraState.yaw.toFixed(0)}°, {cameraState.pitch.toFixed(0)}°)
+            </span>
           </div>
+          <input
+            type="text"
+            className="command-input"
+            value={commandInput}
+            onChange={(e) => setCommandInput(e.target.value)}
+            onKeyDown={handleCommandSubmit}
+            placeholder="/tp x y z [yaw] [pitch]"
+            spellCheck={false}
+          />
+          {commandError && (
+            <div className="command-error">{commandError}</div>
+          )}
         </section>
 
         {/* File Upload */}
@@ -508,6 +510,15 @@ function App() {
               </span>
             </div>
           )}
+          {hasContent && (
+            <button 
+              className="rerender-button"
+              onClick={() => setRerenderKey(k => k + 1)}
+              title="Rebuild scene from loaded regions (useful after React hot-reload)"
+            >
+              🔄 Rerender
+            </button>
+          )}
           {error && <div className="error-message">⚠️ {error}</div>}
         </section>
 
@@ -515,20 +526,6 @@ function App() {
         <section className="panel-section">
           <h3>Textures</h3>
           <div className="texture-mode-selector">
-            <label className={`texture-mode-option ${textureMode === TEXTURE_MODE.SOLID_COLOR ? 'active' : ''}`}>
-              <input
-                type="radio"
-                name="textureMode"
-                value={TEXTURE_MODE.SOLID_COLOR}
-                checked={textureMode === TEXTURE_MODE.SOLID_COLOR}
-                onChange={() => setTextureMode(TEXTURE_MODE.SOLID_COLOR)}
-                disabled={texturePackLoading}
-              />
-              <span className="texture-mode-label">
-                <span className="texture-mode-icon">🎨</span>
-                Solid Colors
-              </span>
-            </label>
             <label className={`texture-mode-option ${textureMode === TEXTURE_MODE.DEFAULT_PACK ? 'active' : ''}`}>
               <input
                 type="radio"
@@ -541,6 +538,20 @@ function App() {
               <span className="texture-mode-label">
                 <span className="texture-mode-icon">📦</span>
                 Default Pack
+              </span>
+            </label>
+            <label className={`texture-mode-option ${textureMode === TEXTURE_MODE.SOLID_COLOR ? 'active' : ''}`}>
+              <input
+                type="radio"
+                name="textureMode"
+                value={TEXTURE_MODE.SOLID_COLOR}
+                checked={textureMode === TEXTURE_MODE.SOLID_COLOR}
+                onChange={() => setTextureMode(TEXTURE_MODE.SOLID_COLOR)}
+                disabled={texturePackLoading}
+              />
+              <span className="texture-mode-label">
+                <span className="texture-mode-icon">🎨</span>
+                Solid Colors
               </span>
             </label>
           </div>
@@ -597,61 +608,6 @@ function App() {
         {/* Render Options */}
         <section className="panel-section">
           <h3>Render Options</h3>
-          <label className="toggle-option">
-            <input 
-              type="checkbox"
-              checked={enableModelMeshes}
-              onChange={(e) => setEnableModelMeshes(e.target.checked)}
-            />
-            <span className="toggle-label">
-              <span className="toggle-icon">{enableModelMeshes ? '🧱' : '◻️'}</span>
-              Partial Blocks
-            </span>
-            <span className="toggle-hint">Slabs, stairs, fences, flowers, etc.</span>
-          </label>
-          <label className="toggle-option" style={{ marginTop: '0.5rem' }}>
-            <input 
-              type="checkbox"
-              checked={enableLighting}
-              onChange={(e) => setEnableLighting(e.target.checked)}
-            />
-            <span className="toggle-label">
-              <span className="toggle-icon">{enableLighting ? '💡' : '🌙'}</span>
-              Lighting
-            </span>
-            <span className="toggle-hint">Smooth lighting and ambient occlusion</span>
-          </label>
-          <label className="toggle-option" style={{ marginTop: '0.5rem' }}>
-            <input 
-              type="checkbox"
-              checked={debugMode}
-              onChange={(e) => setDebugMode(e.target.checked)}
-            />
-            <span className="toggle-label">
-              <span className="toggle-icon">{debugMode ? '🔍' : '👁️'}</span>
-              Debug Mode
-            </span>
-            <span className="toggle-hint">Hover to inspect blocks</span>
-          </label>
-          
-          {/* Debug Page Link */}
-          <a 
-            href="#debug" 
-            style={{ 
-              display: 'block',
-              marginTop: '0.5rem',
-              padding: '0.5rem 0.75rem',
-              background: 'rgba(96, 165, 250, 0.15)',
-              border: '1px solid rgba(96, 165, 250, 0.3)',
-              borderRadius: '4px',
-              color: '#60a5fa',
-              textDecoration: 'none',
-              fontSize: '0.85rem',
-              textAlign: 'center'
-            }}
-          >
-            🧪 Partial Block Debug Page
-          </a>
           
           {/* FOV Control - for matching Minecraft screenshots */}
           <div className="fov-control" style={{ marginTop: '0.75rem' }}>
@@ -670,7 +626,6 @@ function App() {
               onChange={(e) => setFov(parseInt(e.target.value, 10))}
               style={{ width: '100%', marginTop: '0.25rem' }}
             />
-            <span className="toggle-hint">Vertical FOV in degrees (Minecraft default: 70)</span>
           </div>
           
           {/* Render Distance Control */}
@@ -697,25 +652,6 @@ function App() {
               }}
               style={{ width: '100%', marginTop: '0.25rem' }}
             />
-            <span className="toggle-hint">
-              Controls visibility of terrain and detail blocks (3-64, max = unlimited)
-            </span>
-          </div>
-          
-          {/* Distance Fog Toggle */}
-          <div className="toggle-item" style={{ marginTop: '0.75rem' }}>
-            <label className="toggle-label">
-              <input
-                type="checkbox"
-                checked={fogEnabled}
-                onChange={(e) => setFogEnabled(e.target.checked)}
-              />
-              <span className="toggle-icon">🌫️</span>
-              Distance Fog
-            </label>
-            <span className="toggle-hint">
-              Minecraft-style haze at render distance edge
-            </span>
           </div>
           
           {/* Time of Day Control */}
@@ -746,9 +682,6 @@ function App() {
               onChange={(e) => setTimeOfDay(parseFloat(e.target.value))}
               style={{ width: '100%', marginTop: '0.25rem' }}
             />
-            <span className="toggle-hint">
-              Controls sun position and sky appearance
-            </span>
           </div>
           
           {/* Brightness Slider - matches Minecraft's brightness setting */}
@@ -756,7 +689,7 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="toggle-label">
                 <span className="toggle-icon">☀️</span>
-                Brightness
+                Gamma
               </span>
               <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
                 {brightness === 0 ? 'Moody' : brightness === 100 ? 'Bright' : `${brightness}%`}
@@ -771,24 +704,94 @@ function App() {
               onChange={(e) => setBrightness(parseInt(e.target.value, 10))}
               style={{ width: '100%', marginTop: '0.25rem' }}
             />
-            <span className="toggle-hint">
-              0% = Moody (darkest), 100% = Bright (lightest)
-            </span>
           </div>
           
-          {/* RGSS Anti-Aliasing Toggle */}
-          <label className="toggle-option" style={{ marginTop: '0.75rem' }}>
+          {/* Checkbox toggles */}
+          <label className={`toggle-option ${enableModelMeshes ? 'enabled' : ''}`} style={{ marginTop: '0.75rem' }}>
+            <input 
+              type="checkbox"
+              checked={enableModelMeshes}
+              onChange={(e) => setEnableModelMeshes(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">🧱</span>
+              Block Models
+            </span>
+          </label>
+          <label className={`toggle-option ${enableLighting ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
+            <input 
+              type="checkbox"
+              checked={enableLighting}
+              onChange={(e) => setEnableLighting(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">💡</span>
+              Smooth Lighting
+            </span>
+          </label>
+          <label className={`toggle-option ${enableRGSS ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
             <input 
               type="checkbox"
               checked={enableRGSS}
               onChange={(e) => setEnableRGSS(e.target.checked)}
             />
             <span className="toggle-label">
-              <span className="toggle-icon">{enableRGSS ? '✨' : '🔲'}</span>
-              Texture Smoothing
+              <span className="toggle-icon">✨</span>
+              Anti-Aliasing
             </span>
-            <span className="toggle-hint">RGSS anti-aliasing (softens distant textures)</span>
           </label>
+          <label className={`toggle-option ${fogEnabled ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
+            <input 
+              type="checkbox"
+              checked={fogEnabled}
+              onChange={(e) => setFogEnabled(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">🌫️</span>
+              Fog
+            </span>
+          </label>
+          <label className={`toggle-option ${cloudsEnabled ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
+            <input 
+              type="checkbox"
+              checked={cloudsEnabled}
+              onChange={(e) => setCloudsEnabled(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">☁️</span>
+              Clouds
+            </span>
+          </label>
+          <label className={`toggle-option ${debugMode ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
+            <input 
+              type="checkbox"
+              checked={debugMode}
+              onChange={(e) => setDebugMode(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">🔍</span>
+              Block Inspector
+            </span>
+          </label>
+          
+          {/* Debug Page Link */}
+          <a 
+            href="#debug" 
+            style={{ 
+              display: 'block',
+              marginTop: '0.75rem',
+              padding: '0.5rem 0.75rem',
+              background: 'rgba(96, 165, 250, 0.15)',
+              border: '1px solid rgba(96, 165, 250, 0.3)',
+              borderRadius: '4px',
+              color: '#60a5fa',
+              textDecoration: 'none',
+              fontSize: '0.85rem',
+              textAlign: 'center'
+            }}
+          >
+            🧪 Partial Block Debug Page
+          </a>
         </section>
         
         {/* Debug Info Panel */}
@@ -849,10 +852,11 @@ function App() {
           <p className="controls-hint">Click on viewer to enable controls</p>
           <ul>
             <li><kbd>Mouse</kbd> Look around</li>
-            <li><kbd>W A S D</kbd> Move forward/left/back/right</li>
-            <li><kbd>Space</kbd> Move up</li>
-            <li><kbd>Shift</kbd> Move down</li>
-            <li><kbd>Ctrl</kbd> Move faster</li>
+            <li><kbd>W A S D</kbd> Move</li>
+            <li><kbd>Space</kbd> Up</li>
+            <li><kbd>Shift</kbd> Down</li>
+            <li><kbd>Ctrl</kbd> Sprint (2x)</li>
+            <li><kbd>Scroll</kbd> Speed (0.06x–32x)</li>
             <li><kbd>Esc</kbd> Release mouse</li>
           </ul>
         </section>

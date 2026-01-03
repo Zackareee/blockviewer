@@ -1196,7 +1196,7 @@ export function MinecraftSky({
       <Stars timeOfDay={timeOfDay} />
 
       {/* Clouds - loads actual Minecraft texture */}
-      <Clouds opacity={cloudOpacity} skyColor={colors.horizonColor} />
+      {cloudOpacity > 0 && <Clouds opacity={cloudOpacity} skyColor={colors.horizonColor} />}
     </group>
   );
 }

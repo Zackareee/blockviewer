@@ -12,6 +12,7 @@ import { CULLFACE_OFFSETS } from '../assets/ModelGeometry.js';
 import { BlockCategory } from './BlockRegistry.js';
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
 import { buildTintTypeLookup } from '../data/biomeTinting.js';
+import { hasEmitter } from '../particles/ParticleEmitter.js';
 
 // ============================================================================
 // GPU INSTANCING SUPPORT
@@ -406,6 +407,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   const stateFacingRotation = new Uint8Array(maxStateId); // Pre-computed facing rotation for facing-based blocks
   const stateHasModelRotation = new Uint8Array(maxStateId); // 1 if block should have model Y-rotation
   const stateHasPositionOffset = new Uint8Array(maxStateId); // 1 if block should have XZ position offset
+  const stateHasParticleEmitter = new Uint8Array(maxStateId); // 1 if block emits particles (torch, etc.)
+  const stateEmitterFacing = new Array(maxStateId); // Facing property for wall torches
   
   // Slab optimization: track slab types for enhanced face culling
   // 0 = not a slab, 1 = bottom slab, 2 = top slab, 3 = double slab
@@ -538,6 +541,15 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
           stateFenceType[stateId] = fenceTypeMap.get(blockName);
         }
         
+        // Track blocks that emit particles (torches, etc.)
+        if (hasEmitter(blockName)) {
+          stateHasParticleEmitter[stateId] = 1;
+          // Store facing property for wall torches
+          if (state.properties && state.properties.facing) {
+            stateEmitterFacing[stateId] = state.properties.facing;
+          }
+        }
+        
         // Detect transparent model blocks (glass panes, iron bars, slime, honey, etc.)
         // Note: packed_ice and blue_ice are OPAQUE, not transparent
         const isPackedOrBlueIce = blockName.includes('packed_ice') || blockName.includes('blue_ice');
@@ -602,6 +614,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   let oIndexCount = 0;
   let oCapacity = INITIAL_VERTEX_COUNT;
 
+  // Collect particle emitter block positions (torches, etc.)
+  const particleEmitters = [];
+
   const ox = offset.x, oy = offset.y, oz = offset.z;
 
   // Process each section that has state data
@@ -658,6 +673,18 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         const dz = wz - cpuCullCenter.z;
         const distSq = dx * dx + dy * dy + dz * dz;
         if (distSq > cpuCullDistanceSq) continue;
+      }
+
+      // Collect particle emitter positions
+      if (stateHasParticleEmitter[stateId]) {
+        const state = stateRegistry.getState(stateId);
+        particleEmitters.push({
+          blockType: state ? state.blockName : 'torch',
+          x: baseX + lx, // Use actual world position (not offset-adjusted)
+          y: baseY + ly,
+          z: baseZ + lz,
+          properties: state?.properties || {},
+        });
       }
 
       // Get block color
@@ -1674,11 +1701,17 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     return null;
   }
   
+  // Debug: log particle emitter count
+  if (particleEmitters.length > 0) {
+    console.log(`[ModelMesher] Found ${particleEmitters.length} particle emitters (first: ${particleEmitters[0]?.blockType} at ${particleEmitters[0]?.x},${particleEmitters[0]?.y},${particleEmitters[0]?.z})`);
+  }
+  
   // Return split meshes for opaque, transparent, and overlay models
   return {
     opaque: opaqueResult,
     transparent: transparentResult,
     overlay: overlayResult,
+    particleEmitters: particleEmitters.length > 0 ? particleEmitters : null,
   };
 }
 
@@ -1742,6 +1775,7 @@ export function buildModelMeshesWithInstancing(grid, stateGrid, registry, stateR
     return {
       ...(regularMeshes || {}),
       instances: null,
+      particleEmitters: regularMeshes?.particleEmitters || null,
     };
   }
   

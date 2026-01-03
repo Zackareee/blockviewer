@@ -43,6 +43,13 @@ class TexturePackManager {
       dryFoliage: null, // textures/colormap/dry_foliage.png (Pale Garden)
     };
     
+    // Particle textures: Map<texturePath, ImageBitmap>
+    // Loaded from textures/particle/
+    this.particleTextures = new Map();
+    
+    // Particle animation metadata: Map<texturePath, AnimationData>
+    this.particleAnimations = new Map();
+    
     // Current texture mode
     this.mode = TEXTURE_MODE.SOLID_COLOR;
     
@@ -121,6 +128,8 @@ class TexturePackManager {
     this.models.clear();
     this.blockstates.clear();
     this.animations.clear();
+    this.particleTextures.clear();
+    this.particleAnimations.clear();
     this.isLoaded = false;
     this.packName = packName;
     
@@ -155,7 +164,13 @@ class TexturePackManager {
     const mcmetaEntries = [];
     const texturePath = `${minecraftPath}textures/block/`;
     
+    // Also load particle textures
+    const particleEntries = [];
+    const particleMcmetaEntries = [];
+    const particlePath = `${minecraftPath}textures/particle/`;
+    
     for (const [path, file] of Object.entries(zip.files)) {
+      // Block textures
       if (path.startsWith(texturePath) && !file.dir) {
         if (path.endsWith('.png')) {
           const relativePath = path.substring(minecraftPath.length);
@@ -164,6 +179,16 @@ class TexturePackManager {
           // Animation metadata file
           const relativePath = path.substring(minecraftPath.length);
           mcmetaEntries.push({ file, relativePath });
+        }
+      }
+      // Particle textures
+      if (path.startsWith(particlePath) && !file.dir) {
+        if (path.endsWith('.png')) {
+          const relativePath = path.substring(minecraftPath.length);
+          particleEntries.push({ file, relativePath });
+        } else if (path.endsWith('.png.mcmeta')) {
+          const relativePath = path.substring(minecraftPath.length);
+          particleMcmetaEntries.push({ file, relativePath });
         }
       }
     }
@@ -179,6 +204,21 @@ class TexturePackManager {
         for (const result of results) {
           if (result) {
             this.textures.set(result.path, result.bitmap);
+          }
+        }
+      }
+    };
+    
+    // Process particle textures in batches
+    const loadParticleTexturesBatched = async () => {
+      for (let i = 0; i < particleEntries.length; i += TEXTURE_CONCURRENCY) {
+        const batch = particleEntries.slice(i, i + TEXTURE_CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(({ file, relativePath }) => this._loadTextureEntry(file, relativePath))
+        );
+        for (const result of results) {
+          if (result) {
+            this.particleTextures.set(result.path, result.bitmap);
           }
         }
       }
@@ -221,7 +261,41 @@ class TexturePackManager {
       }
     };
     
-    const texturePromises = [loadTexturesBatched()];
+    // Load particle animation metadata from .mcmeta files
+    const loadParticleAnimationMetadata = async () => {
+      const mcmetaPromises = particleMcmetaEntries.map(async ({ file, relativePath }) => {
+        try {
+          const text = await file.async('text');
+          const meta = JSON.parse(text);
+          if (meta.animation) {
+            const texPath = relativePath.replace('.mcmeta', '');
+            return { path: texPath, animation: meta.animation };
+          }
+        } catch (e) {
+          // Skip invalid mcmeta files
+        }
+        return null;
+      });
+      
+      const results = await Promise.all(mcmetaPromises);
+      for (const result of results) {
+        if (result) {
+          const texture = this.particleTextures.get(result.path);
+          const frameCount = texture 
+            ? Math.floor(texture.height / texture.width) 
+            : 1;
+          
+          this.particleAnimations.set(result.path, {
+            frametime: result.animation.frametime || 1,
+            frames: result.animation.frames || null,
+            interpolate: result.animation.interpolate || false,
+            frameCount: frameCount,
+          });
+        }
+      }
+    };
+    
+    const texturePromises = [loadTexturesBatched(), loadParticleTexturesBatched()];
     
     // Load colormap textures for biome tinting
     const colormapPath = `${minecraftPath}textures/colormap/`;
@@ -291,12 +365,14 @@ class TexturePackManager {
     // Load animation metadata after textures are loaded
     // (needs texture dimensions to calculate frame count)
     await loadAnimationMetadata();
+    await loadParticleAnimationMetadata();
     
     this.isLoaded = true;
     
     console.log(
       `[TexturePackManager] Loaded "${packName}": ` +
       `${this.textures.size} textures, ` +
+      `${this.particleTextures.size} particle textures, ` +
       `${this.models.size} models, ` +
       `${this.blockstates.size} blockstates, ` +
       `${this.animations.size} animated textures`
@@ -457,11 +533,64 @@ class TexturePackManager {
     this.models.clear();
     this.blockstates.clear();
     this.animations.clear();
+    this.particleTextures.clear();
+    this.particleAnimations.clear();
     this.colormaps = { grass: null, foliage: null, dryFoliage: null };
     this.blockviewerConfig = null;
     this.isLoaded = false;
     this.packMeta = null;
     this.packName = null;
+  }
+  
+  /**
+   * Get a particle texture by path (e.g., "textures/particle/flame.png" or "particle/flame")
+   * Returns ImageBitmap or null
+   */
+  getParticleTexture(texturePath) {
+    // Normalize path
+    let normalized = texturePath.replace('minecraft:', '');
+    
+    // Handle short form (particle/flame → textures/particle/flame.png)
+    if (!normalized.startsWith('textures/')) {
+      normalized = `textures/${normalized}`;
+    }
+    if (!normalized.endsWith('.png')) {
+      normalized = `${normalized}.png`;
+    }
+    
+    // Try this pack first
+    if (this.particleTextures.has(normalized)) {
+      return this.particleTextures.get(normalized);
+    }
+    
+    // Try fallback
+    if (this.fallbackManager) {
+      return this.fallbackManager.getParticleTexture(normalized);
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Get all loaded particle texture paths
+   */
+  getParticleTextureList() {
+    return Array.from(this.particleTextures.keys());
+  }
+  
+  /**
+   * Get particle animation data
+   * @returns {Map<string, AnimationData>}
+   */
+  getParticleAnimations() {
+    if (this.fallbackManager) {
+      const combined = new Map(this.fallbackManager.getParticleAnimations());
+      for (const [path, anim] of this.particleAnimations) {
+        combined.set(path, anim);
+      }
+      return combined;
+    }
+    return new Map(this.particleAnimations);
   }
   
   /**

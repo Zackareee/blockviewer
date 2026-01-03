@@ -32,11 +32,39 @@ varying vec2 vModelUV;
 varying float vTexIndex;
 varying vec2 vLightUV;
 varying float vVisible;
+varying vec3 vNormal;
+
+// Water face shading - more subtle than solid blocks
+// In Minecraft, translucent blocks use lighter shading:
+// - Top faces are fully bright (1.0)
+// - Side faces have mild shading (0.9)
+// - Bottom faces are slightly darker (0.7)
+// This is less extreme than solid blocks (which use 1.0, 0.8, 0.6, 0.5)
+float getWaterFaceShade(vec3 n) {
+  vec3 norm = normalize(n);
+  vec3 absN = abs(norm);
+  
+  float maxAxis = max(absN.x, max(absN.y, absN.z));
+  if (maxAxis < 0.01) return 1.0;
+  
+  // Top-facing surfaces (including angled water): full brightness
+  if (norm.y > 0.5) return 1.0;
+  
+  // Bottom face: slightly darker
+  if (norm.y < -0.5) return 0.7;
+  
+  // Side faces: mild shading
+  return 0.9;
+}
 
 void main() {
-  vColor = color; // Biome tint from FluidMesher
+  // Apply subtle water face shading
+  float faceShade = getWaterFaceShade(normal);
+  vColor = color * faceShade;
+  
   vModelUV = modelUV;
   vTexIndex = texIndex;
+  vNormal = normal;
   
   // Pack light values as UV for lightmap sampling
   // Matches Minecraft's minecraft_sample_lightmap exactly
@@ -74,6 +102,7 @@ varying vec2 vModelUV;
 varying float vTexIndex;
 varying vec2 vLightUV;
 varying float vVisible;
+varying vec3 vNormal;
 
 // Animation result structure (matches TexturedMaterial)
 struct AnimResult {
@@ -169,7 +198,9 @@ void main() {
     color = vColor;
   }
   
-  // Apply lighting from lightmap
+  // Apply lighting from lightmap only
+  // Water in Minecraft doesn't use directional face shading like solid blocks
+  // It's uniformly lit based on the lightmap (sky + block light)
   if (uUseLightmap > 0.5) {
     vec3 lightColor = texture2D(uLightmap, vLightUV).rgb;
     color *= lightColor;

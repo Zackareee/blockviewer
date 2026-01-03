@@ -31,11 +31,31 @@ varying vec2 vModelUV;
 varying float vTexIndex;
 varying vec2 vLightUV;
 varying float vVisible;
+varying vec3 vNormal;
+
+// Lava face shading - subtle like water
+// Lava is emissive so shading is very subtle
+float getLavaFaceShade(vec3 n) {
+  vec3 norm = normalize(n);
+  
+  // Top-facing: full brightness
+  if (norm.y > 0.5) return 1.0;
+  
+  // Bottom: slightly darker
+  if (norm.y < -0.5) return 0.8;
+  
+  // Sides: mild shading
+  return 0.9;
+}
 
 void main() {
-  vColor = color; // Lava color from FluidMesher
+  // Apply subtle lava face shading
+  float faceShade = getLavaFaceShade(normal);
+  vColor = color * faceShade;
+  
   vModelUV = modelUV;
   vTexIndex = texIndex;
+  vNormal = normal;
   
   // Lava is emissive - always use block light 15 for lightmap sampling
   // This makes lava glow even in dark areas
@@ -73,6 +93,7 @@ varying vec2 vModelUV;
 varying float vTexIndex;
 varying vec2 vLightUV;
 varying float vVisible;
+varying vec3 vNormal;
 
 // Animation result structure (matches TexturedMaterial)
 struct AnimResult {
@@ -169,7 +190,9 @@ void main() {
     color = vColor;
   }
   
-  // Apply lighting from lightmap (lava uses block light 15)
+  // Apply lighting from lightmap
+  // Lava is emissive - uses block light 15 for lightmap sampling
+  // No directional face shading for fluids
   if (uUseLightmap > 0.5) {
     vec3 lightColor = texture2D(uLightmap, vLightUV).rgb;
     color *= lightColor;

@@ -95,8 +95,49 @@ function hasFluidAbove(grid, worldX, worldY, worldZ, isFluidLookup, fluidType) {
 }
 
 /**
+ * Get effective fluid height at a position for corner averaging
+ * This matches Minecraft's LiquidBlockRenderer.getHeight() method
+ * 
+ * @param {BinaryGrid} grid - The block grid
+ * @param {number} worldX, worldY, worldZ - World position
+ * @param {Uint8Array} isFluidLookup - Lookup table for fluid types
+ * @param {number} fluidType - FLUID_WATER or FLUID_LAVA
+ * @returns {number} Height (0-1) or -1 if not this fluid type
+ */
+function getEffectiveHeight(grid, worldX, worldY, worldZ, isFluidLookup, fluidType) {
+  // Check if there's same fluid above - if so, height is 1.0
+  if (hasFluidAbove(grid, worldX, worldY, worldZ, isFluidLookup, fluidType)) {
+    return 1.0;
+  }
+  
+  const level = getFluidLevel(grid, worldX, worldY, worldZ, isFluidLookup, fluidType);
+  if (level < 0) return -1;
+  
+  return getFluidHeight(level);
+}
+
+/**
+ * Check if a block at a position is solid (blocks fluid flow)
+ */
+function isSolidBlock(grid, worldX, worldY, worldZ, isOpaqueLookup) {
+  const block = grid.getBlock(worldX, worldY, worldZ);
+  if (!block) return false;
+  
+  // Check if it's opaque AND not waterlogged
+  return isOpaqueLookup[block.blockId] && block.level !== 8;
+}
+
+/**
  * Calculate the height at a corner vertex
- * Averages the heights of up to 4 adjacent fluid blocks sharing this corner
+ * Uses Minecraft's actual algorithm from LiquidBlockRenderer.getHeight():
+ * 
+ * For each of the 4 blocks sharing this corner:
+ * 1. If block has same fluid with fluid above → corner height is 1.0 (fully submerged)
+ * 2. If block has same fluid → add its height to average
+ * 3. If block is AIR/non-solid → count as height 0 (this creates slopes at edges!)
+ * 4. If block is solid → don't count it in the average
+ * 
+ * This is the KEY to creating realistic slopes: air neighbors pull the corner DOWN.
  * 
  * @param {BinaryGrid} grid - The block grid
  * @param {number} worldX - Block's world X
@@ -106,67 +147,69 @@ function hasFluidAbove(grid, worldX, worldY, worldZ, isFluidLookup, fluidType) {
  * @param {number} cornerZ - Corner offset (0 or 1)
  * @param {Uint8Array} isFluidLookup - Lookup table for fluid types
  * @param {number} fluidType - FLUID_WATER or FLUID_LAVA
+ * @param {Uint8Array} isOpaqueLookup - Lookup table for opaque blocks
  * @returns {number} Interpolated height at this corner
  */
-export function getCornerHeight(grid, worldX, worldY, worldZ, cornerX, cornerZ, isFluidLookup, fluidType) {
-  // The 4 blocks that share this corner
-  // Corner (0,0) is at position (x, z), shared by blocks at (x,z), (x-1,z), (x,z-1), (x-1,z-1)
-  // Corner (1,0) is at position (x+1, z), shared by blocks at (x,z), (x+1,z), (x,z-1), (x+1,z-1)
-  // etc.
-  const offsets = [
-    [0, 0],
-    [cornerX === 0 ? -1 : 1, 0],
-    [0, cornerZ === 0 ? -1 : 1],
-    [cornerX === 0 ? -1 : 1, cornerZ === 0 ? -1 : 1],
+export function getCornerHeight(grid, worldX, worldY, worldZ, cornerX, cornerZ, isFluidLookup, fluidType, isOpaqueLookup) {
+  // The corner at world position (worldX + cornerX, worldZ + cornerZ)
+  // is shared by 4 blocks. We need to find which 4 blocks.
+  
+  const cx = worldX + cornerX;
+  const cz = worldZ + cornerZ;
+  
+  // The 4 blocks sharing this corner are:
+  // (cx-1, cz-1), (cx, cz-1), (cx-1, cz), (cx, cz)
+  const blocks = [
+    [cx - 1, cz - 1],
+    [cx, cz - 1],
+    [cx - 1, cz],
+    [cx, cz],
   ];
   
-  let totalWeight = 0;
-  let weightedHeight = 0;
-  let hasSource = false;
-  let hasFalling = false;
+  let totalHeight = 0;
+  let count = 0;
   
-  for (const [dx, dz] of offsets) {
-    const bx = worldX + dx;
-    const bz = worldZ + dz;
+  for (const [bx, bz] of blocks) {
+    const h = getEffectiveHeight(grid, bx, worldY, bz, isFluidLookup, fluidType);
     
-    // Check if fluid above this position (submerged corner)
-    if (hasFluidAbove(grid, bx, worldY, bz, isFluidLookup, fluidType)) {
-      return 1.0; // Corner is fully submerged
+    if (h >= 0) {
+      // Block has fluid of the same type
+      // If any block has fluid above (h = 1.0), the corner is fully submerged
+      if (h >= 1.0) {
+        return 1.0;
+      }
+      totalHeight += h;
+      count++;
+    } else {
+      // Block doesn't have this fluid - check if it's solid or air
+      // In Minecraft's algorithm:
+      // - Solid blocks are NOT counted (they don't affect the average)
+      // - Air/non-solid blocks count as height 0 (this creates the slopes!)
+      if (!isSolidBlock(grid, bx, worldY, bz, isOpaqueLookup)) {
+        // Air or non-solid block - count as height 0
+        totalHeight += 0;
+        count++;
+      }
+      // Solid blocks: don't add to count, don't affect average
     }
-    
-    const level = getFluidLevel(grid, bx, worldY, bz, isFluidLookup, fluidType);
-    if (level < 0) continue;
-    
-    if (level === 0) hasSource = true;
-    if (level >= 8) hasFalling = true;
-    
-    const height = getFluidHeight(level);
-    weightedHeight += height;
-    totalWeight += 1;
   }
   
-  // If any adjacent block is a source, use source height
-  if (hasSource && !hasFalling) {
-    return getFluidHeight(0);
+  if (count === 0) {
+    // All 4 blocks are solid (shouldn't happen for rendered water, but fallback)
+    return getFluidHeight(getFluidLevel(grid, worldX, worldY, worldZ, isFluidLookup, fluidType));
   }
   
-  // If any adjacent block is falling, use full height
-  if (hasFalling) {
-    return 1.0;
-  }
-  
-  // Average the heights
-  if (totalWeight === 0) {
-    // Shouldn't happen if called correctly, but fallback
-    return getFluidHeight(0);
-  }
-  
-  return weightedHeight / totalWeight;
+  return totalHeight / count;
 }
 
 /**
  * Calculate flow direction vector for a fluid block
  * Used to orient the water_flow/lava_flow texture
+ * 
+ * This follows Minecraft's FlowingFluid.getFlow() algorithm:
+ * 1. For each cardinal direction, calculate height difference
+ * 2. If a direction has a "drop" (air below neighbor), bias flow towards it
+ * 3. The result is a normalized direction vector
  * 
  * @param {BinaryGrid} grid - The block grid
  * @param {number} worldX - Block's world X
@@ -180,39 +223,50 @@ export function getFlowDirection(grid, worldX, worldY, worldZ, isFluidLookup, fl
   const centerLevel = getFluidLevel(grid, worldX, worldY, worldZ, isFluidLookup, fluidType);
   if (centerLevel < 0) return { x: 0, z: 0 };
   
-  // If falling, flow is straight down (no horizontal component)
+  // Falling fluid has no horizontal flow direction
   if (centerLevel >= 8) return { x: 0, z: 0 };
   
-  const centerHeight = getFluidHeight(centerLevel);
-  
-  // Calculate gradient from adjacent blocks
   let flowX = 0;
   let flowZ = 0;
   
-  // Check +X and -X
-  const levelPosX = getFluidLevel(grid, worldX + 1, worldY, worldZ, isFluidLookup, fluidType);
-  const levelNegX = getFluidLevel(grid, worldX - 1, worldY, worldZ, isFluidLookup, fluidType);
+  // Check each cardinal direction
+  const directions = [
+    { dx: 1, dz: 0 },   // +X (east)
+    { dx: -1, dz: 0 },  // -X (west)
+    { dx: 0, dz: 1 },   // +Z (south)
+    { dx: 0, dz: -1 },  // -Z (north)
+  ];
   
-  if (levelPosX >= 0) {
-    const h = getFluidHeight(levelPosX);
-    flowX += centerHeight - h;
-  }
-  if (levelNegX >= 0) {
-    const h = getFluidHeight(levelNegX);
-    flowX -= centerHeight - h;
-  }
-  
-  // Check +Z and -Z
-  const levelPosZ = getFluidLevel(grid, worldX, worldY, worldZ + 1, isFluidLookup, fluidType);
-  const levelNegZ = getFluidLevel(grid, worldX, worldY, worldZ - 1, isFluidLookup, fluidType);
-  
-  if (levelPosZ >= 0) {
-    const h = getFluidHeight(levelPosZ);
-    flowZ += centerHeight - h;
-  }
-  if (levelNegZ >= 0) {
-    const h = getFluidHeight(levelNegZ);
-    flowZ -= centerHeight - h;
+  for (const { dx, dz } of directions) {
+    const nx = worldX + dx;
+    const nz = worldZ + dz;
+    
+    // Get neighbor level
+    const neighborLevel = getFluidLevel(grid, nx, worldY, nz, isFluidLookup, fluidType);
+    
+    // Check if neighbor is empty or solid (can flow there?)
+    const neighborBlock = grid.getBlock(nx, worldY, nz);
+    const isNeighborBlocked = neighborBlock && neighborBlock.blockId !== 0 && 
+      isFluidLookup[neighborBlock.blockId] !== fluidType;
+    
+    // Check if there's a drop (air below neighbor)
+    const blockBelow = grid.getBlock(nx, worldY - 1, nz);
+    const hasDrop = !blockBelow || blockBelow.blockId === 0 || 
+      isFluidLookup[blockBelow.blockId] === fluidType;
+    
+    if (neighborLevel >= 0) {
+      // Both have fluid - flow towards lower level
+      const levelDiff = centerLevel - neighborLevel;
+      // Positive diff = neighbor is higher level number = lower height
+      // Water flows towards lower height (higher level number)
+      flowX += dx * levelDiff;
+      flowZ += dz * levelDiff;
+    } else if (!isNeighborBlocked && hasDrop) {
+      // Neighbor is empty with a drop - strong pull in that direction
+      // This creates the "waterfall" effect
+      flowX += dx * 2;
+      flowZ += dz * 2;
+    }
   }
   
   // Normalize
@@ -596,10 +650,10 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           // === TOP FACE ===
           if (!skipTopFace) {
             // Calculate corner heights
-            const h00 = getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType);
-            const h10 = getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType);
-            const h11 = getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType);
-            const h01 = getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType);
+            const h00 = getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType, isOpaque);
+            const h10 = getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType, isOpaque);
+            const h11 = getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType, isOpaque);
+            const h01 = getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType, isOpaque);
             
             // Vertex positions (counter-clockwise from above)
             const positions = [
@@ -653,8 +707,8 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           
           // +X face (east)
           if (shouldRenderSide(grid, worldX, worldY, worldZ, 1, 0, 0, isFluid, effectiveFluidType, isOpaque)) {
-            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType);
-            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType);
+            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType, isOpaque);
+            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType, isOpaque);
             
             const positions = [
               [x + 1, y, z],
@@ -668,8 +722,8 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           
           // -X face (west)
           if (shouldRenderSide(grid, worldX, worldY, worldZ, -1, 0, 0, isFluid, effectiveFluidType, isOpaque)) {
-            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType);
-            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType);
+            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType, isOpaque);
+            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType, isOpaque);
             
             const positions = [
               [x, y, z + 1],
@@ -683,8 +737,8 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           
           // +Z face (south)
           if (shouldRenderSide(grid, worldX, worldY, worldZ, 0, 0, 1, isFluid, effectiveFluidType, isOpaque)) {
-            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType);
-            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType);
+            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType, isOpaque);
+            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType, isOpaque);
             
             const positions = [
               [x + 1, y, z + 1],
@@ -698,8 +752,8 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           
           // -Z face (north)
           if (shouldRenderSide(grid, worldX, worldY, worldZ, 0, 0, -1, isFluid, effectiveFluidType, isOpaque)) {
-            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType);
-            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType);
+            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType, isOpaque);
+            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType, isOpaque);
             
             const positions = [
               [x, y, z],

@@ -24,6 +24,8 @@ import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
 import { getBlockRegistry } from '../mesh/BlockRegistry';
 import { generateLightmap, DAYTIME_PARAMS, getLightmapParamsForTime } from '../mesh/LightmapGenerator';
+import { ParticleSystem } from '../particles/ParticleSystem';
+import { ParticleEmitterManager } from '../particles/ParticleEmitter';
 
 // WebGL has a max index count limit (~30M). Use 25M to be safe.
 const MAX_INDICES_PER_DRAW = 25000000;
@@ -73,15 +75,16 @@ export class ChunkManager {
     // Render order for proper depth sorting:
     // 0: Solid blocks and opaque model blocks (write to depth)
     // 0.5: Transparent model blocks (glass panes, iron bars - write to depth)
-    // 1: Water (transparent, no depth write)
-    // 2: Lava (transparent, no depth write)
-    // 3: Full glass blocks (transparent, write to depth)
+    // 1: Full glass blocks, leaves, grass overlays (transparent, write to depth)
+    //    These must render BEFORE water so underwater objects get properly tinted
+    // 2: Water (transparent, no depth write)
+    // 3: Lava (transparent, no depth write)
     // 4: Overlay effects (no depth write)
     this.modelGroup.renderOrder = 0; // Same as solid - opaque partial blocks
     this.transparentModelGroup.renderOrder = 0.5; // Render BEFORE water so depth is correct
-    this.waterGroup.renderOrder = 1;
-    this.lavaGroup.renderOrder = 2;
-    this.glassGroup.renderOrder = 3; // Glass renders after water/lava
+    this.glassGroup.renderOrder = 1; // Glass/leaves render BEFORE water (underwater objects visible through water)
+    this.waterGroup.renderOrder = 2;
+    this.lavaGroup.renderOrder = 3;
     this.overlayModelGroup.renderOrder = 4; // Overlay renders last (but doesn't write to depth)
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
@@ -154,6 +157,11 @@ export class ChunkManager {
     // Only populated when enableDebugLookup is true
     this.debugGrid = null;
     this.blockRegistry = getBlockRegistry();
+    
+    // Particle system for torch flames, smoke, etc.
+    this.particleSystem = null;
+    this.particleEmitterManager = new ParticleEmitterManager();
+    this.particlesEnabled = options.enableParticles !== false;
   }
   
   /**
@@ -1124,6 +1132,92 @@ export class ChunkManager {
   }
 
   /**
+   * Register particle emitters for blocks that emit particles (torches, etc.)
+   * @param {Array} emitters - Array of { blockType, x, y, z, properties }
+   */
+  _registerParticleEmitters(emitters) {
+    if (!this.particleEmitterManager || !emitters) return;
+    
+    for (const emitter of emitters) {
+      this.particleEmitterManager.addEmitter(
+        emitter.blockType,
+        emitter.x,
+        emitter.y,
+        emitter.z,
+        emitter.properties
+      );
+    }
+    
+    console.log(`[ChunkManager] Registered ${emitters.length} particle emitters`);
+  }
+
+  /**
+   * Initialize the particle system with the particle atlas
+   * @param {ParticleAtlas} particleAtlas - The particle texture atlas
+   */
+  initParticleSystem(particleAtlas) {
+    if (!this.particlesEnabled) return;
+    
+    if (this.particleSystem) {
+      this.particleSystem.dispose();
+    }
+    
+    this.particleSystem = new ParticleSystem(particleAtlas);
+    this.scene.add(this.particleSystem.getGroup());
+    
+    console.log('[ChunkManager] Particle system initialized, atlas isBuilt:', particleAtlas?.isBuilt);
+  }
+
+  /**
+   * Update particle system (call every frame)
+   * @param {number} deltaTime - Time since last update in seconds
+   * @param {number} time - Total elapsed time in seconds
+   * @param {THREE.Camera} camera - The camera for distance culling
+   */
+  updateParticles(deltaTime, time, camera) {
+    if (!this.particlesEnabled || !this.particleSystem) return;
+    
+    // Update camera position for emitter distance culling
+    if (camera) {
+      this.particleEmitterManager.updateCamera(
+        camera.position.x,
+        camera.position.y,
+        camera.position.z
+      );
+    }
+    
+    // Update emitters (spawn new particles)
+    this.particleEmitterManager.update(deltaTime, this.particleSystem);
+    
+    // Update particle physics and rendering
+    this.particleSystem.update(deltaTime, time);
+  }
+
+  /**
+   * Set particle fog parameters
+   * @param {Object} params - { color, start, end, enabled }
+   */
+  setParticleFog(params) {
+    if (this.particleSystem) {
+      this.particleSystem.setFog(params);
+    }
+  }
+
+  /**
+   * Get particle count for debug display
+   */
+  getParticleCount() {
+    return this.particleSystem?.getParticleCount() || 0;
+  }
+
+  /**
+   * Get emitter count for debug display
+   */
+  getEmitterCount() {
+    return this.particleEmitterManager?.getEmitterCount() || 0;
+  }
+
+  /**
    * Load chunks from parsed MCA data (single region, simple mode)
    */
   async loadChunks(chunks, options = {}) {
@@ -1141,7 +1235,12 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, stats, _grid } = result;
+      
+      // Register particle emitters for torches and other light sources
+      if (particleEmitters && this.particlesEnabled) {
+        this._registerParticleEmitters(particleEmitters);
+      }
       
       // Merge grid for debug lookups
       if (_grid && this.debugGrid) {
@@ -1268,7 +1367,12 @@ export class ChunkManager {
         }
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, particleEmitters, stats } = result;
+        
+        // Register particle emitters for torches and other light sources
+        if (particleEmitters && this.particlesEnabled) {
+          this._registerParticleEmitters(particleEmitters);
+        }
 
         let drawCalls = 0;
         let meshCenter = null;
@@ -1532,7 +1636,12 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, stats } = result;
+        
+        // Register particle emitters for torches and other light sources
+        if (pe2 && this.particlesEnabled) {
+          this._registerParticleEmitters(pe2);
+        }
         
         let drawCalls = 0;
         let meshCenter = null;
@@ -1718,6 +1827,12 @@ export class ChunkManager {
   async loadRegionsStreaming(regionFiles, options = {}) {
     const startTime = performance.now();
     const { onRegionStart, onRegionComplete, enableLOD = true } = options;
+    
+    // Note: Streaming loader uses simplified worker that doesn't collect particle emitters
+    // Particles (torch flames, smoke) only work with progressive or loadChunks paths
+    if (this.particlesEnabled && this.particleSystem) {
+      console.log('[ChunkManager] Note: Particle effects disabled in streaming mode (use progressive loading for particles)');
+    }
     
     this.clear();
     
@@ -2307,6 +2422,12 @@ export class ChunkManager {
     }
     this.instancedMeshes = [];
     
+    // Clear particle emitters and particles
+    this.particleEmitterManager.clear();
+    if (this.particleSystem) {
+      this.particleSystem.clear();
+    }
+    
     this.totalBlocks = 0;
     this.loadedChunks = 0;
     this.loadedRegions = 0;
@@ -2327,6 +2448,13 @@ export class ChunkManager {
     if (this.streamingLoader) {
       this.streamingLoader.dispose();
       this.streamingLoader = null;
+    }
+    
+    // Dispose particle system
+    if (this.particleSystem) {
+      this.scene.remove(this.particleSystem.getGroup());
+      this.particleSystem.dispose();
+      this.particleSystem = null;
     }
     
     this.solidMaterial.dispose();
@@ -2544,6 +2672,8 @@ export class ChunkManager {
       totalBlocks: this.totalBlocks,
       triangleCount,
       meshCount: this.solidMeshes.length + this.waterMeshes.length + this.lavaMeshes.length + this.modelMeshes.length + this.transparentModelMeshes.length + this.overlayModelMeshes.length,
+      particleEmitters: this.getEmitterCount(),
+      particleCount: this.getParticleCount(),
     };
   }
 }

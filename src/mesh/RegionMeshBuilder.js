@@ -200,6 +200,7 @@ export class RegionMeshBuilder {
     let overlayModelMesh = null;
     let modelLodMeshes = null;
     let instanceGroups = null; // GPU instancing data for repeated blocks
+    let particleEmitters = null; // Particle emitter positions (torches, etc.)
     if (enableModelMeshes && stateGrid && stateGrid.stateCount > 0) {
       this.onProgress?.('modelMeshing', 0, 100, 'Building model meshes...');
       const modelStart = performance.now();
@@ -221,6 +222,7 @@ export class RegionMeshBuilder {
           transparentModelMesh = modelResult.transparent;
           overlayModelMesh = modelResult.overlay;
           instanceGroups = modelResult.instances; // GPU instancing data
+          particleEmitters = modelResult.particleEmitters; // Torch positions for particles
         }
         
         // Generate LOD levels for model meshes when LOD is enabled
@@ -330,6 +332,7 @@ export class RegionMeshBuilder {
       transparentModelMesh, // Transparent non-cube block geometry (glass panes, iron bars)
       overlayModelMesh, // Overlay glow effects (torch bulb panels) - rendered with depthWrite: false
       instanceGroups, // GPU instancing data for repeated blocks (grass, flowers, etc.)
+      particleEmitters, // Particle emitter positions for torches, etc.
       lodMeshes,
       modelLodMeshes, // LOD levels for model meshes (skip decorative at distance)
       offset,
