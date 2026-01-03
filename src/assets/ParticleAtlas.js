@@ -298,10 +298,59 @@ class ParticleAtlas {
     // Create Three.js texture
     this._createThreeTexture();
 
+    // Register particle type aliases from PARTICLE_DEFINITIONS
+    this._registerParticleAliases();
+
     this.isBuilt = true;
-    console.log(`[ParticleAtlas] Built ${this.atlasWidth}x${this.atlasHeight} atlas with ${this.particleLookup.size / 2} particle types`);
+    console.log(`[ParticleAtlas] Built ${this.atlasWidth}x${this.atlasHeight} atlas with ${this.particleLookup.size} particle entries`);
 
     return true;
+  }
+
+  /**
+   * Register particle type aliases from PARTICLE_DEFINITIONS
+   * Maps named particle types (e.g., "smoke", "campfire_cosy_smoke") to their texture entries
+   */
+  _registerParticleAliases() {
+    for (const [particleName, definition] of Object.entries(PARTICLE_DEFINITIONS)) {
+      // Skip if already registered (e.g., "flame" matches flame.png directly)
+      if (this.particleLookup.has(particleName)) continue;
+      
+      // Get the first texture to find the base entry
+      const firstTexture = definition.textures[0];
+      const baseTextureName = this._pathToParticleName(firstTexture);
+      const baseEntry = this.particleLookup.get(baseTextureName);
+      
+      if (baseEntry) {
+        const frameCount = definition.textures.length;
+        
+        // For multi-file animations, we need to collect all frame indices
+        // and store them for the animation system
+        const frameIndices = [];
+        for (const texPath of definition.textures) {
+          const texName = this._pathToParticleName(texPath);
+          const texEntry = this.particleLookup.get(texName);
+          if (texEntry) {
+            frameIndices.push(texEntry.index);
+          }
+        }
+        
+        // Create the alias entry
+        this.particleLookup.set(particleName, {
+          ...baseEntry,
+          frameCount: frameCount,
+          frameIndices: frameIndices.length > 0 ? frameIndices : null,
+          isMultiFile: definition.textures.length > 1 && frameIndices.length > 1,
+        });
+        
+        // Debug log
+        if (frameCount > 1) {
+          console.log(`[ParticleAtlas] Registered "${particleName}" → "${baseTextureName}" (${frameCount} frames, multi-file: ${frameIndices.length > 1})`);
+        }
+      } else {
+        console.warn(`[ParticleAtlas] Could not find base texture "${baseTextureName}" for particle "${particleName}"`);
+      }
+    }
   }
 
   /**
@@ -399,6 +448,13 @@ class ParticleAtlas {
     if (!data) return 0;
     
     const clampedFrame = Math.max(0, Math.min(frame, data.frameCount - 1));
+    
+    // For multi-file animations, use the frameIndices array
+    if (data.frameIndices && data.frameIndices.length > 0) {
+      return data.frameIndices[clampedFrame];
+    }
+    
+    // For single-file animations, frames are sequential
     return data.index + clampedFrame;
   }
 

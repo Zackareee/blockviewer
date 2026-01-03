@@ -34,8 +34,10 @@ class Particle {
     this.size = 0.1;
     this.age = 0;
     this.lifetime = 1;
-    this.spriteIndex = 0;
+    this.spriteIndex = 0;      // Current sprite index for rendering
+    this.baseSpriteIndex = 0;  // Base sprite index (first frame)
     this.frameCount = 1;
+    this.frameIndices = null;  // For multi-file animations: array of frame indices
     this.r = 1;
     this.g = 1;
     this.b = 1;
@@ -54,7 +56,9 @@ class Particle {
     this.age = 0;
     this.lifetime = 1;
     this.spriteIndex = 0;
+    this.baseSpriteIndex = 0;
     this.frameCount = 1;
+    this.frameIndices = null;
     this.r = this.g = this.b = 1;
     this.baseAlpha = 1;
     this.currentAlpha = 1;
@@ -336,8 +340,11 @@ export class ParticleSystem {
     // Get sprite info from atlas
     const spriteData = this.particleAtlas?.getParticleUV?.(type);
     if (spriteData) {
+      particle.baseSpriteIndex = spriteData.index;
       particle.spriteIndex = spriteData.index;
       particle.frameCount = spriteData.frameCount;
+      // Store frame indices for multi-file animations
+      particle.frameIndices = spriteData.frameIndices || null;
     } else {
       // Debug: log when sprite not found (only once per type)
       if (!this._missingTypes) this._missingTypes = new Set();
@@ -345,8 +352,10 @@ export class ParticleSystem {
         console.warn(`[ParticleSystem] No sprite data for particle type: ${type}, using fallback`);
         this._missingTypes.add(type);
       }
+      particle.baseSpriteIndex = 0;
       particle.spriteIndex = 0;
       particle.frameCount = 1;
+      particle.frameIndices = null;
     }
     
     // Debug: log first particle creation
@@ -433,7 +442,13 @@ export class ParticleSystem {
       if (p.frameCount > 1) {
         const frameProgress = ageNorm * p.frameCount;
         const currentFrame = Math.min(Math.floor(frameProgress), p.frameCount - 1);
-        p.spriteIndex = (p.spriteIndex - (p.spriteIndex % p.frameCount)) + currentFrame;
+        
+        // Use frame indices array for multi-file animations, otherwise sequential
+        if (p.frameIndices && p.frameIndices.length > 0) {
+          p.spriteIndex = p.frameIndices[currentFrame];
+        } else {
+          p.spriteIndex = p.baseSpriteIndex + currentFrame;
+        }
       }
       
       return true;
