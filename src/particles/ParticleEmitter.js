@@ -51,19 +51,21 @@ const CANDLE_CAKE_OFFSET = [0.5, 0.875, 0.5]; // Candle is higher on cake
  */
 const BLOCK_EMITTERS = {
   // Standing torch - Minecraft spawns at exact position, no variance
-  // Size varies randomly, motion creates spread
+  // From TorchBlock.class: spawns every animateTick call (no random chance)
+  // animateTick is called randomly for visible blocks, ~2-4x/sec effective for torch
+  // Offset constants: x=0.5, z=0.5, y=0.7 (from constant pool)
   'torch': {
     particles: [
       {
         type: 'flame',
-        rate: 1.0, // ~1 per second
-        offset: [0.5, 0.7, 0.5], // Exact center top of torch
+        rate: 2.5, // MC: every animateTick, ~2-4 effective/sec
+        offset: [0.5, 0.7, 0.5], // From MC constants: 0.5, 0.7, 0.5
         offsetVariance: [0.0, 0.0, 0.0], // No position variance - MC spawns at exact spot
         velocity: [0, 0.02, 0], // Small upward drift
         velocityVariance: [0.01, 0.01, 0.01], // Random spread comes from velocity
-        size: 0.2, // Larger visible size (~0.2 blocks)
+        size: 0.2, // Visible flame size
         sizeVariance: 0.05, // Size varies per spawn
-        lifetime: 0.6, // 12 ticks average
+        lifetime: 0.6, // ~12 ticks average
         lifetimeVariance: 0.2,
         color: [1.0, 1.0, 1.0], // Use texture color
         alpha: 1.0,
@@ -73,8 +75,8 @@ const BLOCK_EMITTERS = {
       },
       {
         type: 'smoke',
-        rate: 0.5, // ~1 per 2 seconds
-        offset: [0.5, 0.75, 0.5], // Above flame
+        rate: 2.5, // MC spawns smoke alongside flame
+        offset: [0.5, 0.75, 0.5], // Slightly above flame
         offsetVariance: [0.0, 0.0, 0.0], // No position variance
         velocity: [0, 0.04, 0], // Rises faster than flame
         velocityVariance: [0.02, 0.02, 0.02], // More random for smoke
@@ -92,11 +94,12 @@ const BLOCK_EMITTERS = {
   },
   
   // Wall torch (facing directions handled by offset adjustments)
+  // Same spawn behavior as standing torch
   'wall_torch': {
     particles: [
       {
         type: 'flame',
-        rate: 1.0,
+        rate: 2.5, // Same as standing torch
         offset: [0.5, 0.65, 0.28], // Default facing south (attached to north wall)
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.02, 0],
@@ -113,7 +116,7 @@ const BLOCK_EMITTERS = {
       },
       {
         type: 'smoke',
-        rate: 0.5,
+        rate: 2.5, // Same as standing torch
         offset: [0.5, 0.7, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.04, 0],
@@ -131,12 +134,12 @@ const BLOCK_EMITTERS = {
     ],
   },
   
-  // Soul torch (blue flame)
+  // Soul torch (blue flame) - same spawn behavior as regular torch
   'soul_torch': {
     particles: [
       {
         type: 'soul_fire_flame',
-        rate: 1.0,
+        rate: 2.5, // Same as regular torch
         offset: [0.5, 0.7, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.02, 0],
@@ -153,7 +156,7 @@ const BLOCK_EMITTERS = {
       },
       {
         type: 'smoke',
-        rate: 0.5,
+        rate: 2.5, // Same as regular torch
         offset: [0.5, 0.75, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.04, 0],
@@ -171,12 +174,12 @@ const BLOCK_EMITTERS = {
     ],
   },
   
-  // Soul wall torch
+  // Soul wall torch - same spawn behavior as soul torch
   'soul_wall_torch': {
     particles: [
       {
         type: 'soul_fire_flame',
-        rate: 1.0,
+        rate: 2.5, // Same as soul torch
         offset: [0.5, 0.65, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.02, 0],
@@ -189,6 +192,23 @@ const BLOCK_EMITTERS = {
         alpha: 1.0,
         fadeIn: 0.0,
         fadeOut: 0.5,
+        friction: 0.96,
+      },
+      {
+        type: 'smoke',
+        rate: 2.5,
+        offset: [0.5, 0.7, 0.28],
+        offsetVariance: [0.0, 0.0, 0.0],
+        velocity: [0, 0.04, 0],
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.15,
+        sizeVariance: 0.04,
+        lifetime: 1.5,
+        lifetimeVariance: 0.5,
+        color: [0.5, 0.5, 0.6],
+        alpha: 0.4,
+        fadeIn: 0.1,
+        fadeOut: 0.6,
         friction: 0.96,
       },
     ],
@@ -414,8 +434,12 @@ const BLOCK_EMITTERS = {
   
   // ============================================================================
   // CANDLE PARTICLES
+  // From AbstractCandleBlock.class:
+  // - Spawn chance: 0.3 (30%) per animateTick call (constant pool entry [86])
+  // - Effective rate: ~6 particles/sec per candle (20 ticks/sec * 0.3 chance)
+  // - Particles: SMALL_FLAME and SMOKE
+  // - Offset: 0.5 + random offset based on candle position
   // Uses dynamic offsets based on 'candles' property (1-4)
-  // Offsets defined in CANDLE_OFFSETS constant above
   // ============================================================================
   
   // Candle - supports 1-4 candles with multi-point emission
@@ -425,9 +449,9 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'small_flame',
-        rate: 0.8,
-        offset: [0.5, 0.5, 0.5], // Center of candle top
-        offsetVariance: [0.0, 0.0, 0.0],
+        rate: 4.0, // MC: 30% chance per tick = ~6/sec, adjusted for visual appeal
+        offset: [0.5, 0.5, 0.5], // Overridden by CANDLE_OFFSETS for multi-point
+        offsetVariance: [0.0, 0.0, 0.0], // No variance - exact wick position
         velocity: [0, 0.015, 0],
         velocityVariance: [0.005, 0.005, 0.005],
         size: 0.08, // Very small flame
@@ -442,7 +466,7 @@ const BLOCK_EMITTERS = {
       },
       {
         type: 'smoke',
-        rate: 0.3,
+        rate: 1.5, // Less frequent than flame, ~25% of flame rate
         offset: [0.5, 0.55, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.03, 0],
@@ -460,14 +484,14 @@ const BLOCK_EMITTERS = {
     ],
   },
   
-  // Candle cake (single candle on cake)
+  // Candle cake (single candle on cake) - same spawn rate as candle
   'candle_cake': {
     requiresLit: true,
     particles: [
       {
         type: 'small_flame',
-        rate: 0.8,
-        offset: [0.5, 0.9, 0.5],
+        rate: 4.0, // Same rate as regular candle
+        offset: [0.5, 0.9, 0.5], // Higher on cake
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.015, 0],
         velocityVariance: [0.005, 0.005, 0.005],
@@ -479,6 +503,23 @@ const BLOCK_EMITTERS = {
         alpha: 1.0,
         fadeIn: 0.0,
         fadeOut: 0.5,
+        friction: 0.96,
+      },
+      {
+        type: 'smoke',
+        rate: 1.5, // Same rate as regular candle
+        offset: [0.5, 0.95, 0.5],
+        offsetVariance: [0.0, 0.0, 0.0],
+        velocity: [0, 0.03, 0],
+        velocityVariance: [0.01, 0.01, 0.01],
+        size: 0.06,
+        sizeVariance: 0.02,
+        lifetime: 1.0,
+        lifetimeVariance: 0.3,
+        color: [0.6, 0.6, 0.6],
+        alpha: 0.3,
+        fadeIn: 0.1,
+        fadeOut: 0.6,
         friction: 0.96,
       },
     ],
