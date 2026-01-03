@@ -101,9 +101,14 @@ precision highp float;
 uniform sampler2D uAtlas;
 uniform sampler2D uColormap;
 uniform sampler2D uLightmap;
+uniform sampler2D uAnimationData;
+uniform sampler2D uFrameSequence;
 uniform float uUseTextures;
 uniform float uUseTinting;
 uniform float uUseLighting;
+uniform float uTime;
+uniform float uTotalTiles;
+uniform float uSequenceLength;
 
 // Atlas info - matching TexturedMaterial format
 uniform float uTilesPerRow;
@@ -118,6 +123,34 @@ varying float vTexIndex;
 varying float vTintType;
 varying vec2 vLightUV;
 varying float vVisible;
+
+// Calculate animated texture index based on time
+// Uses frame sequence texture to support custom frame orders
+float getAnimatedTexIndex(float texIndex) {
+  if (uTotalTiles <= 0.0) return texIndex;
+  
+  // Sample animation data: (sequenceStart, cycleLength, frametime, interpolate)
+  float u = (texIndex + 0.5) / uTotalTiles;
+  vec4 animData = texture2D(uAnimationData, vec2(u, 0.5));
+  
+  float sequenceStart = animData.r;
+  float cycleLength = animData.g;
+  float frametime = animData.b;
+  
+  if (cycleLength <= 1.0) return texIndex;
+  
+  float ticks = uTime * 20.0;
+  float ticksPerCycle = frametime * cycleLength;
+  float cycleTicks = mod(ticks, ticksPerCycle);
+  float currentCycleFrame = floor(cycleTicks / frametime);
+  
+  // Look up actual atlas index from frame sequence texture
+  float seqIndex = sequenceStart + currentCycleFrame;
+  float seqU = (seqIndex + 0.5) / uSequenceLength;
+  float atlasIndex = texture2D(uFrameSequence, vec2(seqU, 0.5)).r;
+  
+  return atlasIndex;
+}
 
 vec3 getBiomeTint(int tintType) {
   // Sample from colormap for biome-tinted blocks
@@ -145,8 +178,8 @@ void main() {
   float alpha = 1.0;
   
   if (uUseTextures > 0.5) {
-    // Calculate atlas UV with proper border handling
-    float tileIndex = floor(vTexIndex + 0.5);
+    // Get animated texture index (returns original if not animated)
+    float tileIndex = getAnimatedTexIndex(floor(vTexIndex + 0.5));
     float col = mod(tileIndex, uTilesPerRow);
     float row = floor(tileIndex / uTilesPerRow);
     
@@ -189,6 +222,10 @@ export function createInstancedModelMaterial(atlasData = null, useTextures = fal
   // Extract atlas data - match the format used by TexturedMaterial
   const atlas = atlasData?.atlas || null;
   const colormap = atlasData?.colormap || null;
+  const animationData = atlasData?.animationData || null;
+  const frameSequence = atlasData?.frameSequence || null;
+  const totalTiles = atlasData?.totalTiles || 0;
+  const sequenceLength = atlasData?.sequenceLength || 1;
   
   // Calculate UV sizes matching TexturedMaterial's getAtlasUniforms
   const tilesPerRow = atlasData?.tilesPerRow || 32;
@@ -212,9 +249,14 @@ export function createInstancedModelMaterial(atlasData = null, useTextures = fal
       uAtlas: { value: atlas || defaultTexture },
       uColormap: { value: colormap || defaultTexture },
       uLightmap: { value: lightmap || defaultTexture },
+      uAnimationData: { value: animationData || defaultTexture },
+      uFrameSequence: { value: frameSequence || defaultTexture },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: colormap ? 1.0 : 0.0 },
       uUseLighting: { value: lightmap ? 1.0 : 0.0 },
+      uTime: { value: 0.0 },
+      uTotalTiles: { value: totalTiles },
+      uSequenceLength: { value: sequenceLength },
       uTilesPerRow: { value: tilesPerRow },
       uTileFullSize: { value: tileFullSize },
       uTextureSize: { value: textureSize },

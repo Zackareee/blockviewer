@@ -7,10 +7,12 @@
  * - Supports proper texture tiling (1 pixel border to prevent bleeding)
  * - Creates Three.js texture from atlas
  * - Builds TextureIndexLookup for efficient shader texture selection
+ * - Stores all animation frames for animated textures
  */
 
 import * as THREE from 'three';
 import { TextureIndexLookup } from './TextureIndexLookup.js';
+import { getAnimationRegistry } from './AnimationRegistry.js';
 
 // Default Minecraft texture size (can be overridden by texture pack resolution)
 const DEFAULT_TEXTURE_SIZE = 16;
@@ -41,6 +43,13 @@ class TextureAtlas {
     // Layout: grass colormap (256x256) on top, foliage colormap (256x256) below
     this.colormapTexture = null;
     
+    // Animation data texture for shader consumption
+    this.animationDataTexture = null;
+    
+    // Frame sequence texture for custom frame orders (lava, fire, etc.)
+    this.frameSequenceTexture = null;
+    this.sequenceLength = 1;
+    
     // Atlas canvas and context
     this.canvas = null;
     this.ctx = null;
@@ -52,6 +61,9 @@ class TextureAtlas {
     // Tiles per row/column
     this.tilesPerRow = 0;
     this.tilesPerCol = 0;
+    
+    // Total number of tiles (including animation frames)
+    this.totalTiles = 0;
     
     // Three.js texture
     this.texture = null;
@@ -88,19 +100,49 @@ class TextureAtlas {
     this.textureSize = this._detectTextureSize(packManager, blockTextures);
     this.tileSize = this.textureSize + BORDER_SIZE * 2;
 
-    console.log(`[TextureAtlas] Building atlas from ${blockTextures.length} textures (${this.textureSize}x${this.textureSize} resolution)...`);
+    // Get animation data from pack manager
+    const animations = packManager.getAnimations();
+    
+    // Calculate total tiles needed (including all animation frames)
+    let totalTiles = 0;
+    const textureFrameCounts = new Map(); // path -> frameCount
+    
+    for (const path of blockTextures) {
+      const bitmap = packManager.getTexture(path);
+      if (!bitmap) continue;
+      
+      const animData = animations.get(path);
+      if (animData && animData.frameCount > 1) {
+        // Animated texture: count all frames
+        textureFrameCounts.set(path, animData.frameCount);
+        totalTiles += animData.frameCount;
+      } else {
+        // Static texture or detect from dimensions
+        const frameCount = bitmap.height > bitmap.width 
+          ? Math.floor(bitmap.height / bitmap.width) 
+          : 1;
+        textureFrameCounts.set(path, frameCount);
+        totalTiles += frameCount;
+      }
+    }
+    
+    this.totalTiles = totalTiles;
 
-    // Calculate atlas dimensions (power of 2)
-    const tilesPerRow = Math.ceil(Math.sqrt(blockTextures.length));
+    console.log(`[TextureAtlas] Building atlas from ${blockTextures.length} textures (${totalTiles} total tiles including animation frames, ${this.textureSize}x${this.textureSize} resolution)...`);
+
+    // Calculate atlas dimensions (power of 2) based on total tiles
+    const tilesPerRow = Math.ceil(Math.sqrt(totalTiles));
     this.atlasWidth = this._nextPowerOf2(tilesPerRow * this.tileSize);
-    this.atlasHeight = this._nextPowerOf2(Math.ceil(blockTextures.length / tilesPerRow) * this.tileSize);
+    this.atlasHeight = this._nextPowerOf2(Math.ceil(totalTiles / tilesPerRow) * this.tileSize);
     
     // Store tiles per row/col for index calculations
     this.tilesPerRow = Math.floor(this.atlasWidth / this.tileSize);
     this.tilesPerCol = Math.floor(this.atlasHeight / this.tileSize);
     
-    // Clear texture path to index mapping
+    // Clear texture path to index mapping and animation registry
     this.texturePathToIndex.clear();
+    const animRegistry = getAnimationRegistry();
+    animRegistry.clear();
 
     // Create canvas
     this.canvas = document.createElement('canvas');
@@ -111,62 +153,79 @@ class TextureAtlas {
     // Fill with transparent background
     this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
 
-    // Place textures
+    // Place textures (including all animation frames)
     this.uvLookup.clear();
     let tileCol = 0;
     let tileRow = 0;
     let textureIndex = 0;
+    let animatedCount = 0;
 
     for (const path of blockTextures) {
       const bitmap = packManager.getTexture(path);
       if (!bitmap) continue;
 
-      // Calculate tile position
-      const tileX = tileCol * this.tileSize;
-      const tileY = tileRow * this.tileSize;
-
-      // Draw the texture with border (for tiling support)
-      this._drawTileWithBorder(bitmap, tileX, tileY);
-
-      // Calculate UV coordinates (normalized 0-1)
-      // Account for the border when calculating UVs
-      const innerX = tileX + BORDER_SIZE;
-      const innerY = tileY + BORDER_SIZE;
+      const frameCount = textureFrameCounts.get(path) || 1;
+      const animData = animations.get(path);
+      const baseIndex = textureIndex;
       
       // Extract the texture name from path for lookup
       const textureName = this._pathToTextureName(path);
-      
-      // Store UVs in canvas space (top-left origin)
-      // Three.js CanvasTexture will handle the Y-flip for WebGL
-      const uvData = {
-        u: innerX / this.atlasWidth,
-        v: innerY / this.atlasHeight, // Don't flip - CanvasTexture handles it
-        width: this.textureSize / this.atlasWidth,
-        height: this.textureSize / this.atlasHeight,
-        // Raw pixel coordinates for debugging
-        px: innerX,
-        py: innerY,
-        // Atlas tile position
-        col: tileCol,
-        row: tileRow,
-        index: textureIndex,
-      };
-      
-      this.uvLookup.set(textureName, uvData);
 
-      // Also add full path lookup
-      this.uvLookup.set(path, uvData);
-      
-      // Store texture path to atlas index mapping (for TextureIndexLookup)
-      this.texturePathToIndex.set(textureName, textureIndex);
-      this.texturePathToIndex.set(path, textureIndex);
+      // Draw all frames for this texture
+      for (let frame = 0; frame < frameCount; frame++) {
+        // Calculate tile position
+        const tileX = tileCol * this.tileSize;
+        const tileY = tileRow * this.tileSize;
 
-      // Move to next position
-      tileCol++;
-      textureIndex++;
-      if ((tileCol + 1) * this.tileSize > this.atlasWidth) {
-        tileCol = 0;
-        tileRow++;
+        // Draw the specific frame with border (for tiling support)
+        this._drawFrameWithBorder(bitmap, tileX, tileY, frame, frameCount);
+
+        // Calculate UV coordinates (normalized 0-1)
+        const innerX = tileX + BORDER_SIZE;
+        const innerY = tileY + BORDER_SIZE;
+        
+        // Store UVs for first frame (base texture lookup)
+        if (frame === 0) {
+          const uvData = {
+            u: innerX / this.atlasWidth,
+            v: innerY / this.atlasHeight,
+            width: this.textureSize / this.atlasWidth,
+            height: this.textureSize / this.atlasHeight,
+            px: innerX,
+            py: innerY,
+            col: tileCol,
+            row: tileRow,
+            index: textureIndex,
+            frameCount: frameCount,
+            isAnimated: frameCount > 1,
+          };
+          
+          this.uvLookup.set(textureName, uvData);
+          this.uvLookup.set(path, uvData);
+          
+          // Store texture path to atlas index mapping (points to first frame)
+          this.texturePathToIndex.set(textureName, textureIndex);
+          this.texturePathToIndex.set(path, textureIndex);
+        }
+
+        // Move to next position
+        tileCol++;
+        textureIndex++;
+        if ((tileCol + 1) * this.tileSize > this.atlasWidth) {
+          tileCol = 0;
+          tileRow++;
+        }
+      }
+      
+      // Register animation if this is an animated texture
+      if (frameCount > 1) {
+        const frametime = animData?.frametime || 1;
+        const frames = animData?.frames || null;
+        const interpolate = animData?.interpolate || false;
+        
+        animRegistry.register(path, baseIndex, frameCount, frametime, frames, interpolate);
+        animRegistry.register(textureName, baseIndex, frameCount, frametime, frames, interpolate);
+        animatedCount++;
       }
     }
 
@@ -175,9 +234,12 @@ class TextureAtlas {
     
     // Build colormap texture for biome tinting
     this._buildColormapTexture(packManager);
+    
+    // Build animation data texture
+    this._buildAnimationDataTexture();
 
     this.isBuilt = true;
-    console.log(`[TextureAtlas] Built ${this.atlasWidth}x${this.atlasHeight} atlas with ${this.uvLookup.size / 2} textures`);
+    console.log(`[TextureAtlas] Built ${this.atlasWidth}x${this.atlasHeight} atlas with ${this.uvLookup.size / 2} textures (${animatedCount} animated, ${totalTiles} total frames)`);
 
     return true;
   }
@@ -236,6 +298,71 @@ class TextureAtlas {
     
     console.log('[TextureAtlas] Built colormap texture (256x512)');
   }
+  
+  /**
+   * Build animation data texture for shader consumption
+   * Creates a 1D texture where each texel encodes animation info for an atlas index
+   * 
+   * Layout (RGBA float32):
+   * - R: sequenceStart (index into frame sequence texture)
+   * - G: cycleLength (number of frames in animation cycle)
+   * - B: frametime (ticks per frame, 20 ticks = 1 second)
+   * - A: flags (1 = interpolate)
+   * 
+   * Also builds the frame sequence texture which stores the pre-computed
+   * atlas index for each position in an animation cycle. This handles
+   * custom frame orders like lava (0->19->18->1) or fire (16-31, 0-15).
+   */
+  _buildAnimationDataTexture() {
+    const animRegistry = getAnimationRegistry();
+    
+    // Build animation data texture
+    const { data, width, height } = animRegistry.buildAnimationDataTexture(this.totalTiles);
+    
+    // Dispose old textures
+    if (this.animationDataTexture) {
+      this.animationDataTexture.dispose();
+    }
+    if (this.frameSequenceTexture) {
+      this.frameSequenceTexture.dispose();
+    }
+    
+    // Create THREE.js DataTexture for animation data
+    this.animationDataTexture = new THREE.DataTexture(
+      data,
+      width,
+      height,
+      THREE.RGBAFormat,
+      THREE.FloatType
+    );
+    this.animationDataTexture.magFilter = THREE.NearestFilter;
+    this.animationDataTexture.minFilter = THREE.NearestFilter;
+    this.animationDataTexture.wrapS = THREE.ClampToEdgeWrapping;
+    this.animationDataTexture.wrapT = THREE.ClampToEdgeWrapping;
+    this.animationDataTexture.generateMipmaps = false;
+    this.animationDataTexture.needsUpdate = true;
+    
+    // Build frame sequence texture (for custom frame orders)
+    const seqResult = animRegistry.buildFrameSequenceTexture();
+    this.frameSequenceTexture = new THREE.DataTexture(
+      seqResult.data,
+      seqResult.width,
+      seqResult.height,
+      THREE.RGBAFormat,
+      THREE.FloatType
+    );
+    this.frameSequenceTexture.magFilter = THREE.NearestFilter;
+    this.frameSequenceTexture.minFilter = THREE.NearestFilter;
+    this.frameSequenceTexture.wrapS = THREE.ClampToEdgeWrapping;
+    this.frameSequenceTexture.wrapT = THREE.ClampToEdgeWrapping;
+    this.frameSequenceTexture.generateMipmaps = false;
+    this.frameSequenceTexture.needsUpdate = true;
+    
+    // Store sequence length for shader
+    this.sequenceLength = seqResult.width;
+    
+    console.log(`[TextureAtlas] Built animation textures: data=${width}x${height}, sequence=${seqResult.width} (${animRegistry.count} animated textures)`);
+  }
 
   /**
    * Draw a texture tile with border pixels for seamless tiling
@@ -246,51 +373,63 @@ class TextureAtlas {
    * contains 2 frames of 32x32.
    */
   _drawTileWithBorder(bitmap, tileX, tileY) {
+    this._drawFrameWithBorder(bitmap, tileX, tileY, 0, 1);
+  }
+  
+  /**
+   * Draw a specific frame of a texture tile with border pixels for seamless tiling
+   * 
+   * @param {ImageBitmap} bitmap - The source texture (may have stacked frames)
+   * @param {number} tileX - X position in atlas (including border)
+   * @param {number} tileY - Y position in atlas (including border)
+   * @param {number} frameIndex - Which frame to draw (0-indexed)
+   * @param {number} totalFrames - Total number of frames in this texture
+   */
+  _drawFrameWithBorder(bitmap, tileX, tileY, frameIndex, totalFrames) {
     const innerX = tileX + BORDER_SIZE;
     const innerY = tileY + BORDER_SIZE;
     const texSize = this.textureSize;
     const srcW = bitmap.width;
+    const frameH = srcW; // Each frame is square (width x width)
     
-    // For animated textures, srcH > srcW (frames are stacked vertically)
-    // Only use the first frame (srcW x srcW region from top)
-    // For regular textures, srcH === srcW so this is a no-op
-    const frameH = Math.min(bitmap.height, srcW);
+    // Calculate source Y offset for this frame
+    const srcY = frameIndex * frameH;
 
-    // Draw main texture (first frame only, scaled to target texture size)
-    this.ctx.drawImage(bitmap, 0, 0, srcW, frameH, 
+    // Draw main texture (specific frame, scaled to target texture size)
+    this.ctx.drawImage(bitmap, 0, srcY, srcW, frameH, 
                        innerX, innerY, texSize, texSize);
 
     // Draw border pixels by extending edge pixels
     // This prevents texture bleeding when mipmapping or filtering
     
-    // Top border (copy from top row of first frame)
-    this.ctx.drawImage(bitmap, 0, 0, srcW, 1,
+    // Top border (copy from top row of this frame)
+    this.ctx.drawImage(bitmap, 0, srcY, srcW, 1,
                        innerX, tileY, texSize, BORDER_SIZE);
     
-    // Bottom border (copy from bottom row of first frame)
-    this.ctx.drawImage(bitmap, 0, frameH - 1, srcW, 1,
+    // Bottom border (copy from bottom row of this frame)
+    this.ctx.drawImage(bitmap, 0, srcY + frameH - 1, srcW, 1,
                        innerX, innerY + texSize, texSize, BORDER_SIZE);
     
-    // Left border (copy from left column of first frame)
-    this.ctx.drawImage(bitmap, 0, 0, 1, frameH,
+    // Left border (copy from left column of this frame)
+    this.ctx.drawImage(bitmap, 0, srcY, 1, frameH,
                        tileX, innerY, BORDER_SIZE, texSize);
     
-    // Right border (copy from right column of first frame)
-    this.ctx.drawImage(bitmap, srcW - 1, 0, 1, frameH,
+    // Right border (copy from right column of this frame)
+    this.ctx.drawImage(bitmap, srcW - 1, srcY, 1, frameH,
                        innerX + texSize, innerY, BORDER_SIZE, texSize);
 
     // Corner pixels
     // Top-left
-    this.ctx.drawImage(bitmap, 0, 0, 1, 1,
+    this.ctx.drawImage(bitmap, 0, srcY, 1, 1,
                        tileX, tileY, BORDER_SIZE, BORDER_SIZE);
     // Top-right
-    this.ctx.drawImage(bitmap, srcW - 1, 0, 1, 1,
+    this.ctx.drawImage(bitmap, srcW - 1, srcY, 1, 1,
                        innerX + texSize, tileY, BORDER_SIZE, BORDER_SIZE);
     // Bottom-left
-    this.ctx.drawImage(bitmap, 0, frameH - 1, 1, 1,
+    this.ctx.drawImage(bitmap, 0, srcY + frameH - 1, 1, 1,
                        tileX, innerY + texSize, BORDER_SIZE, BORDER_SIZE);
     // Bottom-right
-    this.ctx.drawImage(bitmap, srcW - 1, frameH - 1, 1, 1,
+    this.ctx.drawImage(bitmap, srcW - 1, srcY + frameH - 1, 1, 1,
                        innerX + texSize, innerY + texSize, BORDER_SIZE, BORDER_SIZE);
   }
 
@@ -507,6 +646,9 @@ class TextureAtlas {
       atlas: this.texture,
       lookup: this.colorLookupTexture,
       colormap: this.colormapTexture, // Colormap texture for biome tinting
+      animationData: this.animationDataTexture, // Animation metadata for shader
+      frameSequence: this.frameSequenceTexture, // Frame sequence for custom frame orders
+      sequenceLength: this.sequenceLength || 1, // Length of frame sequence texture
       size: {
         x: this.tilesPerRow,
         y: this.tilesPerCol,
@@ -514,6 +656,7 @@ class TextureAtlas {
       textureIndexLookup: this.textureIndexLookup,
       tilesPerRow: this.tilesPerRow,
       tilesPerCol: this.tilesPerCol,
+      totalTiles: this.totalTiles,
       // UV space sizes for shader
       tileUV,      // Full tile including border
       textureUV,   // Just texture area
@@ -679,15 +822,29 @@ class TextureAtlas {
       this.colormapTexture.dispose();
       this.colormapTexture = null;
     }
+    if (this.animationDataTexture) {
+      this.animationDataTexture.dispose();
+      this.animationDataTexture = null;
+    }
+    if (this.frameSequenceTexture) {
+      this.frameSequenceTexture.dispose();
+      this.frameSequenceTexture = null;
+    }
+    this.sequenceLength = 1;
     this.colorLookup = null;
     this.canvas = null;
     this.ctx = null;
     this.uvLookup.clear();
     this.texturePathToIndex.clear();
     this.textureIndexLookup = null;
+    this.totalTiles = 0;
     this.textureSize = DEFAULT_TEXTURE_SIZE;
     this.tileSize = DEFAULT_TEXTURE_SIZE + BORDER_SIZE * 2;
     this.isBuilt = false;
+    
+    // Clear animation registry
+    const animRegistry = getAnimationRegistry();
+    animRegistry.clear();
   }
 
   /**

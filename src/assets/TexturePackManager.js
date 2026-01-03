@@ -6,6 +6,7 @@
  * - Loading the bundled default texture pack
  * - Texture fallback chain: custom pack → default pack → solid colors
  * - Model and blockstate overrides from texture packs
+ * - Animation metadata from .mcmeta files
  */
 
 import JSZip from 'jszip';
@@ -30,6 +31,10 @@ class TexturePackManager {
     
     // Loaded blockstates: Map<blockName, blockstateJSON>
     this.blockstates = new Map();
+    
+    // Animation metadata: Map<texturePath, AnimationData>
+    // AnimationData: { frametime, frames, interpolate, frameCount }
+    this.animations = new Map();
     
     // Colormap textures for biome tinting
     this.colormaps = {
@@ -115,6 +120,7 @@ class TexturePackManager {
     this.textures.clear();
     this.models.clear();
     this.blockstates.clear();
+    this.animations.clear();
     this.isLoaded = false;
     this.packName = packName;
     
@@ -146,12 +152,19 @@ class TexturePackManager {
     // Too many parallel createImageBitmap calls can overwhelm the browser
     const TEXTURE_CONCURRENCY = 32;
     const textureEntries = [];
+    const mcmetaEntries = [];
     const texturePath = `${minecraftPath}textures/block/`;
     
     for (const [path, file] of Object.entries(zip.files)) {
-      if (path.startsWith(texturePath) && path.endsWith('.png') && !file.dir) {
-        const relativePath = path.substring(minecraftPath.length);
-        textureEntries.push({ file, relativePath });
+      if (path.startsWith(texturePath) && !file.dir) {
+        if (path.endsWith('.png')) {
+          const relativePath = path.substring(minecraftPath.length);
+          textureEntries.push({ file, relativePath });
+        } else if (path.endsWith('.png.mcmeta')) {
+          // Animation metadata file
+          const relativePath = path.substring(minecraftPath.length);
+          mcmetaEntries.push({ file, relativePath });
+        }
       }
     }
     
@@ -167,6 +180,43 @@ class TexturePackManager {
           if (result) {
             this.textures.set(result.path, result.bitmap);
           }
+        }
+      }
+    };
+    
+    // Load animation metadata from .mcmeta files
+    const loadAnimationMetadata = async () => {
+      const mcmetaPromises = mcmetaEntries.map(async ({ file, relativePath }) => {
+        try {
+          const text = await file.async('text');
+          const meta = JSON.parse(text);
+          if (meta.animation) {
+            // relativePath is like "textures/block/water_still.png.mcmeta"
+            // Convert to texture path: "textures/block/water_still.png"
+            const texPath = relativePath.replace('.mcmeta', '');
+            return { path: texPath, animation: meta.animation };
+          }
+        } catch (e) {
+          // Skip invalid mcmeta files
+        }
+        return null;
+      });
+      
+      const results = await Promise.all(mcmetaPromises);
+      for (const result of results) {
+        if (result) {
+          // Get the texture to calculate frame count
+          const texture = this.textures.get(result.path);
+          const frameCount = texture 
+            ? Math.floor(texture.height / texture.width) 
+            : 1;
+          
+          this.animations.set(result.path, {
+            frametime: result.animation.frametime || 1, // Ticks per frame (default 1 = 1/20 second)
+            frames: result.animation.frames || null,    // Custom frame order, or null for sequential
+            interpolate: result.animation.interpolate || false,
+            frameCount: frameCount,
+          });
         }
       }
     };
@@ -238,13 +288,18 @@ class TexturePackManager {
       ...blockstatePromises,
     ]);
     
+    // Load animation metadata after textures are loaded
+    // (needs texture dimensions to calculate frame count)
+    await loadAnimationMetadata();
+    
     this.isLoaded = true;
     
     console.log(
       `[TexturePackManager] Loaded "${packName}": ` +
       `${this.textures.size} textures, ` +
       `${this.models.size} models, ` +
-      `${this.blockstates.size} blockstates`
+      `${this.blockstates.size} blockstates, ` +
+      `${this.animations.size} animated textures`
     );
   }
 
@@ -401,11 +456,76 @@ class TexturePackManager {
     this.textures.clear();
     this.models.clear();
     this.blockstates.clear();
+    this.animations.clear();
     this.colormaps = { grass: null, foliage: null, dryFoliage: null };
     this.blockviewerConfig = null;
     this.isLoaded = false;
     this.packMeta = null;
     this.packName = null;
+  }
+  
+  /**
+   * Get animation metadata for a texture
+   * @param {string} texturePath - Path like "textures/block/water_still.png" or "block/water_still"
+   * @returns {{ frametime: number, frames: number[]|null, interpolate: boolean, frameCount: number } | null}
+   */
+  getAnimation(texturePath) {
+    // Normalize path
+    let normalized = texturePath.replace('minecraft:', '');
+    
+    // Handle short form (block/stone → textures/block/stone.png)
+    if (!normalized.startsWith('textures/')) {
+      normalized = `textures/${normalized}`;
+    }
+    if (!normalized.endsWith('.png')) {
+      normalized = `${normalized}.png`;
+    }
+    
+    // Try this pack first
+    if (this.animations.has(normalized)) {
+      return this.animations.get(normalized);
+    }
+    
+    // Try fallback
+    if (this.fallbackManager) {
+      return this.fallbackManager.getAnimation(normalized);
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Check if a texture is animated
+   * @param {string} texturePath - Texture path
+   * @returns {boolean}
+   */
+  isAnimated(texturePath) {
+    return this.getAnimation(texturePath) !== null;
+  }
+  
+  /**
+   * Get all animated texture paths
+   * @returns {string[]}
+   */
+  getAnimatedTextures() {
+    return Array.from(this.animations.keys());
+  }
+  
+  /**
+   * Get all animation data
+   * @returns {Map<string, { frametime: number, frames: number[]|null, interpolate: boolean, frameCount: number }>}
+   */
+  getAnimations() {
+    // Combine with fallback animations if available
+    if (this.fallbackManager) {
+      const combined = new Map(this.fallbackManager.getAnimations());
+      // This pack's animations override fallback
+      for (const [path, anim] of this.animations) {
+        combined.set(path, anim);
+      }
+      return combined;
+    }
+    return new Map(this.animations);
   }
 
   /**
@@ -452,6 +572,7 @@ class TexturePackManager {
       textureCount: this.textures.size,
       modelCount: this.models.size,
       blockstateCount: this.blockstates.size,
+      animationCount: this.animations.size,
       meta: this.packMeta,
     };
   }

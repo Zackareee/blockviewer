@@ -196,6 +196,51 @@ function ChunkVisibilityUpdater({ managerRef }) {
 }
 
 /**
+ * Animation time updater - updates uTime uniform on all materials
+ * Runs every frame to drive texture animations (water, lava, etc.)
+ */
+function AnimationUpdater({ managerRef }) {
+  useFrame((state) => {
+    const manager = managerRef.current;
+    if (!manager) return;
+    
+    const time = state.clock.elapsedTime;
+    
+    // Update solid block material
+    if (manager.solidMaterial?.uniforms?.uTime) {
+      manager.solidMaterial.uniforms.uTime.value = time;
+    }
+    
+    // Update glass material
+    if (manager.glassMaterial?.uniforms?.uTime) {
+      manager.glassMaterial.uniforms.uTime.value = time;
+    }
+    
+    // Update model material (partial blocks like slabs, stairs)
+    if (manager.modelMaterial?.uniforms?.uTime) {
+      manager.modelMaterial.uniforms.uTime.value = time;
+    }
+    
+    // Update transparent model material (glass panes, iron bars)
+    if (manager.transparentModelMaterial?.uniforms?.uTime) {
+      manager.transparentModelMaterial.uniforms.uTime.value = time;
+    }
+    
+    // Update overlay model material (torch glow, etc.)
+    if (manager.overlayModelMaterial?.uniforms?.uTime) {
+      manager.overlayModelMaterial.uniforms.uTime.value = time;
+    }
+    
+    // Update instanced material
+    if (manager.instancedMaterial?.uniforms?.uTime) {
+      manager.instancedMaterial.uniforms.uTime.value = time;
+    }
+  });
+  
+  return null;
+}
+
+/**
  * Debug block highlight - shows red wireframe around hovered block
  */
 function BlockHighlight({ position }) {
@@ -790,6 +835,9 @@ function RegionScene({
       
       {/* Chunk visibility updates based on render distance */}
       <ChunkVisibilityUpdater managerRef={managerRef} />
+      
+      {/* Animated texture time updates */}
+      <AnimationUpdater managerRef={managerRef} />
       
       {/* Debug block highlight */}
       {debugMode && hoveredBlock && (

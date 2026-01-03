@@ -65,9 +65,14 @@ const fragmentShader = `
 uniform sampler2D uAtlas;        // The texture atlas
 uniform sampler2D uColormap;     // Biome colormap texture (grass on top, foliage on bottom)
 uniform sampler2D uLightmap;     // 16x16 lightmap texture (X=block light, Y=sky light)
+uniform sampler2D uAnimationData; // Animation metadata: (sequenceStart, cycleLength, frametime, interpolate)
+uniform sampler2D uFrameSequence; // Frame sequence texture: maps cycle position -> atlas index
 uniform float uUseTextures;      // 0.0 = vertex colors only, 1.0 = use textures
 uniform float uUseTinting;       // 0.0 = no biome tinting, 1.0 = apply biome tinting
 uniform float uUseLightmap;      // 0.0 = fixed face shading, 1.0 = use lightmap
+uniform float uTime;             // Current time in seconds (for animation)
+uniform float uTotalTiles;       // Total number of tiles in atlas (for animation lookup)
+uniform float uSequenceLength;   // Total length of frame sequence texture
 uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
@@ -254,6 +259,42 @@ vec3 getBiomeTint(int tintType) {
   return vec3(1.0);
 }
 
+// Calculate animated texture index based on time
+// Reads animation metadata from uAnimationData texture and looks up frame in uFrameSequence
+// This supports custom frame orders (like lava which plays 0->19->18->1)
+float getAnimatedTexIndex(float texIndex) {
+  if (uTotalTiles <= 0.0) return texIndex;
+  
+  // Sample animation data for this texture index
+  // Animation data is stored as: (sequenceStart, cycleLength, frametime, interpolate)
+  float u = (texIndex + 0.5) / uTotalTiles;
+  vec4 animData = texture2D(uAnimationData, vec2(u, 0.5));
+  
+  float sequenceStart = animData.r;
+  float cycleLength = animData.g;
+  float frametime = animData.b;
+  // float interpolate = animData.a; // For future interpolation support
+  
+  // If not animated (cycleLength <= 1), return the original index
+  if (cycleLength <= 1.0) return texIndex;
+  
+  // Convert time to Minecraft ticks (20 ticks per second)
+  float ticks = uTime * 20.0;
+  
+  // Calculate current position in animation cycle
+  float ticksPerCycle = frametime * cycleLength;
+  float cycleTicks = mod(ticks, ticksPerCycle);
+  float currentCycleFrame = floor(cycleTicks / frametime);
+  
+  // Look up the actual atlas index from the frame sequence texture
+  // The sequence texture stores the pre-computed atlas index for each cycle position
+  float seqIndex = sequenceStart + currentCycleFrame;
+  float seqU = (seqIndex + 0.5) / uSequenceLength;
+  float atlasIndex = texture2D(uFrameSequence, vec2(seqU, 0.5)).r;
+  
+  return atlasIndex;
+}
+
 // Get UV coordinates for a face based on world position and normal (triplanar)
 // Matches Minecraft's default UV mapping for cube models exactly.
 // 
@@ -344,10 +385,13 @@ void main() {
     // Final safety clamp on localUV (belt and suspenders approach)
     localUV = clamp(localUV, 0.0, 1.0);
     
+    // Get animated texture index (returns original if not animated)
+    float animatedTexIndex = getAnimatedTexIndex(vTexIndex);
+    
     // Calculate tile position from texture index
     float tilesPerRow = uAtlasSize.x;
-    float col = mod(vTexIndex, tilesPerRow);
-    float row = floor(vTexIndex / tilesPerRow);
+    float col = mod(animatedTexIndex, tilesPerRow);
+    float row = floor(animatedTexIndex / tilesPerRow);
     
     // Calculate atlas offset for this tile (using actual tile UV size, not 1/tilesPerRow)
     vec2 atlasOffset = vec2(col, row) * uTileUV;
@@ -441,11 +485,15 @@ const defaultTexture = createDefaultTexture();
 function getAtlasUniforms(atlasData) {
   let atlas = defaultTexture;
   let colormap = defaultTexture;
+  let animationData = defaultTexture;
+  let frameSequence = defaultTexture;
   let size = new THREE.Vector2(32, 32);
   let tileUV = new THREE.Vector2(1/32, 1/32);     // Default: 1 tile = 1/32 of atlas
   let textureUV = new THREE.Vector2(1/32, 1/32);  // Same as tileUV for simple case
   let borderUV = new THREE.Vector2(0, 0);         // No border for simple case
   let hasColormap = false;
+  let totalTiles = 0;
+  let sequenceLength = 1;
   
   if (atlasData) {
     if (atlasData.atlas) {
@@ -463,23 +511,43 @@ function getAtlasUniforms(atlasData) {
         colormap = atlasData.colormap;
         hasColormap = true;
       }
+      
+      // Animation data texture
+      if (atlasData.animationData) {
+        animationData = atlasData.animationData;
+      }
+      
+      // Frame sequence texture (for custom frame orders)
+      if (atlasData.frameSequence) {
+        frameSequence = atlasData.frameSequence;
+      }
+      
+      // Total tiles for animation lookup
+      if (atlasData.totalTiles) {
+        totalTiles = atlasData.totalTiles;
+      }
+      
+      // Frame sequence length for UV calculation
+      if (atlasData.sequenceLength) {
+        sequenceLength = atlasData.sequenceLength;
+      }
     } else if (atlasData.isTexture) {
       // Old format: THREE.Texture
       atlas = atlasData;
     }
   }
   
-  return { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV };
+  return { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength };
 }
 
 /**
  * Create a textured solid block material
- * @param {Object|THREE.Texture} atlasData - Material data { atlas, colormap, lightmap, size, textureIndexLookup, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV } or legacy texture
+ * @param {Object|THREE.Texture} atlasData - Material data { atlas, colormap, animationData, frameSequence, lightmap, size, textureIndexLookup, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV, totalTiles, sequenceLength } or legacy texture
  * @param {boolean} useTextures - Whether to use textures (false = vertex colors only)
  * @param {THREE.Texture} lightmap - Optional lightmap texture (16x16)
  */
 export function createTexturedMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -488,9 +556,14 @@ export function createTexturedMaterial(atlasData = null, useTextures = false, li
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
+      uAnimationData: { value: animationData },
+      uFrameSequence: { value: frameSequence },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
       uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
+      uTime: { value: 0.0 },
+      uTotalTiles: { value: totalTiles },
+      uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -552,7 +625,7 @@ export function createTexturedGlassMaterial(atlasData = null, useTextures = fals
 /**
  * Update material's texture atlas
  * @param {THREE.ShaderMaterial} material - The material to update
- * @param {Object} atlasData - { atlas: THREE.Texture, colormap: THREE.Texture, size: {x, y}, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV }
+ * @param {Object} atlasData - { atlas: THREE.Texture, colormap: THREE.Texture, animationData: THREE.Texture, frameSequence: THREE.Texture, size: {x, y}, tilesPerRow, tilesPerCol, tileUV, textureUV, borderUV, totalTiles, sequenceLength }
  */
 export function updateMaterialAtlas(material, atlasData) {
   if (!material.uniforms) return;
@@ -578,6 +651,20 @@ export function updateMaterialAtlas(material, atlasData) {
     if (atlasData.colormap && material.uniforms.uColormap) {
       material.uniforms.uColormap.value = atlasData.colormap;
       material.uniforms.uUseTinting.value = 1.0;
+    }
+    // Update animation data if available
+    if (atlasData.animationData && material.uniforms.uAnimationData) {
+      material.uniforms.uAnimationData.value = atlasData.animationData;
+    }
+    // Update frame sequence texture if available
+    if (atlasData.frameSequence && material.uniforms.uFrameSequence) {
+      material.uniforms.uFrameSequence.value = atlasData.frameSequence;
+    }
+    if (atlasData.totalTiles !== undefined && material.uniforms.uTotalTiles) {
+      material.uniforms.uTotalTiles.value = atlasData.totalTiles;
+    }
+    if (atlasData.sequenceLength !== undefined && material.uniforms.uSequenceLength) {
+      material.uniforms.uSequenceLength.value = atlasData.sequenceLength;
     }
   } else if (atlasData instanceof THREE.Texture) {
     // Simple texture update (backward compat)
@@ -673,10 +760,15 @@ const modelFragmentShader = `
 uniform sampler2D uAtlas;        // The texture atlas
 uniform sampler2D uColormap;     // Biome colormap texture (grass on top, foliage on bottom)
 uniform sampler2D uLightmap;     // 16x16 lightmap texture
+uniform sampler2D uAnimationData; // Animation metadata: (sequenceStart, cycleLength, frametime, interpolate)
+uniform sampler2D uFrameSequence; // Frame sequence texture: maps cycle position -> atlas index
 uniform float uUseTextures;      // 0.0 = vertex colors only, 1.0 = use textures
 uniform float uUseTinting;       // 0.0 = no biome tinting, 1.0 = apply biome tinting
 uniform float uUseLightmap;      // 0.0 = fixed face shading, 1.0 = use lightmap
 uniform float uFastPath;         // 0.0 = full quality, 1.0 = skip tinting/lightmap for performance
+uniform float uTime;             // Current time in seconds (for animation)
+uniform float uTotalTiles;       // Total number of tiles in atlas (for animation lookup)
+uniform float uSequenceLength;   // Total length of frame sequence texture
 uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
@@ -759,6 +851,39 @@ vec2 rotateUV(vec2 uv, int rot) {
   return clamp(centered + 0.5, 0.0, 1.0);
 }
 
+// Calculate animated texture index based on time
+// Uses frame sequence texture to support custom frame orders
+float getAnimatedTexIndex(float texIndex) {
+  if (uTotalTiles <= 0.0) return texIndex;
+  
+  // Sample animation data for this texture index
+  // Animation data is stored as: (sequenceStart, cycleLength, frametime, interpolate)
+  float u = (texIndex + 0.5) / uTotalTiles;
+  vec4 animData = texture2D(uAnimationData, vec2(u, 0.5));
+  
+  float sequenceStart = animData.r;
+  float cycleLength = animData.g;
+  float frametime = animData.b;
+  
+  // If not animated (cycleLength <= 1), return the original index
+  if (cycleLength <= 1.0) return texIndex;
+  
+  // Convert time to Minecraft ticks (20 ticks per second)
+  float ticks = uTime * 20.0;
+  
+  // Calculate current position in animation cycle
+  float ticksPerCycle = frametime * cycleLength;
+  float cycleTicks = mod(ticks, ticksPerCycle);
+  float currentCycleFrame = floor(cycleTicks / frametime);
+  
+  // Look up the actual atlas index from the frame sequence texture
+  float seqIndex = sequenceStart + currentCycleFrame;
+  float seqU = (seqIndex + 0.5) / uSequenceLength;
+  float atlasIndex = texture2D(uFrameSequence, vec2(seqU, 0.5)).r;
+  
+  return atlasIndex;
+}
+
 // Sample biome colormap using Minecraft's formula
 // Plains biome: temp=0.8, downfall=0.4
 vec3 sampleColormap(int tintType) {
@@ -825,10 +950,13 @@ void main() {
     // Clamp UV to valid range
     localUV = clamp(localUV, 0.0, 1.0);
     
+    // Get animated texture index (returns original if not animated)
+    float animatedTexIndex = getAnimatedTexIndex(vTexIndex);
+    
     // Calculate tile position from texture index
     float tilesPerRow = uAtlasSize.x;
-    float col = mod(vTexIndex, tilesPerRow);
-    float row = floor(vTexIndex / tilesPerRow);
+    float col = mod(animatedTexIndex, tilesPerRow);
+    float row = floor(animatedTexIndex / tilesPerRow);
     
     // Calculate atlas UV
     // The atlas has 1-pixel borders around each tile to prevent bleeding
@@ -907,7 +1035,7 @@ void main() {
  * Uses polygon offset to prevent z-fighting with full blocks
  */
 export function createTexturedModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -918,9 +1046,14 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
+      uAnimationData: { value: animationData },
+      uFrameSequence: { value: frameSequence },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
       uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
+      uTime: { value: 0.0 },
+      uTotalTiles: { value: totalTiles },
+      uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -949,7 +1082,7 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
  * through the transparent surfaces
  */
 export function createTransparentModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -960,9 +1093,14 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
+      uAnimationData: { value: animationData },
+      uFrameSequence: { value: frameSequence },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
       uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
+      uTime: { value: 0.0 },
+      uTotalTiles: { value: totalTiles },
+      uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
@@ -990,7 +1128,7 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
  * This creates the effect of "glow" faces that appear behind solid geometry
  */
 export function createOverlayModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -1001,9 +1139,14 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
+      uAnimationData: { value: animationData },
+      uFrameSequence: { value: frameSequence },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
       uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
+      uTime: { value: 0.0 },
+      uTotalTiles: { value: totalTiles },
+      uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
