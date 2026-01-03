@@ -229,18 +229,61 @@ export function getFlowDirection(grid, worldX, worldY, worldZ, isFluidLookup, fl
  * Convert flow direction to texture rotation (0-3 for 90° increments)
  * @param {{x: number, z: number}} flow - Flow direction vector
  * @returns {number} Rotation value 0-3
+ * 
+ * Minecraft's water_flow texture has arrows/stripes that animate "downward" in UV space.
+ * On a top face with our UV layout:
+ *   - UV (0,0) at (x, z), UV (1,0) at (x+1, z), UV (1,1) at (x+1, z+1), UV (0,1) at (x, z+1)
+ *   - So +U = world +X, +V = world +Z
+ *   - Default texture "down" (+V direction) = world +Z (south)
+ * 
+ * We rotate UV coordinates counterclockwise by 90° per step:
+ *   - rot 0: no rotation, arrows point south (+Z)
+ *   - rot 1: 90° CCW, arrows point east (+X)
+ *   - rot 2: 180°, arrows point north (-Z)
+ *   - rot 3: 270° CCW, arrows point west (-X)
  */
 export function flowToRotation(flow) {
   if (Math.abs(flow.x) < 0.01 && Math.abs(flow.z) < 0.01) {
-    return 0; // No flow - use still texture
+    return 0; // No flow - use default orientation
   }
   
-  // Determine primary direction
-  const angle = Math.atan2(flow.z, flow.x);
-  // Convert to 0-3 rotation (each represents 90°)
-  // 0 = flow towards +X, 1 = flow towards +Z, 2 = flow towards -X, 3 = flow towards -Z
-  let rot = Math.round((angle + Math.PI) / (Math.PI / 2)) % 4;
-  return rot;
+  // Determine dominant flow direction
+  const absX = Math.abs(flow.x);
+  const absZ = Math.abs(flow.z);
+  
+  if (absZ >= absX) {
+    // Primary flow is along Z axis
+    return flow.z > 0 ? 0 : 2; // South (+Z) = 0, North (-Z) = 2
+  } else {
+    // Primary flow is along X axis
+    return flow.x > 0 ? 1 : 3; // East (+X) = 1, West (-X) = 3
+  }
+}
+
+/**
+ * Rotate UV coordinates by 90° increments
+ * @param {Array<[number, number]>} uvs - Array of 4 UV pairs
+ * @param {number} rotation - Rotation 0-3 (0=0°, 1=90°, 2=180°, 3=270°)
+ * @returns {Array<[number, number]>} Rotated UVs
+ */
+function rotateUVs(uvs, rotation) {
+  if (rotation === 0) return uvs;
+  
+  // Rotate UVs around center (0.5, 0.5)
+  const rotated = [];
+  const cos = [1, 0, -1, 0][rotation];
+  const sin = [0, 1, 0, -1][rotation];
+  
+  for (const [u, v] of uvs) {
+    // Translate to origin, rotate, translate back
+    const cu = u - 0.5;
+    const cv = v - 0.5;
+    const ru = cu * cos - cv * sin + 0.5;
+    const rv = cu * sin + cv * cos + 0.5;
+    rotated.push([ru, rv]);
+  }
+  
+  return rotated;
 }
 
 /**
@@ -586,14 +629,20 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
               normal[2] = 0;
             }
             
-            // UVs - use flowing texture if there's flow
+            // UVs - use flowing texture if there's flow, rotated to match flow direction
             const texIdx = hasFlow ? flowIdx : stillIdx;
-            const uvs = [
+            let uvs = [
               [0, 0],
               [1, 0],
               [1, 1],
               [0, 1],
             ];
+            
+            // Rotate UVs to align texture with flow direction
+            if (hasFlow) {
+              const rotation = flowToRotation(flow);
+              uvs = rotateUVs(uvs, rotation);
+            }
             
             emitQuad(effectiveFluidType, positions, normal, uvs, texIdx, lightData);
           }
