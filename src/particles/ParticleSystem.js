@@ -149,8 +149,8 @@ class ParticlePool {
       p.z += p.vz * deltaTime;
       
       // Collision detection (only for particles with physics enabled)
-      // Grace period: don't check collisions for first 0.3 seconds (lets particles escape spawn block)
-      if (p.hasPhysics && collisionFn && p.age > 0.3) {
+      // Grace period: don't check collisions for first 1.0 seconds (lets particles escape spawn block)
+      if (p.hasPhysics && collisionFn && p.age > 1.0) {
         // Check if new position is inside a solid block
         if (collisionFn(p.x, p.y, p.z)) {
           // Check which axis caused collision and resolve
