@@ -778,8 +778,6 @@ function RegionScene({
         ref={spectatorRef}
         initialPosition={cameraPositionRef.current}
         onCameraUpdate={onCameraUpdate}
-        moveSpeed={50}
-        fastMoveSpeed={150}
       />
       <ambientLight intensity={0.4} />
       <directionalLight position={[50, 100, 30]} intensity={0.8} />

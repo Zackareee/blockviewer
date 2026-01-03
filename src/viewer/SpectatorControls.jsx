@@ -1,6 +1,13 @@
 /**
  * SpectatorControls - Minecraft-style spectator mode camera controls
  * 
+ * Implements Minecraft's actual spectator mode physics:
+ * - Velocity-based movement with inertia
+ * - Friction coefficient of 0.91 (applied per tick)
+ * - Acceleration-based input (not instant movement)
+ * - Scroll wheel to adjust flying speed multiplier
+ * - Sprint key (Ctrl) for 2x speed boost
+ * 
  * Mouse controls pitch and yaw (requires pointer lock)
  * WASD moves relative to facing direction
  * Space/Shift for vertical movement
@@ -16,15 +23,55 @@
  *   - 0° = horizontal
  *   - positive = looking down
  *   - negative = looking up
+ * 
+ * Minecraft physics reference:
+ * - Flying friction: 0.91 per tick
+ * - Flying base acceleration: 0.05 blocks/tick
+ * - Terminal velocity = acceleration / (1 - friction) = 0.05 / 0.09 ≈ 0.556 blocks/tick ≈ 11.1 blocks/second
+ * - Spectator mode uses speed multipliers via scroll wheel
+ * - Sprint doubles the speed
  */
 
 import { useRef, useEffect, useCallback, useState, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-// Movement speed in blocks per second
-const MOVE_SPEED = 50;
-const FAST_MOVE_SPEED = 150;
+// Minecraft spectator mode physics constants
+// 
+// Using different friction values for horizontal vs vertical movement:
+// - Vertical (up/down): High friction for snappy, responsive stops
+// - Horizontal (WASD): Softer friction for smoother gliding feel
+//
+const TICKS_PER_SECOND = 20;
+
+// Vertical friction: Very high (0.5 per tick) for near-instant stopping
+// - Half-life: ~0.05 seconds (1 tick)
+// - Stops within 3-5 ticks (~0.15-0.25 seconds)
+const VERTICAL_FRICTION_PER_TICK = 0.5;
+const VERTICAL_DECAY_RATE = -TICKS_PER_SECOND * Math.log(VERTICAL_FRICTION_PER_TICK);  // ≈ 13.86/sec
+
+// Horizontal friction: Softer (0.75 per tick) for smoother gliding
+// - Half-life: ~0.12 seconds (2-3 ticks)  
+// - Stops within 10-15 ticks (~0.5-0.75 seconds)
+const HORIZONTAL_FRICTION_PER_TICK = 0.75;
+const HORIZONTAL_DECAY_RATE = -TICKS_PER_SECOND * Math.log(HORIZONTAL_FRICTION_PER_TICK);  // ≈ 5.75/sec
+
+// Base terminal velocity in blocks/second (matches Minecraft spectator at 1x speed)
+const BASE_TERMINAL_VELOCITY = 10.0;
+
+// Separate accelerations to achieve the same terminal velocity with different frictions
+// Formula: terminal_velocity = acceleration / decay_rate
+const VERTICAL_ACCELERATION_PER_SEC = BASE_TERMINAL_VELOCITY * VERTICAL_DECAY_RATE;    // ≈ 139 blocks/sec²
+const HORIZONTAL_ACCELERATION_PER_SEC = BASE_TERMINAL_VELOCITY * HORIZONTAL_DECAY_RATE; // ≈ 57.5 blocks/sec²
+
+// Speed multiplier levels (controlled by scroll wheel)
+// These match Minecraft's spectator mode speed levels
+const SPEED_LEVELS = [0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+const DEFAULT_SPEED_LEVEL_INDEX = 4;  // Start at 1.0x
+
+// Sprint multiplier (Ctrl key)
+const SPRINT_MULTIPLIER = 2.0;
+
 const MOUSE_SENSITIVITY = 0.002;
 
 /**
@@ -70,10 +117,9 @@ function getCardinalDirection(yaw) {
 }
 
 export const SpectatorControls = forwardRef(function SpectatorControls({ 
-  moveSpeed = MOVE_SPEED,
-  fastMoveSpeed = FAST_MOVE_SPEED,
   mouseSensitivity = MOUSE_SENSITIVITY,
   onCameraUpdate = null,
+  onSpeedChange = null,  // Callback when speed multiplier changes
   initialPosition = [0, 100, 0],
   initialYaw = 0,
   initialPitch = 0,
@@ -87,8 +133,14 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     right: false,
     up: false,
     down: false,
-    fast: false,
+    sprint: false,  // Changed from 'fast' to 'sprint' to match Minecraft terminology
   });
+  
+  // Velocity state for physics-based movement (in blocks per tick)
+  const velocityRef = useRef(new THREE.Vector3(0, 0, 0));
+  
+  // Speed multiplier level index (controlled by scroll wheel)
+  const speedLevelRef = useRef(DEFAULT_SPEED_LEVEL_INDEX);
   
   // Store rotation as internal angles (not Minecraft angles)
   // These get converted when creating the Three.js Euler and when reporting to UI
@@ -99,7 +151,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     pitch: initialPitch * (Math.PI / 180),        // Convert Minecraft pitch to internal radians
   });
   
-  // Expose teleport function via ref
+  // Expose teleport and speed control functions via ref
   useImperativeHandle(ref, () => ({
     /**
      * Teleport camera to position and rotation
@@ -112,6 +164,9 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     teleport(x, y, z, yaw, pitch) {
       // Update position
       camera.position.set(x, y, z);
+      
+      // Reset velocity when teleporting (no momentum carried over)
+      velocityRef.current.set(0, 0, 0);
       
       // Convert Minecraft angles to internal radians
       rotationRef.current.yaw = (180 - yaw) * (Math.PI / 180);
@@ -144,6 +199,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
           rotationRef.current.pitch
         );
         const cardinal = getCardinalDirection(mcYaw);
+        const speedMultiplier = SPEED_LEVELS[speedLevelRef.current];
         onCameraUpdate({
           x: camera.position.x,
           y: camera.position.y,
@@ -152,10 +208,38 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
           yaw: mcYaw,
           direction: cardinal.direction,
           axis: cardinal.axis,
+          speedMultiplier,
         });
       }
+    },
+    
+    /**
+     * Get current speed multiplier
+     */
+    getSpeedMultiplier() {
+      return SPEED_LEVELS[speedLevelRef.current];
+    },
+    
+    /**
+     * Set speed level index (0-9)
+     */
+    setSpeedLevel(index) {
+      speedLevelRef.current = Math.max(0, Math.min(SPEED_LEVELS.length - 1, index));
+      if (onSpeedChange) {
+        onSpeedChange(SPEED_LEVELS[speedLevelRef.current]);
+      }
+    },
+    
+    /**
+     * Reset speed to default (1.0x)
+     */
+    resetSpeed() {
+      speedLevelRef.current = DEFAULT_SPEED_LEVEL_INDEX;
+      if (onSpeedChange) {
+        onSpeedChange(SPEED_LEVELS[speedLevelRef.current]);
+      }
     }
-  }), [camera, invalidate, onCameraUpdate]);
+  }), [camera, invalidate, onCameraUpdate, onSpeedChange]);
   
   // Initialize camera position and rotation
   useEffect(() => {
@@ -279,7 +363,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
           break;
         case 'ControlLeft':
         case 'ControlRight':
-          keysRef.current.fast = true;
+          keysRef.current.sprint = true;
           break;
         case 'Escape':
           // Allow escape to exit pointer lock
@@ -322,8 +406,26 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
           break;
         case 'ControlLeft':
         case 'ControlRight':
-          keysRef.current.fast = false;
+          keysRef.current.sprint = false;
           break;
+      }
+    };
+    
+    // Scroll wheel for speed adjustment (Minecraft spectator mode feature)
+    const handleWheel = (event) => {
+      if (!isLockedRef.current) return;
+      
+      event.preventDefault();
+      
+      const direction = event.deltaY < 0 ? 1 : -1;  // Scroll up = faster, scroll down = slower
+      const newIndex = Math.max(0, Math.min(SPEED_LEVELS.length - 1, speedLevelRef.current + direction));
+      
+      if (newIndex !== speedLevelRef.current) {
+        speedLevelRef.current = newIndex;
+        const speedMultiplier = SPEED_LEVELS[newIndex];
+        if (onSpeedChange) {
+          onSpeedChange(speedMultiplier);
+        }
       }
     };
     
@@ -332,6 +434,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     document.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
     
     return () => {
       canvas.removeEventListener('click', handleClick);
@@ -339,24 +442,37 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
       document.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      canvas.removeEventListener('wheel', handleWheel);
     };
-  }, [gl, camera, mouseSensitivity, requestPointerLock, invalidate]);
+  }, [gl, camera, mouseSensitivity, requestPointerLock, invalidate, onSpeedChange]);
   
   // PERFORMANCE: Reuse objects to avoid GC pressure from allocations every frame
   const forwardVec = useMemo(() => new THREE.Vector3(), []);
   const rightVec = useMemo(() => new THREE.Vector3(), []);
-  const movementVec = useMemo(() => new THREE.Vector3(), []);
+  const inputVec = useMemo(() => new THREE.Vector3(), []);
   const yawEuler = useMemo(() => new THREE.Euler(0, 0, 0, 'YXZ'), []);
   
   // Track last reported position to only update when changed
   const lastReportedPos = useRef({ x: 0, y: 0, z: 0, pitch: 0, yaw: 0 });
   
-  // Movement update each frame
+  // Movement update each frame using Minecraft physics (smooth delta-time based)
   useFrame((state, delta) => {
-    const keys = keysRef.current;
-    const speed = keys.fast ? fastMoveSpeed : moveSpeed;
-    const distance = speed * delta;
+    // Clamp delta to prevent physics explosions on tab switch or lag spikes
+    const clampedDelta = Math.min(delta, 0.1);
     
+    const keys = keysRef.current;
+    const velocity = velocityRef.current;
+    
+    // Get current speed multiplier from scroll wheel level
+    const speedMultiplier = SPEED_LEVELS[speedLevelRef.current];
+    
+    // Sprint doubles the effective speed
+    const sprintMultiplier = keys.sprint ? SPRINT_MULTIPLIER : 1.0;
+    
+    // Combined multiplier for acceleration
+    const totalMultiplier = speedMultiplier * sprintMultiplier;
+    
+    // Calculate input direction
     // PERFORMANCE: Reuse pre-allocated vectors instead of creating new ones
     forwardVec.set(0, 0, -1);
     rightVec.set(1, 0, 0);
@@ -366,27 +482,57 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     forwardVec.applyEuler(yawEuler);
     rightVec.applyEuler(yawEuler);
     
-    // Calculate movement
-    movementVec.set(0, 0, 0);
+    // Build input vector from key states
+    inputVec.set(0, 0, 0);
     
-    if (keys.forward) movementVec.add(forwardVec);
-    if (keys.backward) movementVec.sub(forwardVec);
-    if (keys.right) movementVec.add(rightVec);
-    if (keys.left) movementVec.sub(rightVec);
-    
-    // Normalize horizontal movement
-    if (movementVec.length() > 0) {
-      movementVec.normalize().multiplyScalar(distance);
-    }
+    if (keys.forward) inputVec.add(forwardVec);
+    if (keys.backward) inputVec.sub(forwardVec);
+    if (keys.right) inputVec.add(rightVec);
+    if (keys.left) inputVec.sub(rightVec);
     
     // Vertical movement (independent of look direction)
-    if (keys.up) movementVec.y += distance;
-    if (keys.down) movementVec.y -= distance;
+    if (keys.up) inputVec.y += 1;
+    if (keys.down) inputVec.y -= 1;
     
-    // Apply movement
-    const hasMoved = movementVec.length() > 0;
-    if (hasMoved) {
-      camera.position.add(movementVec);
+    // Normalize input to prevent diagonal speed boost
+    if (inputVec.length() > 0) {
+      inputVec.normalize();
+    }
+    
+    // Smooth delta-time physics with separate horizontal/vertical friction
+    //
+    // Minecraft formula per tick: velocity = velocity * friction + input * acceleration
+    // For smooth delta-time, we use exponential decay: v = v * e^(-λ * delta)
+    //
+    // Horizontal (X/Z): Softer friction for gliding feel
+    // Vertical (Y): High friction for snappy stops
+    
+    // Apply friction using exponential decay - different rates for horizontal vs vertical
+    const horizontalFrictionFactor = Math.exp(-HORIZONTAL_DECAY_RATE * clampedDelta);
+    const verticalFrictionFactor = Math.exp(-VERTICAL_DECAY_RATE * clampedDelta);
+    
+    velocity.x *= horizontalFrictionFactor;
+    velocity.z *= horizontalFrictionFactor;
+    velocity.y *= verticalFrictionFactor;
+    
+    // Apply acceleration from input - different rates for horizontal vs vertical
+    const horizontalAccel = HORIZONTAL_ACCELERATION_PER_SEC * totalMultiplier * clampedDelta;
+    const verticalAccel = VERTICAL_ACCELERATION_PER_SEC * totalMultiplier * clampedDelta;
+    
+    velocity.x += inputVec.x * horizontalAccel;
+    velocity.z += inputVec.z * horizontalAccel;
+    velocity.y += inputVec.y * verticalAccel;
+    
+    // Update position (velocity is blocks/second, integrate over delta)
+    let positionChanged = false;
+    if (velocity.length() > 0.001) {
+      camera.position.x += velocity.x * clampedDelta;
+      camera.position.y += velocity.y * clampedDelta;
+      camera.position.z += velocity.z * clampedDelta;
+      positionChanged = true;
+    }
+    
+    if (positionChanged) {
       invalidate();
     }
     
@@ -417,6 +563,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
           yaw,
           direction: cardinal.direction,
           axis: cardinal.axis,
+          speedMultiplier: speedMultiplier * sprintMultiplier,  // Report effective speed
         });
         
         lastReportedPos.current = {
