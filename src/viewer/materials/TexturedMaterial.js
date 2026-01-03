@@ -74,9 +74,11 @@ uniform float uTime;             // Current time in seconds (for animation)
 uniform float uTotalTiles;       // Total number of tiles in atlas (for animation lookup)
 uniform float uSequenceLength;   // Total length of frame sequence texture
 uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
+uniform vec2 uAtlasSizePixels;   // Atlas dimensions in pixels (for RGSS)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
 uniform vec2 uBorderUV;          // Border offset in UV space (1px)
+uniform float uUseRGSS;          // 0.0 = nearest sampling, 1.0 = RGSS anti-aliasing
 
 // Fog uniforms (like Minecraft)
 uniform vec3 uFogColor;          // Fog/sky color
@@ -125,6 +127,72 @@ vec3 applyFog(vec3 color, float distance, vec3 fogColor, float fogStart, float f
   float fogValue = linearFog(distance, fogStart, fogEnd);
   return mix(color, fogColor, fogValue);
 }
+
+// ============================================================================
+// RGSS (Rotated Grid Super-Sampling) - Minecraft's texture anti-aliasing
+// ============================================================================
+
+// Pixel-snapping nearest-neighbor sampling (used when close to camera)
+// Snaps UV to texel center to prevent blurring while allowing sub-pixel adjustment
+vec4 sampleNearest(sampler2D sampler, vec2 uv, vec2 pixelSize, vec2 du, vec2 dv, vec2 texelScreenSize) {
+  // Convert UV to texel coordinates
+  vec2 uvTexelCoords = uv / pixelSize;
+  vec2 texelCenter = floor(uvTexelCoords) + 0.5;
+  vec2 texelOffset = uvTexelCoords - texelCenter;
+  
+  // Move offset closer to texel center based on screen size
+  texelOffset = texelOffset * clamp(pixelSize / texelScreenSize, 0.0, 1.0);
+  
+  uv = (texelCenter + texelOffset) * pixelSize;
+  return texture2D(sampler, uv);
+}
+
+// Rotated Grid Super-Sampling - samples at 4 rotated offsets for anti-aliasing
+// This softens textures at distance while keeping them sharp up close
+vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize, float vertexDistance) {
+  vec2 du = vec2(dFdx(uv.x), dFdx(uv.y));
+  vec2 dv = vec2(dFdy(uv.x), dFdy(uv.y));
+  
+  vec2 texelScreenSize = sqrt(du * du + dv * dv);
+  float maxTexelSize = max(texelScreenSize.x, texelScreenSize.y);
+  float minPixelSize = min(pixelSize.x, pixelSize.y);
+  
+  // Blend from nearest to RGSS based on distance
+  // When texels are small on screen (far away), use RGSS
+  // When texels are large on screen (close up), use nearest
+  float transitionStart = minPixelSize * 1.0;
+  float transitionEnd = minPixelSize * 2.0;
+  float blendFactor = smoothstep(transitionStart, transitionEnd, maxTexelSize);
+  
+  // If we're in nearest mode (close up), just return nearest sample
+  if (blendFactor < 0.01) {
+    return sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
+  }
+  
+  // RGSS offsets - rotated 26.6° for optimal coverage
+  const vec2 offsets[4] = vec2[4](
+    vec2(0.125, 0.375),
+    vec2(-0.125, -0.375),
+    vec2(0.375, -0.125),
+    vec2(-0.375, 0.125)
+  );
+  
+  // Sample at 4 rotated positions
+  vec4 rgssColor = vec4(0.0);
+  for (int i = 0; i < 4; i++) {
+    vec2 sampleUV = uv + offsets[i] * pixelSize;
+    rgssColor += texture2D(source, sampleUV);
+  }
+  rgssColor *= 0.25;
+  
+  // Get nearest sample for blending
+  vec4 nearestColor = sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
+  
+  // Blend between nearest (sharp) and RGSS (smooth) based on distance
+  return mix(nearestColor, rgssColor, blendFactor);
+}
+
+// ============================================================================
 
 // Snap interpolated normal to nearest axis to prevent UV instability at sharp angles
 // This is needed because WebGL 1.0 doesn't support 'flat' interpolation
@@ -421,8 +489,16 @@ void main() {
     vec2 atlasOffset1 = vec2(col1, row1) * uTileUV;
     vec2 atlasUV1 = atlasOffset1 + uBorderUV + localUV * uTextureUV;
     
-    // Sample current frame
-    vec4 texColor = texture2D(uAtlas, atlasUV1);
+    // Pixel size in UV space (for RGSS)
+    vec2 pixelSize = vec2(1.0) / uAtlasSizePixels;
+    
+    // Sample current frame (using RGSS or nearest based on setting)
+    vec4 texColor;
+    if (uUseRGSS > 0.5) {
+      texColor = sampleRGSS(uAtlas, atlasUV1, pixelSize, vVertexDistance);
+    } else {
+      texColor = texture2D(uAtlas, atlasUV1);
+    }
     
     // If interpolation is needed, sample next frame and blend
     if (anim.blend > 0.0) {
@@ -430,7 +506,13 @@ void main() {
       float row2 = floor(anim.nextIndex / tilesPerRow);
       vec2 atlasOffset2 = vec2(col2, row2) * uTileUV;
       vec2 atlasUV2 = atlasOffset2 + uBorderUV + localUV * uTextureUV;
-      vec4 texColor2 = texture2D(uAtlas, atlasUV2);
+      
+      vec4 texColor2;
+      if (uUseRGSS > 0.5) {
+        texColor2 = sampleRGSS(uAtlas, atlasUV2, pixelSize, vVertexDistance);
+      } else {
+        texColor2 = texture2D(uAtlas, atlasUV2);
+      }
       texColor = mix(texColor, texColor2, anim.blend);
     }
     
@@ -567,7 +649,10 @@ function getAtlasUniforms(atlasData) {
     }
   }
   
-  return { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength };
+  // Calculate pixel size for RGSS (18 pixels per tile: 16px texture + 2px border)
+  const sizePixels = new THREE.Vector2(size.x * 18, size.y * 18);
+  
+  return { atlas, colormap, animationData, frameSequence, hasColormap, size, sizePixels, tileUV, textureUV, borderUV, totalTiles, sequenceLength };
 }
 
 /**
@@ -577,7 +662,7 @@ function getAtlasUniforms(atlasData) {
  * @param {THREE.Texture} lightmap - Optional lightmap texture (16x16)
  */
 export function createTexturedMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, sizePixels, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -595,9 +680,11 @@ export function createTexturedMaterial(atlasData = null, useTextures = false, li
       uTotalTiles: { value: totalTiles },
       uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
+      uAtlasSizePixels: { value: sizePixels },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      uUseRGSS: { value: 1.0 },  // RGSS enabled by default
       // Fog uniforms (Minecraft-style distance haze)
       // Plains biome sky color: #78a7ff = RGB(120, 167, 255)
       uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
@@ -619,7 +706,7 @@ export function createTexturedMaterial(atlasData = null, useTextures = false, li
  * Create a textured material for transparent blocks (glass, ice)
  */
 export function createTexturedGlassMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, hasColormap, size, tileUV, textureUV, borderUV } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, sizePixels, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -628,13 +715,20 @@ export function createTexturedGlassMaterial(atlasData = null, useTextures = fals
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
+      uAnimationData: { value: animationData },
+      uFrameSequence: { value: frameSequence },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
       uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
+      uTime: { value: 0.0 },
+      uTotalTiles: { value: totalTiles },
+      uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
+      uAtlasSizePixels: { value: sizePixels },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      uUseRGSS: { value: 1.0 },  // RGSS enabled by default
       // Fog uniforms (Minecraft-style distance haze)
       uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
       uFogStart: { value: 100.0 },
@@ -664,8 +758,16 @@ export function updateMaterialAtlas(material, atlasData) {
     material.uniforms.uAtlas.value = atlasData.atlas;
     if (atlasData.size) {
       material.uniforms.uAtlasSize.value.set(atlasData.size.x, atlasData.size.y);
+      // Update sizePixels (18 pixels per tile: 16px + 2px border)
+      if (material.uniforms.uAtlasSizePixels) {
+        material.uniforms.uAtlasSizePixels.value.set(atlasData.size.x * 18, atlasData.size.y * 18);
+      }
     } else if (atlasData.tilesPerRow) {
       material.uniforms.uAtlasSize.value.set(atlasData.tilesPerRow, atlasData.tilesPerCol || atlasData.tilesPerRow);
+      // Update sizePixels
+      if (material.uniforms.uAtlasSizePixels) {
+        material.uniforms.uAtlasSizePixels.value.set(atlasData.tilesPerRow * 18, (atlasData.tilesPerCol || atlasData.tilesPerRow) * 18);
+      }
     }
     // Update UV uniforms if available
     if (atlasData.tileUV && material.uniforms.uTileUV) {
@@ -800,9 +902,11 @@ uniform float uTime;             // Current time in seconds (for animation)
 uniform float uTotalTiles;       // Total number of tiles in atlas (for animation lookup)
 uniform float uSequenceLength;   // Total length of frame sequence texture
 uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
+uniform vec2 uAtlasSizePixels;   // Atlas dimensions in pixels (for RGSS)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
 uniform vec2 uBorderUV;          // Border offset in UV space (1px)
+uniform float uUseRGSS;          // 0.0 = nearest sampling, 1.0 = RGSS anti-aliasing
 
 // Fog uniforms (like Minecraft)
 uniform vec3 uFogColor;          // Fog/sky color
@@ -853,6 +957,57 @@ vec3 applyFog(vec3 color, float distance, vec3 fogColor, float fogStart, float f
   float fogValue = linearFog(distance, fogStart, fogEnd);
   return mix(color, fogColor, fogValue);
 }
+
+// ============================================================================
+// RGSS (Rotated Grid Super-Sampling) - Minecraft's texture anti-aliasing
+// ============================================================================
+
+// Pixel-snapping nearest-neighbor sampling
+vec4 sampleNearest(sampler2D sampler, vec2 uv, vec2 pixelSize, vec2 du, vec2 dv, vec2 texelScreenSize) {
+  vec2 uvTexelCoords = uv / pixelSize;
+  vec2 texelCenter = floor(uvTexelCoords) + 0.5;
+  vec2 texelOffset = uvTexelCoords - texelCenter;
+  texelOffset = texelOffset * clamp(pixelSize / texelScreenSize, 0.0, 1.0);
+  uv = (texelCenter + texelOffset) * pixelSize;
+  return texture2D(sampler, uv);
+}
+
+// Rotated Grid Super-Sampling
+vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize, float vertexDistance) {
+  vec2 du = vec2(dFdx(uv.x), dFdx(uv.y));
+  vec2 dv = vec2(dFdy(uv.x), dFdy(uv.y));
+  
+  vec2 texelScreenSize = sqrt(du * du + dv * dv);
+  float maxTexelSize = max(texelScreenSize.x, texelScreenSize.y);
+  float minPixelSize = min(pixelSize.x, pixelSize.y);
+  
+  float transitionStart = minPixelSize * 1.0;
+  float transitionEnd = minPixelSize * 2.0;
+  float blendFactor = smoothstep(transitionStart, transitionEnd, maxTexelSize);
+  
+  if (blendFactor < 0.01) {
+    return sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
+  }
+  
+  const vec2 offsets[4] = vec2[4](
+    vec2(0.125, 0.375),
+    vec2(-0.125, -0.375),
+    vec2(0.375, -0.125),
+    vec2(-0.375, 0.125)
+  );
+  
+  vec4 rgssColor = vec4(0.0);
+  for (int i = 0; i < 4; i++) {
+    vec2 sampleUV = uv + offsets[i] * pixelSize;
+    rgssColor += texture2D(source, sampleUV);
+  }
+  rgssColor *= 0.25;
+  
+  vec4 nearestColor = sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
+  return mix(nearestColor, rgssColor, blendFactor);
+}
+
+// ============================================================================
 
 // Snap normal for face shading
 vec3 snapNormal(vec3 n) {
@@ -1006,8 +1161,16 @@ void main() {
     vec2 atlasOffset1 = vec2(col1, row1) * uTileUV;
     vec2 atlasUV1 = atlasOffset1 + uBorderUV + localUV * uTextureUV;
     
-    // Sample current frame
-    vec4 texColor = texture2D(uAtlas, atlasUV1);
+    // Pixel size in UV space (for RGSS)
+    vec2 pixelSize = vec2(1.0) / uAtlasSizePixels;
+    
+    // Sample current frame (using RGSS or nearest based on setting)
+    vec4 texColor;
+    if (uUseRGSS > 0.5) {
+      texColor = sampleRGSS(uAtlas, atlasUV1, pixelSize, vVertexDistance);
+    } else {
+      texColor = texture2D(uAtlas, atlasUV1);
+    }
     
     // If interpolation is needed, sample next frame and blend
     if (anim.blend > 0.0) {
@@ -1015,7 +1178,13 @@ void main() {
       float row2 = floor(anim.nextIndex / tilesPerRow);
       vec2 atlasOffset2 = vec2(col2, row2) * uTileUV;
       vec2 atlasUV2 = atlasOffset2 + uBorderUV + localUV * uTextureUV;
-      vec4 texColor2 = texture2D(uAtlas, atlasUV2);
+      
+      vec4 texColor2;
+      if (uUseRGSS > 0.5) {
+        texColor2 = sampleRGSS(uAtlas, atlasUV2, pixelSize, vVertexDistance);
+      } else {
+        texColor2 = texture2D(uAtlas, atlasUV2);
+      }
       texColor = mix(texColor, texColor2, anim.blend);
     }
     
@@ -1088,7 +1257,7 @@ void main() {
  * Uses polygon offset to prevent z-fighting with full blocks
  */
 export function createTexturedModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, sizePixels, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -1108,9 +1277,11 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
       uTotalTiles: { value: totalTiles },
       uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
+      uAtlasSizePixels: { value: sizePixels },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      uUseRGSS: { value: 1.0 },  // RGSS enabled by default
       // Fog uniforms (Minecraft-style distance haze)
       uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
       uFogStart: { value: 100.0 },
@@ -1135,7 +1306,7 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
  * through the transparent surfaces
  */
 export function createTransparentModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, sizePixels, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -1155,9 +1326,11 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
       uTotalTiles: { value: totalTiles },
       uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
+      uAtlasSizePixels: { value: sizePixels },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      uUseRGSS: { value: 1.0 },  // RGSS enabled by default
       // Fog uniforms (Minecraft-style distance haze)
       uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
       uFogStart: { value: 100.0 },
@@ -1181,7 +1354,7 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
  * This creates the effect of "glow" faces that appear behind solid geometry
  */
 export function createOverlayModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
-  const { atlas, colormap, animationData, frameSequence, hasColormap, size, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, sizePixels, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
   
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -1201,9 +1374,11 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
       uTotalTiles: { value: totalTiles },
       uSequenceLength: { value: sequenceLength },
       uAtlasSize: { value: size },
+      uAtlasSizePixels: { value: sizePixels },
       uTileUV: { value: tileUV },
       uTextureUV: { value: textureUV },
       uBorderUV: { value: borderUV },
+      uUseRGSS: { value: 1.0 },  // RGSS enabled by default
       // Fog uniforms (Minecraft-style distance haze)
       uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
       uFogStart: { value: 100.0 },

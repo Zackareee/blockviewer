@@ -112,9 +112,11 @@ uniform float uSequenceLength;
 
 // Atlas info - matching TexturedMaterial format
 uniform float uTilesPerRow;
+uniform float uAtlasSizePixels;  // Atlas width in pixels (for RGSS)
 uniform float uTileFullSize;  // Full tile size in UV (includes border)
 uniform float uTextureSize;   // Usable texture size in UV (16px)
 uniform float uBorderSize;    // Border offset in UV (1px)
+uniform float uUseRGSS;       // 0.0 = nearest sampling, 1.0 = RGSS anti-aliasing
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -123,6 +125,55 @@ varying float vTexIndex;
 varying float vTintType;
 varying vec2 vLightUV;
 varying float vVisible;
+
+// ============================================================================
+// RGSS (Rotated Grid Super-Sampling) - Minecraft's texture anti-aliasing
+// ============================================================================
+
+vec4 sampleNearest(sampler2D sampler, vec2 uv, vec2 pixelSize, vec2 du, vec2 dv, vec2 texelScreenSize) {
+  vec2 uvTexelCoords = uv / pixelSize;
+  vec2 texelCenter = floor(uvTexelCoords) + 0.5;
+  vec2 texelOffset = uvTexelCoords - texelCenter;
+  texelOffset = texelOffset * clamp(pixelSize / texelScreenSize, 0.0, 1.0);
+  uv = (texelCenter + texelOffset) * pixelSize;
+  return texture2D(sampler, uv);
+}
+
+vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize) {
+  vec2 du = vec2(dFdx(uv.x), dFdx(uv.y));
+  vec2 dv = vec2(dFdy(uv.x), dFdy(uv.y));
+  
+  vec2 texelScreenSize = sqrt(du * du + dv * dv);
+  float maxTexelSize = max(texelScreenSize.x, texelScreenSize.y);
+  float minPixelSize = min(pixelSize.x, pixelSize.y);
+  
+  float transitionStart = minPixelSize * 1.0;
+  float transitionEnd = minPixelSize * 2.0;
+  float blendFactor = smoothstep(transitionStart, transitionEnd, maxTexelSize);
+  
+  if (blendFactor < 0.01) {
+    return sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
+  }
+  
+  const vec2 offsets[4] = vec2[4](
+    vec2(0.125, 0.375),
+    vec2(-0.125, -0.375),
+    vec2(0.375, -0.125),
+    vec2(-0.375, 0.125)
+  );
+  
+  vec4 rgssColor = vec4(0.0);
+  for (int i = 0; i < 4; i++) {
+    vec2 sampleUV = uv + offsets[i] * pixelSize;
+    rgssColor += texture2D(source, sampleUV);
+  }
+  rgssColor *= 0.25;
+  
+  vec4 nearestColor = sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
+  return mix(nearestColor, rgssColor, blendFactor);
+}
+
+// ============================================================================
 
 // Animation result structure for interpolation support
 struct AnimResult {
@@ -207,7 +258,16 @@ void main() {
     vec2 atlasOffset1 = vec2(col1, row1) * uTileFullSize;
     vec2 atlasUV1 = atlasOffset1 + uBorderSize + vModelUV * uTextureSize;
     
-    vec4 texColor = texture2D(uAtlas, atlasUV1);
+    // Pixel size in UV space (for RGSS)
+    vec2 pixelSize = vec2(1.0 / uAtlasSizePixels);
+    
+    // Sample current frame (using RGSS or nearest based on setting)
+    vec4 texColor;
+    if (uUseRGSS > 0.5) {
+      texColor = sampleRGSS(uAtlas, atlasUV1, pixelSize);
+    } else {
+      texColor = texture2D(uAtlas, atlasUV1);
+    }
     
     // If interpolation is needed, sample next frame and blend
     if (anim.blend > 0.0) {
@@ -215,7 +275,13 @@ void main() {
       float row2 = floor(anim.nextIndex / uTilesPerRow);
       vec2 atlasOffset2 = vec2(col2, row2) * uTileFullSize;
       vec2 atlasUV2 = atlasOffset2 + uBorderSize + vModelUV * uTextureSize;
-      vec4 texColor2 = texture2D(uAtlas, atlasUV2);
+      
+      vec4 texColor2;
+      if (uUseRGSS > 0.5) {
+        texColor2 = sampleRGSS(uAtlas, atlasUV2, pixelSize);
+      } else {
+        texColor2 = texture2D(uAtlas, atlasUV2);
+      }
       texColor = mix(texColor, texColor2, anim.blend);
     }
     
@@ -288,9 +354,11 @@ export function createInstancedModelMaterial(atlasData = null, useTextures = fal
       uTotalTiles: { value: totalTiles },
       uSequenceLength: { value: sequenceLength },
       uTilesPerRow: { value: tilesPerRow },
+      uAtlasSizePixels: { value: atlasWidth },  // Atlas width in pixels for RGSS
       uTileFullSize: { value: tileFullSize },
       uTextureSize: { value: textureSize },
       uBorderSize: { value: borderSize },
+      uUseRGSS: { value: 1.0 },  // RGSS enabled by default
     },
     vertexShader: instancedVertexShader,
     fragmentShader: instancedFragmentShader,
