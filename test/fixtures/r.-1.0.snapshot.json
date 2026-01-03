@@ -1,16 +1,16 @@
 {
   "version": 1,
-  "timestamp": "2026-01-03T07:07:06.997Z",
+  "timestamp": "2026-01-03T11:11:46.686Z",
   "stats": {
     "totalBlocks": 35479201,
     "solidTriangles": 1338498,
-    "waterTriangles": 26872,
+    "waterTriangles": 77320,
     "lavaTriangles": 0,
     "chunksProcessed": 1024
   },
   "hashes": {
     "solid": "13a9b7ad0ede8009f359ca13f4b48545a451bb0cbc5e06d68cdf7fb4ddcdc7ea",
-    "water": "acaf28547c10b5370747027894876977243dd1e3318e048f6c8970780180eb3c",
+    "water": "c3bb4ad07661b31a53a6a9f9890febe4d94efb66aedf631c7cf3b1fb79fae81a",
     "lava": null
   },
   "meshInfo": {
@@ -33,21 +33,21 @@
       ]
     },
     "water": {
-      "vertexCount": 53744,
-      "triangleCount": 26872,
+      "vertexCount": 154640,
+      "triangleCount": 77320,
       "positionsSample": [
         6,
-        -56.125,
-        15,
-        7,
-        -56.125,
-        15,
-        7,
-        -56.125,
+        -56.11111068725586,
         14,
+        7,
+        -56.11111068725586,
+        14,
+        7,
+        -56.11111068725586,
+        15,
         6,
-        -56.125,
-        14
+        -56.11111068725586,
+        15
       ]
     },
     "lava": null

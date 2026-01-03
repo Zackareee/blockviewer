@@ -349,7 +349,16 @@ export class RegionMeshBuilder {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+    
+    // Colors attribute (for solid/glass blocks) - may not be present for fluids
+    if (meshData.colors) {
+      geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+    }
+    
+    // UV attribute (for fluid meshes from FluidMesher)
+    if (meshData.uvs) {
+      geometry.setAttribute('modelUV', new THREE.BufferAttribute(meshData.uvs, 2));
+    }
     
     // Add model UV attribute if present (for non-triplanar UV mapping)
     if (meshData.modelUVs) {

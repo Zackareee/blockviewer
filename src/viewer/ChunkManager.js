@@ -14,8 +14,8 @@
 
 import * as THREE from 'three';
 // SolidMaterial no longer used - using TexturedMaterial for all blocks
-import { createWaterMaterial } from './materials/WaterMaterial';
-import { createLavaMaterial } from './materials/LavaMaterial';
+import { createWaterMaterial, updateWaterMaterialAtlas } from './materials/WaterMaterial';
+import { createLavaMaterial, updateLavaMaterialAtlas } from './materials/LavaMaterial';
 import { createGlassMaterial } from './materials/GlassMaterial';
 import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled, setMaterialFastPath, setMaterialFog } from './materials/TexturedMaterial';
 import { createInstancedModelMaterial, createInstancedMesh, createCrossGeometry } from './materials/InstancedModelMaterial';
@@ -103,8 +103,8 @@ export class ChunkManager {
     // Use textured material that supports both textures and vertex colors
     // Pass lightmap to all materials for proper lighting
     this.solidMaterial = createTexturedMaterial(this.textureAtlas, useTextures, this.lightmap);
-    this.waterMaterial = createWaterMaterial(); // Water uses its own animated shader
-    this.lavaMaterial = createLavaMaterial(); // Lava uses its own animated shader
+    this.waterMaterial = createWaterMaterial(this.textureAtlas, useTextures, this.lightmap);
+    this.lavaMaterial = createLavaMaterial(this.textureAtlas, useTextures, this.lightmap);
     this.glassMaterial = createTexturedGlassMaterial(this.textureAtlas, useTextures, this.lightmap);
     this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Opaque non-cube blocks
     this.transparentModelMaterial = createTransparentModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Transparent non-cube blocks (glass panes, iron bars)
@@ -187,6 +187,12 @@ export class ChunkManager {
     updateMaterialAtlas(this.overlayModelMaterial, atlasData);
     setMaterialTextureMode(this.overlayModelMaterial, useTextures);
     
+    // Update water material (animated textures)
+    updateWaterMaterialAtlas(this.waterMaterial, atlasData);
+    
+    // Update lava material (animated textures)
+    updateLavaMaterialAtlas(this.lavaMaterial, atlasData);
+    
     console.log(`[ChunkManager] Texture mode: ${mode}, using textures: ${useTextures}`);
   }
   
@@ -266,6 +272,15 @@ export class ChunkManager {
     }
     if (this.instancedMaterial?.uniforms?.uLightmap) {
       this.instancedMaterial.uniforms.uLightmap.value = this.lightmap;
+    }
+    // Update water and lava materials with new lightmap
+    if (this.waterMaterial?.uniforms?.uLightmap) {
+      this.waterMaterial.uniforms.uLightmap.value = this.lightmap;
+      this.waterMaterial.uniforms.uUseLightmap.value = 1.0;
+    }
+    if (this.lavaMaterial?.uniforms?.uLightmap) {
+      this.lavaMaterial.uniforms.uLightmap.value = this.lightmap;
+      this.lavaMaterial.uniforms.uUseLightmap.value = 1.0;
     }
   }
   
@@ -645,7 +660,7 @@ export class ChunkManager {
     if (!meshData || meshData.vertexCount === 0) return [];
     
     const { positions, normals, colors, indices, texIndices, texRotations,
-            tintTypes, skyLight, blockLight, modelUVs, shadeFlags, singleSidedFlags } = meshData;
+            tintTypes, skyLight, blockLight, modelUVs, uvs, shadeFlags, singleSidedFlags } = meshData;
     
     // Build spatial bins based on triangle centroids
     const bins = new Map(); // key: "chunkX,chunkZ" -> { triangles: [] }
@@ -688,6 +703,7 @@ export class ChunkManager {
       const chunkSkyLight = skyLight ? [] : null;
       const chunkBlockLight = blockLight ? [] : null;
       const chunkModelUVs = modelUVs ? [] : null;
+      const chunkUVs = uvs ? [] : null;
       const chunkShadeFlags = shadeFlags ? [] : null;
       const chunkSingleSidedFlags = singleSidedFlags ? [] : null;
       
@@ -712,6 +728,10 @@ export class ChunkManager {
             if (modelUVs) {
               const uvIdx = oldIdx * 2;
               chunkModelUVs.push(modelUVs[uvIdx], modelUVs[uvIdx + 1]);
+            }
+            if (uvs) {
+              const uvIdx = oldIdx * 2;
+              chunkUVs.push(uvs[uvIdx], uvs[uvIdx + 1]);
             }
             if (shadeFlags) chunkShadeFlags.push(shadeFlags[oldIdx]);
             if (singleSidedFlags) chunkSingleSidedFlags.push(singleSidedFlags[oldIdx]);
@@ -751,6 +771,7 @@ export class ChunkManager {
       if (chunkSkyLight) chunk.skyLight = new Float32Array(chunkSkyLight);
       if (chunkBlockLight) chunk.blockLight = new Float32Array(chunkBlockLight);
       if (chunkModelUVs) chunk.modelUVs = new Float32Array(chunkModelUVs);
+      if (chunkUVs) chunk.uvs = new Float32Array(chunkUVs);
       if (chunkShadeFlags) chunk.shadeFlags = new Float32Array(chunkShadeFlags);
       if (chunkSingleSidedFlags) chunk.singleSidedFlags = new Float32Array(chunkSingleSidedFlags);
       
@@ -2046,6 +2067,7 @@ export class ChunkManager {
   
   /**
    * Create a THREE.BufferGeometry from raw buffer data
+   * Handles both solid blocks (with colors) and fluids (with UVs)
    */
   _createGeometryFromBuffers(meshData) {
     if (!meshData || meshData.vertexCount === 0) return null;
@@ -2053,11 +2075,28 @@ export class ChunkManager {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
     
-    // Add texture index attribute if present (for texture atlas lookup in shader)
+    // Colors (used for vertex color tinting)
+    if (meshData.colors) {
+      geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+    }
+    
+    // UV coordinates (for fluid meshes) - FluidMesher outputs 'uvs', shader expects 'modelUV'
+    if (meshData.uvs) {
+      geometry.setAttribute('modelUV', new THREE.BufferAttribute(meshData.uvs, 2));
+    }
+    
+    // Texture index (for atlas lookup)
     if (meshData.texIndices) {
       geometry.setAttribute('texIndex', new THREE.BufferAttribute(meshData.texIndices, 1));
+    }
+    
+    // Light data (for lightmap sampling)
+    if (meshData.skyLight) {
+      geometry.setAttribute('skyLight', new THREE.BufferAttribute(meshData.skyLight, 1));
+    }
+    if (meshData.blockLight) {
+      geometry.setAttribute('blockLight', new THREE.BufferAttribute(meshData.blockLight, 1));
     }
     
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));

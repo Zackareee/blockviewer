@@ -235,6 +235,16 @@ function AnimationUpdater({ managerRef }) {
     if (manager.instancedMaterial?.uniforms?.uTime) {
       manager.instancedMaterial.uniforms.uTime.value = time;
     }
+    
+    // Update water material (animated water textures)
+    if (manager.waterMaterial?.uniforms?.uTime) {
+      manager.waterMaterial.uniforms.uTime.value = time;
+    }
+    
+    // Update lava material (animated lava textures)
+    if (manager.lavaMaterial?.uniforms?.uTime) {
+      manager.lavaMaterial.uniforms.uTime.value = time;
+    }
   });
   
   return null;

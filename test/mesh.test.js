@@ -50,8 +50,12 @@ function hashMeshData(meshData) {
   // Hash normals
   hash.update(Buffer.from(meshData.normals.buffer));
   
-  // Hash colors
-  hash.update(Buffer.from(meshData.colors.buffer));
+  // Hash colors or UVs (fluid meshes use UVs instead of colors)
+  if (meshData.colors) {
+    hash.update(Buffer.from(meshData.colors.buffer));
+  } else if (meshData.uvs) {
+    hash.update(Buffer.from(meshData.uvs.buffer));
+  }
   
   // Hash indices
   hash.update(Buffer.from(meshData.indices.buffer));
