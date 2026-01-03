@@ -68,15 +68,14 @@ function DynamicFOV({ fov }) {
  * Dynamic fog setup - configures Three.js fog to match render distance
  * The actual sky rendering is handled by MinecraftSky component
  * 
- * Minecraft plains biome sky color: #78a7ff (from worldgen/biome/plains.json)
- * RGB: (120, 167, 255) -> normalized: (0.471, 0.655, 1.0)
+ * Now accepts dynamic fog color from MinecraftSky based on time of day
  */
-function DynamicFog({ fogEnabled, renderDistance }) {
+function DynamicFog({ fogEnabled, renderDistance, fogColor = '#c8d8ff' }) {
   const { scene, invalidate } = useThree();
   
   useEffect(() => {
-    // Minecraft plains biome sky color: #78a7ff
-    const skyColor = new THREE.Color(0x78a7ff);
+    // Use dynamic fog color that changes with time of day
+    const color = new THREE.Color(fogColor);
     
     // Calculate fog distances based on render distance
     // Minecraft fog starts at ~80% of render distance and ends at render distance
@@ -86,13 +85,13 @@ function DynamicFog({ fogEnabled, renderDistance }) {
     
     // Set Three.js scene fog (as backup, but our shader fog is primary)
     if (fogEnabled) {
-      scene.fog = new THREE.Fog(skyColor, fogStart, fogEnd);
+      scene.fog = new THREE.Fog(color, fogStart, fogEnd);
     } else {
       scene.fog = null;
     }
     
     invalidate();
-  }, [scene, fogEnabled, renderDistance, invalidate]);
+  }, [scene, fogEnabled, renderDistance, fogColor, invalidate]);
   
   return null;
 }
@@ -423,6 +422,19 @@ function RegionScene({
   const managerRef = useRef(null);
   const cameraPositionRef = useRef(initialCameraPosition || [0, 100, 0]);
   
+  // Dynamic sky colors based on time of day
+  const [skyColors, setSkyColors] = useState({
+    skyColor: '#78a7ff',
+    horizonColor: '#c8d8ff',
+    fogColor: '#c8d8ff',
+    brightness: 1.0,
+  });
+  
+  // Callback for MinecraftSky to update colors
+  const handleColorsChange = useCallback((colors) => {
+    setSkyColors(colors);
+  }, []);
+  
   // Create ChunkManager once
   useEffect(() => {
     const manager = new ChunkManager(scene, {
@@ -493,7 +505,7 @@ function RegionScene({
     }
   }, [renderDistance, invalidate]);
   
-  // Update fog when fogEnabled or renderDistance changes
+  // Update fog when fogEnabled, renderDistance, or skyColors change
   useEffect(() => {
     const manager = managerRef.current;
     if (manager && manager.setFog) {
@@ -503,19 +515,22 @@ function RegionScene({
       const fogStart = renderDistanceBlocks * 0.8;
       const fogEnd = renderDistanceBlocks;
       
-      // Minecraft plains biome sky color: #78a7ff
-      // RGB(120, 167, 255) -> normalized (0.471, 0.655, 1.0)
-      const skyColor = [120/255, 167/255, 255/255]; // #78a7ff
+      // Use dynamic fog color from sky system (changes with time of day)
+      // Parse hex color to RGB array
+      const fogColorHex = skyColors.fogColor || '#c8d8ff';
+      const r = parseInt(fogColorHex.slice(1, 3), 16) / 255;
+      const g = parseInt(fogColorHex.slice(3, 5), 16) / 255;
+      const b = parseInt(fogColorHex.slice(5, 7), 16) / 255;
       
       manager.setFog({
         enabled: fogEnabled,
-        color: skyColor,
+        color: [r, g, b],
         start: fogStart,
         end: fogEnd,
       });
       invalidate();
     }
-  }, [fogEnabled, renderDistance, invalidate]);
+  }, [fogEnabled, renderDistance, skyColors.fogColor, invalidate]);
   
   // Load single region chunks
   // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
@@ -735,12 +750,19 @@ function RegionScene({
   return (
     <>
       {/* Minecraft sky with sun, clouds, and gradient dome */}
+      {/* Colors are calculated dynamically based on timeOfDay */}
       <MinecraftSky 
         enabled={fogEnabled}
         timeOfDay={timeOfDay}
-        skyColor="#78a7ff"
-        horizonColor="#c8d8ff"
         cloudOpacity={0.8}
+        onColorsChange={handleColorsChange}
+      />
+      
+      {/* Dynamic fog - uses colors from MinecraftSky */}
+      <DynamicFog 
+        fogEnabled={fogEnabled} 
+        renderDistance={renderDistance} 
+        fogColor={skyColors.fogColor}
       />
       
       <SpectatorControls 
@@ -833,8 +855,7 @@ export function RegionViewer({
       dpr={[0.5, 1.0]} // PERFORMANCE: Cap at 1.0 instead of 1.5 - reduces fill rate significantly
       performance={{ min: 0.3 }} // Allow more aggressive quality reduction
     >
-      {/* Dynamic fog - matches fog to render distance (like Minecraft) */}
-      <DynamicFog fogEnabled={fogEnabled} renderDistance={renderDistance} />
+      {/* Dynamic fog is handled inside RegionScene where we have access to dynamic sky colors */}
       
       {/* Dynamic FOV updater - responds to prop changes */}
       <DynamicFOV fov={fov} />

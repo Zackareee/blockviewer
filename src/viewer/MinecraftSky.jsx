@@ -43,6 +43,132 @@ const CLOUD_FACE_COLORS = {
   east: [0.9, 0.9, 0.9],
 };
 
+// Minecraft day cycle constants (from data/minecraft/timeline/day.json)
+// Tick 0 = sunrise (6:00 AM), Tick 6000 = noon, Tick 12000 = sunset, Tick 18000 = midnight
+const TICKS_PER_DAY = 24000;
+
+// Base biome sky color (plains biome)
+const BASE_SKY_COLOR = new THREE.Color('#78a7ff');
+const BASE_HORIZON_COLOR = new THREE.Color('#c8d8ff');
+
+/**
+ * Convert timeOfDay (0-1) to Minecraft ticks (0-24000)
+ * timeOfDay: 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
+ * Minecraft: tick 0 = sunrise, 6000 = noon, 12000 = sunset, 18000 = midnight
+ */
+function timeOfDayToTicks(timeOfDay) {
+  // Convert: our 0.25 (sunrise) should map to tick 0
+  // Offset by -0.25 and wrap, then scale to 24000
+  const adjusted = ((timeOfDay - 0.25) + 1) % 1;
+  return adjusted * TICKS_PER_DAY;
+}
+
+/**
+ * Interpolate between keyframes based on tick value
+ * Keyframes format: [{ tick, value }, ...]
+ */
+function interpolateKeyframes(ticks, keyframes) {
+  // Handle wrapping (find the two keyframes we're between)
+  let prevKf = keyframes[keyframes.length - 1];
+  let nextKf = keyframes[0];
+  
+  for (let i = 0; i < keyframes.length; i++) {
+    if (ticks <= keyframes[i].tick) {
+      nextKf = keyframes[i];
+      prevKf = i > 0 ? keyframes[i - 1] : keyframes[keyframes.length - 1];
+      break;
+    }
+    prevKf = keyframes[i];
+    nextKf = keyframes[(i + 1) % keyframes.length];
+  }
+  
+  // Calculate interpolation factor
+  let range = nextKf.tick - prevKf.tick;
+  if (range < 0) range += TICKS_PER_DAY; // Handle wrap around midnight
+  
+  let progress = ticks - prevKf.tick;
+  if (progress < 0) progress += TICKS_PER_DAY;
+  
+  const t = range > 0 ? progress / range : 0;
+  
+  return { prevValue: prevKf.value, nextValue: nextKf.value, t };
+}
+
+/**
+ * Get sky color multiplier based on time (from day.json sky_color track)
+ * Returns a value 0-1 to multiply base sky color
+ */
+function getSkyBrightness(ticks) {
+  // Keyframes from day.json minecraft:visual/sky_color
+  // Day: #ffffff (1.0), Night: #000000 (0.0)
+  const keyframes = [
+    { tick: 133, value: 1.0 },     // Dawn ends
+    { tick: 11867, value: 1.0 },   // Dusk starts
+    { tick: 13670, value: 0.0 },   // Night starts
+    { tick: 22330, value: 0.0 },   // Dawn starts
+  ];
+  
+  const { prevValue, nextValue, t } = interpolateKeyframes(ticks, keyframes);
+  return prevValue + (nextValue - prevValue) * t;
+}
+
+/**
+ * Get fog color multiplier (from day.json fog_color track)
+ */
+function getFogMultiplier(ticks) {
+  // Day: #ffffff, Night: #0f0f16
+  const keyframes = [
+    { tick: 133, value: { r: 1, g: 1, b: 1 } },
+    { tick: 11867, value: { r: 1, g: 1, b: 1 } },
+    { tick: 13670, value: { r: 0.059, g: 0.059, b: 0.086 } },
+    { tick: 22330, value: { r: 0.059, g: 0.059, b: 0.086 } },
+  ];
+  
+  const { prevValue, nextValue, t } = interpolateKeyframes(ticks, keyframes);
+  return {
+    r: prevValue.r + (nextValue.r - prevValue.r) * t,
+    g: prevValue.g + (nextValue.g - prevValue.g) * t,
+    b: prevValue.b + (nextValue.b - prevValue.b) * t,
+  };
+}
+
+/**
+ * Calculate sky colors based on time of day
+ * Returns { skyColor, horizonColor, fogColor } as THREE.Color objects
+ */
+function calculateSkyColors(timeOfDay) {
+  const ticks = timeOfDayToTicks(timeOfDay);
+  const brightness = getSkyBrightness(ticks);
+  const fogMult = getFogMultiplier(ticks);
+  
+  // Apply brightness to base colors
+  const skyColor = BASE_SKY_COLOR.clone().multiplyScalar(brightness);
+  const horizonColor = BASE_HORIZON_COLOR.clone().multiplyScalar(brightness);
+  
+  // Night sky has a slight blue tint rather than pure black
+  if (brightness < 0.1) {
+    skyColor.setRGB(
+      Math.max(skyColor.r, 0.01),
+      Math.max(skyColor.g, 0.01),
+      Math.max(skyColor.b, 0.03)
+    );
+    horizonColor.setRGB(
+      Math.max(horizonColor.r, 0.02),
+      Math.max(horizonColor.g, 0.02),
+      Math.max(horizonColor.b, 0.04)
+    );
+  }
+  
+  // Fog color based on horizon (for seamless blending)
+  const fogColor = new THREE.Color(
+    horizonColor.r * fogMult.r,
+    horizonColor.g * fogMult.g,
+    horizonColor.b * fogMult.b
+  );
+  
+  return { skyColor, horizonColor, fogColor, brightness };
+}
+
 /**
  * Sky Dome - Large sphere with gradient from horizon to zenith
  * Uses a custom shader for smooth color blending
@@ -199,11 +325,12 @@ function Sun({ timeOfDay = 0.25 }) {
  * - Clouds fade with distance using linear_fog_value(distance, 0, FogCloudsEnd)
  * - Clouds drift slowly eastward
  */
-function Clouds({ opacity = 0.8, fogEnd = 800 }) {
+function Clouds({ opacity = 0.8, fogEnd = 800, skyColor = null }) {
   const groupRef = useRef();
   const { camera } = useThree();
   const offsetRef = useRef(0);
   const [cloudMap, setCloudMap] = useState(null);
+  const materialRef = useRef(null);
 
   // Load and parse the cloud texture into a binary map
   useEffect(() => {
@@ -473,6 +600,11 @@ function Clouds({ opacity = 0.8, fogEnd = 800 }) {
       camera.position.y,
       camera.position.z
     );
+    
+    // Update sky color for fog blending if provided
+    if (skyColor && material.uniforms.uSkyColor) {
+      material.uniforms.uSkyColor.value.set(skyColor.r, skyColor.g, skyColor.b);
+    }
   });
 
   if (!geometry || !material) return null;
@@ -560,18 +692,38 @@ function createFallbackSunTexture() {
  * Props:
  * - enabled: Whether to render sky elements (default: true)
  * - timeOfDay: Time of day from 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
- * - skyColor: Primary sky color (default: Minecraft plains #78a7ff)
- * - horizonColor: Horizon color for gradient (default: lighter blue)
  * - cloudOpacity: Cloud opacity 0-1 (default: 0.8)
+ * - onColorsChange: Callback when sky colors change (for fog sync)
  */
 export function MinecraftSky({
   enabled = true,
   timeOfDay = 0.35, // Default to mid-morning (pleasant lighting)
-  skyColor = '#78a7ff',
-  horizonColor = '#c8d8ff',
   cloudOpacity = 0.8,
+  onColorsChange = null,
 }) {
   const { scene } = useThree();
+  
+  // Calculate dynamic sky colors based on time of day
+  const colors = useMemo(() => {
+    return calculateSkyColors(timeOfDay);
+  }, [timeOfDay]);
+  
+  // Convert to hex strings for components that need them
+  const skyColorHex = '#' + colors.skyColor.getHexString();
+  const horizonColorHex = '#' + colors.horizonColor.getHexString();
+  const fogColorHex = '#' + colors.fogColor.getHexString();
+
+  // Notify parent of color changes (for fog synchronization)
+  useEffect(() => {
+    if (onColorsChange) {
+      onColorsChange({
+        skyColor: skyColorHex,
+        horizonColor: horizonColorHex,
+        fogColor: fogColorHex,
+        brightness: colors.brightness,
+      });
+    }
+  }, [onColorsChange, skyColorHex, horizonColorHex, fogColorHex, colors.brightness]);
 
   // Set scene background to null so our sky dome is visible
   useEffect(() => {
@@ -579,23 +731,22 @@ export function MinecraftSky({
       scene.background = null;
     }
     return () => {
-      // Restore background if disabled
-      scene.background = new THREE.Color(skyColor);
+      scene.background = new THREE.Color(horizonColorHex);
     };
-  }, [enabled, scene, skyColor]);
+  }, [enabled, scene, horizonColorHex]);
 
   if (!enabled) return null;
 
   return (
     <group name="minecraft-sky">
-      {/* Sky dome with gradient */}
-      <SkyDome skyColor={skyColor} horizonColor={horizonColor} />
+      {/* Sky dome with gradient - colors change with time of day */}
+      <SkyDome skyColor={skyColorHex} horizonColor={horizonColorHex} />
 
       {/* Sun - loads actual Minecraft texture */}
       <Sun timeOfDay={timeOfDay} />
 
       {/* Clouds - loads actual Minecraft texture */}
-      <Clouds opacity={cloudOpacity} />
+      <Clouds opacity={cloudOpacity} skyColor={colors.horizonColor} />
     </group>
   );
 }
