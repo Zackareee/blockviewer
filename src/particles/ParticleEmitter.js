@@ -273,7 +273,13 @@ const BLOCK_EMITTERS = {
   // - Cosy smoke rises ~10 blocks, signal smoke ~24 blocks
   
   // Campfire (cosy smoke - rises ~10 blocks)
-  // PHYSICS: To rise 10 blocks in 5 seconds = 2.0 blocks/sec velocity
+  // From CampfireSmokeParticle.class:
+  // - scale: 3.0 (on base 0.25 = 0.75 quad size)
+  // - gravity: 0.000003 (near zero - floats up steadily)
+  // - lifetime: 50-100 ticks (2.5-5 sec for cosy)
+  // From CampfireBlock.class:
+  // - Y velocity: 0.07 blocks/tick = 1.4 blocks/sec
+  // - Cosy smoke: ~7 sec lifetime * 1.4 = ~10 blocks rise
   'campfire': {
     requiresLit: true, // Only emit when lit=true
     particles: [
@@ -296,20 +302,20 @@ const BLOCK_EMITTERS = {
       },
       {
         type: 'campfire_cosy_smoke',
-        rate: 3.5, // Frequent smoke puffs
+        rate: 2.0, // Slower rate, longer lasting = more visible trail
         offset: [0.5, 0.5, 0.5], // Above the flames
-        offsetVariance: [0.45, 0.0, 0.45], // Wide spread across campfire
-        velocity: [0, 2.0, 0], // 2.0 blocks/sec * 5 sec = 10 blocks rise
-        velocityVariance: [0.15, 0.3, 0.15], // Horizontal drift + some Y variance
-        size: 1.2, // Large smoke puffs (MC scale 3.0)
-        sizeVariance: 0.4, // Significant size variation
-        lifetime: 5.0, // ~100 ticks = 5 seconds
-        lifetimeVariance: 1.5, // 50-130 ticks range
-        color: [0.5, 0.5, 0.5],
-        alpha: 0.5,
-        fadeIn: 0.1,
-        fadeOut: 0.3,
-        friction: 1.0, // No friction - MC smoke has near-zero gravity, constant velocity
+        offsetVariance: [0.4, 0.0, 0.4], // XZ spread
+        velocity: [0, 1.4, 0], // MC: 0.07 blocks/tick = 1.4 blocks/sec
+        velocityVariance: [0.08, 0.1, 0.08], // Slight drift
+        size: 1.5, // Large smoke puffs (MC scale 3.0 on 0.25 base)
+        sizeVariance: 0.4,
+        lifetime: 7.0, // ~140 ticks = 7 seconds (1.4 * 7 = ~10 blocks)
+        lifetimeVariance: 1.5, // 110-170 ticks range
+        color: [0.6, 0.6, 0.6], // Lighter gray - more visible
+        alpha: 0.85, // Much more opaque - MC smoke is quite visible
+        fadeIn: 0.15,
+        fadeOut: 0.25, // Gradual fade at end
+        friction: 1.0, // No friction - MC gravity is ~0
       },
     ],
   },
@@ -337,20 +343,20 @@ const BLOCK_EMITTERS = {
       },
       {
         type: 'campfire_cosy_smoke',
-        rate: 3.5,
+        rate: 2.0, // Same as regular campfire
         offset: [0.5, 0.5, 0.5],
-        offsetVariance: [0.45, 0.0, 0.45],
-        velocity: [0, 2.0, 0], // Same rise as regular campfire
-        velocityVariance: [0.15, 0.3, 0.15],
-        size: 1.2,
+        offsetVariance: [0.4, 0.0, 0.4],
+        velocity: [0, 1.4, 0], // Same rise as regular campfire
+        velocityVariance: [0.08, 0.1, 0.08],
+        size: 1.5,
         sizeVariance: 0.4,
-        lifetime: 5.0,
+        lifetime: 7.0,
         lifetimeVariance: 1.5,
-        color: [0.4, 0.45, 0.5], // Slightly blue-tinted smoke for soul fire
-        alpha: 0.5,
-        fadeIn: 0.1,
-        fadeOut: 0.3,
-        friction: 1.0, // No friction
+        color: [0.5, 0.55, 0.6], // Slightly blue-tinted smoke for soul fire
+        alpha: 0.85,
+        fadeIn: 0.15,
+        fadeOut: 0.25,
+        friction: 1.0,
       },
     ],
   },
