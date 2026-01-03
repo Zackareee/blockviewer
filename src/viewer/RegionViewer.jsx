@@ -463,6 +463,7 @@ function RegionScene({
   fogEnabled = true, // Distance fog (Minecraft-style haze)
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
   brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
+  enableRGSS = true, // RGSS anti-aliasing for textures
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -780,6 +781,15 @@ function RegionScene({
     invalidate(); // Re-render with new lighting mode
   }, [enableLighting, invalidate]);
 
+  // Toggle RGSS anti-aliasing (texture smoothing)
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager) return;
+    
+    manager.setRGSSEnabled(enableRGSS);
+    invalidate(); // Re-render with new RGSS setting
+  }, [enableRGSS, invalidate]);
+
   // Position camera at a specific target (updates initial position for SpectatorControls)
   const positionCameraAt = useCallback((cx, cy, cz, chunkCount = 100) => {
     // Position camera above and to the side of the center
@@ -886,6 +896,7 @@ export function RegionViewer({
   fogEnabled = true, // Distance fog (Minecraft-style haze)
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
   brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
+  enableRGSS = true, // RGSS anti-aliasing for textures
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -944,6 +955,7 @@ export function RegionViewer({
         fogEnabled={fogEnabled}
         timeOfDay={timeOfDay}
         brightness={brightness}
+        enableRGSS={enableRGSS}
       />
     </Canvas>
   );

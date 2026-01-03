@@ -63,6 +63,9 @@ function App() {
   // Brightness setting (0-100: 0=Moody, 100=Bright) - matches Minecraft's brightness slider
   const [brightness, setBrightness] = useState(50); // Default to 50% like typical Minecraft settings
   
+  // RGSS anti-aliasing (Rotated Grid Super-Sampling) - Minecraft's texture smoothing
+  const [enableRGSS, setEnableRGSS] = useState(true);
+  
   // Camera state for coordinates display (Minecraft spectator mode)
   const [cameraState, setCameraState] = useState({
     x: 0, y: 100, z: 0,
@@ -393,6 +396,7 @@ function App() {
             fogEnabled={fogEnabled}
             timeOfDay={timeOfDay}
             brightness={brightness}
+            enableRGSS={enableRGSS}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -771,6 +775,20 @@ function App() {
               0% = Moody (darkest), 100% = Bright (lightest)
             </span>
           </div>
+          
+          {/* RGSS Anti-Aliasing Toggle */}
+          <label className="toggle-option" style={{ marginTop: '0.75rem' }}>
+            <input 
+              type="checkbox"
+              checked={enableRGSS}
+              onChange={(e) => setEnableRGSS(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">{enableRGSS ? '✨' : '🔲'}</span>
+              Texture Smoothing
+            </span>
+            <span className="toggle-hint">RGSS anti-aliasing (softens distant textures)</span>
+          </label>
         </section>
         
         {/* Debug Info Panel */}

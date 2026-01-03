@@ -204,6 +204,34 @@ export class ChunkManager {
   }
   
   /**
+   * Enable or disable RGSS anti-aliasing for textures
+   * @param {boolean} enabled - true = RGSS (smooth distant textures), false = nearest sampling
+   */
+  setRGSSEnabled(enabled) {
+    const value = enabled ? 1.0 : 0.0;
+    
+    if (this.solidMaterial?.uniforms?.uUseRGSS) {
+      this.solidMaterial.uniforms.uUseRGSS.value = value;
+    }
+    if (this.glassMaterial?.uniforms?.uUseRGSS) {
+      this.glassMaterial.uniforms.uUseRGSS.value = value;
+    }
+    if (this.modelMaterial?.uniforms?.uUseRGSS) {
+      this.modelMaterial.uniforms.uUseRGSS.value = value;
+    }
+    if (this.transparentModelMaterial?.uniforms?.uUseRGSS) {
+      this.transparentModelMaterial.uniforms.uUseRGSS.value = value;
+    }
+    if (this.overlayModelMaterial?.uniforms?.uUseRGSS) {
+      this.overlayModelMaterial.uniforms.uUseRGSS.value = value;
+    }
+    if (this.instancedMaterial?.uniforms?.uUseRGSS) {
+      this.instancedMaterial.uniforms.uUseRGSS.value = value;
+    }
+    console.log(`[ChunkManager] RGSS anti-aliasing: ${enabled ? 'enabled' : 'disabled'}`);
+  }
+  
+  /**
    * Update lightmap based on time of day and brightness setting
    * Regenerates the 16x16 lightmap texture with interpolated day/night parameters
    * @param {number} timeOfDay - 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
