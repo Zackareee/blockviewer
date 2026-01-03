@@ -49,12 +49,9 @@ function App() {
   // Default 60, but can be adjusted to match specific Minecraft screenshots
   const [fov, setFov] = useState(60);
   
-  // Partial block render distance (grass, flowers, slabs, stairs, etc.)
-  // 0 = unlimited, otherwise distance in chunks (1 chunk = 16 blocks)
-  const [partialBlockDistance, setPartialBlockDistance] = useState(3);
-  
   // Chunk render distance - chunks beyond this are hidden until player moves closer
   // 0 = unlimited (show all chunks), value is in chunks (1 chunk = 16 blocks)
+  // Detail distance (partial blocks) is tied to this value
   const [renderDistance, setRenderDistance] = useState(8);
   
   // Distance fog (Minecraft-style haze at render distance)
@@ -388,7 +385,7 @@ function App() {
             textureMode={textureMode}
             textureAtlas={textureAtlas}
             fov={fov}
-            partialBlockDistance={partialBlockDistance === 0 ? 0 : partialBlockDistance * 16}
+            partialBlockDistance={renderDistance === 0 ? 0 : renderDistance * 16}
             renderDistance={renderDistance}
             fogEnabled={fogEnabled}
             timeOfDay={timeOfDay}
@@ -668,36 +665,7 @@ function App() {
             <span className="toggle-hint">Vertical FOV in degrees (Minecraft default: 70)</span>
           </div>
           
-          {/* Partial Block Distance Control */}
-          <div className="fov-control" style={{ marginTop: '0.75rem' }}>
-            <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="toggle-label">
-                <span className="toggle-icon">🌿</span>
-                Detail Distance
-              </span>
-              <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                {partialBlockDistance === 0 ? '∞' : `${partialBlockDistance} chunks`}
-              </span>
-            </div>
-            <input 
-              type="range"
-              min="1"
-              max="17"
-              step="1"
-              value={partialBlockDistance === 0 ? 17 : partialBlockDistance}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                // If slider is at max (17), set to 0 for unlimited
-                setPartialBlockDistance(val > 16 ? 0 : val);
-              }}
-              style={{ width: '100%', marginTop: '0.25rem' }}
-            />
-            <span className="toggle-hint">
-              Render distance for grass, flowers, slabs, stairs (1-16, max = unlimited)
-            </span>
-          </div>
-          
-          {/* Chunk Render Distance Control */}
+          {/* Render Distance Control */}
           <div className="fov-control" style={{ marginTop: '0.75rem' }}>
             <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="toggle-label">
@@ -722,7 +690,7 @@ function App() {
               style={{ width: '100%', marginTop: '0.25rem' }}
             />
             <span className="toggle-hint">
-              Chunks beyond this are hidden until you move closer (3-64, max = unlimited)
+              Controls visibility of terrain and detail blocks (3-64, max = unlimited)
             </span>
           </div>
           

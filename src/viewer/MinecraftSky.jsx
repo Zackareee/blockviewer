@@ -100,6 +100,76 @@ function interpolateKeyframes(ticks, keyframes) {
 }
 
 /**
+ * Parse hex color with alpha (#RRGGBBAA) to { r, g, b, a }
+ */
+function parseHexColorWithAlpha(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const a = hex.length >= 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1;
+  return { r, g, b, a };
+}
+
+/**
+ * Get sunrise/sunset glow color based on time (from day.json sunrise_sunset_color track)
+ * Returns { color: THREE.Color, alpha: number }
+ */
+function getSunriseSunsetColor(ticks) {
+  // Keyframes from day.json minecraft:visual/sunrise_sunset_color
+  // Format: #RRGGBBAA where AA is alpha
+  const keyframes = [
+    { tick: 71, value: '#5fefa333' },
+    { tick: 310, value: '#29f5ba33' },
+    { tick: 565, value: '#06fbd433' },
+    { tick: 730, value: '#00ffe533' },      // Day - cyan tint
+    { tick: 11270, value: '#00ffe533' },    // Day continues
+    { tick: 11397, value: '#04fcd833' },    // Sunset begins
+    { tick: 11522, value: '#0ff9cb33' },
+    { tick: 11690, value: '#29f5ba33' },
+    { tick: 11929, value: '#5fefa333' },
+    { tick: 12243, value: '#b1e78733' },    // Yellow-green
+    { tick: 12358, value: '#cce47e33' },
+    { tick: 12512, value: '#e9e07233' },
+    { tick: 12613, value: '#f6dd6b33' },
+    { tick: 12732, value: '#feda6333' },    // Orange
+    { tick: 12841, value: '#fed75c33' },
+    { tick: 13035, value: '#ecd25133' },
+    { tick: 13252, value: '#c1cc4733' },
+    { tick: 13775, value: '#36be3733' },
+    { tick: 13888, value: '#1fbb3533' },
+    { tick: 14039, value: '#09b73333' },
+    { tick: 14192, value: '#00b33333' },    // Night - darker teal
+    { tick: 21807, value: '#00b23333' },    // Night continues
+    { tick: 21961, value: '#09b73333' },    // Sunrise begins
+    { tick: 22112, value: '#1fbb3533' },
+    { tick: 22225, value: '#36be3733' },
+    { tick: 22748, value: '#c1cc4733' },
+    { tick: 22965, value: '#ecd25133' },
+    { tick: 23159, value: '#fed75c33' },    // Orange
+    { tick: 23272, value: '#feda6333' },
+    { tick: 23488, value: '#e9e07233' },
+    { tick: 23642, value: '#cce47e33' },
+    { tick: 23757, value: '#b1e78733' },
+  ];
+  
+  const { prevValue, nextValue, t } = interpolateKeyframes(ticks, keyframes);
+  
+  const prevColor = parseHexColorWithAlpha(prevValue);
+  const nextColor = parseHexColorWithAlpha(nextValue);
+  
+  // Interpolate RGB and alpha
+  const r = prevColor.r + (nextColor.r - prevColor.r) * t;
+  const g = prevColor.g + (nextColor.g - prevColor.g) * t;
+  const b = prevColor.b + (nextColor.b - prevColor.b) * t;
+  const a = prevColor.a + (nextColor.a - prevColor.a) * t;
+  
+  return {
+    color: new THREE.Color(r, g, b),
+    alpha: a
+  };
+}
+
+/**
  * Get sky color multiplier based on time (from day.json sky_color track)
  * Returns a value 0-1 to multiply base sky color
  */
@@ -204,7 +274,7 @@ function calculateSkyColors(timeOfDay) {
  * Uses a custom shader for smooth color blending
  * Always follows camera so it appears infinite
  */
-function SkyDome({ skyColor, horizonColor }) {
+function SkyDome({ skyColor, horizonColor, sunDirection = null, glowColor = null, glowIntensity = 0 }) {
   const meshRef = useRef();
   const { camera } = useThree();
   
@@ -213,6 +283,9 @@ function SkyDome({ skyColor, horizonColor }) {
       uniforms: {
         uSkyColor: { value: new THREE.Color(skyColor) },
         uHorizonColor: { value: new THREE.Color(horizonColor) },
+        uSunDirection: { value: new THREE.Vector3(0, 0, -1) },
+        uGlowColor: { value: new THREE.Color(1, 0.5, 0.2) },
+        uGlowIntensity: { value: 0.0 },
       },
       vertexShader: `
         varying vec3 vLocalPosition;
@@ -224,17 +297,43 @@ function SkyDome({ skyColor, horizonColor }) {
       fragmentShader: `
         uniform vec3 uSkyColor;
         uniform vec3 uHorizonColor;
+        uniform vec3 uSunDirection;
+        uniform vec3 uGlowColor;
+        uniform float uGlowIntensity;
         varying vec3 vLocalPosition;
         
         void main() {
-          // Calculate height factor (0 at horizon, 1 at zenith)
+          // Calculate view direction
           vec3 dir = normalize(vLocalPosition);
           float heightFactor = max(0.0, dir.y);
           
-          // Smooth gradient with bias towards horizon color near horizon
+          // Base sky gradient (horizon to zenith)
           float t = pow(heightFactor, 0.5);
-          
           vec3 color = mix(uHorizonColor, uSkyColor, t);
+          
+          // Sunrise/sunset glow calculation
+          if (uGlowIntensity > 0.01) {
+            // How close is this pixel to the sun's horizontal direction?
+            vec3 sunHorizon = normalize(vec3(uSunDirection.x, 0.0, uSunDirection.z));
+            vec3 viewHorizon = normalize(vec3(dir.x, 0.0, dir.z));
+            
+            // Dot product gives alignment (-1 to 1, 1 = facing sun)
+            float sunAlignment = dot(viewHorizon, sunHorizon);
+            
+            // Glow is strongest when looking toward sun and near horizon
+            float horizonProximity = 1.0 - abs(dir.y); // 1 at horizon, 0 at zenith/nadir
+            horizonProximity = pow(horizonProximity, 0.5); // Soften falloff
+            
+            // Combine: glow when facing sun AND near horizon
+            float glowFactor = max(0.0, sunAlignment);
+            glowFactor = pow(glowFactor, 2.0); // Concentrate toward sun direction
+            glowFactor *= horizonProximity;
+            glowFactor *= uGlowIntensity;
+            
+            // Blend glow color additively
+            color += uGlowColor * glowFactor;
+          }
+          
           gl_FragColor = vec4(color, 1.0);
         }
       `,
@@ -244,11 +343,18 @@ function SkyDome({ skyColor, horizonColor }) {
     });
   }, []);
 
-  // Update colors when props change
+  // Update colors and glow when props change
   useEffect(() => {
     material.uniforms.uSkyColor.value.set(skyColor);
     material.uniforms.uHorizonColor.value.set(horizonColor);
-  }, [material, skyColor, horizonColor]);
+    if (sunDirection) {
+      material.uniforms.uSunDirection.value.copy(sunDirection);
+    }
+    if (glowColor) {
+      material.uniforms.uGlowColor.value.copy(glowColor);
+    }
+    material.uniforms.uGlowIntensity.value = glowIntensity;
+  }, [material, skyColor, horizonColor, sunDirection, glowColor, glowIntensity]);
 
   // Follow camera position so sky dome always surrounds the player
   useFrame(() => {
@@ -1002,6 +1108,44 @@ export function MinecraftSky({
     return calculateSkyColors(timeOfDay);
   }, [timeOfDay]);
   
+  // Calculate sunrise/sunset glow parameters
+  const glowParams = useMemo(() => {
+    // Calculate sun angle (same formula as Sun component)
+    const angle = (timeOfDay - 0.25) * Math.PI * 2;
+    const sunY = Math.sin(angle); // -1 to 1, 0 at horizon
+    
+    // Calculate sun direction vector
+    const sunDirection = new THREE.Vector3(
+      0,
+      sunY,
+      -Math.cos(angle)
+    ).normalize();
+    
+    // Glow intensity based on how close sun is to horizon
+    // Sun at horizon: sunY ≈ 0, glow strongest
+    // Sun high/low: sunY far from 0, no glow
+    const horizonProximity = 1.0 - Math.abs(sunY);
+    const glowIntensity = Math.pow(Math.max(0, horizonProximity - 0.3) / 0.7, 2);
+    
+    // Warm sunset/sunrise colors (orange-red gradient based on sun height)
+    // When sun is just above horizon: orange
+    // When sun is at horizon: deep orange/red
+    let glowColor;
+    if (sunY > 0) {
+      // Sunrise/daytime side - more yellow/orange
+      glowColor = new THREE.Color(1.0, 0.6, 0.2);
+    } else {
+      // Sunset/nighttime side - more orange/red  
+      glowColor = new THREE.Color(1.0, 0.4, 0.1);
+    }
+    
+    return {
+      sunDirection,
+      glowColor,
+      glowIntensity: glowIntensity * 0.35, // Subtle glow, not overpowering
+    };
+  }, [timeOfDay]);
+  
   // Convert to hex strings for components that need them
   const skyColorHex = '#' + colors.skyColor.getHexString();
   const horizonColorHex = '#' + colors.horizonColor.getHexString();
@@ -1033,8 +1177,14 @@ export function MinecraftSky({
 
   return (
     <group name="minecraft-sky">
-      {/* Sky dome with gradient - colors change with time of day */}
-      <SkyDome skyColor={skyColorHex} horizonColor={horizonColorHex} />
+      {/* Sky dome with gradient and sunrise/sunset glow */}
+      <SkyDome 
+        skyColor={skyColorHex} 
+        horizonColor={horizonColorHex}
+        sunDirection={glowParams.sunDirection}
+        glowColor={glowParams.glowColor}
+        glowIntensity={glowParams.glowIntensity}
+      />
 
       {/* Sun - loads actual Minecraft texture */}
       <Sun timeOfDay={timeOfDay} />
