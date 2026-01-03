@@ -17,7 +17,8 @@ import * as THREE from 'three';
 import { createWaterMaterial } from './materials/WaterMaterial';
 import { createLavaMaterial } from './materials/LavaMaterial';
 import { createGlassMaterial } from './materials/GlassMaterial';
-import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled } from './materials/TexturedMaterial';
+import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled, setMaterialFastPath } from './materials/TexturedMaterial';
+import { createInstancedModelMaterial, createInstancedMesh, createCrossGeometry } from './materials/InstancedModelMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
@@ -108,6 +109,12 @@ export class ChunkManager {
     this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Opaque non-cube blocks
     this.transparentModelMaterial = createTransparentModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Transparent non-cube blocks (glass panes, iron bars)
     this.overlayModelMaterial = createOverlayModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Overlay glow effects (torch bulbs)
+    this.instancedMaterial = createInstancedModelMaterial(this.textureAtlas, useTextures, this.lightmap); // GPU instanced grass/flowers
+    
+    // Group for instanced meshes
+    this.instancedGroup = new THREE.Group();
+    this.instancedGroup.renderOrder = 0; // Same as solid opaque blocks
+    scene.add(this.instancedGroup);
     
     // Current meshes (arrays to support split meshes)
     this.solidMeshes = [];
@@ -117,6 +124,7 @@ export class ChunkManager {
     this.modelMeshes = []; // Opaque non-cube block meshes
     this.transparentModelMeshes = []; // Transparent non-cube block meshes (glass panes, iron bars)
     this.overlayModelMeshes = []; // Overlay glow effect meshes (torch bulbs)
+    this.instancedMeshes = []; // GPU instanced meshes (grass, flowers)
     
     // Stats
     this.totalBlocks = 0;
@@ -131,6 +139,10 @@ export class ChunkManager {
     // Y range for filtering
     this.minY = -64;
     this.maxY = 320;
+    
+    // Chunk render distance (0 = unlimited)
+    this.renderDistance = 0;
+    this._lastVisibilityLog = false;
     
     // Streaming loader for optimized region loading
     this.streamingLoader = null;
@@ -295,7 +307,11 @@ export class ChunkManager {
     this.modelMaterial.uniforms.uMaxDistance.value = distance;
     this.transparentModelMaterial.uniforms.uMaxDistance.value = distance;
     this.overlayModelMaterial.uniforms.uMaxDistance.value = distance;
-    console.log(`[ChunkManager] Partial block distance set to ${distance} blocks`);
+    // Also update instanced material if it exists
+    if (this.instancedMaterial?.uniforms?.uMaxDistance) {
+      this.instancedMaterial.uniforms.uMaxDistance.value = distance;
+    }
+    console.log(`[ChunkManager] Partial block distance set to ${distance === 0 ? 'unlimited' : distance + ' blocks'}`);
   }
   
   /**
@@ -304,6 +320,167 @@ export class ChunkManager {
    */
   getPartialBlockDistance() {
     return this.modelMaterial.uniforms.uMaxDistance.value;
+  }
+  
+  /**
+   * Set the chunk render distance
+   * Chunks beyond this distance from the camera are hidden
+   * @param {number} distance - Distance in chunks (0 = unlimited)
+   */
+  setRenderDistance(distance) {
+    this.renderDistance = distance;
+    console.log(`[ChunkManager] Render distance set to ${distance === 0 ? 'unlimited' : distance + ' chunks'}`);
+  }
+  
+  /**
+   * Get current render distance
+   * @returns {number} Distance in blocks (0 = unlimited)
+   */
+  getRenderDistance() {
+    return this.renderDistance || 0;
+  }
+  
+  /**
+   * Update chunk visibility based on camera position and render distance
+   * Uses Euclidean distance in chunk coordinates for circular render distance (like Minecraft)
+   * Solid blocks use renderDistance, model blocks use partialBlockDistance (both in chunks)
+   * @param {THREE.Camera} camera - The camera to calculate distances from
+   */
+  updateChunkVisibility(camera) {
+    if (!camera) return;
+    
+    const renderDistanceChunks = this.renderDistance || 0;
+    // Convert partialBlockDistance from blocks to chunks (it's stored as blocks)
+    const detailDistanceChunks = this.partialBlockDistance ? Math.floor(this.partialBlockDistance / 16) : 0;
+    
+    // If both distances are 0 (unlimited), make sure everything is visible and return
+    if (renderDistanceChunks === 0 && detailDistanceChunks === 0) {
+      this._setAllMeshesVisible(true);
+      return;
+    }
+    
+    // Camera position in world coordinates
+    const cameraX = camera.position.x;
+    const cameraZ = camera.position.z;
+    
+    // Render distance in blocks (for Euclidean distance calculation)
+    const renderDistanceBlocks = renderDistanceChunks * 16;
+    const renderDistanceBlocksSq = renderDistanceChunks === 0 ? Infinity : renderDistanceBlocks * renderDistanceBlocks;
+    
+    // Detail distance for partial blocks (grass, flowers, slabs, etc.)
+    const detailDistanceBlocks = detailDistanceChunks * 16;
+    const detailDistanceBlocksSq = detailDistanceChunks === 0 ? Infinity : detailDistanceBlocks * detailDistanceBlocks;
+    
+    let visibleCount = 0;
+    let hiddenCount = 0;
+    
+    // Helper to update visibility for a mesh array with a given distance threshold
+    const updateMeshArrayVisibility = (meshArray, maxDistSq) => {
+      for (const mesh of meshArray) {
+        // Get mesh center for distance calculation
+        let meshCenterX, meshCenterZ;
+        
+        // First check if we have stored chunk center (fastest)
+        if (mesh.userData?.chunkCenterX !== undefined) {
+          meshCenterX = mesh.userData.chunkCenterX;
+          meshCenterZ = mesh.userData.chunkCenterZ;
+        } else if (mesh.isLOD) {
+          // LOD objects have their position set to the mesh center
+          meshCenterX = mesh.position.x;
+          meshCenterZ = mesh.position.z;
+        } else {
+          // Fall back to computing from geometry (slower)
+          if (mesh.geometry?.boundingBox) {
+            const center = new THREE.Vector3();
+            mesh.geometry.boundingBox.getCenter(center);
+            mesh.localToWorld(center);
+            meshCenterX = center.x;
+            meshCenterZ = center.z;
+            // Cache for next time
+            mesh.userData.chunkCenterX = meshCenterX;
+            mesh.userData.chunkCenterZ = meshCenterZ;
+          } else if (mesh.geometry) {
+            mesh.geometry.computeBoundingBox();
+            const center = new THREE.Vector3();
+            mesh.geometry.boundingBox.getCenter(center);
+            mesh.localToWorld(center);
+            meshCenterX = center.x;
+            meshCenterZ = center.z;
+            mesh.userData.chunkCenterX = meshCenterX;
+            mesh.userData.chunkCenterZ = meshCenterZ;
+          } else {
+            // Last resort: use mesh position
+            meshCenterX = mesh.position.x;
+            meshCenterZ = mesh.position.z;
+          }
+        }
+        
+        // Calculate Euclidean distance squared (circular render distance like Minecraft)
+        const dx = meshCenterX - cameraX;
+        const dz = meshCenterZ - cameraZ;
+        const distSq = dx * dx + dz * dz;
+        
+        // Set visibility based on distance
+        const shouldBeVisible = distSq <= maxDistSq;
+        if (mesh.visible !== shouldBeVisible) {
+          mesh.visible = shouldBeVisible;
+        }
+        
+        if (shouldBeVisible) {
+          visibleCount++;
+        } else {
+          hiddenCount++;
+        }
+      }
+    };
+    
+    // Solid blocks use full render distance
+    updateMeshArrayVisibility(this.solidMeshes, renderDistanceBlocksSq);
+    updateMeshArrayVisibility(this.waterMeshes, renderDistanceBlocksSq);
+    updateMeshArrayVisibility(this.lavaMeshes, renderDistanceBlocksSq);
+    updateMeshArrayVisibility(this.glassMeshes, renderDistanceBlocksSq);
+    
+    // Model blocks (partial blocks) use detail distance
+    // Use the smaller of detail distance and render distance
+    const modelMaxDistSq = Math.min(detailDistanceBlocksSq, renderDistanceBlocksSq);
+    updateMeshArrayVisibility(this.modelMeshes, modelMaxDistSq);
+    updateMeshArrayVisibility(this.transparentModelMeshes, modelMaxDistSq);
+    updateMeshArrayVisibility(this.overlayModelMeshes, modelMaxDistSq);
+    updateMeshArrayVisibility(this.instancedMeshes, modelMaxDistSq);
+    
+    // Only log when there's a significant change (avoid spam)
+    if (hiddenCount > 0 && !this._lastVisibilityLog) {
+      console.log(`[ChunkManager] Render distance culling: ${visibleCount} visible, ${hiddenCount} hidden (terrain: ${renderDistanceChunks} chunks, detail: ${detailDistanceChunks} chunks)`);
+      this._lastVisibilityLog = true;
+    } else if (hiddenCount === 0 && this._lastVisibilityLog) {
+      console.log(`[ChunkManager] All ${visibleCount} chunks visible`);
+      this._lastVisibilityLog = false;
+    }
+  }
+  
+  /**
+   * Set visibility of all meshes
+   * @param {boolean} visible
+   */
+  _setAllMeshesVisible(visible) {
+    const meshArrays = [
+      this.solidMeshes,
+      this.waterMeshes,
+      this.lavaMeshes,
+      this.glassMeshes,
+      this.modelMeshes,
+      this.transparentModelMeshes,
+      this.overlayModelMeshes,
+      this.instancedMeshes,
+    ];
+    
+    for (const meshArray of meshArrays) {
+      for (const mesh of meshArray) {
+        if (mesh.visible !== visible) {
+          mesh.visible = visible;
+        }
+      }
+    }
   }
 
   /**
@@ -375,7 +552,7 @@ export class ChunkManager {
    * Each chunk covers a CHUNK_SIZE x CHUNK_SIZE area in XZ plane
    * This allows Three.js to cull entire chunks when they're outside the camera frustum
    */
-  _splitMeshSpatially(meshData, chunkSize = 128) {
+  _splitMeshSpatially(meshData, chunkSize = 16) {
     if (!meshData || meshData.vertexCount === 0) return [];
     
     const { positions, normals, colors, indices, texIndices, texRotations,
@@ -457,6 +634,16 @@ export class ChunkManager {
         }
       }
       
+      // Parse the chunk key to get spatial chunk coordinates
+      const [spatialChunkXStr, spatialChunkZStr] = key.split(',');
+      const spatialChunkX = parseInt(spatialChunkXStr, 10);
+      const spatialChunkZ = parseInt(spatialChunkZStr, 10);
+      
+      // Calculate the center of this spatial chunk in world coordinates
+      // The chunk covers [chunkX * chunkSize, (chunkX + 1) * chunkSize) range
+      const chunkCenterX = (spatialChunkX + 0.5) * chunkSize;
+      const chunkCenterZ = (spatialChunkZ + 0.5) * chunkSize;
+      
       const chunk = {
         positions: new Float32Array(chunkPositions),
         normals: new Float32Array(chunkNormals),
@@ -464,6 +651,9 @@ export class ChunkManager {
         indices: new Uint32Array(chunkIndices),
         vertexCount: newVertexIndex,
         triangleCount: chunkIndices.length / 3,
+        // Store center position for render distance calculation
+        centerX: chunkCenterX,
+        centerZ: chunkCenterZ,
       };
       
       if (chunkTexIndices) chunk.texIndices = new Float32Array(chunkTexIndices);
@@ -485,19 +675,26 @@ export class ChunkManager {
   /**
    * Add meshes to scene from mesh data
    * PERFORMANCE: Uses spatial chunking for large meshes to enable effective frustum culling
+   * @param {Object} meshData - Mesh data with positions, normals, etc.
+   * @param {THREE.Material} material - Material to use
+   * @param {THREE.Group} group - Group to add meshes to
+   * @param {Array} meshArray - Array to track meshes
+   * @param {number} renderOrder - Optional render order
+   * @param {number} spatialChunkSize - Optional spatial chunk size (default 16 to match Minecraft chunks)
    */
-  _addMeshesToScene(meshData, material, group, meshArray, renderOrder = undefined) {
+  _addMeshesToScene(meshData, material, group, meshArray, renderOrder = undefined, spatialChunkSize = 16) {
     if (!meshData || meshData.vertexCount === 0) return 0;
     
     // PERFORMANCE: For large meshes, split spatially for better frustum culling
     // When looking at a wall, chunks behind you won't be rendered
-    const SPATIAL_CHUNK_THRESHOLD = 100000; // 100k triangles
+    // Smaller chunks = more draw calls but better frustum culling and render distance accuracy
+    // Lower threshold ensures per-Minecraft-chunk visibility for render distance
+    const SPATIAL_CHUNK_THRESHOLD = 1000; // Low threshold to always split for render distance
     const useSpatialChunking = meshData.triangleCount > SPATIAL_CHUNK_THRESHOLD;
     
     let splitData;
     if (useSpatialChunking) {
-      // Split into 128x128 block spatial chunks
-      splitData = this._splitMeshSpatially(meshData, 128);
+      splitData = this._splitMeshSpatially(meshData, spatialChunkSize);
     } else {
       // Just use WebGL limit splitting for smaller meshes
       splitData = this._splitMeshData(meshData);
@@ -510,6 +707,20 @@ export class ChunkManager {
         mesh.frustumCulled = true;
         if (renderOrder !== undefined) {
           mesh.renderOrder = renderOrder;
+        }
+        // Store chunk center for render distance calculation
+        // If data has explicit center (from spatial chunking), use it
+        // Otherwise compute from geometry bounding box
+        if (data.centerX !== undefined && data.centerZ !== undefined) {
+          mesh.userData.chunkCenterX = data.centerX;
+          mesh.userData.chunkCenterZ = data.centerZ;
+        } else {
+          // Compute center from geometry
+          geom.computeBoundingBox();
+          const center = new THREE.Vector3();
+          geom.boundingBox.getCenter(center);
+          mesh.userData.chunkCenterX = center.x;
+          mesh.userData.chunkCenterZ = center.z;
         }
         group.add(mesh);
         meshArray.push(mesh);
@@ -594,6 +805,9 @@ export class ChunkManager {
     
     // Position LOD at mesh center for distance calculation
     lod.position.copy(meshCenter);
+    // Store chunk center for render distance culling
+    lod.userData.chunkCenterX = meshCenter.x;
+    lod.userData.chunkCenterZ = meshCenter.z;
     
     // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
     // This is critical because autoUpdate runs every frame for EVERY LOD object
@@ -655,6 +869,9 @@ export class ChunkManager {
     
     // Position LOD at same center as solid mesh
     lod.position.copy(meshCenter);
+    // Store chunk center for render distance culling
+    lod.userData.chunkCenterX = meshCenter.x;
+    lod.userData.chunkCenterZ = meshCenter.z;
     // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
     lod.autoUpdate = false;
     lod.frustumCulled = true;
@@ -740,6 +957,9 @@ export class ChunkManager {
     
     // Position LOD at mesh center
     lod.position.copy(meshCenter);
+    // Store chunk center for render distance culling
+    lod.userData.chunkCenterX = meshCenter.x;
+    lod.userData.chunkCenterZ = meshCenter.z;
     // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
     lod.autoUpdate = false;
     lod.frustumCulled = true;
@@ -748,6 +968,49 @@ export class ChunkManager {
     meshArray.push(lod);
     
     return 1;
+  }
+  
+  /**
+   * Add GPU-instanced meshes for repeated blocks (grass, flowers, etc.)
+   * Uses THREE.InstancedMesh for massive draw call reduction
+   * @param {Array} instanceGroups - Array of { blockName, texIndex, positions, rotations, tintTypes, lights, instanceCount }
+   * @returns {number} Number of draw calls added
+   */
+  _addInstancedMeshes(instanceGroups) {
+    if (!instanceGroups || instanceGroups.length === 0) return 0;
+    
+    let drawCalls = 0;
+    
+    for (const group of instanceGroups) {
+      const { blockName, texIndex, positions, rotations, tintTypes, lights, instanceCount } = group;
+      
+      if (instanceCount === 0) continue;
+      
+      // Create base cross geometry for this block type
+      const baseGeometry = createCrossGeometry(texIndex);
+      
+      // Create instance data in the format expected by createInstancedMesh
+      const instanceData = {
+        offsets: positions,
+        rotations,
+        tintTypes,
+        lights,
+      };
+      
+      // Create the instanced mesh
+      const instancedMesh = createInstancedMesh(baseGeometry, this.instancedMaterial, instanceData);
+      instancedMesh.frustumCulled = true;
+      instancedMesh.name = `instanced_${blockName}`;
+      
+      // Add to scene
+      this.instancedGroup.add(instancedMesh);
+      this.instancedMeshes.push(instancedMesh);
+      drawCalls++;
+      
+      console.log(`[ChunkManager] ✓ Instanced ${blockName}: ${instanceCount.toLocaleString()} instances (1 draw call)`);
+    }
+    
+    return drawCalls;
   }
 
   /**
@@ -768,7 +1031,7 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, stats, _grid } = result;
       
       // Merge grid for debug lookups
       if (_grid && this.debugGrid) {
@@ -779,9 +1042,15 @@ export class ChunkManager {
       if (waterMesh) this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
       if (lavaMesh) this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
       if (glassMesh) this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
-      if (modelMesh) this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
-      if (transparentModelMesh) this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5);
-      if (overlayModelMesh) this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4);
+      // Model meshes use smaller 32-block spatial chunks for better frustum culling
+      if (modelMesh) this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes, undefined, 32);
+      if (transparentModelMesh) this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5, 32);
+      if (overlayModelMesh) this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4, 32);
+      
+      // Add GPU-instanced meshes for repeated blocks
+      if (ig3 && ig3.length > 0) {
+        this._addInstancedMeshes(ig3);
+      }
       
       this.totalBlocks = stats.totalBlocks;
       this.loadedChunks = stats.chunksProcessed;
@@ -889,7 +1158,7 @@ export class ChunkManager {
         }
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, lodMeshes, modelLodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, stats } = result;
 
         let drawCalls = 0;
         let meshCenter = null;
@@ -935,11 +1204,12 @@ export class ChunkManager {
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         // Use LOD to progressively hide decorative blocks at distance
+        // Model meshes use smaller 32-block spatial chunks for better frustum culling
         if (modelMesh) {
           if (shouldGenerateLOD && modelLodMeshes && meshCenter) {
             drawCalls += this._addModelMeshWithLOD(modelMesh, modelLodMeshes, this.modelMaterial, this.modelGroup, this.modelMeshes, meshCenter);
           } else {
-            drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+            drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes, undefined, 32);
           }
         }
         
@@ -954,7 +1224,7 @@ export class ChunkManager {
             };
             drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter, 0.5);
           } else {
-            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5);
+            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5, 32);
           }
         }
         
@@ -969,8 +1239,14 @@ export class ChunkManager {
             };
             drawCalls += this._addModelMeshWithLOD(overlayModelMesh, overlayLodMeshes, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, meshCenter, 4);
           } else {
-            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4);
+            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4, 32);
           }
+        }
+        
+        // Add GPU-instanced meshes for repeated blocks (grass, flowers, etc.)
+        // This dramatically reduces draw calls and vertex processing
+        if (instanceGroups && instanceGroups.length > 0) {
+          drawCalls += this._addInstancedMeshes(instanceGroups);
         }
         
         // Clean up builder immediately to free memory
@@ -1146,7 +1422,7 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, lodMeshes, modelLodMeshes, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, stats } = result;
         
         let drawCalls = 0;
         let meshCenter = null;
@@ -1192,11 +1468,12 @@ export class ChunkManager {
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         // Use LOD to progressively hide decorative blocks at distance
+        // Model meshes use smaller 32-block spatial chunks for better frustum culling
         if (modelMesh) {
           if (shouldGenerateLOD && modelLodMeshes && meshCenter) {
             drawCalls += this._addModelMeshWithLOD(modelMesh, modelLodMeshes, this.modelMaterial, this.modelGroup, this.modelMeshes, meshCenter);
           } else {
-            drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes);
+            drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes, undefined, 32);
           }
         }
         
@@ -1211,7 +1488,7 @@ export class ChunkManager {
             };
             drawCalls += this._addModelMeshWithLOD(transparentModelMesh, transparentLodMeshes, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, meshCenter, 0.5);
           } else {
-            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5);
+            drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5, 32);
           }
         }
         
@@ -1226,8 +1503,13 @@ export class ChunkManager {
             };
             drawCalls += this._addModelMeshWithLOD(overlayModelMesh, overlayLodMeshes, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, meshCenter, 4);
           } else {
-            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4);
+            drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4, 32);
           }
+        }
+        
+        // Add GPU-instanced meshes for repeated blocks (grass, flowers, etc.)
+        if (ig2 && ig2.length > 0) {
+          drawCalls += this._addInstancedMeshes(ig2);
         }
         
         meshBuilder.dispose();
@@ -1636,13 +1918,13 @@ export class ChunkManager {
   _addMeshFromBuffers(meshData, material, group, meshArray, renderOrder = undefined) {
     if (!meshData || meshData.vertexCount === 0) return 0;
     
-    // PERFORMANCE: For large meshes, split spatially for better frustum culling
-    const SPATIAL_CHUNK_THRESHOLD = 100000; // 100k triangles
+    // PERFORMANCE: Split spatially for better frustum culling and render distance accuracy
+    const SPATIAL_CHUNK_THRESHOLD = 1000; // Low threshold to always split for render distance
     const triangleCount = meshData.indices ? meshData.indices.length / 3 : 0;
     
     if (triangleCount > SPATIAL_CHUNK_THRESHOLD) {
-      // Split into spatial chunks
-      const chunks = this._splitMeshSpatially(meshData, 128);
+      // Split into spatial chunks (16 blocks = 1 Minecraft chunk)
+      const chunks = this._splitMeshSpatially(meshData, 16);
       for (const chunk of chunks) {
         const geometry = this._createGeometryFromBuffers(chunk);
         if (geometry) {
@@ -1757,6 +2039,9 @@ export class ChunkManager {
     
     // Position LOD at mesh center for distance calculation
     lod.position.copy(meshCenter);
+    // Store chunk center for render distance culling
+    lod.userData.chunkCenterX = meshCenter.x;
+    lod.userData.chunkCenterZ = meshCenter.z;
     // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
     lod.autoUpdate = false;
     lod.frustumCulled = true;
@@ -1812,6 +2097,9 @@ export class ChunkManager {
     
     // Position LOD at same center as solid mesh
     lod.position.copy(meshCenter);
+    // Store chunk center for render distance culling
+    lod.userData.chunkCenterX = meshCenter.x;
+    lod.userData.chunkCenterZ = meshCenter.z;
     // PERFORMANCE: Disable autoUpdate - we'll manually update LODs when camera moves
     lod.autoUpdate = false;
     lod.frustumCulled = true;
@@ -1884,6 +2172,13 @@ export class ChunkManager {
     }
     this.overlayModelMeshes = [];
     
+    // Clear instanced meshes
+    for (const mesh of this.instancedMeshes) {
+      this.instancedGroup.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+    }
+    this.instancedMeshes = [];
+    
     this.totalBlocks = 0;
     this.loadedChunks = 0;
     this.loadedRegions = 0;
@@ -1913,6 +2208,7 @@ export class ChunkManager {
     this.modelMaterial.dispose();
     this.transparentModelMaterial.dispose();
     this.overlayModelMaterial.dispose();
+    this.instancedMaterial.dispose();
     
     this.scene.remove(this.solidGroup);
     this.scene.remove(this.waterGroup);
@@ -1921,6 +2217,7 @@ export class ChunkManager {
     this.scene.remove(this.modelGroup);
     this.scene.remove(this.transparentModelGroup);
     this.scene.remove(this.overlayModelGroup);
+    this.scene.remove(this.instancedGroup);
   }
 
   /**
@@ -2023,6 +2320,19 @@ export class ChunkManager {
       groups[groupName].visible = visible;
       console.log(`[ChunkManager] ${groupName} group: ${visible ? 'VISIBLE' : 'HIDDEN'}`);
     }
+  }
+  
+  /**
+   * PERFORMANCE: Toggle fast path mode for model materials
+   * Fast path skips expensive biome tinting and lightmap sampling
+   * Use during camera movement or on low-end devices for better FPS
+   * @param {boolean} enabled - Whether to enable fast path
+   */
+  setFastPathMode(enabled) {
+    setMaterialFastPath(this.modelMaterial, enabled);
+    setMaterialFastPath(this.transparentModelMaterial, enabled);
+    setMaterialFastPath(this.overlayModelMaterial, enabled);
+    console.log(`[ChunkManager] Fast path mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
   
   /**

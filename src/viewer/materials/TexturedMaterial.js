@@ -605,9 +605,11 @@ void main() {
     vVisible = 0.0;
   } else {
     // PERFORMANCE: Distance-based culling for partial blocks
-    // Hide partial blocks beyond uMaxDistance from camera
+    // Hide partial blocks beyond uMaxDistance from camera (horizontal distance only)
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
-    float distToCamera = length(cameraPosition - worldPos.xyz);
+    // Use horizontal distance only (XZ plane) - like Minecraft's chunk-based render distance
+    vec2 horizDiff = cameraPosition.xz - worldPos.xz;
+    float distToCamera = length(horizDiff);
     
     if (uMaxDistance > 0.0 && distToCamera > uMaxDistance) {
       // Too far - mark as invisible (fragment shader will discard)
@@ -626,6 +628,7 @@ uniform sampler2D uLightmap;     // 16x16 lightmap texture
 uniform float uUseTextures;      // 0.0 = vertex colors only, 1.0 = use textures
 uniform float uUseTinting;       // 0.0 = no biome tinting, 1.0 = apply biome tinting
 uniform float uUseLightmap;      // 0.0 = fixed face shading, 1.0 = use lightmap
+uniform float uFastPath;         // 0.0 = full quality, 1.0 = skip tinting/lightmap for performance
 uniform vec2 uAtlasSize;         // Atlas dimensions in tiles (e.g., 56x56)
 uniform vec2 uTileUV;            // Full tile size in UV space (includes 1px border)
 uniform vec2 uTextureUV;         // Usable texture size in UV space (16x16 area)
@@ -770,6 +773,13 @@ void main() {
     // Handle transparency
     if (texColor.a < 0.1) discard;
     
+    // FAST PATH: Skip expensive tinting and just use texture color
+    if (uFastPath > 0.5) {
+      // Simple fixed brightness for fast rendering
+      gl_FragColor = vec4(texColor.rgb * 0.8, texColor.a);
+      return;
+    }
+    
     // Apply biome tinting
     int tintType = int(vTintType + 0.5);
     vec3 tintColor = vec3(1.0);
@@ -829,6 +839,7 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
       uMaxDistance: { value: 48.0 },  // PERFORMANCE: Hide partial blocks beyond 48 blocks (reduced from 64 for better perf)
+      uFastPath: { value: 0.0 },      // PERFORMANCE: 1.0 = skip tinting/lightmap for faster rendering
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
@@ -865,6 +876,7 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
       uMaxDistance: { value: 48.0 },  // PERFORMANCE: Hide partial blocks beyond 48 blocks (reduced from 64 for better perf)
+      uFastPath: { value: 0.0 },      // PERFORMANCE: 1.0 = skip tinting/lightmap for faster rendering
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
@@ -900,6 +912,7 @@ export function createOverlayModelMaterial(atlasData = null, useTextures = false
       uMinY: { value: -64 },
       uMaxY: { value: 320 },
       uMaxDistance: { value: 48.0 },  // PERFORMANCE: Hide partial blocks beyond 48 blocks (reduced from 64 for better perf)
+      uFastPath: { value: 0.0 },      // PERFORMANCE: 1.0 = skip tinting/lightmap for faster rendering
       uAtlas: { value: atlas },
       uColormap: { value: colormap },
       uLightmap: { value: lightmap || defaultTexture },
@@ -932,6 +945,20 @@ export function setMaterialLightingEnabled(material, enabled) {
   if (material && material.uniforms && material.uniforms.uUseLightmap) {
     material.uniforms.uUseLightmap.value = enabled ? 1.0 : 0.0;
     material.needsUpdate = true;
+  }
+}
+
+/**
+ * Toggle fast path mode for model materials
+ * Fast path skips biome tinting and lightmap sampling for better performance
+ * Useful when framerate is critical (e.g., during movement or on low-end devices)
+ * @param {THREE.ShaderMaterial} material - The material to update
+ * @param {boolean} enabled - Whether to enable fast path (true) or full quality (false)
+ */
+export function setMaterialFastPath(material, enabled) {
+  if (material && material.uniforms && material.uniforms.uFastPath) {
+    material.uniforms.uFastPath.value = enabled ? 1.0 : 0.0;
+    // No needsUpdate required - uniform changes take effect immediately
   }
 }
 

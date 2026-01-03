@@ -124,6 +124,45 @@ function ThrottledLODUpdater({ managerRef }) {
 }
 
 /**
+ * Throttled chunk visibility updater
+ * Updates which chunks are visible based on camera distance
+ * Only updates when camera has moved significantly to avoid wasted work
+ */
+function ChunkVisibilityUpdater({ managerRef }) {
+  const lastCameraChunk = useRef({ x: 0, z: 0 });
+  const frameCount = useRef(0);
+  const initialized = useRef(false);
+  
+  // Only check visibility every N frames
+  const UPDATE_INTERVAL_FRAMES = 10;  // Less frequent than LOD updates
+  
+  useFrame(({ camera }) => {
+    frameCount.current++;
+    
+    if (frameCount.current >= UPDATE_INTERVAL_FRAMES && managerRef.current) {
+      frameCount.current = 0;
+      
+      // Convert camera position to chunk coordinates (blockPos >> 4)
+      const cameraChunkX = Math.floor(camera.position.x / 16);
+      const cameraChunkZ = Math.floor(camera.position.z / 16);
+      
+      // Update if camera has moved to a different chunk (or first run)
+      if (!initialized.current ||
+          cameraChunkX !== lastCameraChunk.current.x || 
+          cameraChunkZ !== lastCameraChunk.current.z) {
+        // Camera is in a new chunk, update visibility
+        managerRef.current.updateChunkVisibility(camera);
+        lastCameraChunk.current.x = cameraChunkX;
+        lastCameraChunk.current.z = cameraChunkZ;
+        initialized.current = true;
+      }
+    }
+  });
+  
+  return null;
+}
+
+/**
  * Debug block highlight - shows red wireframe around hovered block
  */
 function BlockHighlight({ position }) {
@@ -341,6 +380,8 @@ function RegionScene({
   textureMode,
   textureAtlas,
   initialCameraPosition,
+  partialBlockDistance = 48, // Render distance for partial blocks (grass, flowers, slabs, etc.)
+  renderDistance = 0, // Chunk render distance (0 = unlimited)
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -395,6 +436,26 @@ function RegionScene({
       invalidate();
     }
   }, [textureMode, textureAtlas, invalidate]);
+  
+  // Update partial block distance when it changes
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.setPartialBlockDistance) {
+      manager.setPartialBlockDistance(partialBlockDistance);
+      invalidate();
+    }
+  }, [partialBlockDistance, invalidate]);
+  
+  // Update chunk render distance when it changes
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.setRenderDistance) {
+      manager.setRenderDistance(renderDistance);
+      // Force immediate visibility update
+      // This will be done by the ChunkVisibilityUpdater on next frame
+      invalidate();
+    }
+  }, [renderDistance, invalidate]);
   
   // Load single region chunks
   // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
@@ -629,6 +690,9 @@ function RegionScene({
       {/* Throttled LOD updates - only update LODs when camera moves significantly */}
       <ThrottledLODUpdater managerRef={managerRef} />
       
+      {/* Chunk visibility updates based on render distance */}
+      <ChunkVisibilityUpdater managerRef={managerRef} />
+      
       {/* Debug block highlight */}
       {debugMode && hoveredBlock && (
         <BlockHighlight position={hoveredBlock} />
@@ -670,6 +734,8 @@ export function RegionViewer({
   textureMode = 'solid',
   textureAtlas = null,
   fov = 60,  // Vertical FOV in degrees (Minecraft also uses vertical FOV internally)
+  partialBlockDistance = 48, // Render distance for partial blocks (0 = unlimited)
+  renderDistance = 0, // Chunk render distance in blocks (0 = unlimited)
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -722,6 +788,8 @@ export function RegionViewer({
         onStats={handleStats}
         textureMode={textureMode}
         textureAtlas={textureAtlas}
+        partialBlockDistance={partialBlockDistance}
+        renderDistance={renderDistance}
       />
     </Canvas>
   );
