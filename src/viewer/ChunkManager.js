@@ -154,14 +154,17 @@ export class ChunkManager {
     this.useStreaming = options.useStreaming !== false;
     
     // Debug mode: block lookup grid (stores block IDs for position lookup)
-    // Only populated when enableDebugLookup is true
-    this.debugGrid = null;
+    // Needed for particle collision detection
     this.blockRegistry = getBlockRegistry();
     
     // Particle system for torch flames, smoke, etc.
     this.particleSystem = null;
     this.particleEmitterManager = new ParticleEmitterManager();
     this.particlesEnabled = options.enableParticles !== false;
+    
+    // Enable debug grid for particle collision detection (needs block data)
+    // This stores block IDs so particles can collide with blocks
+    this.debugGrid = this.particlesEnabled ? new BinaryGrid() : null;
   }
   
   /**
