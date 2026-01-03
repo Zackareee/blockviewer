@@ -208,6 +208,29 @@ function getFogMultiplier(ticks) {
 }
 
 /**
+ * Get cloud color multiplier based on time of day
+ * Similar to fog color but clouds stay slightly brighter at night (moonlight)
+ * Follows the same keyframes as fog color with adjusted night values
+ */
+function getCloudColorMultiplier(ticks) {
+  // Day: white clouds, Night: dark gray-blue tinted (similar to fog but slightly brighter)
+  // Night value ~0.15-0.2 keeps clouds visible against the night sky
+  const keyframes = [
+    { tick: 133, value: { r: 1, g: 1, b: 1 } },      // Dawn ends - full brightness
+    { tick: 11867, value: { r: 1, g: 1, b: 1 } },    // Dusk starts - still bright
+    { tick: 13670, value: { r: 0.15, g: 0.15, b: 0.2 } },  // Night - dark blue-gray
+    { tick: 22330, value: { r: 0.15, g: 0.15, b: 0.2 } },  // Pre-dawn - still dark
+  ];
+  
+  const { prevValue, nextValue, t } = interpolateKeyframes(ticks, keyframes);
+  return {
+    r: prevValue.r + (nextValue.r - prevValue.r) * t,
+    g: prevValue.g + (nextValue.g - prevValue.g) * t,
+    b: prevValue.b + (nextValue.b - prevValue.b) * t,
+  };
+}
+
+/**
  * Get star brightness based on time (from day.json star_brightness track)
  * Returns 0-1 value (0 = invisible, 0.5 = full night brightness)
  */
@@ -234,12 +257,13 @@ function getStarBrightness(ticks) {
 
 /**
  * Calculate sky colors based on time of day
- * Returns { skyColor, horizonColor, fogColor } as THREE.Color objects
+ * Returns { skyColor, horizonColor, fogColor, cloudColor } as THREE.Color objects
  */
 function calculateSkyColors(timeOfDay) {
   const ticks = timeOfDayToTicks(timeOfDay);
   const brightness = getSkyBrightness(ticks);
   const fogMult = getFogMultiplier(ticks);
+  const cloudMult = getCloudColorMultiplier(ticks);
   
   // Apply brightness to base colors
   const skyColor = BASE_SKY_COLOR.clone().multiplyScalar(brightness);
@@ -266,7 +290,10 @@ function calculateSkyColors(timeOfDay) {
     horizonColor.b * fogMult.b
   );
   
-  return { skyColor, horizonColor, fogColor, brightness };
+  // Cloud color - tinted based on time of day (darker at night)
+  const cloudColor = new THREE.Color(cloudMult.r, cloudMult.g, cloudMult.b);
+  
+  return { skyColor, horizonColor, fogColor, cloudColor, brightness };
 }
 
 /**
@@ -725,7 +752,7 @@ function Stars({ timeOfDay = 0.5 }) {
  * - Clouds fade with distance using linear_fog_value(distance, 0, FogCloudsEnd)
  * - Clouds drift slowly eastward
  */
-function Clouds({ opacity = 0.8, fogEnd = 800, skyColor = null }) {
+function Clouds({ opacity = 0.8, fogEnd = 800, skyColor = null, cloudColor = null }) {
   const groupRef = useRef();
   const { camera } = useThree();
   const offsetRef = useRef(0);
@@ -1005,6 +1032,11 @@ function Clouds({ opacity = 0.8, fogEnd = 800, skyColor = null }) {
     if (skyColor && material.uniforms.uSkyColor) {
       material.uniforms.uSkyColor.value.set(skyColor.r, skyColor.g, skyColor.b);
     }
+    
+    // Update cloud color based on time of day (tinting for night)
+    if (cloudColor && material.uniforms.uCloudColor) {
+      material.uniforms.uCloudColor.value.set(cloudColor.r, cloudColor.g, cloudColor.b);
+    }
   });
 
   if (!geometry || !material) return null;
@@ -1195,8 +1227,8 @@ export function MinecraftSky({
       {/* Stars - visible at night */}
       <Stars timeOfDay={timeOfDay} />
 
-      {/* Clouds - loads actual Minecraft texture */}
-      {cloudOpacity > 0 && <Clouds opacity={cloudOpacity} skyColor={colors.horizonColor} />}
+      {/* Clouds - loads actual Minecraft texture, tinted by time of day */}
+      {cloudOpacity > 0 && <Clouds opacity={cloudOpacity} skyColor={colors.horizonColor} cloudColor={colors.cloudColor} />}
     </group>
   );
 }

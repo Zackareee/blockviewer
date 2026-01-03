@@ -52,84 +52,82 @@ const CANDLE_CAKE_OFFSET = [0.5, 0.875, 0.5]; // Candle is higher on cake
 const BLOCK_EMITTERS = {
   // Standing torch - Minecraft spawns at exact position, no variance
   // From TorchBlock.class: spawns every animateTick call (no random chance)
-  // animateTick is called randomly for visible blocks, ~2-4x/sec effective for torch
   // Offset constants: x=0.5, z=0.5, y=0.7 (from constant pool)
   'torch': {
     particles: [
       {
         type: 'flame',
-        rate: 2.5, // MC: every animateTick, ~2-4 effective/sec
-        offset: [0.5, 0.7, 0.5], // From MC constants: 0.5, 0.7, 0.5
-        offsetVariance: [0.0, 0.0, 0.0], // No position variance - MC spawns at exact spot
-        velocity: [0, 0.02, 0], // Small upward drift
-        velocityVariance: [0.01, 0.01, 0.01], // Random spread comes from velocity
-        size: 0.2, // Visible flame size
-        sizeVariance: 0.05, // Size varies per spawn
-        lifetime: 0.6, // ~12 ticks average
-        lifetimeVariance: 0.2,
+        rate: 5.0, // Higher rate for active flame appearance
+        offset: [0.5, 0.7, 0.5], // From MC constants
+        offsetVariance: [0.0, 0.0, 0.0], // No position variance
+        velocity: [0, 0.12, 0], // Visible upward drift
+        velocityVariance: [0.03, 0.03, 0.03], // Some random spread
+        size: 0.18, // Good visible size
+        sizeVariance: 0.05,
+        lifetime: 0.5, // Short lived for flickering
+        lifetimeVariance: 0.15,
         color: [1.0, 1.0, 1.0], // Use texture color
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
       {
         type: 'smoke',
-        rate: 2.5, // MC spawns smoke alongside flame
+        rate: 4.0, // Slightly less than flame
         offset: [0.5, 0.75, 0.5], // Slightly above flame
-        offsetVariance: [0.0, 0.0, 0.0], // No position variance
-        velocity: [0, 0.04, 0], // Rises faster than flame
-        velocityVariance: [0.02, 0.02, 0.02], // More random for smoke
-        size: 0.15, // Slightly smaller than flame
-        sizeVariance: 0.04,
-        lifetime: 1.5, // ~30 ticks
-        lifetimeVariance: 0.5,
+        offsetVariance: [0.0, 0.0, 0.0],
+        velocity: [0, 0.2, 0], // Rises faster than flame
+        velocityVariance: [0.04, 0.04, 0.04], // More random for smoke
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 1.2, // ~24 ticks
+        lifetimeVariance: 0.3,
         color: [0.6, 0.6, 0.6], // Gray smoke
-        alpha: 0.4,
+        alpha: 0.35,
         fadeIn: 0.1,
-        fadeOut: 0.6,
-        friction: 0.96,
+        fadeOut: 0.5,
+        friction: 0.98,
       },
     ],
   },
   
   // Wall torch (facing directions handled by offset adjustments)
-  // Same spawn behavior as standing torch
   'wall_torch': {
     particles: [
       {
         type: 'flame',
-        rate: 2.5, // Same as standing torch
-        offset: [0.5, 0.65, 0.28], // Default facing south (attached to north wall)
+        rate: 5.0, // Same as standing torch
+        offset: [0.5, 0.65, 0.28], // Default facing south
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.02, 0],
-        velocityVariance: [0.01, 0.01, 0.01],
-        size: 0.2,
+        velocity: [0, 0.12, 0],
+        velocityVariance: [0.03, 0.03, 0.03],
+        size: 0.18,
         sizeVariance: 0.05,
-        lifetime: 0.6,
-        lifetimeVariance: 0.2,
+        lifetime: 0.5,
+        lifetimeVariance: 0.15,
         color: [1.0, 1.0, 1.0],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
       {
         type: 'smoke',
-        rate: 2.5, // Same as standing torch
+        rate: 4.0,
         offset: [0.5, 0.7, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.04, 0],
-        velocityVariance: [0.02, 0.02, 0.02],
-        size: 0.15,
-        sizeVariance: 0.04,
-        lifetime: 1.5,
-        lifetimeVariance: 0.5,
+        velocity: [0, 0.2, 0],
+        velocityVariance: [0.04, 0.04, 0.04],
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 1.2,
+        lifetimeVariance: 0.3,
         color: [0.6, 0.6, 0.6],
-        alpha: 0.4,
+        alpha: 0.35,
         fadeIn: 0.1,
-        fadeOut: 0.6,
-        friction: 0.96,
+        fadeOut: 0.5,
+        friction: 0.98,
       },
     ],
   },
@@ -139,95 +137,95 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'soul_fire_flame',
-        rate: 2.5, // Same as regular torch
+        rate: 5.0, // Same as regular torch
         offset: [0.5, 0.7, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.02, 0],
-        velocityVariance: [0.01, 0.01, 0.01],
-        size: 0.2,
+        velocity: [0, 0.12, 0],
+        velocityVariance: [0.03, 0.03, 0.03],
+        size: 0.18,
         sizeVariance: 0.05,
-        lifetime: 0.6,
-        lifetimeVariance: 0.2,
+        lifetime: 0.5,
+        lifetimeVariance: 0.15,
         color: [1.0, 1.0, 1.0],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
       {
         type: 'smoke',
-        rate: 2.5, // Same as regular torch
+        rate: 4.0,
         offset: [0.5, 0.75, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.04, 0],
-        velocityVariance: [0.02, 0.02, 0.02],
-        size: 0.15,
-        sizeVariance: 0.04,
-        lifetime: 1.5,
-        lifetimeVariance: 0.5,
+        velocity: [0, 0.2, 0],
+        velocityVariance: [0.04, 0.04, 0.04],
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 1.2,
+        lifetimeVariance: 0.3,
         color: [0.5, 0.5, 0.6], // Slightly blue-tinted smoke
-        alpha: 0.4,
+        alpha: 0.35,
         fadeIn: 0.1,
-        fadeOut: 0.6,
-        friction: 0.96,
+        fadeOut: 0.5,
+        friction: 0.98,
       },
     ],
   },
   
-  // Soul wall torch - same spawn behavior as soul torch
+  // Soul wall torch
   'soul_wall_torch': {
     particles: [
       {
         type: 'soul_fire_flame',
-        rate: 2.5, // Same as soul torch
+        rate: 5.0,
         offset: [0.5, 0.65, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.02, 0],
-        velocityVariance: [0.01, 0.01, 0.01],
-        size: 0.2,
+        velocity: [0, 0.12, 0],
+        velocityVariance: [0.03, 0.03, 0.03],
+        size: 0.18,
         sizeVariance: 0.05,
-        lifetime: 0.6,
-        lifetimeVariance: 0.2,
+        lifetime: 0.5,
+        lifetimeVariance: 0.15,
         color: [1.0, 1.0, 1.0],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
       {
         type: 'smoke',
-        rate: 2.5,
+        rate: 4.0,
         offset: [0.5, 0.7, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.04, 0],
-        velocityVariance: [0.02, 0.02, 0.02],
-        size: 0.15,
-        sizeVariance: 0.04,
-        lifetime: 1.5,
-        lifetimeVariance: 0.5,
+        velocity: [0, 0.2, 0],
+        velocityVariance: [0.04, 0.04, 0.04],
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 1.2,
+        lifetimeVariance: 0.3,
         color: [0.5, 0.5, 0.6],
-        alpha: 0.4,
+        alpha: 0.35,
         fadeIn: 0.1,
-        fadeOut: 0.6,
-        friction: 0.96,
+        fadeOut: 0.5,
+        friction: 0.98,
       },
     ],
   },
   
-  // Redstone torch (spawns redstone dust particles, less frequently)
+  // Redstone torch (red particles, less active than regular torch)
   'redstone_torch': {
     particles: [
       {
         type: 'flame',
-        rate: 0.5, // Redstone torches have less particle activity
+        rate: 3.0, // Less frequent than regular torches
         offset: [0.5, 0.65, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.02, 0],
-        velocityVariance: [0.01, 0.01, 0.01],
-        size: 0.15, // Slightly smaller than regular torches
-        sizeVariance: 0.04,
-        lifetime: 0.6,
-        lifetimeVariance: 0.2,
+        velocity: [0, 0.08, 0],
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 0.4,
+        lifetimeVariance: 0.1,
         color: [1.0, 0.2, 0.1], // Red tint
         alpha: 0.9,
         fadeIn: 0.0,
@@ -242,20 +240,20 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'flame',
-        rate: 0.5,
+        rate: 3.0,
         offset: [0.5, 0.6, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.02, 0],
-        velocityVariance: [0.01, 0.01, 0.01],
-        size: 0.15,
-        sizeVariance: 0.04,
-        lifetime: 0.6,
-        lifetimeVariance: 0.2,
+        velocity: [0, 0.08, 0],
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 0.4,
+        lifetimeVariance: 0.1,
         color: [1.0, 0.2, 0.1],
         alpha: 0.9,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
     ],
   },
@@ -275,42 +273,43 @@ const BLOCK_EMITTERS = {
   // - Cosy smoke rises ~10 blocks, signal smoke ~24 blocks
   
   // Campfire (cosy smoke - rises ~10 blocks)
+  // PHYSICS: To rise 10 blocks in 5 seconds = 2.0 blocks/sec velocity
   'campfire': {
     requiresLit: true, // Only emit when lit=true
     particles: [
       {
         type: 'flame',
-        rate: 3.0, // Multiple flames
+        rate: 5.0, // Multiple active flames
         offset: [0.5, 0.3, 0.5], // Center of campfire logs
-        offsetVariance: [0.3, 0.0, 0.3], // Spread across fire area
-        velocity: [0, 0.02, 0],
-        velocityVariance: [0.015, 0.01, 0.015],
-        size: 0.15,
-        sizeVariance: 0.05,
-        lifetime: 0.6,
-        lifetimeVariance: 0.2,
+        offsetVariance: [0.35, 0.0, 0.35], // Spread across fire area
+        velocity: [0, 0.15, 0],
+        velocityVariance: [0.03, 0.05, 0.03],
+        size: 0.18,
+        sizeVariance: 0.06,
+        lifetime: 0.5,
+        lifetimeVariance: 0.15,
         color: [1.0, 0.9, 0.6],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
       {
         type: 'campfire_cosy_smoke',
-        rate: 2.5, // Frequent smoke puffs
+        rate: 3.5, // Frequent smoke puffs
         offset: [0.5, 0.5, 0.5], // Above the flames
-        offsetVariance: [0.4, 0.0, 0.4], // Wide spread across campfire (MC uses ±0.5)
-        velocity: [0, 0.12, 0], // Rises ~10 blocks over lifetime (0.12 * 5s * 20 = ~12 blocks)
-        velocityVariance: [0.03, 0.02, 0.03], // Horizontal drift
-        size: 0.8, // Large smoke! (MC scale is 3.0 on base 0.25 = 0.75 quad size)
-        sizeVariance: 0.2, // Random size variation
+        offsetVariance: [0.45, 0.0, 0.45], // Wide spread across campfire
+        velocity: [0, 2.0, 0], // 2.0 blocks/sec * 5 sec = 10 blocks rise
+        velocityVariance: [0.15, 0.3, 0.15], // Horizontal drift + some Y variance
+        size: 1.2, // Large smoke puffs (MC scale 3.0)
+        sizeVariance: 0.4, // Significant size variation
         lifetime: 5.0, // ~100 ticks = 5 seconds
         lifetimeVariance: 1.5, // 50-130 ticks range
         color: [0.5, 0.5, 0.5],
-        alpha: 0.6,
-        fadeIn: 0.15,
-        fadeOut: 0.4,
-        friction: 0.995, // Nearly no friction - MC gravity is ~0
+        alpha: 0.5,
+        fadeIn: 0.1,
+        fadeOut: 0.3,
+        friction: 1.0, // No friction - MC smoke has near-zero gravity, constant velocity
       },
     ],
   },
@@ -321,37 +320,37 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'soul_fire_flame',
-        rate: 3.0,
+        rate: 5.0,
         offset: [0.5, 0.3, 0.5],
-        offsetVariance: [0.3, 0.0, 0.3],
-        velocity: [0, 0.02, 0],
-        velocityVariance: [0.015, 0.01, 0.015],
-        size: 0.15,
-        sizeVariance: 0.05,
-        lifetime: 0.6,
-        lifetimeVariance: 0.2,
+        offsetVariance: [0.35, 0.0, 0.35],
+        velocity: [0, 0.15, 0],
+        velocityVariance: [0.03, 0.05, 0.03],
+        size: 0.18,
+        sizeVariance: 0.06,
+        lifetime: 0.5,
+        lifetimeVariance: 0.15,
         color: [1.0, 1.0, 1.0],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
       {
         type: 'campfire_cosy_smoke',
-        rate: 2.5,
+        rate: 3.5,
         offset: [0.5, 0.5, 0.5],
-        offsetVariance: [0.4, 0.0, 0.4],
-        velocity: [0, 0.12, 0],
-        velocityVariance: [0.03, 0.02, 0.03],
-        size: 0.8,
-        sizeVariance: 0.2,
+        offsetVariance: [0.45, 0.0, 0.45],
+        velocity: [0, 2.0, 0], // Same rise as regular campfire
+        velocityVariance: [0.15, 0.3, 0.15],
+        size: 1.2,
+        sizeVariance: 0.4,
         lifetime: 5.0,
         lifetimeVariance: 1.5,
         color: [0.4, 0.45, 0.5], // Slightly blue-tinted smoke for soul fire
-        alpha: 0.6,
-        fadeIn: 0.15,
-        fadeOut: 0.4,
-        friction: 0.995,
+        alpha: 0.5,
+        fadeIn: 0.1,
+        fadeOut: 0.3,
+        friction: 1.0, // No friction
       },
     ],
   },
@@ -366,20 +365,20 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'smoke',
-        rate: 0.8,
+        rate: 3.0,
         offset: [0.5, 1.0, 0.5], // Top of block
         offsetVariance: [0.2, 0.0, 0.2],
-        velocity: [0, 0.05, 0],
-        velocityVariance: [0.02, 0.02, 0.02],
+        velocity: [0, 0.3, 0], // Visible rise
+        velocityVariance: [0.05, 0.05, 0.05],
         size: 0.15,
-        sizeVariance: 0.03,
-        lifetime: 1.5,
-        lifetimeVariance: 0.5,
+        sizeVariance: 0.04,
+        lifetime: 1.2,
+        lifetimeVariance: 0.3,
         color: [0.4, 0.4, 0.4],
-        alpha: 0.5,
+        alpha: 0.45,
         fadeIn: 0.1,
-        fadeOut: 0.6,
-        friction: 0.96,
+        fadeOut: 0.5,
+        friction: 0.99,
       },
     ],
   },
@@ -390,44 +389,44 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'large_smoke',
-        rate: 1.5,
+        rate: 5.0, // Lots of smoke
         offset: [0.5, 1.0, 0.5],
-        offsetVariance: [0.15, 0.0, 0.15],
-        velocity: [0, 0.08, 0],
-        velocityVariance: [0.03, 0.03, 0.03],
-        size: 0.25,
-        sizeVariance: 0.05,
-        lifetime: 2.0,
-        lifetimeVariance: 0.5,
+        offsetVariance: [0.2, 0.0, 0.2],
+        velocity: [0, 0.5, 0], // Rises visibly
+        velocityVariance: [0.08, 0.08, 0.08],
+        size: 0.3,
+        sizeVariance: 0.1,
+        lifetime: 1.5,
+        lifetimeVariance: 0.4,
         color: [0.5, 0.5, 0.5],
-        alpha: 0.6,
+        alpha: 0.55,
         fadeIn: 0.1,
-        fadeOut: 0.5,
-        friction: 0.97,
+        fadeOut: 0.4,
+        friction: 0.99,
       },
     ],
   },
   
-  // Blast furnace - faster, smaller smoke
+  // Blast furnace - faster, more intense smoke
   'blast_furnace': {
     requiresLit: true,
     particles: [
       {
         type: 'smoke',
-        rate: 1.2,
+        rate: 4.0,
         offset: [0.5, 1.0, 0.5],
         offsetVariance: [0.15, 0.0, 0.15],
-        velocity: [0, 0.1, 0], // Faster rise
-        velocityVariance: [0.02, 0.03, 0.02],
-        size: 0.12,
-        sizeVariance: 0.03,
+        velocity: [0, 0.6, 0], // Fast rise
+        velocityVariance: [0.06, 0.08, 0.06],
+        size: 0.14,
+        sizeVariance: 0.04,
         lifetime: 1.0,
-        lifetimeVariance: 0.3,
+        lifetimeVariance: 0.25,
         color: [0.35, 0.35, 0.4],
         alpha: 0.5,
         fadeIn: 0.1,
-        fadeOut: 0.5,
-        friction: 0.95,
+        fadeOut: 0.4,
+        friction: 0.99,
       },
     ],
   },
@@ -443,43 +442,44 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   // Candle - supports 1-4 candles with multi-point emission
+  // Increased rates for more visible flickering effect
   'candle': {
     requiresLit: true,
     multiPoint: true, // Emit from multiple positions based on 'candles' property
     particles: [
       {
         type: 'small_flame',
-        rate: 4.0, // MC: 30% chance per tick = ~6/sec, adjusted for visual appeal
+        rate: 8.0, // High rate for constant flickering appearance
         offset: [0.5, 0.5, 0.5], // Overridden by CANDLE_OFFSETS for multi-point
         offsetVariance: [0.0, 0.0, 0.0], // No variance - exact wick position
-        velocity: [0, 0.015, 0],
-        velocityVariance: [0.005, 0.005, 0.005],
-        size: 0.08, // Very small flame
-        sizeVariance: 0.02,
-        lifetime: 0.5,
-        lifetimeVariance: 0.15,
+        velocity: [0, 0.08, 0], // Noticeable upward movement
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.1, // Slightly larger for visibility
+        sizeVariance: 0.03,
+        lifetime: 0.4, // Short-lived for flickering
+        lifetimeVariance: 0.1,
         color: [1.0, 0.9, 0.6],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
       {
         type: 'smoke',
-        rate: 1.5, // Less frequent than flame, ~25% of flame rate
+        rate: 3.0, // More frequent smoke wisps
         offset: [0.5, 0.55, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.03, 0],
-        velocityVariance: [0.01, 0.01, 0.01],
-        size: 0.06,
+        velocity: [0, 0.15, 0], // Visible rise
+        velocityVariance: [0.03, 0.03, 0.03],
+        size: 0.08,
         sizeVariance: 0.02,
-        lifetime: 1.0,
-        lifetimeVariance: 0.3,
+        lifetime: 0.8,
+        lifetimeVariance: 0.2,
         color: [0.6, 0.6, 0.6],
-        alpha: 0.3,
+        alpha: 0.35,
         fadeIn: 0.1,
-        fadeOut: 0.6,
-        friction: 0.96,
+        fadeOut: 0.5,
+        friction: 0.98,
       },
     ],
   },
@@ -490,37 +490,37 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'small_flame',
-        rate: 4.0, // Same rate as regular candle
+        rate: 8.0, // Same rate as regular candle
         offset: [0.5, 0.9, 0.5], // Higher on cake
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.015, 0],
-        velocityVariance: [0.005, 0.005, 0.005],
-        size: 0.08,
-        sizeVariance: 0.02,
-        lifetime: 0.5,
-        lifetimeVariance: 0.15,
+        velocity: [0, 0.08, 0],
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.1,
+        sizeVariance: 0.03,
+        lifetime: 0.4,
+        lifetimeVariance: 0.1,
         color: [1.0, 0.9, 0.6],
         alpha: 1.0,
         fadeIn: 0.0,
-        fadeOut: 0.5,
-        friction: 0.96,
+        fadeOut: 0.4,
+        friction: 0.98,
       },
       {
         type: 'smoke',
-        rate: 1.5, // Same rate as regular candle
+        rate: 3.0, // Same rate as regular candle
         offset: [0.5, 0.95, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.03, 0],
-        velocityVariance: [0.01, 0.01, 0.01],
-        size: 0.06,
+        velocity: [0, 0.15, 0],
+        velocityVariance: [0.03, 0.03, 0.03],
+        size: 0.08,
         sizeVariance: 0.02,
-        lifetime: 1.0,
-        lifetimeVariance: 0.3,
+        lifetime: 0.8,
+        lifetimeVariance: 0.2,
         color: [0.6, 0.6, 0.6],
-        alpha: 0.3,
+        alpha: 0.35,
         fadeIn: 0.1,
-        fadeOut: 0.6,
-        friction: 0.96,
+        fadeOut: 0.5,
+        friction: 0.98,
       },
     ],
   },
