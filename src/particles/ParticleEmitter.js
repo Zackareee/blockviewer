@@ -71,31 +71,33 @@ const BLOCK_EMITTERS = {
   // From TorchBlock.class: spawns every animateTick call (no random chance)
   // Offset constants: x=0.5, z=0.5, y=0.7 (from constant pool)
   'torch': {
+    // MC: animateTick called randomly, spawns 1 flame + 1 smoke
+    // Effective rate: ~2-3 particles/sec total
     particles: [
       {
         type: 'flame',
-        rate: 5.0, // Higher rate for active flame appearance
+        rate: 2.5, // MC: ~2-3/sec per torch
         offset: [0.5, 0.7, 0.5], // From MC constants
         offsetVariance: [0.0, 0.0, 0.0], // No position variance
-        velocity: [0, 0.12, 0], // Visible upward drift
-        velocityVariance: [0.03, 0.03, 0.03], // Some random spread
-        size: 0.18, // Good visible size
-        sizeVariance: 0.05,
-        lifetime: 0.5, // Short lived for flickering
-        lifetimeVariance: 0.15,
+        velocity: [0, 0.05, 0], // Slight upward drift
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.15, // Visible flame
+        sizeVariance: 0.03,
+        lifetime: 0.6, // MC: ~12 ticks = 0.6s
+        lifetimeVariance: 0.2,
         color: [1.0, 1.0, 1.0], // Use texture color
         alpha: 1.0,
         fadeIn: 0.0,
         fadeOut: 0.4,
-        friction: 0.98,
+        friction: 0.96, // MC: FlameParticle friction
       },
       {
         type: 'smoke',
-        rate: 4.0, // Slightly less than flame
+        rate: 2.0, // Slightly less than flame
         offset: [0.5, 0.75, 0.5], // Slightly above flame
         offsetVariance: [0.0, 0.0, 0.0],
-        velocity: [0, 0.2, 0], // Rises faster than flame
-        velocityVariance: [0.04, 0.04, 0.04], // More random for smoke
+        velocity: [0, 0.1, 0], // Rises gently
+        velocityVariance: [0.03, 0.03, 0.03],
         size: 0.12,
         sizeVariance: 0.03,
         lifetime: 1.2, // ~24 ticks
@@ -847,19 +849,21 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   // Base tinted leaves config (oak, birch, jungle, acacia, dark_oak, spruce, mangrove, azalea)
+  // MC: Leaves particles are VERY rare - maybe 1 every 10+ seconds per exposed leaf
+  // Only spawns in certain biomes (Pale Garden) in vanilla, but we enable for all
   '_tinted_leaves_base': {
     particles: [
       {
         type: 'tinted_leaves',
-        rate: 0.3, // Low rate - leaves fall occasionally
+        rate: 0.1, // Very low rate - leaves fall occasionally (~1 per 10 sec)
         offset: [0.5, -0.1, 0.5], // Just below block
         offsetVariance: [0.4, 0.0, 0.4],
-        velocity: [0, -0.3, 0], // Gentle fall
-        velocityVariance: [0.15, 0.1, 0.15], // Lateral drift
+        velocity: [0, -0.2, 0], // Gentle fall
+        velocityVariance: [0.1, 0.05, 0.1], // Lateral drift
         size: 0.12, // MC: 1.2 scale on ~0.1 base
         sizeVariance: 0.03,
-        lifetime: 12.0, // MC: 300 ticks = 15s, but we cap for performance
-        lifetimeVariance: 4.0,
+        lifetime: 10.0, // MC: 300 ticks = 15s, capped for performance
+        lifetimeVariance: 3.0,
         color: [0.4, 0.7, 0.3], // Default green tint (biome would override)
         alpha: 1.0,
         fadeIn: 0.0,
