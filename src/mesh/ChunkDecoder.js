@@ -507,6 +507,51 @@ export function decodeRegion(chunks, registry = null, onProgress = null, stateGr
 }
 
 /**
+ * Extract active beacon positions from chunks
+ * Beacons are only active when their pyramid level (Levels) is > 0
+ * @param {Array} chunks - Array of parsed chunks
+ * @returns {Map<string, {x: number, y: number, z: number, levels: number}>} Map of "x,y,z" -> beacon data
+ */
+export function extractActiveBeacons(chunks) {
+  const beacons = new Map();
+  
+  for (const chunk of chunks) {
+    const { data } = chunk;
+    
+    // Block entities are stored differently in different Minecraft versions
+    // Modern (1.17+): data.block_entities
+    // Legacy: data.Level.TileEntities
+    const blockEntities = data.block_entities || (data.Level && data.Level.TileEntities) || [];
+    
+    for (const entity of blockEntities) {
+      // Check if this is a beacon block entity
+      const id = entity.id || entity.Id;
+      if (!id) continue;
+      
+      const idLower = id.toLowerCase();
+      if (!idLower.includes('beacon')) continue;
+      
+      // Get position
+      const x = entity.x ?? entity.X ?? 0;
+      const y = entity.y ?? entity.Y ?? 0;
+      const z = entity.z ?? entity.Z ?? 0;
+      
+      // Get pyramid level (Levels property)
+      // In Minecraft: 0 = no valid pyramid, 1-4 = valid pyramid levels
+      const levels = entity.Levels ?? entity.levels ?? 0;
+      
+      // Only include beacons with a valid pyramid (Levels > 0)
+      if (levels > 0) {
+        const key = `${x},${y},${z}`;
+        beacons.set(key, { x, y, z, levels });
+      }
+    }
+  }
+  
+  return beacons;
+}
+
+/**
  * ChunkDecoder class - manages parallel chunk decoding
  */
 export class ChunkDecoder {
