@@ -1973,10 +1973,17 @@ export class ChunkManager {
         completedRegions++;
         
         const lodInfo = shouldGenerateLOD ? `, LOD: ${(stats.lodTimeMs || 0).toFixed(0)}ms` : '';
+        // Show timing breakdown: parse(decompress+NBT) → decode → mesh
+        const parseBreakdown = stats.decompressTimeMs 
+          ? `decomp:${stats.decompressTimeMs.toFixed(0)}ms,NBT:${(stats.nbtParseTimeMs || 0).toFixed(0)}ms`
+          : `parse:${(stats.parseTimeMs || 0).toFixed(0)}ms`;
+        const failInfo = (stats.failedDecompress || stats.failedNBT) 
+          ? ` ⚠️ ${stats.failedDecompress || 0} decompress/${stats.failedNBT || 0} NBT failures`
+          : '';
         console.log(
           `[ChunkManager] ✓ ${regionName}: ${stats.chunksProcessed} chunks, ` +
           `${stats.totalBlocks.toLocaleString()} blocks, ${drawCalls} draws ` +
-          `in ${(regionTime / 1000).toFixed(2)}s${lodInfo}`
+          `in ${(regionTime / 1000).toFixed(2)}s [${parseBreakdown}, decode:${(stats.decodeTimeMs || 0).toFixed(0)}ms, mesh:${(stats.meshTimeMs || 0).toFixed(0)}ms${lodInfo}]${failInfo}`
         );
         
         onRegionComplete?.(i, totalRegions, regionName, stats);

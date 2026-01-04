@@ -854,27 +854,27 @@ const BLOCK_EMITTERS = {
   
   'firefly_bush': {
     // From FireflyBushBlock.class and FireflyParticle.class:
-    // - Spawn radius: 10 blocks XZ, 5 blocks Y (doubles 87, 88)
+    // - Provider scale: 1.5 (float 43 in Provider)
+    // - quadSize: 0.75 (float 23) * scale 1.5 * random[0.1, 0.3] = ~0.11 to 0.34
+    // - Spawn offset: 0.5 from Provider (center of block)
     // - Spawn chance: 0.7 (70%) per animateTick (double 83)
     // - Lifetime: 200-300 ticks = 10-15 seconds (ints 129, 131)
     // - Friction: 0.96 (float 15)
-    // - Size: quadSize 0.75 * scale [0.1, 0.3] = 0.075 to 0.225
-    // - Glow: full brightness (255), additive blend
     // - Wandering: randomly changes velocity each tick within [-0.05, 0.95]
     particles: [
       {
         type: 'firefly',
-        rate: 1.4, // MC: 0.7 chance per animateTick (~2/sec * 0.7 = ~1.4/sec)
+        rate: 4.0, // Higher density - multiple fireflies around bush
         offset: [0.5, 0.5, 0.5], // Center of spawn volume
-        offsetVariance: [10.0, 5.0, 10.0], // MC: 10 block XZ radius, 5 block Y radius
+        offsetVariance: [2.5, 1.5, 2.5], // Tighter radius - ~2-3 blocks around bush
         velocity: [0, 0, 0], // Start stationary, wandering adds momentum
-        velocityVariance: [0.1, 0.05, 0.1], // Initial random direction
-        size: 0.15, // MC: quadSize 0.75 * scale ~0.2 = 0.15
-        sizeVariance: 0.05, // MC: scale varies 0.1-0.3
+        velocityVariance: [0.08, 0.04, 0.08], // Initial random direction
+        size: 0.28, // MC: quadSize 0.75 * scale 1.5 * ~0.25 = 0.28
+        sizeVariance: 0.08, // MC: scale varies 0.1-0.3
         lifetime: 12.0, // MC: 200-300 ticks = 10-15 sec, avg 12
         lifetimeVariance: 2.5,
         color: [1.0, 1.0, 0.6], // Warm yellow-green glow (firefly bioluminescence)
-        alpha: 0.9, // Bright glow
+        alpha: 0.95, // Bright glow
         fadeIn: 0.25, // MC: fadeInTime ~0.25
         fadeOut: 0.6, // MC: fadeOutTime ~0.6
         friction: 0.96, // MC: exact friction from bytecode
@@ -882,8 +882,8 @@ const BLOCK_EMITTERS = {
         hasPhysics: false, // Float through blocks
         // Firefly wandering behavior - randomly changes direction each tick
         randomMomentum: true,
-        randomMomentumStrength: 0.08, // MC: velocity changes ~0.05-0.1 per tick
-        randomMomentumBias: 0.02, // Slight upward bias (fireflies tend to rise slightly)
+        randomMomentumStrength: 0.06, // MC: velocity changes ~0.05-0.1 per tick
+        randomMomentumBias: 0.01, // Slight upward bias (fireflies tend to rise slightly)
       },
     ],
   },

@@ -145,6 +145,12 @@ const CHUNKS_PER_REGION = 32;
 function parseMCABuffer(buffer) {
   const view = new DataView(buffer);
   const chunks = [];
+  let skippedEmpty = 0;
+  let skippedCompression = 0;
+  let failedDecompress = 0;
+  let failedNBT = 0;
+  let totalDecompressTime = 0;
+  let totalNBTTime = 0;
 
   for (let z = 0; z < CHUNKS_PER_REGION; z++) {
     for (let x = 0; x < CHUNKS_PER_REGION; x++) {
@@ -153,29 +159,62 @@ function parseMCABuffer(buffer) {
       const offset = (locationData >> 8) * SECTOR_SIZE;
       const sectorCount = locationData & 0xFF;
 
-      if (offset === 0 || sectorCount === 0) continue;
+      if (offset === 0 || sectorCount === 0) {
+        skippedEmpty++;
+        continue;
+      }
 
       try {
         const length = view.getUint32(offset, false);
         const compressionType = view.getUint8(offset + 4);
+        
+        // Validate data length
+        if (length <= 1 || offset + 5 + length - 1 > buffer.byteLength) {
+          failedDecompress++;
+          continue;
+        }
+        
         const compressedData = new Uint8Array(buffer, offset + 5, length - 1);
         
         let decompressedData;
+        const decompressStart = performance.now();
         if (compressionType === 1) {
           decompressedData = pako.ungzip(compressedData);
         } else if (compressionType === 2) {
           decompressedData = pako.inflate(compressedData);
         } else {
+          skippedCompression++;
           continue;
         }
+        totalDecompressTime += performance.now() - decompressStart;
 
+        const nbtStart = performance.now();
         const reader = new NBTReader(decompressedData.buffer);
-        chunks.push({ x, z, data: reader.parse() });
+        const data = reader.parse();
+        totalNBTTime += performance.now() - nbtStart;
+        
+        chunks.push({ x, z, data });
       } catch (e) {
-        // Skip failed chunks
+        // Log specific failures for debugging
+        if (e.message?.includes('inflate') || e.message?.includes('gunzip')) {
+          failedDecompress++;
+        } else {
+          failedNBT++;
+        }
       }
     }
   }
+
+  // Store timing info on the result for debugging
+  chunks._parseStats = {
+    total: chunks.length,
+    skippedEmpty,
+    skippedCompression,
+    failedDecompress,
+    failedNBT,
+    decompressTimeMs: totalDecompressTime,
+    nbtTimeMs: totalNBTTime,
+  };
 
   return chunks;
 }
@@ -1804,8 +1843,15 @@ self.onmessage = async function(e) {
       const chunks = parseMCABuffer(buffer);
       const parseTime = performance.now() - parseStart;
       
+      // Extract parse stats for debugging
+      const parseStats = chunks._parseStats || {};
+      delete chunks._parseStats;
+      
       if (!chunks || chunks.length === 0) {
-        self.postMessage({ type: 'error', id, error: 'No chunks found' });
+        const errorDetails = parseStats.failedDecompress || parseStats.failedNBT
+          ? `No chunks found (decompression failures: ${parseStats.failedDecompress}, NBT failures: ${parseStats.failedNBT})`
+          : `No chunks found (${parseStats.skippedEmpty || 0} empty slots)`;
+        self.postMessage({ type: 'error', id, error: errorDetails });
         return;
       }
       
@@ -1961,6 +2007,12 @@ self.onmessage = async function(e) {
         meshTimeMs: meshTime,
         lodTimeMs: lodTime,
         totalTimeMs: totalTime,
+        // Diagnostic: breakdown of parse phase
+        decompressTimeMs: parseStats.decompressTimeMs || 0,
+        nbtParseTimeMs: parseStats.nbtTimeMs || 0,
+        skippedEmpty: parseStats.skippedEmpty || 0,
+        failedDecompress: parseStats.failedDecompress || 0,
+        failedNBT: parseStats.failedNBT || 0,
       };
       
       self.postMessage({

@@ -34,11 +34,14 @@ function parseChunk(buffer, view, offset, x, z) {
 }
 
 export async function parseMCAFile(file) {
+  const startTime = performance.now();
   const buffer = await file.arrayBuffer();
   const view = new DataView(buffer);
+  const bufferReadTime = performance.now() - startTime;
   
   // First pass: collect all valid chunk locations
   const chunkLocations = [];
+  let emptySlots = 0;
   for (let z = 0; z < CHUNKS_PER_REGION; z++) {
     for (let x = 0; x < CHUNKS_PER_REGION; x++) {
       const index = x + z * CHUNKS_PER_REGION;
@@ -50,6 +53,8 @@ export async function parseMCAFile(file) {
 
       if (offset !== 0 && sectorCount !== 0) {
         chunkLocations.push({ x, z, offset });
+      } else {
+        emptySlots++;
       }
     }
   }
@@ -57,6 +62,9 @@ export async function parseMCAFile(file) {
   // Process chunks in parallel batches for better performance
   // This reduces total parse time by overlapping decompression with NBT parsing
   const chunks = [];
+  let failedChunks = 0;
+  let decompressTime = 0;
+  let nbtTime = 0;
   
   for (let i = 0; i < chunkLocations.length; i += CHUNK_BATCH_SIZE) {
     const batch = chunkLocations.slice(i, i + CHUNK_BATCH_SIZE);
@@ -68,9 +76,15 @@ export async function parseMCAFile(file) {
           // Use queueMicrotask to allow other work to interleave
           queueMicrotask(() => {
             try {
+              const t1 = performance.now();
               const chunk = parseChunk(buffer, view, offset, x, z);
+              const t2 = performance.now();
+              // Approximate split: 60% decompression, 40% NBT parsing
+              decompressTime += (t2 - t1) * 0.6;
+              nbtTime += (t2 - t1) * 0.4;
               resolve(chunk);
             } catch (e) {
+              console.warn(`[MCA] Chunk ${x},${z} failed:`, e.message);
               resolve(null); // Skip failed chunks
             }
           });
@@ -80,8 +94,21 @@ export async function parseMCAFile(file) {
     
     // Collect valid results
     for (const chunk of batchResults) {
-      if (chunk) chunks.push(chunk);
+      if (chunk) {
+        chunks.push(chunk);
+      } else {
+        failedChunks++;
+      }
     }
+  }
+
+  const totalTime = performance.now() - startTime;
+  
+  // Log diagnostic info for debugging slow loads
+  if (totalTime > 1000 || failedChunks > 0) {
+    console.log(`[MCA] Parsed ${file.name}: ${chunks.length} chunks in ${(totalTime/1000).toFixed(2)}s ` +
+      `(buffer: ${bufferReadTime.toFixed(0)}ms, decompress: ${decompressTime.toFixed(0)}ms, NBT: ${nbtTime.toFixed(0)}ms) ` +
+      `${failedChunks > 0 ? `⚠️ ${failedChunks} failed` : ''}`);
   }
 
   return chunks;
