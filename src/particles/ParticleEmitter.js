@@ -816,7 +816,7 @@ const BLOCK_EMITTERS = {
         // MC spawns in 10-block XZ radius, 16 blocks down
         // MC has lateral velocity: xd/zd up to ±0.8, yd = -0.8
         type: 'spore_blossom_air',
-        rate: 5.0, // Reduced to prevent pool exhaustion with many spore blossoms
+        rate: 25.0, // High density like MC (~50/sec but scaled for visual balance)
         offset: [0.5, -6.0, 0.5], // Center of spawn volume (8 blocks below)
         offsetVariance: [10.0, 6.0, 10.0], // MC: 10 block XZ radius, 16 blocks down
         velocity: [0, -0.4, 0], // Base downward drift
@@ -847,13 +847,11 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   // Base tinted leaves config (oak, birch, jungle, acacia, dark_oak, spruce, mangrove, azalea)
-  // IMPORTANT: Rate is very low because there can be 50,000+ leaf emitters
-  // Each leaf block has ~0.01 chance per second to spawn, so ~500 spawns/sec total
   '_tinted_leaves_base': {
     particles: [
       {
         type: 'tinted_leaves',
-        rate: 0.01, // Very low rate - many emitters, few particles each
+        rate: 0.3, // Low rate - leaves fall occasionally
         offset: [0.5, -0.1, 0.5], // Just below block
         offsetVariance: [0.4, 0.0, 0.4],
         velocity: [0, -0.3, 0], // Gentle fall
@@ -1196,38 +1194,18 @@ export class ParticleEmitterManager {
    */
   update(deltaTime, particleSystem) {
     const maxDistSq = this.maxDistance * this.maxDistance;
+    let activeCount = 0;
     
-    // Collect emitters within range with their distances
-    const inRangeEmitters = [];
     for (const emitter of this.emitters.values()) {
+      // Distance culling
       const dx = emitter.x - this.cameraX;
       const dy = emitter.y - this.cameraY;
       const dz = emitter.z - this.cameraZ;
       const distSq = dx * dx + dy * dy + dz * dz;
       
       if (distSq <= maxDistSq) {
-        inRangeEmitters.push({ emitter, distSq });
-      }
-    }
-    
-    // Sort by distance (closest first) to prioritize nearby emitters
-    inRangeEmitters.sort((a, b) => a.distSq - b.distSq);
-    
-    // Limit max emitters updated per frame to prevent pool exhaustion
-    // Prioritize by distance - closest emitters always get updated
-    const maxEmittersPerFrame = 500;
-    const updateCount = Math.min(inRangeEmitters.length, maxEmittersPerFrame);
-    
-    for (let i = 0; i < updateCount; i++) {
-      const { emitter, distSq } = inRangeEmitters[i];
-      emitter.update(deltaTime, particleSystem);
-      
-      // Debug: log first active emitter (once)
-      if (!this._loggedActiveEmitter) {
-        console.log(`[ParticleEmitterManager] First active emitter: ${emitter.blockType} at (${emitter.x.toFixed(1)}, ${emitter.y.toFixed(1)}, ${emitter.z.toFixed(1)})`);
-        console.log(`[ParticleEmitterManager] Camera at (${this.cameraX.toFixed(1)}, ${this.cameraY.toFixed(1)}, ${this.cameraZ.toFixed(1)}), dist=${Math.sqrt(distSq).toFixed(1)}`);
-        console.log(`[ParticleEmitterManager] ${inRangeEmitters.length} emitters in range, updating closest ${updateCount}`);
-        this._loggedActiveEmitter = true;
+        emitter.update(deltaTime, particleSystem);
+        activeCount++;
       }
     }
   }

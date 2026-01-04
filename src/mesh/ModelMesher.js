@@ -653,13 +653,43 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       // Apply same offset as mesh vertices so camera distance checks work correctly
       if (stateHasParticleEmitter[stateId]) {
         const state = stateRegistry.getState(stateId);
-        particleEmitters.push({
-          blockType: state ? state.blockName : 'torch',
-          x: baseX + lx - ox, // Apply offset like mesh vertices
-          y: baseY + ly - oy,
-          z: baseZ + lz - oz,
-          properties: state?.properties || {},
-        });
+        const blockName = state ? state.blockName : 'torch';
+        
+        // Smart filtering: Only emit particles from leaves/spore_blossom if air below
+        // This matches Minecraft behavior - falling particles only spawn with space to fall
+        let shouldEmit = true;
+        if (blockName.includes('leaves') || blockName === 'spore_blossom') {
+          // Check block below for air
+          if (ly > 0) {
+            // Same section - check directly
+            const belowIndex = ((ly - 1) << 8) | (lz << 4) | lx;
+            const belowBlock = blockSection[belowIndex];
+            // If block below exists (non-zero), skip this emitter
+            if (belowBlock !== 0 && (belowBlock & BLOCK_ID_MASK) !== 0) {
+              shouldEmit = false;
+            }
+          } else {
+            // Block is at bottom of section - check section below
+            const sectionBelow = grid.getSection(chunkX, chunkZ, sectionY - 1);
+            if (sectionBelow) {
+              const belowIndex = (15 << 8) | (lz << 4) | lx; // ly=15 in section below
+              const belowBlock = sectionBelow[belowIndex];
+              if (belowBlock !== 0 && (belowBlock & BLOCK_ID_MASK) !== 0) {
+                shouldEmit = false;
+              }
+            }
+          }
+        }
+        
+        if (shouldEmit) {
+          particleEmitters.push({
+            blockType: blockName,
+            x: baseX + lx - ox, // Apply offset like mesh vertices
+            y: baseY + ly - oy,
+            z: baseZ + lz - oz,
+            properties: state?.properties || {},
+          });
+        }
       }
       
       // Skip states that are being handled by instancing
