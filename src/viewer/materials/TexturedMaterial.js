@@ -1346,6 +1346,8 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
       uFogStart: { value: 100.0 },
       uFogEnd: { value: 200.0 },
       uFogEnabled: { value: 0.0 },
+      // Continuous glass - for glass panes (not fully implemented yet)
+      uContinuousGlass: { value: 0.0 },
     },
     vertexShader: modelVertexShader,
     fragmentShader: modelFragmentShader,

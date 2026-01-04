@@ -352,3 +352,17 @@ This document tracks all particle types and particle-emitting blocks for impleme
 - Biome-specific particles (crimson spore, warped spore, basalt deltas ash) would require biome data
 - Weather particles (rain, snow) require weather state which isn't in world files
 
+---
+
+## Non-Particle Block Effects
+
+### Beacon Beams
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Basic beam rendering | ✅ Implemented | Two-layer beam (solid inner + glow outer) |
+| Beam rotation animation | ✅ Implemented | 45°/sec rotation like Minecraft |
+| Stained glass tinting | ✅ Implemented | All 16 colors supported |
+| Color averaging | ✅ Implemented | Multiple stained glass blocks average colors |
+| Beam blocking | ✅ Implemented | Opaque blocks stop beam |
+| Beacon activation check | ⬜ Not implemented | Would require pyramid structure validation |
+
