@@ -835,7 +835,81 @@ const BLOCK_EMITTERS = {
       },
     ],
   },
+  
+  // ============================================================================
+  // FALLING LEAF PARTICLES
+  // From FallingLeavesParticle.class:
+  // - INITIAL_LIFETIME = 300 ticks (15 seconds)
+  // - gravity = 0.0025
+  // - size scale = 1.2
+  // - Has rotation (rotSpeed) and lateral flow (xaFlowScale, zaFlowScale)
+  // - Spawns below leaves blocks with leafParticleChance
+  // ============================================================================
+  
+  // Base tinted leaves config (oak, birch, jungle, acacia, dark_oak, spruce, mangrove, azalea)
+  '_tinted_leaves_base': {
+    particles: [
+      {
+        type: 'tinted_leaves',
+        rate: 0.3, // Low rate - leaves fall occasionally
+        offset: [0.5, -0.1, 0.5], // Just below block
+        offsetVariance: [0.4, 0.0, 0.4],
+        velocity: [0, -0.3, 0], // Gentle fall
+        velocityVariance: [0.15, 0.1, 0.15], // Lateral drift
+        size: 0.12, // MC: 1.2 scale on ~0.1 base
+        sizeVariance: 0.03,
+        lifetime: 12.0, // MC: 300 ticks = 15s, but we cap for performance
+        lifetimeVariance: 4.0,
+        color: [0.4, 0.7, 0.3], // Default green tint (biome would override)
+        alpha: 1.0,
+        fadeIn: 0.0,
+        fadeOut: 0.3,
+        friction: 0.995, // Very slow decay
+        gravity: 0.05, // MC: 0.0025 * 20 = 0.05
+        hasPhysics: true,
+      },
+    ],
+  },
+  
+  // Cherry leaves (pink - untinted)
+  'cherry_leaves': {
+    particles: [
+      {
+        type: 'cherry_leaves',
+        rate: 0.5, // Cherry is more prolific
+        offset: [0.5, -0.1, 0.5],
+        offsetVariance: [0.4, 0.0, 0.4],
+        velocity: [0, -0.25, 0],
+        velocityVariance: [0.2, 0.1, 0.2], // More lateral sway
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 10.0,
+        lifetimeVariance: 3.0,
+        color: [1.0, 0.7, 0.8], // Pink tint
+        alpha: 1.0,
+        fadeIn: 0.0,
+        fadeOut: 0.3,
+        friction: 0.995,
+        gravity: 0.04,
+        hasPhysics: true,
+      },
+    ],
+  },
 };
+
+// ============================================================================
+// TINTED LEAVES BLOCK ALIASES
+// All standard tree leaves use the same tinted particle config
+// ============================================================================
+const TINTED_LEAVES_BLOCKS = [
+  'oak_leaves', 'birch_leaves', 'spruce_leaves', 'jungle_leaves',
+  'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves',
+  'azalea_leaves', 'flowering_azalea_leaves',
+];
+
+for (const block of TINTED_LEAVES_BLOCKS) {
+  BLOCK_EMITTERS[block] = BLOCK_EMITTERS['_tinted_leaves_base'];
+}
 
 // ============================================================================
 // CANDLE COLOR ALIASES

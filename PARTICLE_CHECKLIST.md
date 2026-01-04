@@ -56,9 +56,9 @@ This document tracks all particle types and particle-emitting blocks for impleme
 ### Leaf Particles
 | Particle Type | Texture Size | Animated | Status |
 |---------------|--------------|----------|--------|
-| `cherry_leaves` | 8x8 | No | ⬜ Not implemented |
+| `cherry_leaves` | 8x8 | No | ✅ Implemented |
 | `pale_oak_leaves` | 8x8 | No | ⬜ Not implemented |
-| `tinted_leaves` | 8x8 | No | ⬜ Not implemented |
+| `tinted_leaves` | 8x8 | No | ✅ Implemented |
 
 ### Effect Particles
 | Particle Type | Texture Size | Animated | Status |
@@ -234,10 +234,17 @@ This document tracks all particle types and particle-emitting blocks for impleme
 |-------|----------------|-----------------|--------|
 | `spore_blossom` | spore_blossom_air, falling_spore_blossom | Always | ✅ Implemented |
 | `mycelium` | mycelium | Random | ⬜ Not implemented |
-| `cherry_leaves` | cherry_leaves | Random | ⬜ Not implemented |
+| `cherry_leaves` | cherry_leaves | Random | ✅ Implemented |
 | `pale_oak_leaves` | pale_oak_leaves | Random | ⬜ Not implemented |
-| `azalea_leaves` | ? | Random | ⬜ Not implemented |
-| `flowering_azalea_leaves` | falling_nectar | Random | ⬜ Not implemented |
+| `azalea_leaves` | tinted_leaves | Random | ✅ Implemented |
+| `flowering_azalea_leaves` | tinted_leaves | Random | ✅ Implemented |
+| `oak_leaves` | tinted_leaves | Random | ✅ Implemented |
+| `birch_leaves` | tinted_leaves | Random | ✅ Implemented |
+| `spruce_leaves` | tinted_leaves | Random | ✅ Implemented |
+| `jungle_leaves` | tinted_leaves | Random | ✅ Implemented |
+| `acacia_leaves` | tinted_leaves | Random | ✅ Implemented |
+| `dark_oak_leaves` | tinted_leaves | Random | ✅ Implemented |
+| `mangrove_leaves` | tinted_leaves | Random | ✅ Implemented |
 | `beehive` | falling_nectar | honey_level=5 | ⬜ Not implemented |
 | `bee_nest` | falling_nectar | honey_level=5 | ⬜ Not implemented |
 
@@ -304,7 +311,8 @@ This document tracks all particle types and particle-emitting blocks for impleme
 |---------|-------------|
 | ~~Spore Blossom~~ | ~~Negative Y offset spawning, area effect~~ ✅ |
 | Mycelium | Simple rising particle, random spawn |
-| Cherry/Pale Oak Leaves | Random falling leaf particles |
+| ~~Cherry Leaves~~ | ~~Random falling leaf particles~~ ✅ |
+| Pale Oak Leaves | Random falling leaf particles |
 | Crying Obsidian | Drip particle system (hang → fall → land) |
 | Wet Sponge | Simple drip, Nether dimension check |
 | Beehive/Bee Nest | Nectar drip when full |
@@ -333,8 +341,8 @@ This document tracks all particle types and particle-emitting blocks for impleme
 ## Quick Stats
 - **Total Particle Types**: ~100
 - **Total Particle-Emitting Block Types**: ~60+
-- **Implemented**: ~36 block variants (including spore blossom)
-- **Remaining**: ~24+ unique implementations needed
+- **Implemented**: ~47 block variants (including spore blossom, all tinted leaves, cherry leaves)
+- **Remaining**: ~13+ unique implementations needed
 
 ---
 

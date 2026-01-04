@@ -161,7 +161,7 @@ const PARTICLE_DEFINITIONS = {
     animated: false,
     blendMode: 'normal',
   },
-  // Cherry leaf particles
+  // Cherry leaf particles (pink - not tinted)
   cherry_leaves: {
     textures: [
       'textures/particle/cherry_0.png',
@@ -179,6 +179,26 @@ const PARTICLE_DEFINITIONS = {
     ],
     animated: true,
     frametime: 4,
+    blendMode: 'normal',
+  },
+  // Tinted leaf particles (uses biome tint - oak, birch, jungle, etc.)
+  tinted_leaves: {
+    textures: [
+      'textures/particle/leaf_0.png',
+      'textures/particle/leaf_1.png',
+      'textures/particle/leaf_2.png',
+      'textures/particle/leaf_3.png',
+      'textures/particle/leaf_4.png',
+      'textures/particle/leaf_5.png',
+      'textures/particle/leaf_6.png',
+      'textures/particle/leaf_7.png',
+      'textures/particle/leaf_8.png',
+      'textures/particle/leaf_9.png',
+      'textures/particle/leaf_10.png',
+      'textures/particle/leaf_11.png',
+    ],
+    animated: true,
+    frametime: 5, // Slow rotation through shapes
     blendMode: 'normal',
   },
   // Mycelium spores
