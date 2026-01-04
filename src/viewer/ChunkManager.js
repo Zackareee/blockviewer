@@ -1226,16 +1226,21 @@ export class ChunkManager {
     
     // Set up block lookup for beam tracing
     // Uses debugGrid if available
+    // Note: beacon positions are offset-adjusted (like mesh vertices), so no further adjustment needed
     this.beaconBeamManager.setBlockLookup((x, y, z) => {
       if (this.debugGrid) {
+        // debugGrid.getBlock returns {blockId, level} or null
         const blockData = this.debugGrid.getBlock(
           Math.floor(x),
           Math.floor(y),
           Math.floor(z)
         );
+        if (!blockData) return 'air';
+        
         // Get block name from registry
         const registry = getBlockRegistry();
-        return registry?.getBlockName(blockData & 0xFFFF) || 'air';
+        const blockInfo = registry?.getBlockInfo(blockData.blockId);
+        return blockInfo?.name || 'air';
       }
       return 'air';
     });
@@ -1351,21 +1356,26 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, offset, stats, _grid } = result;
       
       // Register particle emitters for torches and other light sources
       if (particleEmitters && this.particlesEnabled) {
         this._registerParticleEmitters(particleEmitters);
       }
       
-      // Register beacon positions for beam rendering
-      if (beaconPositions && this.beaconBeamsEnabled) {
-        this._registerBeacons(beaconPositions);
-      }
-      
-      // Merge grid for debug lookups
+      // Merge grid for debug lookups (must be done before beacon registration)
       if (_grid && this.debugGrid) {
         this._mergeDebugGrid(_grid);
+      }
+      
+      // Set world offset for beacon beam manager (beacons use world coords, meshes use render coords)
+      if (offset && this.beaconBeamManager) {
+        this.beaconBeamManager.setWorldOffset(offset.x, offset.y, offset.z);
+      }
+      
+      // Register beacon positions for beam rendering (after grid is merged so block lookup works)
+      if (beaconPositions && this.beaconBeamsEnabled) {
+        this._registerBeacons(beaconPositions);
       }
       
       if (solidMesh) this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
@@ -1488,11 +1498,16 @@ export class ChunkManager {
         }
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, particleEmitters, beaconPositions, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, particleEmitters, beaconPositions, offset, stats } = result;
         
         // Register particle emitters for torches and other light sources
         if (particleEmitters && this.particlesEnabled) {
           this._registerParticleEmitters(particleEmitters);
+        }
+        
+        // Set world offset for beacon beam manager (beacons use world coords, meshes use render coords)
+        if (offset && this.beaconBeamManager) {
+          this.beaconBeamManager.setWorldOffset(offset.x, offset.y, offset.z);
         }
         
         // Register beacon positions for beam rendering
@@ -1762,11 +1777,16 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, beaconPositions: bp2, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, beaconPositions: bp2, offset: off2, stats } = result;
         
         // Register particle emitters for torches and other light sources
         if (pe2 && this.particlesEnabled) {
           this._registerParticleEmitters(pe2);
+        }
+        
+        // Set world offset for beacon beam manager (beacons use world coords, meshes use render coords)
+        if (off2 && this.beaconBeamManager) {
+          this.beaconBeamManager.setWorldOffset(off2.x, off2.y, off2.z);
         }
         
         // Register beacon positions for beam rendering

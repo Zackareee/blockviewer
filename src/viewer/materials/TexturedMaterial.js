@@ -523,13 +523,8 @@ void main() {
       tintColor = getBiomeTint(tintType);
     }
     
-    // Apply tint to texture color
-    // For tinted blocks, the texture is grayscale and we multiply by tint
-    finalColor = texColor.rgb * tintColor;
-    alpha = texColor.a;
-    
-    // Continuous glass mode: hide the border frame pattern for seamless glass
-    // When enabled, glass blocks render without the visible grid pattern
+    // Continuous glass mode: replace border frame pattern with glass interior color
+    // When enabled, the border pixels use the center glass color for seamless appearance
     if (uContinuousGlass > 0.5) {
       // Check if this pixel is in the border region (outer 1 pixel of the 16x16 texture)
       // Border is ~6.25% of the texture on each edge (1/16 = 0.0625)
@@ -538,10 +533,27 @@ void main() {
                       localUV.y < borderSize || localUV.y > (1.0 - borderSize);
       
       if (inBorder) {
-        // In border region - make it fully transparent to hide the frame
-        discard;
+        // Sample the center of the glass texture to get the interior color
+        // Use center point (0.5, 0.5) to get the uniform glass interior
+        float tilesPerRow = uAtlasSize.x;
+        AnimResult centerAnim = getAnimatedTexData(vTexIndex);
+        float centerCol = mod(centerAnim.currentIndex, tilesPerRow);
+        float centerRow = floor(centerAnim.currentIndex / tilesPerRow);
+        vec2 centerAtlasOffset = vec2(centerCol, centerRow) * uTileUV;
+        vec2 centerAtlasUV = centerAtlasOffset + uBorderUV + vec2(0.5, 0.5) * uTextureUV;
+        
+        vec4 centerColor = texture2D(uAtlas, centerAtlasUV);
+        
+        // Replace border texture with center glass color, keeping glass alpha
+        texColor.rgb = centerColor.rgb;
+        // Keep original alpha for transparency consistency
       }
     }
+    
+    // Apply tint to texture color
+    // For tinted blocks, the texture is grayscale and we multiply by tint
+    finalColor = texColor.rgb * tintColor;
+    alpha = texColor.a;
   } else {
     // Use vertex color fallback (solid color mode)
     finalColor = vColor;

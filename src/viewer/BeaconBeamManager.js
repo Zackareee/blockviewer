@@ -309,6 +309,8 @@ export class BeaconBeamManager {
     const key = `${x},${y},${z}`;
     if (this.beacons.has(key)) return;
     
+    console.log(`[BeaconBeamManager] Adding beacon at ${x}, ${y}, ${z}`);
+    
     const beaconData = {
       x, y, z,
       sections: [],
@@ -354,7 +356,10 @@ export class BeaconBeamManager {
    * Update beacon beam sections based on blocks above
    */
   _updateBeacon(beaconData) {
-    if (!this.blockLookupFn) return;
+    if (!this.blockLookupFn) {
+      console.warn('[BeaconBeamManager] No block lookup function set');
+      return;
+    }
     
     const { x, y, z } = beaconData;
     
@@ -404,6 +409,11 @@ export class BeaconBeamManager {
     // Finalize last section if beam reached max height
     if (currentHeight > 0) {
       beaconData.sections.push(new BeamSection(currentColor, currentStartY, currentHeight));
+    }
+    
+    console.log(`[BeaconBeamManager] Beacon at ${beaconData.x},${beaconData.y},${beaconData.z} has ${beaconData.sections.length} sections`);
+    for (const s of beaconData.sections) {
+      console.log(`  - Section: startY=${s.startY}, height=${s.height}, color=0x${s.color.toString(16)}`);
     }
     
     // Create meshes for each section
@@ -533,6 +543,16 @@ export class BeaconBeamManager {
    */
   getBeaconCount() {
     return this.beacons.size;
+  }
+  
+  /**
+   * Refresh all beacons (call after block data is loaded)
+   */
+  refreshAll() {
+    console.log(`[BeaconBeamManager] Refreshing ${this.beacons.size} beacons`);
+    for (const [key, beaconData] of this.beacons) {
+      this._updateBeacon(beaconData);
+    }
   }
   
   /**

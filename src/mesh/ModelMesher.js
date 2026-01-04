@@ -701,12 +701,13 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         }
       }
       
-      // Check for beacon blocks
+      // Check for beacon blocks (store in WORLD coordinates, not offset-adjusted)
+      // This is different from particle emitters which use render coordinates
       if (stateIsBeacon[stateId]) {
         beaconPositions.push({
-          x: baseX + lx - ox,
-          y: baseY + ly - oy,
-          z: baseZ + lz - oz,
+          x: baseX + lx, // World X
+          y: baseY + ly, // World Y
+          z: baseZ + lz, // World Z
         });
       }
       
