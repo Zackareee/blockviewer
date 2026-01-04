@@ -1322,11 +1322,6 @@ class EmitterInstance {
    */
   update(deltaTime, particleSystem) {
     if (!this.active || !this.config || !particleSystem) {
-      // Debug: log why we're returning early
-      if (!this._loggedSkip) {
-        console.warn(`[EmitterInstance] Skipping update: active=${this.active}, config=${!!this.config}, particleSystem=${!!particleSystem}`);
-        this._loggedSkip = true;
-      }
       return;
     }
     
@@ -1343,12 +1338,6 @@ class EmitterInstance {
       while (this.timers[i] >= spawnInterval) {
         this.timers[i] -= spawnInterval;
         this._spawnParticle(pConfig, particleSystem);
-        
-        // Debug: log leaf particle spawns (one-time per emitter)
-        if (this.blockType.includes('leaves') && !this._loggedLeafSpawn) {
-          console.log(`[EmitterInstance] Spawned leaf particle from ${this.blockType} at ${this.x},${this.y},${this.z}`);
-          this._loggedLeafSpawn = true;
-        }
       }
     }
   }

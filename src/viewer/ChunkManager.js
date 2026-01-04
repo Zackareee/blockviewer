@@ -1198,8 +1198,7 @@ export class ChunkManager {
       );
     }
     
-    const leafEmitters = emitters.filter(e => e.blockType.includes('leaves'));
-    console.log(`[ChunkManager] Registered ${emitters.length} particle emitters (${leafEmitters.length} leaf blocks)`);
+    console.log(`[ChunkManager] Registered ${emitters.length} particle emitters`);
   }
 
   /**
