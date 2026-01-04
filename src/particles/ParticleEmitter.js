@@ -1179,6 +1179,11 @@ export class ParticleEmitterManager {
       const index = this.ambientBlocks.length;
       this.ambientBlocks.push({ blockType: normalizedType, x, y, z, properties });
       this.ambientBlocksMap.set(key, index);
+      
+      // Debug: log first few ambient additions
+      if (this.ambientBlocks.length <= 3) {
+        console.log(`[ParticleEmitterManager] Added ambient block: ${normalizedType} at ${x},${y},${z}`);
+      }
       return;
     }
     
@@ -1194,6 +1199,11 @@ export class ParticleEmitterManager {
     const emitter = new EmitterInstance(normalizedType, x, y, z, properties);
     emitter.qualityMultiplier = this.qualityMultiplier;
     this.emitters.set(key, emitter);
+    
+    // Debug: log first few persistent emitter additions
+    if (this.emitters.size <= 3) {
+      console.log(`[ParticleEmitterManager] Added persistent emitter: ${normalizedType} at ${x},${y},${z}`);
+    }
   }
   
   /**
@@ -1229,6 +1239,12 @@ export class ParticleEmitterManager {
    * @param {ParticleSystem} particleSystem - Particle system to spawn into
    */
   update(deltaTime, particleSystem) {
+    // Debug: log first update call
+    if (!this._loggedFirstUpdate) {
+      console.log(`[ParticleEmitterManager] First update: ${this.emitters.size} persistent, ${this.ambientBlocks.length} ambient, maxDist=${this.maxDistance}`);
+      this._loggedFirstUpdate = true;
+    }
+    
     const maxDistSq = this.maxDistance * this.maxDistance;
     let activeCount = 0;
     
@@ -1276,8 +1292,8 @@ export class ParticleEmitterManager {
     // Debug: log active emitters periodically (every ~5 seconds)
     if (this._debugCounter === undefined) this._debugCounter = 0;
     this._debugCounter++;
-    if (this._debugCounter % 300 === 1 && (this.emitters.size > 0 || this.ambientBlocks.length > 0)) {
-      console.log(`[ParticleEmitterManager] ${this.emitters.size} persistent + ${this.ambientBlocks.length} ambient emitters, camera at ${this.cameraX.toFixed(0)},${this.cameraY.toFixed(0)},${this.cameraZ.toFixed(0)}`);
+    if (this._debugCounter % 300 === 1) {
+      console.log(`[ParticleEmitterManager] ${this.emitters.size} persistent + ${this.ambientBlocks.length} ambient, activeCount=${activeCount}, maxDistSq=${maxDistSq}, camera at ${this.cameraX.toFixed(0)},${this.cameraY.toFixed(0)},${this.cameraZ.toFixed(0)}`);
     }
   }
   
@@ -1287,7 +1303,14 @@ export class ParticleEmitterManager {
    */
   _spawnAmbientParticles(block, particleSystem) {
     const config = BLOCK_EMITTERS[block.blockType];
-    if (!config || !config.particles) return;
+    if (!config || !config.particles) {
+      // Debug first time
+      if (!this._loggedMissingConfig) {
+        console.warn(`[ParticleEmitterManager] No config for ambient block: ${block.blockType}`);
+        this._loggedMissingConfig = true;
+      }
+      return;
+    }
     
     // For ambient blocks, we spawn with a lower probability per sample
     // This creates the random, sparse effect like in Minecraft
@@ -1296,6 +1319,12 @@ export class ParticleEmitterManager {
       // Adjusted so overall spawn rate matches config.rate when sampling many times per second
       const spawnChance = pConfig.rate * 0.016 * this.qualityMultiplier; // ~60fps assumed
       if (Math.random() > spawnChance) continue;
+      
+      // Debug: log first spawn
+      if (!this._loggedAmbientSpawn) {
+        console.log(`[ParticleEmitterManager] Spawning ambient particle: ${pConfig.type} at ${block.x},${block.y},${block.z}`);
+        this._loggedAmbientSpawn = true;
+      }
       
       // Calculate spawn position with variance
       const ox = pConfig.offset?.[0] || 0.5;
