@@ -1081,11 +1081,6 @@ class EmitterInstance {
       hasPhysics: config.hasPhysics ?? !SMOKE_PARTICLE_TYPES.has(config.type),
     });
     
-    // Debug: log first spawn
-    if (!this._loggedSpawn && particle) {
-      console.log(`[EmitterInstance] Spawned ${config.type} at ${(this.x + offset[0]).toFixed(1)},${(this.y + offset[1]).toFixed(1)},${(this.z + offset[2]).toFixed(1)}`);
-      this._loggedSpawn = true;
-    }
   }
   
   /**
@@ -1211,9 +1206,15 @@ export class ParticleEmitterManager {
       if (distSq <= maxDistSq) {
         emitter.update(deltaTime, particleSystem);
         activeCount++;
+        
+        // Debug: log first active emitter vs camera position (once)
+        if (!this._loggedActiveEmitter) {
+          console.log(`[ParticleEmitterManager] First active emitter: ${emitter.blockType} at (${emitter.x.toFixed(1)}, ${emitter.y.toFixed(1)}, ${emitter.z.toFixed(1)})`);
+          console.log(`[ParticleEmitterManager] Camera at (${this.cameraX.toFixed(1)}, ${this.cameraY.toFixed(1)}, ${this.cameraZ.toFixed(1)}), dist=${Math.sqrt(distSq).toFixed(1)}`);
+          this._loggedActiveEmitter = true;
+        }
       }
     }
-    
   }
   
   /**
