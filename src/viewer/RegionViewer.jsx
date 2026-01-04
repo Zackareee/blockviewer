@@ -478,6 +478,7 @@ function RegionScene({
   textureMode,
   textureAtlas,
   particleAtlas,
+  packManager, // Texture pack manager for beacon beams etc.
   initialCameraPosition,
   partialBlockDistance = 48, // Render distance for partial blocks (grass, flowers, slabs, etc.)
   renderDistance = 0, // Chunk render distance (0 = unlimited)
@@ -1027,6 +1028,7 @@ export function RegionViewer({
         textureMode={textureMode}
         textureAtlas={textureAtlas}
         particleAtlas={particleAtlas}
+        packManager={packManager}
         partialBlockDistance={partialBlockDistance}
         renderDistance={renderDistance}
         particleDistance={particleDistance}
