@@ -112,7 +112,9 @@ void main() {
     color = color * alpha;
   } else {
     // For non-additive particles, apply ambient brightness (darkness at night)
-    color = color * uAmbientBrightness;
+    // Clamp minimum to 40% so particles stay visible at night (less extreme than clouds)
+    vec3 adjustedBrightness = max(uAmbientBrightness, vec3(0.4));
+    color = color * adjustedBrightness;
   }
   
   // Apply fog
