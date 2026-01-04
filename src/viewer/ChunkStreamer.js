@@ -223,6 +223,8 @@ export class ChunkStreamer {
     this.loadedChunks = new Map(); // chunkKey -> { meshes, data }
     this.loadingChunks = new Set(); // Currently processing
     this.regionFiles = new Map(); // regionKey -> File
+    this.parsedChunks = new Map(); // chunkKey -> parsed chunk data (for single-region mode)
+    this.usePreParsedChunks = false; // Whether to use pre-parsed chunks instead of region files
     
     // Processing state
     this.isProcessing = false;
@@ -250,6 +252,8 @@ export class ChunkStreamer {
    */
   async setRegions(regions) {
     this.regionFiles.clear();
+    this.parsedChunks.clear();
+    this.usePreParsedChunks = false;
     
     for (const region of regions) {
       const key = `${region.regionX},${region.regionZ}`;
@@ -263,6 +267,30 @@ export class ChunkStreamer {
     }
     
     console.log(`[ChunkStreamer] Registered ${regions.length} regions for streaming`);
+  }
+
+  /**
+   * Set pre-parsed chunks for streaming (single region mode)
+   * @param {Array} chunks - Array of parsed chunk objects with { x, z, data }
+   */
+  async setParsedChunks(chunks) {
+    this.regionFiles.clear();
+    this.parsedChunks.clear();
+    this.usePreParsedChunks = true;
+    
+    // Store chunks by their world coordinates
+    for (const chunk of chunks) {
+      const key = `${chunk.x},${chunk.z}`;
+      this.parsedChunks.set(key, chunk);
+    }
+    
+    // Initialize state registry if needed
+    if (this.enableModelMeshes && !this.stateRegistry) {
+      this.stateRegistry = getStateRegistry();
+      await this.stateRegistry.init();
+    }
+    
+    console.log(`[ChunkStreamer] Registered ${chunks.length} pre-parsed chunks for streaming`);
   }
 
   /**
@@ -315,7 +343,7 @@ export class ChunkStreamer {
    * @param {boolean} immediate - If true, all chunks get immediate priority
    */
   _queueChunksAroundPlayer(immediate = false) {
-    const { playerChunkX, playerChunkZ, loadDistance, preloadDistance } = this;
+    const { playerChunkX, playerChunkZ, loadDistance, preloadDistance, usePreParsedChunks } = this;
     
     // Clear existing queue and re-prioritize
     this.loadQueue.clear();
@@ -334,18 +362,27 @@ export class ChunkStreamer {
           // Skip if already loaded or loading
           if (this.loadedChunks.has(key) || this.loadingChunks.has(key)) continue;
           
-          // Check if chunk exists in any region
-          const regionX = Math.floor(chunkX / REGION_SIZE);
-          const regionZ = Math.floor(chunkZ / REGION_SIZE);
-          const regionKey = `${regionX},${regionZ}`;
-          
-          if (!this.regionFiles.has(regionKey)) continue;
+          // Check if chunk exists
+          if (usePreParsedChunks) {
+            // For pre-parsed chunks, check directly in the map
+            if (!this.parsedChunks.has(key)) continue;
+          } else {
+            // For region files, check if the region exists
+            const regionX = Math.floor(chunkX / REGION_SIZE);
+            const regionZ = Math.floor(chunkZ / REGION_SIZE);
+            const regionKey = `${regionX},${regionZ}`;
+            
+            if (!this.regionFiles.has(regionKey)) continue;
+          }
           
           // Calculate priority (lower = higher priority)
           const dist = Math.sqrt(dx * dx + dz * dz);
           const priority = immediate ? dist : (
             dist <= loadDistance ? dist : PRIORITY_LAZY + dist
           );
+          
+          const regionX = Math.floor(chunkX / REGION_SIZE);
+          const regionZ = Math.floor(chunkZ / REGION_SIZE);
           
           this.loadQueue.push({
             chunkX,
@@ -515,42 +552,56 @@ export class ChunkStreamer {
     const chunkKey = `${chunkX},${chunkZ}`;
     
     try {
-      // Get region data (from cache or parse fresh)
-      let regionData = this.regionCache.get(regionX, regionZ);
+      let chunkData;
       
-      if (!regionData) {
-        this.stats.cacheMisses++;
+      if (this.usePreParsedChunks) {
+        // Use pre-parsed chunk data directly
+        chunkData = this.parsedChunks.get(chunkKey);
         
-        const regionKey = `${regionX},${regionZ}`;
-        const regionInfo = this.regionFiles.get(regionKey);
-        
-        if (!regionInfo) {
-          console.warn(`[ChunkStreamer] Region ${regionKey} not found`);
+        if (!chunkData) {
           this.loadingChunks.delete(chunkKey);
           return;
         }
         
-        // Parse region file
-        const buffer = await regionInfo.file.arrayBuffer();
-        const chunks = await this._parseRegionBuffer(buffer, regionX, regionZ);
-        
-        // Cache for future use
-        this.regionCache.set(regionX, regionZ, buffer, chunks);
-        regionData = { buffer, chunks };
-      } else {
         this.stats.cacheHits++;
-      }
-      
-      // Find the specific chunk
-      const localX = ((chunkX % REGION_SIZE) + REGION_SIZE) % REGION_SIZE;
-      const localZ = ((chunkZ % REGION_SIZE) + REGION_SIZE) % REGION_SIZE;
-      
-      const chunkData = regionData.chunks.find(c => c.x === localX && c.z === localZ);
-      
-      if (!chunkData) {
-        // Chunk doesn't exist in this region (could be empty/ungenerated)
-        this.loadingChunks.delete(chunkKey);
-        return;
+      } else {
+        // Get region data (from cache or parse fresh)
+        let regionData = this.regionCache.get(regionX, regionZ);
+        
+        if (!regionData) {
+          this.stats.cacheMisses++;
+          
+          const regionKey = `${regionX},${regionZ}`;
+          const regionInfo = this.regionFiles.get(regionKey);
+          
+          if (!regionInfo) {
+            console.warn(`[ChunkStreamer] Region ${regionKey} not found`);
+            this.loadingChunks.delete(chunkKey);
+            return;
+          }
+          
+          // Parse region file
+          const buffer = await regionInfo.file.arrayBuffer();
+          const chunks = await this._parseRegionBuffer(buffer, regionX, regionZ);
+          
+          // Cache for future use
+          this.regionCache.set(regionX, regionZ, buffer, chunks);
+          regionData = { buffer, chunks };
+        } else {
+          this.stats.cacheHits++;
+        }
+        
+        // Find the specific chunk
+        const localX = ((chunkX % REGION_SIZE) + REGION_SIZE) % REGION_SIZE;
+        const localZ = ((chunkZ % REGION_SIZE) + REGION_SIZE) % REGION_SIZE;
+        
+        chunkData = regionData.chunks.find(c => c.x === localX && c.z === localZ);
+        
+        if (!chunkData) {
+          // Chunk doesn't exist in this region (could be empty/ungenerated)
+          this.loadingChunks.delete(chunkKey);
+          return;
+        }
       }
       
       // Build meshes for this single chunk

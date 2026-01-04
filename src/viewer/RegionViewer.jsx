@@ -770,12 +770,13 @@ function RegionScene({
     }
   }, [skyColors.cloudColor, invalidate]);
   
-  // Load single region chunks
+  // Load single region chunks (non-streaming mode)
   // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
   useEffect(() => {
     const manager = managerRef.current;
     if (!manager || !chunks || chunks.length === 0) return;
     if (regions && regions.length > 0) return; // Multi-region takes precedence
+    if (enableChunkStreaming) return; // Streaming mode handles this separately
     
     // Wait for textureAtlas to be ready (prevents race condition with incomplete model meshes)
     if (!textureAtlas) {
@@ -796,7 +797,7 @@ function RegionScene({
       invalidate();
     });
     
-  }, [chunks, textureAtlas, invalidate]);
+  }, [chunks, textureAtlas, invalidate, enableChunkStreaming]);
   
   // Track texture atlas changes to detect when we need to rebuild meshes
   const lastTextureAtlasRef = useRef(null);
@@ -1016,12 +1017,16 @@ function RegionScene({
   // ============================================================================
   // CHUNK STREAMING MODE
   // When enabled, loads chunks around the player position instead of entire regions
+  // Works with both single-region (chunks prop) and multi-region (regions prop)
   // ============================================================================
   
   // Initialize ChunkStreamer when streaming mode is enabled
   useEffect(() => {
     const manager = managerRef.current;
-    if (!manager || !enableChunkStreaming || !regions || regions.length === 0) {
+    const hasRegions = regions && regions.length > 0;
+    const hasChunks = chunks && chunks.length > 0;
+    
+    if (!manager || !enableChunkStreaming || (!hasRegions && !hasChunks)) {
       // Clean up streamer if streaming was disabled
       if (streamerRef.current && !enableChunkStreaming) {
         streamerRef.current.dispose();
@@ -1062,25 +1067,47 @@ function RegionScene({
       console.log('[RegionViewer] Created ChunkStreamer with distance:', chunkStreamDistance);
     }
     
-    // Register region files with streamer
-    streamer.setRegions(regions);
+    // Calculate center position and register data
+    let centerX, centerZ;
     
-    // Calculate initial camera position from regions center
-    let minX = Infinity, maxX = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
-    for (const { regionX, regionZ } of regions) {
-      const rx = regionX * 512;
-      const rz = regionZ * 512;
-      minX = Math.min(minX, rx);
-      maxX = Math.max(maxX, rx + 512);
-      minZ = Math.min(minZ, rz);
-      maxZ = Math.max(maxZ, rz + 512);
+    if (hasRegions) {
+      // Multi-region mode: register region files with streamer
+      streamer.setRegions(regions);
+      
+      // Calculate initial camera position from regions center
+      let minX = Infinity, maxX = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+      for (const { regionX, regionZ } of regions) {
+        const rx = regionX * 512;
+        const rz = regionZ * 512;
+        minX = Math.min(minX, rx);
+        maxX = Math.max(maxX, rx + 512);
+        minZ = Math.min(minZ, rz);
+        maxZ = Math.max(maxZ, rz + 512);
+      }
+      centerX = (minX + maxX) / 2;
+      centerZ = (minZ + maxZ) / 2;
+    } else {
+      // Single-region mode: use pre-parsed chunks
+      streamer.setParsedChunks(chunks);
+      
+      // Calculate center from chunk coordinates
+      let minX = Infinity, maxX = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+      for (const chunk of chunks) {
+        const cx = chunk.x * 16;
+        const cz = chunk.z * 16;
+        minX = Math.min(minX, cx);
+        maxX = Math.max(maxX, cx + 16);
+        minZ = Math.min(minZ, cz);
+        maxZ = Math.max(maxZ, cz + 16);
+      }
+      centerX = (minX + maxX) / 2;
+      centerZ = (minZ + maxZ) / 2;
     }
-    const centerX = (minX + maxX) / 2;
-    const centerZ = (minZ + maxZ) / 2;
     
     // Start loading around center position
-    manager.clear(); // Clear any existing region-based meshes
+    manager.clear(); // Clear any existing meshes
     streamer.loadAroundPosition(centerX, centerZ).then(result => {
       console.log(`[RegionViewer] ChunkStreamer initial load: ${result.chunksLoaded} chunks`);
       
@@ -1095,7 +1122,7 @@ function RegionScene({
     return () => {
       // Don't dispose on cleanup - keep for HMR
     };
-  }, [enableChunkStreaming, regions, textureAtlas, chunkStreamDistance, enableModelMeshes, invalidate]);
+  }, [enableChunkStreaming, regions, chunks, textureAtlas, chunkStreamDistance, enableModelMeshes, invalidate]);
   
   // Update chunk streamer with camera position
   useEffect(() => {
