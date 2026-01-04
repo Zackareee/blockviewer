@@ -652,13 +652,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       // This ensures we capture particles for ALL blocks (including full cubes like leaves)
       if (stateHasParticleEmitter[stateId]) {
         const state = stateRegistry.getState(stateId);
-        const blockName = state ? state.blockName : 'unknown';
-        // Debug: log leaves collection
-        if (blockName.includes('leaves')) {
-          console.log(`[ModelMesher] Collecting leaf emitter at ${baseX + lx},${baseY + ly},${baseZ + lz}: ${blockName}`);
-        }
         particleEmitters.push({
-          blockType: blockName,
+          blockType: state ? state.blockName : 'torch',
           x: baseX + lx, // Use actual world position (not offset-adjusted)
           y: baseY + ly,
           z: baseZ + lz,
