@@ -1326,6 +1326,16 @@ export class ChunkManager {
       this.particleSystem.setFog(params);
     }
   }
+  
+  /**
+   * Set particle ambient brightness (darkens non-additive particles at night)
+   * @param {Object} brightness - { r, g, b } values 0-1
+   */
+  setParticleAmbientBrightness(brightness) {
+    if (this.particleSystem) {
+      this.particleSystem.setAmbientBrightness(brightness);
+    }
+  }
 
   /**
    * Get particle count for debug display

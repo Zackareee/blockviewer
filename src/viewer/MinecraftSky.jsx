@@ -1183,7 +1183,7 @@ export function MinecraftSky({
   const horizonColorHex = '#' + colors.horizonColor.getHexString();
   const fogColorHex = '#' + colors.fogColor.getHexString();
 
-  // Notify parent of color changes (for fog synchronization)
+  // Notify parent of color changes (for fog synchronization and particle brightness)
   useEffect(() => {
     if (onColorsChange) {
       onColorsChange({
@@ -1191,9 +1191,15 @@ export function MinecraftSky({
         horizonColor: horizonColorHex,
         fogColor: fogColorHex,
         brightness: colors.brightness,
+        // Cloud color multiplier - used for particle ambient brightness
+        cloudColor: {
+          r: colors.cloudColor.r,
+          g: colors.cloudColor.g,
+          b: colors.cloudColor.b,
+        },
       });
     }
-  }, [onColorsChange, skyColorHex, horizonColorHex, fogColorHex, colors.brightness]);
+  }, [onColorsChange, skyColorHex, horizonColorHex, fogColorHex, colors.brightness, colors.cloudColor]);
 
   // Set scene background to null so our sky dome is visible
   useEffect(() => {

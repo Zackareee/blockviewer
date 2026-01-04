@@ -650,6 +650,20 @@ export class ParticleSystem {
   }
   
   /**
+   * Update ambient brightness for non-additive particles (darkens at night)
+   * @param {Object} brightness - { r, g, b } values 0-1
+   */
+  setAmbientBrightness(brightness) {
+    if (this.normalMaterial?.uniforms?.uAmbientBrightness) {
+      this.normalMaterial.uniforms.uAmbientBrightness.value.set(brightness.r, brightness.g, brightness.b);
+    }
+    // Additive material doesn't use ambient brightness, but set it anyway in case shader is updated
+    if (this.additiveMaterial?.uniforms?.uAmbientBrightness) {
+      this.additiveMaterial.uniforms.uAmbientBrightness.value.set(brightness.r, brightness.g, brightness.b);
+    }
+  }
+  
+  /**
    * Clear all particles
    */
   clear() {

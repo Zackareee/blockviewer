@@ -82,6 +82,7 @@ uniform float uFogStart;
 uniform float uFogEnd;
 uniform float uFogEnabled;
 uniform float uAdditiveBlending; // 1.0 for additive, 0.0 for normal
+uniform vec3 uAmbientBrightness; // RGB brightness multiplier based on time of day (1.0 = day, ~0.15 = night)
 
 varying vec2 vUV;
 varying vec3 vColor;
@@ -109,6 +110,9 @@ void main() {
   // For additive blending, premultiply alpha
   if (uAdditiveBlending > 0.5) {
     color = color * alpha;
+  } else {
+    // For non-additive particles, apply ambient brightness (darkness at night)
+    color = color * uAmbientBrightness;
   }
   
   // Apply fog
@@ -158,6 +162,7 @@ export function createParticleMaterial(particleAtlas) {
       uFogEnd: { value: 256 },
       uFogEnabled: { value: 1.0 },
       uAdditiveBlending: { value: 0.0 },
+      uAmbientBrightness: { value: new THREE.Vector3(1.0, 1.0, 1.0) }, // Default to full brightness
     },
     transparent: true,
     depthWrite: false,
@@ -201,6 +206,7 @@ export function createAdditiveParticleMaterial(particleAtlas) {
       uFogEnd: { value: 256 },
       uFogEnabled: { value: 1.0 },
       uAdditiveBlending: { value: 1.0 },
+      uAmbientBrightness: { value: new THREE.Vector3(1.0, 1.0, 1.0) }, // Not used for additive but uniform must exist
     },
     transparent: true,
     depthWrite: false,
@@ -242,6 +248,17 @@ export function updateParticleFog(material, fogParams) {
 export function updateParticleTime(material, time) {
   if (material?.uniforms?.uTime) {
     material.uniforms.uTime.value = time;
+  }
+}
+
+/**
+ * Update ambient brightness for particles (affects non-additive particles)
+ * @param {THREE.ShaderMaterial} material
+ * @param {Object} brightness - { r, g, b } values 0-1
+ */
+export function updateParticleAmbientBrightness(material, brightness) {
+  if (material?.uniforms?.uAmbientBrightness) {
+    material.uniforms.uAmbientBrightness.value.set(brightness.r, brightness.g, brightness.b);
   }
 }
 

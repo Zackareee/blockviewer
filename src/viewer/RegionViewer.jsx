@@ -501,6 +501,7 @@ function RegionScene({
     horizonColor: '#c8d8ff',
     fogColor: '#c8d8ff',
     brightness: 1.0,
+    cloudColor: { r: 1.0, g: 1.0, b: 1.0 }, // Ambient brightness for particles
   });
   
   // Callback for MinecraftSky to update colors
@@ -661,6 +662,15 @@ function RegionScene({
       invalidate();
     }
   }, [fogEnabled, renderDistance, skyColors.fogColor, invalidate]);
+  
+  // Update particle ambient brightness based on time of day (uses cloud color multiplier)
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.setParticleAmbientBrightness && skyColors.cloudColor) {
+      manager.setParticleAmbientBrightness(skyColors.cloudColor);
+      invalidate();
+    }
+  }, [skyColors.cloudColor, invalidate]);
   
   // Load single region chunks
   // Also reload when textureAtlas changes (to rebuild meshes with texture indices)

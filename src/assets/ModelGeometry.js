@@ -563,50 +563,39 @@ class ModelGeometry {
         // Map UVs to the 4 vertices using the face's UV mapping
         // Apply rotation by remapping the vertex indices
         const uvMap = FACE_UV_MAPPING[faceName];
-        const rotSteps = Math.floor(totalUVRotation / 90);
+        const rotSteps = Math.floor(totalUVRotation / 90) % 4;
         
         // Calculate UV dimensions
         const uWidth = u2 - u1;
         const vHeight = v2 - v1;
         
-        // For 90° or 270° rotations, we need to rotate UV coordinates around the center
-        // This handles non-square UV regions (like stair step tops: 8x16)
-        const isOddRotation = (rotSteps === 1 || rotSteps === 3);
+        // Calculate the 4 corner UVs first (before rotation)
+        // Corner order: [0]=bottom-left, [1]=bottom-right, [2]=top-right, [3]=top-left
+        // (in Minecraft UV space where V increases downward)
+        const cornerUVs = [
+          [u1, v1],           // 0: (0, 0) weight
+          [u2, v1],           // 1: (1, 0) weight  
+          [u2, v2],           // 2: (1, 1) weight
+          [u1, v2],           // 3: (0, 1) weight
+        ];
         
         for (let i = 0; i < 4; i++) {
-          // Get the base UV weights for this vertex
+          // Get the base UV weights for this vertex (0 or 1 for each axis)
           const baseWeights = uvMap[i];
-          let uWeight = baseWeights[0];
-          let vWeight = baseWeights[1];
           
-          // Apply UV rotation around center (0.5, 0.5)
-          // For each 90° step, rotate: (u,v) -> (v, 1-u)
-          for (let r = 0; r < rotSteps; r++) {
-            const newU = vWeight;
-            const newV = 1 - uWeight;
-            uWeight = newU;
-            vWeight = newV;
-          }
+          // Map weight [0,1] to corner index
+          // weight (0,0) -> corner 0, (1,0) -> corner 1, (1,1) -> corner 2, (0,1) -> corner 3
+          let cornerIdx = baseWeights[0] + baseWeights[1] * 2;
+          if (baseWeights[0] === 1 && baseWeights[1] === 1) cornerIdx = 2;
+          if (baseWeights[0] === 0 && baseWeights[1] === 1) cornerIdx = 3;
           
-          // For odd rotations (90°, 270°), the UV space is rotated, so we need to
-          // adjust for non-square UV regions to prevent stretching
-          if (isOddRotation) {
-            // Center of the UV region
-            const uCenter = (u1 + u2) / 2;
-            const vCenter = (v1 + v2) / 2;
-            
-            // Map rotated weights using the swapped dimensions
-            // After 90° rotation, what was horizontal is now vertical
-            const localU = (uWeight - 0.5) * vHeight + uCenter;
-            const localV = (vWeight - 0.5) * uWidth + vCenter;
-            
-            uvs[uvOffset++] = localU;
-            uvs[uvOffset++] = localV;
-          } else {
-            // 0° or 180° rotation - no dimension swap needed
-            uvs[uvOffset++] = u1 + uWeight * uWidth;
-            uvs[uvOffset++] = v1 + vWeight * vHeight;
-          }
+          // Apply UV rotation by shifting which corner we sample from
+          // Each 90° rotation cycles the corners: 0->1->2->3->0
+          // But rotation is clockwise in UV space, so we go: 0->3->2->1->0
+          cornerIdx = (cornerIdx + (4 - rotSteps)) % 4;
+          
+          uvs[uvOffset++] = cornerUVs[cornerIdx][0];
+          uvs[uvOffset++] = cornerUVs[cornerIdx][1];
         }
 
         // Generate indices (2 triangles) - CCW winding for front faces
