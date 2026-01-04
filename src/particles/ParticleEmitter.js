@@ -776,54 +776,60 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   'spore_blossom': {
-    // Spore blossom hangs from ceiling - flower part is in LOWER portion of block (y ~0.3)
-    // From SporeBlossomFallProvider.class and SporeBlossomAirProvider.class:
-    // - Color: RGB(0.32, 0.50, 0.22) - GREEN
-    // - Particles should drift down gently like pollen/spores
-    // - PARTICLE_XZ_RADIUS = 10, PARTICLE_Y_MAX = 16
+    // Spore blossom hangs from ceiling - flower is in LOWER portion of block (y ~0.3)
+    // DECOMPILED FROM MINECRAFT BYTECODE:
+    // DripParticle.class: gravity=0.06, friction=0.98, size=0.01
+    // SporeBlossomFallProvider.class: lifetime=64 ticks, velocity=0.005, color=[0.32,0.50,0.22]
+    // SuspendedParticle.class: size=0.125 (quadSize)
+    //
+    // CONVERSIONS APPLIED:
+    // - lifetime: 64 ticks / 20 = 3.2 seconds
+    // - velocity: 0.005 * 20 = 0.1 blocks/sec
+    // - gravity: 0.06 * 20 = 1.2 (BV formula: vy -= gravity * ticksElapsed * 0.05)
+    // - friction: 0.98 (same, applied per tick)
+    // - size: MC scale 0.01 base, quadSize ~0.125 → ~0.1 blocks visible
     areaEmitter: true,
     particles: [
       {
-        // Direct drips from the blossom itself (FallingParticle behavior)
-        // Spore blossom flower hangs from ceiling at around y=0.3 in block space
+        // Direct drips from the blossom (DripParticle$FallingParticle)
         type: 'falling_spore_blossom',
-        rate: 2.5, // Steady drip from the block
-        offset: [0.5, 0.3, 0.5], // At the flower (hangs from ceiling)
-        offsetVariance: [0.25, 0.0, 0.25], // Spread across flower face
-        velocity: [0, -0.2, 0], // Gentle initial fall
-        velocityVariance: [0.03, 0.05, 0.03],
-        size: 0.15, // Visible pollen-like particle
-        sizeVariance: 0.04,
-        lifetime: 6.0, // Long life for gentle fall
-        lifetimeVariance: 2.0,
-        color: [0.32, 0.50, 0.22], // GREEN - from MC bytecode
+        rate: 2.0,
+        offset: [0.5, 0.3, 0.5], // Flower hangs from ceiling
+        offsetVariance: [0.25, 0.0, 0.25],
+        velocity: [0, -0.1, 0], // MC: 0.005/tick * 20 = 0.1 blocks/sec
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.1, // MC quadSize ~0.125
+        sizeVariance: 0.02,
+        lifetime: 3.2, // MC: 64 ticks
+        lifetimeVariance: 0.8,
+        color: [0.32, 0.50, 0.22], // GREEN - exact MC values
         alpha: 0.9,
         fadeIn: 0.1,
-        fadeOut: 0.3,
-        friction: 0.995,
-        gravity: 0.3, // Gentle acceleration - drifts down slowly
-        hasPhysics: true, // Lands on blocks
+        fadeOut: 0.1, // MC: 0.9 end alpha
+        friction: 0.98, // MC: exact value
+        gravity: 1.2, // MC: 0.06 * 20 = 1.2
+        hasPhysics: true,
       },
       {
-        // Ambient spores floating in the air below (SuspendedParticle behavior)
-        // Spawn in a large area below the blossom (MC: 10 block XZ radius, 16 blocks down)
+        // Ambient floating spores (SuspendedParticle)
+        // MC spawns in 10-block XZ radius, 16 blocks down
         type: 'spore_blossom_air',
-        rate: 4.0, // ~14 attempts * 0.7 chance / 20 ticks
+        rate: 3.0,
         offset: [0.5, -4.0, 0.5], // Center of spawn volume
-        offsetVariance: [8.0, 4.0, 8.0], // Large spawn area
-        velocity: [0, -0.6, 0], // Gentle constant downward drift
-        velocityVariance: [0.03, 0.1, 0.03],
-        size: 0.12, // Visible floating spore
-        sizeVariance: 0.03,
-        lifetime: 8.0, // Long-lasting ambient particles
-        lifetimeVariance: 3.0,
-        color: [0.32, 0.50, 0.22], // GREEN - from MC bytecode
-        alpha: 0.75,
+        offsetVariance: [8.0, 4.0, 8.0],
+        velocity: [0, -0.4, 0], // Gentle constant drift
+        velocityVariance: [0.02, 0.05, 0.02],
+        size: 0.1, // MC quadSize ~0.125
+        sizeVariance: 0.02,
+        lifetime: 5.0,
+        lifetimeVariance: 2.0,
+        color: [0.32, 0.50, 0.22], // GREEN
+        alpha: 0.8,
         fadeIn: 0.1,
         fadeOut: 0.4,
-        friction: 1.0, // No friction - constant velocity fall
-        gravity: 0.0, // No gravity - constant speed fall
-        hasPhysics: false, // Ambient particles pass through blocks
+        friction: 1.0, // Suspended particles - constant velocity
+        gravity: 0.0, // No acceleration
+        hasPhysics: false,
       },
     ],
   },
