@@ -468,11 +468,21 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         continue;
       }
       
-      // Skip full-cube blocks that are only in stateGrid for particle purposes
-      // These blocks (leaves, glass, ice, etc.) are rendered by FastMesher, not ModelMesher
-      // They're in stateGrid because hasEmitter() returned true, not because they need model geometry
+      // For full-cube blocks (leaves, glass, ice, etc.), we don't need model geometry
+      // but we DO need to track particle emitters and beacons before skipping
       if (blockName && !isNonCubeBlock(blockName)) {
         stateGeometries[stateId] = null;
+        
+        // Track blocks that emit particles (leaves, etc.) even if they're full cubes
+        if (hasEmitter(blockName)) {
+          stateHasParticleEmitter[stateId] = 1;
+        }
+        
+        // Track beacon blocks
+        if (blockName === 'beacon') {
+          stateIsBeacon[stateId] = 1;
+        }
+        
         continue;
       }
       

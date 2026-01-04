@@ -2083,14 +2083,12 @@ export class ChunkManager {
         );
         const regionTime = performance.now() - regionStart;
         
-        // Stage 2: Decoding complete (included in worker, but we can estimate from stats)
-        onStageChange?.(i, totalRegions, regionName, 'decoding', 50);
-        
-        // Stage 3: Meshing complete
-        onStageChange?.(i, totalRegions, regionName, 'meshing', 75);
-        
-        // Stage 4: Adding to scene
+        // Worker completed parse+decode+mesh - now adding to scene
+        // (skipping fake decoding/meshing stages since worker does them all at once)
         onStageChange?.(i, totalRegions, regionName, 'adding', 0);
+        
+        // Small delay to let React rerender and show the "adding" stage
+        await new Promise(r => setTimeout(r, 10));
         
         // Add meshes to scene
         let drawCalls = 0;
@@ -2119,6 +2117,7 @@ export class ChunkManager {
           }
         }
         onStageChange?.(i, totalRegions, regionName, 'adding', 25);
+        await new Promise(r => setTimeout(r, 5));
         
         // Handle water/lava with LOD (hide at distance) - 50% progress
         if (result.water) {
@@ -2129,6 +2128,7 @@ export class ChunkManager {
           }
         }
         onStageChange?.(i, totalRegions, regionName, 'adding', 50);
+        await new Promise(r => setTimeout(r, 5));
         
         if (result.lava) {
           if (shouldGenerateLOD && meshCenter) {
@@ -2138,6 +2138,7 @@ export class ChunkManager {
           }
         }
         onStageChange?.(i, totalRegions, regionName, 'adding', 75);
+        await new Promise(r => setTimeout(r, 5));
         
         if (result.glass) {
           if (shouldGenerateLOD && meshCenter) {
@@ -2147,9 +2148,11 @@ export class ChunkManager {
           }
         }
         onStageChange?.(i, totalRegions, regionName, 'adding', 100);
+        await new Promise(r => setTimeout(r, 5));
         
         // Stage 5: Particles (streaming mode doesn't have particles, but show stage anyway)
         onStageChange?.(i, totalRegions, regionName, 'particles', 100);
+        await new Promise(r => setTimeout(r, 10));
         
         // Update stats
         totalBlocks += stats.totalBlocks || 0;
@@ -2272,12 +2275,10 @@ export class ChunkManager {
         );
         const regionTime = performance.now() - regionStart;
         
-        // Stage 2-3: Decoding and Meshing complete (worker did these)
-        onStageChange?.(i, totalRegions, regionName, 'decoding', 50);
-        onStageChange?.(i, totalRegions, regionName, 'meshing', 75);
-        
-        // Stage 4: Adding to scene
+        // Worker completed parse+decode+mesh - now adding to scene
+        // (skipping fake decoding/meshing stages since worker does them all at once)
         onStageChange?.(i, totalRegions, regionName, 'adding', 0);
+        await new Promise(r => setTimeout(r, 10));
         
         // Add meshes to scene
         let drawCalls = 0;
@@ -2305,6 +2306,7 @@ export class ChunkManager {
           }
         }
         onStageChange?.(i, totalRegions, regionName, 'adding', 25);
+        await new Promise(r => setTimeout(r, 5));
         
         // Handle water/lava/glass with LOD (hide at distance) - 50% progress
         if (result.water) {
@@ -2315,6 +2317,7 @@ export class ChunkManager {
           }
         }
         onStageChange?.(i, totalRegions, regionName, 'adding', 50);
+        await new Promise(r => setTimeout(r, 5));
         
         if (result.lava) {
           if (shouldGenerateLOD && meshCenter) {
@@ -2324,6 +2327,7 @@ export class ChunkManager {
           }
         }
         onStageChange?.(i, totalRegions, regionName, 'adding', 75);
+        await new Promise(r => setTimeout(r, 5));
         
         if (result.glass) {
           if (shouldGenerateLOD && meshCenter) {
@@ -2333,9 +2337,11 @@ export class ChunkManager {
           }
         }
         onStageChange?.(i, totalRegions, regionName, 'adding', 100);
+        await new Promise(r => setTimeout(r, 5));
         
         // Stage 5: Particles complete
         onStageChange?.(i, totalRegions, regionName, 'particles', 100);
+        await new Promise(r => setTimeout(r, 10));
         
         // Update stats
         addedBlocks += stats.totalBlocks || 0;

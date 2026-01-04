@@ -510,6 +510,18 @@ body {
   transition: width 0.15s ease-out;
 }
 
+/* Indeterminate progress animation for stages where we can't measure progress */
+.stage-progress-bar.indeterminate .stage-progress-fill {
+  width: 30% !important;
+  animation: indeterminate-progress 1.2s ease-in-out infinite;
+}
+
+@keyframes indeterminate-progress {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(200%); }
+  100% { transform: translateX(-100%); }
+}
+
 .build-stage.complete {
   color: var(--success);
 }

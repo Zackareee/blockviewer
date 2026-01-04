@@ -415,19 +415,21 @@ function App() {
               
               {/* Stage indicators */}
               <div className="build-stages">
-                {['parsing', 'decoding', 'meshing', 'adding', 'particles'].map((stageName, idx) => {
+                {['processing', 'adding', 'particles'].map((stageName, idx) => {
                   const stageLabels = {
-                    parsing: '📦 Parsing',
-                    decoding: '🔓 Decoding',
-                    meshing: '🧱 Building Mesh',
+                    processing: '🧱 Processing',
                     adding: '🎨 Adding to Scene',
                     particles: '✨ Particles',
                   };
-                  const stageOrder = ['parsing', 'decoding', 'meshing', 'adding', 'particles'];
-                  const currentIdx = stageOrder.indexOf(buildProgress.stage);
+                  const stageOrder = ['processing', 'adding', 'particles'];
+                  // Map internal stages to UI stages
+                  const currentUIStage = ['parsing', 'decoding', 'meshing'].includes(buildProgress.stage) 
+                    ? 'processing' 
+                    : buildProgress.stage;
+                  const currentIdx = stageOrder.indexOf(currentUIStage);
                   const thisIdx = stageOrder.indexOf(stageName);
-                  const isActive = stageName === buildProgress.stage;
-                  const isComplete = thisIdx < currentIdx;
+                  const isActive = stageName === currentUIStage;
+                  const isComplete = thisIdx < currentIdx || buildProgress.stage === 'complete';
                   
                   return (
                     <div 
@@ -441,10 +443,10 @@ function App() {
                         <span className="stage-label">{stageLabels[stageName]}</span>
                       </div>
                       {isActive && (
-                        <div className="stage-progress-bar">
+                        <div className={`stage-progress-bar ${stageName === 'processing' ? 'indeterminate' : ''}`}>
                           <div 
                             className="stage-progress-fill"
-                            style={{ width: `${buildProgress.stageProgress || 0}%` }}
+                            style={{ width: stageName === 'processing' ? '30%' : `${buildProgress.stageProgress || 0}%` }}
                           />
                         </div>
                       )}
