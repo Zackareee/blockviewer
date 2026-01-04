@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 import { RegionViewer } from './viewer';
 import { parseMCAFile, parseEntityRegionFile } from './utils/mcaParser';
 import { 
@@ -339,6 +340,74 @@ function App() {
     return { x: 0, z: 0 }; // Default if pattern doesn't match
   }, []);
 
+  // Extract region files from a world zip file
+  // Returns array of File objects for region files, or null if not a valid world zip
+  const extractRegionsFromZip = useCallback(async (zipFile) => {
+    try {
+      const zip = await JSZip.loadAsync(zipFile);
+      
+      // Look for a 'region' folder (could be at root or inside a world folder)
+      // Common patterns:
+      // - region/r.0.0.mca (direct in zip)
+      // - worldname/region/r.0.0.mca (world folder at root)
+      let regionPrefix = '';
+      
+      for (const path of Object.keys(zip.files)) {
+        // Look for .mca files in a 'region' folder
+        if (path.includes('region/') && path.endsWith('.mca')) {
+          const idx = path.indexOf('region/');
+          regionPrefix = path.substring(0, idx + 'region/'.length);
+          break;
+        }
+      }
+      
+      if (!regionPrefix) {
+        console.log('[App] No region folder found in zip');
+        return null;
+      }
+      
+      console.log(`[App] Found region folder at: ${regionPrefix}`);
+      
+      // Get all .mca files in the region folder
+      const regionFiles = [];
+      for (const [path, file] of Object.entries(zip.files)) {
+        if (path.startsWith(regionPrefix) && path.endsWith('.mca') && !file.dir) {
+          // Extract just the filename (e.g., "r.0.0.mca")
+          const filename = path.substring(regionPrefix.length);
+          // Skip files in subdirectories
+          if (!filename.includes('/')) {
+            regionFiles.push({ path, filename, file });
+          }
+        }
+      }
+      
+      if (regionFiles.length === 0) {
+        console.log('[App] No .mca files found in region folder');
+        return null;
+      }
+      
+      console.log(`[App] Found ${regionFiles.length} region files in zip`);
+      
+      // For now, load only the first region file
+      // TODO: Could load all or let user choose
+      const firstRegion = regionFiles[0];
+      const regionData = await firstRegion.file.async('arraybuffer');
+      
+      // Create a File object from the extracted data
+      const extractedFile = new File(
+        [regionData], 
+        firstRegion.filename,
+        { type: 'application/octet-stream' }
+      );
+      
+      console.log(`[App] Extracted region file: ${firstRegion.filename}`);
+      return [extractedFile];
+    } catch (err) {
+      console.error('[App] Failed to extract regions from zip:', err);
+      return null;
+    }
+  }, []);
+
   // Core file processing logic (shared between load and add)
   const processRegionFiles = useCallback(async (files, isAddMode = false) => {
     if (files.length === 0) return;
@@ -394,18 +463,64 @@ function App() {
   // Handle file upload (replace existing)
   const handleFileUpload = useCallback(async (event) => {
     const files = Array.from(event.target.files);
-    await processRegionFiles(files, false);
+    
+    // Check if any file is a zip (potential world save)
+    let filesToProcess = [];
+    for (const file of files) {
+      if (file.name.toLowerCase().endsWith('.zip')) {
+        // Try to extract region files from the zip
+        setLoading(true);
+        const extractedRegions = await extractRegionsFromZip(file);
+        setLoading(false);
+        
+        if (extractedRegions && extractedRegions.length > 0) {
+          filesToProcess.push(...extractedRegions);
+        } else {
+          setError('No region files found in zip. Expected a world save with a region/ folder.');
+        }
+      } else {
+        filesToProcess.push(file);
+      }
+    }
+    
+    if (filesToProcess.length > 0) {
+      await processRegionFiles(filesToProcess, false);
+    }
+    
     // Reset file input so same file can be selected again
     event.target.value = '';
-  }, [processRegionFiles]);
+  }, [processRegionFiles, extractRegionsFromZip]);
 
   // Handle adding region files (append to existing)
   const handleAddRegionFiles = useCallback(async (event) => {
     const files = Array.from(event.target.files);
-    await processRegionFiles(files, true);
+    
+    // Check if any file is a zip (potential world save)
+    let filesToProcess = [];
+    for (const file of files) {
+      if (file.name.toLowerCase().endsWith('.zip')) {
+        // Try to extract region files from the zip
+        setLoading(true);
+        const extractedRegions = await extractRegionsFromZip(file);
+        setLoading(false);
+        
+        if (extractedRegions && extractedRegions.length > 0) {
+          filesToProcess.push(...extractedRegions);
+        } else {
+          setError('No region files found in zip. Expected a world save with a region/ folder.');
+        }
+      } else {
+        filesToProcess.push(file);
+      }
+    }
+    
+    if (filesToProcess.length > 0) {
+      await processRegionFiles(filesToProcess, true);
+    }
+    
     // Reset file input so same file can be selected again
     event.target.value = '';
-  }, [processRegionFiles]);
+  }, [processRegionFiles, extractRegionsFromZip]);
 
   // Handle entity region file upload
   const handleEntityRegionUpload = useCallback(async (event) => {
@@ -554,7 +669,7 @@ function App() {
           <div className="empty-state">
             <div className="empty-icon">⛏️</div>
             <h2>Region Viewer</h2>
-            <p>Upload MCA region files to visualize your world in 3D</p>
+            <p>Upload MCA region files or a world .zip to visualize in 3D</p>
           </div>
         )}
       </div>
@@ -606,7 +721,7 @@ function App() {
             <label className="file-upload">
               <input 
                 type="file" 
-                accept=".mca,.mcr"
+                accept=".mca,.mcr,.zip"
                 onChange={handleFileUpload}
                 disabled={loading}
                 multiple
@@ -626,7 +741,7 @@ function App() {
               <label className="file-upload file-upload-add">
                 <input 
                   type="file" 
-                  accept=".mca,.mcr"
+                  accept=".mca,.mcr,.zip"
                   onChange={handleAddRegionFiles}
                   disabled={loading}
                   multiple

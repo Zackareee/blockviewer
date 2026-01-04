@@ -20,6 +20,11 @@ import { MinecraftSky } from './MinecraftSky';
 import { getStateRegistry } from '../assets/StateRegistry';
 import * as THREE from 'three';
 
+// Module-level singleton for ChunkManager persistence across HMR
+// This prevents the world from being dropped when React hot-reloads
+let persistentChunkManager = null;
+let persistentChunkManagerScene = null; // Track which scene the manager is attached to
+
 /**
  * Adaptive pixel ratio component - reduces DPR when performance drops
  * PERFORMANCE: More aggressive settings for large scenes
@@ -512,37 +517,63 @@ function RegionScene({
     setSkyColors(colors);
   }, []);
   
-  // Create ChunkManager once
+  // Create ChunkManager once - persists across HMR to keep world loaded
   useEffect(() => {
-    const manager = new ChunkManager(scene, {
-      // Disable streaming - progressive loading supports model meshes
-      useStreaming: false,
-      textureMode,
-      textureAtlas,
-      onProgress: (progressInfo) => {
-        // Handle both old-style (loaded, total) and new-style (object) progress
-        if (typeof progressInfo === 'number') {
-          const loaded = progressInfo;
-          const total = arguments[1] || 1;
-          onProgress?.({ 
-            current: loaded, 
-            total, 
-            isBuilding: loaded < total, 
-            message: `Loading: ${loaded}/${total} regions` 
-          });
-        } else {
-          onProgress?.(progressInfo);
-        }
-        invalidate(); // Request render on progress
-      },
-      onComplete: () => {
-        onProgress?.({ current: 0, total: 0, isBuilding: false, message: '', stage: null });
-        const stats = manager.getStats();
-        onStats?.(stats);
-        onComplete?.();
-        invalidate(); // Request render on complete
-      },
-    });
+    let manager;
+    let isReusingManager = false;
+    
+    // Check if we can reuse the persistent manager (HMR scenario)
+    // The manager is valid if it exists and hasn't been explicitly disposed
+    if (persistentChunkManager && !persistentChunkManager._disposed) {
+      manager = persistentChunkManager;
+      isReusingManager = true;
+      
+      // Re-attach to the new scene if it changed
+      if (persistentChunkManagerScene !== scene) {
+        console.log('[RegionViewer] HMR detected - reattaching ChunkManager to new scene');
+        manager.reattachToScene(scene);
+        persistentChunkManagerScene = scene;
+      } else {
+        console.log('[RegionViewer] HMR detected - reusing existing ChunkManager');
+      }
+    } else {
+      // Create a new manager
+      manager = new ChunkManager(scene, {
+        // Disable streaming - progressive loading supports model meshes
+        useStreaming: false,
+        textureMode,
+        textureAtlas,
+        onProgress: (progressInfo) => {
+          // Handle both old-style (loaded, total) and new-style (object) progress
+          if (typeof progressInfo === 'number') {
+            const loaded = progressInfo;
+            const total = arguments[1] || 1;
+            onProgress?.({ 
+              current: loaded, 
+              total, 
+              isBuilding: loaded < total, 
+              message: `Loading: ${loaded}/${total} regions` 
+            });
+          } else {
+            onProgress?.(progressInfo);
+          }
+          invalidate(); // Request render on progress
+        },
+        onComplete: () => {
+          onProgress?.({ current: 0, total: 0, isBuilding: false, message: '', stage: null });
+          const stats = manager.getStats();
+          onStats?.(stats);
+          onComplete?.();
+          invalidate(); // Request render on complete
+        },
+      });
+      
+      // Store for HMR persistence
+      persistentChunkManager = manager;
+      persistentChunkManagerScene = scene;
+      
+      console.log('[RegionViewer] Created new ChunkManager');
+    }
     
     managerRef.current = manager;
     
@@ -551,18 +582,24 @@ function RegionScene({
     // DEBUG: Expose manager to window for console debugging
     if (typeof window !== 'undefined') {
       window.__chunkManager = manager;
-      console.log('[RegionViewer] ChunkManager exposed as window.__chunkManager');
-      console.log('  - window.__chunkManager.printTriangleCounts() - Show triangle counts per group');
-      console.log('  - window.__chunkManager.setGroupVisible("glass", false) - Hide glass/leaves');
-      console.log('  - window.__chunkManager.setPartialBlockDistance(32) - Set partial block render distance (performance)');
-      console.log('  - window.__chunkManager.getPartialBlockDistance() - Get current partial block distance');
+      if (!isReusingManager) {
+        console.log('[RegionViewer] ChunkManager exposed as window.__chunkManager');
+        console.log('  - window.__chunkManager.printTriangleCounts() - Show triangle counts per group');
+        console.log('  - window.__chunkManager.setGroupVisible("glass", false) - Hide glass/leaves');
+        console.log('  - window.__chunkManager.setPartialBlockDistance(32) - Set partial block render distance (performance)');
+        console.log('  - window.__chunkManager.getPartialBlockDistance() - Get current partial block distance');
+      }
+    }
+    
+    // Request a render to show the existing world (in case of HMR)
+    if (isReusingManager) {
+      invalidate();
     }
     
     return () => {
-      if (typeof window !== 'undefined') {
-        window.__chunkManager = null;
-      }
-      manager.dispose();
+      // Don't dispose on cleanup - keep for HMR
+      // The manager will be reused on next mount
+      // Only clear the local ref, not the persistent one
       managerRef.current = null;
     };
   }, [scene, invalidate]);
@@ -757,8 +794,7 @@ function RegionScene({
     
   }, [chunks, textureAtlas, invalidate]);
   
-  // Track loaded regions to detect additions
-  const loadedRegionKeysRef = useRef(new Set());
+  // Track texture atlas changes to detect when we need to rebuild meshes
   const lastTextureAtlasRef = useRef(null);
   
   // Load multiple regions progressively
@@ -780,9 +816,9 @@ function RegionScene({
     const textureAtlasChanged = textureAtlas !== lastTextureAtlasRef.current;
     lastTextureAtlasRef.current = textureAtlas;
     
-    // Compute which regions are new
+    // Compute which regions are new (use manager's persistent tracking)
     const currentKeys = new Set(regions.map(r => `${r.regionX},${r.regionZ}`));
-    const loadedKeys = loadedRegionKeysRef.current;
+    const loadedKeys = manager.loadedRegionKeys;
     
     // Find regions that need to be loaded
     let newRegions = regions.filter(r => !loadedKeys.has(`${r.regionX},${r.regionZ}`));
@@ -798,12 +834,12 @@ function RegionScene({
     
     if (newRegions.length === 0) {
       // All regions already loaded, nothing to do
+      console.log('[RegionViewer] All regions already loaded (HMR detected)');
       return;
     }
     
     if (isFreshLoad) {
-      manager.clear();
-      loadedRegionKeysRef.current = new Set();
+      manager.clear(); // This also clears loadedRegionKeys
     }
     
     // Compute combined center from ALL region coordinates (including existing)
@@ -880,9 +916,9 @@ function RegionScene({
           console.log(`[RegionViewer] ✅ Added ${result.regionsAdded} regions, now have ${result.totalRegions} total`);
         }
         
-        // Update loaded keys
+        // Update loaded keys in manager (persists across HMR)
         for (const r of regionsToLoad) {
-          loadedRegionKeysRef.current.add(`${r.regionX},${r.regionZ}`);
+          manager.loadedRegionKeys.add(`${r.regionX},${r.regionZ}`);
         }
         
         // Only reposition camera on fresh load
@@ -951,9 +987,9 @@ function RegionScene({
         const totalLoaded = isFreshLoad ? result.regionsLoaded : result.totalRegions;
         console.log(`[RegionViewer] ${isFreshLoad ? 'Loaded' : 'Now have'} ${totalLoaded} regions, ${result.totalBlocks?.toLocaleString() || '?'} blocks`);
         
-        // Update loaded keys
+        // Update loaded keys in manager (persists across HMR)
         for (const r of regionsToLoad) {
-          loadedRegionKeysRef.current.add(`${r.regionX},${r.regionZ}`);
+          manager.loadedRegionKeys.add(`${r.regionX},${r.regionZ}`);
         }
         
         // Only reposition camera on fresh load

@@ -971,6 +971,7 @@ const BLOCK_EMITTERS = {
         sizeVariance: 0.03,
         lifetime: 0.6,
         lifetimeVariance: 0.2,
+        color: [1.0, 1.0, 1.0], // Use texture color
         alpha: 1.0,
         fadeIn: 0.1,
         fadeOut: 0.3,
@@ -987,6 +988,7 @@ const BLOCK_EMITTERS = {
         sizeVariance: 0.05,
         lifetime: 2.0,
         lifetimeVariance: 0.5,
+        color: [0.5, 0.5, 0.5], // Gray smoke
         alpha: 0.6,
         fadeIn: 0.1,
         fadeOut: 0.5,
@@ -1027,6 +1029,7 @@ const BLOCK_EMITTERS = {
         sizeVariance: 0.03,
         lifetime: 0.6,
         lifetimeVariance: 0.2,
+        color: [1.0, 1.0, 1.0], // Use texture color
         alpha: 1.0,
         fadeIn: 0.1,
         fadeOut: 0.3,

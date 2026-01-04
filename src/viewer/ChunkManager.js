@@ -62,6 +62,12 @@ export class ChunkManager {
     this.onProgress = options.onProgress || null;
     this.onComplete = options.onComplete || null;
     
+    // Track if manager has been disposed (for HMR detection)
+    this._disposed = false;
+    
+    // Track loaded region keys for HMR persistence (prevents re-loading already loaded regions)
+    this.loadedRegionKeys = new Set();
+    
     // Texture mode: 'solid', 'default', or 'custom'
     this.textureMode = options.textureMode || 'solid';
     this.textureAtlas = options.textureAtlas || null;
@@ -2781,6 +2787,9 @@ export class ChunkManager {
     this.loadedChunks = 0;
     this.loadedRegions = 0;
     
+    // Clear loaded region tracking
+    this.loadedRegionKeys.clear();
+    
     // Clear debug grid
     if (this.debugGrid) {
       this.debugGrid.clear();
@@ -2788,9 +2797,66 @@ export class ChunkManager {
   }
 
   /**
+   * Reattach all groups to a new scene (used for HMR to preserve world data)
+   * @param {THREE.Scene} newScene - The new scene to attach groups to
+   */
+  reattachToScene(newScene) {
+    if (!newScene || newScene === this.scene) return;
+    
+    const oldScene = this.scene;
+    this.scene = newScene;
+    
+    // Move all render groups to new scene
+    const groups = [
+      this.solidGroup,
+      this.waterGroup,
+      this.lavaGroup,
+      this.glassGroup,
+      this.modelGroup,
+      this.transparentModelGroup,
+      this.overlayModelGroup,
+      this.instancedGroup,
+    ];
+    
+    for (const group of groups) {
+      if (group) {
+        oldScene.remove(group);
+        newScene.add(group);
+      }
+    }
+    
+    // Move particle system group
+    if (this.particleSystem) {
+      const particleGroup = this.particleSystem.getGroup();
+      if (particleGroup) {
+        oldScene.remove(particleGroup);
+        newScene.add(particleGroup);
+      }
+    }
+    
+    // Move beacon beam group
+    if (this.beaconBeamManager) {
+      const beaconGroup = this.beaconBeamManager.getGroup();
+      if (beaconGroup) {
+        oldScene.remove(beaconGroup);
+        newScene.add(beaconGroup);
+      }
+    }
+    
+    // Move entity system group
+    if (this.entitySystem && this.entitySystem.group) {
+      oldScene.remove(this.entitySystem.group);
+      newScene.add(this.entitySystem.group);
+    }
+    
+    console.log('[ChunkManager] Reattached to new scene');
+  }
+
+  /**
    * Dispose all resources
    */
   dispose() {
+    this._disposed = true;
     this.clear();
     
     // Dispose streaming loader
