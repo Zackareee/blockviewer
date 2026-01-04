@@ -448,6 +448,12 @@ export class ChunkManager {
   setRenderDistance(distance) {
     this.renderDistance = distance;
     console.log(`[ChunkManager] Render distance set to ${distance === 0 ? 'unlimited' : distance + ' chunks'}`);
+    
+    // Update beacon beam manager render distance (convert chunks to blocks)
+    if (this.beaconBeamManager) {
+      const distanceBlocks = distance === 0 ? 10000 : distance * 16;
+      this.beaconBeamManager.setMaxDistance(distanceBlocks);
+    }
   }
   
   /**
@@ -1311,8 +1317,11 @@ export class ChunkManager {
     // Update particle physics and rendering (pass camera for depth sorting)
     this.particleSystem.update(deltaTime, time, camera);
     
-    // Update beacon beams animation
+    // Update beacon beams animation (pass camera for distance culling)
     if (this.beaconBeamManager && this.beaconBeamsEnabled) {
+      if (camera) {
+        this.beaconBeamManager.updateCamera(camera.position.x, camera.position.y, camera.position.z);
+      }
       this.beaconBeamManager.update(deltaTime);
     }
   }

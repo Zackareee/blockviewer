@@ -127,6 +127,32 @@ export class BeaconBeamManager {
     this.worldOffset = { x: 0, y: 0, z: 0 };
     
     this.animationTime = 0;
+    
+    // Render distance culling (in blocks)
+    this.maxDistance = 256; // Default to 16 chunks
+    this.cameraX = 0;
+    this.cameraY = 0;
+    this.cameraZ = 0;
+  }
+  
+  /**
+   * Set maximum render distance for beacons
+   * @param {number} distance - Distance in blocks
+   */
+  setMaxDistance(distance) {
+    this.maxDistance = distance;
+  }
+  
+  /**
+   * Update camera position for distance culling
+   * @param {number} x
+   * @param {number} y
+   * @param {number} z
+   */
+  updateCamera(x, y, z) {
+    this.cameraX = x;
+    this.cameraY = y;
+    this.cameraZ = z;
   }
   
   /**
@@ -533,15 +559,34 @@ export class BeaconBeamManager {
   update(deltaTime) {
     this.animationTime += deltaTime;
     
-    // Update material uniforms for animation
+    const maxDistSq = this.maxDistance * this.maxDistance;
+    
+    // Update material uniforms for animation and distance culling
     for (const [key, beaconData] of this.beacons) {
+      // Distance culling - hide beacons outside render distance
+      // Use world coordinates (beacon position + offset) for camera comparison
+      const beaconWorldX = beaconData.x - this.worldOffset.x;
+      const beaconWorldY = beaconData.y - this.worldOffset.y;
+      const beaconWorldZ = beaconData.z - this.worldOffset.z;
+      
+      const dx = beaconWorldX - this.cameraX;
+      const dy = beaconWorldY - this.cameraY;
+      const dz = beaconWorldZ - this.cameraZ;
+      const distSq = dx * dx + dy * dy + dz * dz;
+      
+      const visible = distSq <= maxDistSq;
+      
       for (const mesh of beaconData.meshes) {
-        if (mesh.material.uniforms) {
-          mesh.material.uniforms.uTime.value = this.animationTime;
-        }
+        mesh.visible = visible;
         
-        // Rotate beam (45 degrees per second)
-        mesh.rotation.y = this.animationTime * ROTATION_SPEED;
+        if (visible) {
+          if (mesh.material.uniforms) {
+            mesh.material.uniforms.uTime.value = this.animationTime;
+          }
+          
+          // Rotate beam (45 degrees per second)
+          mesh.rotation.y = this.animationTime * ROTATION_SPEED;
+        }
       }
     }
   }
