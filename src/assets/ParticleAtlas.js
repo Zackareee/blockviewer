@@ -300,9 +300,9 @@ const PARTICLE_DEFINITIONS = {
   },
   // Firefly
   firefly: {
-    textures: ['textures/particle/glow.png'],
+    textures: ['textures/particle/firefly.png'],
     animated: false,
-    blendMode: 'additive',
+    blendMode: 'additive', // Fireflies glow
   },
 };
 

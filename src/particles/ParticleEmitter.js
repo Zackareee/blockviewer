@@ -839,6 +839,44 @@ const BLOCK_EMITTERS = {
   },
   
   // ============================================================================
+  // FIREFLY BUSH PARTICLES  
+  // From FireflyBushBlock.class:
+  // - Spawns FIREFLY particles around the bush
+  // - Constants: 0.7 (spawn chance), 10.0, 5.0 (offsets)
+  // - Integers: 13, 30 (timing related)
+  //
+  // From FireflyParticle.class:
+  // - friction = 0.96
+  // - lifetime = 200-300 ticks (10-15 seconds)
+  // - Floats: 0.1, 0.3, 0.5 (velocity components), 0.75 (alpha?), -0.05 (gravity?)
+  // - Fireflies float around randomly, glow with additive blending
+  // ============================================================================
+  
+  'firefly_bush': {
+    particles: [
+      {
+        type: 'firefly',
+        rate: 1.5, // MC: ~30 ticks between spawns * 0.7 chance = ~1.5/sec
+        offset: [0.5, 0.5, 0.5], // Center of bush
+        offsetVariance: [0.5, 0.3, 0.5], // Spawn within bush volume
+        velocity: [0, 0.02, 0], // Slight upward drift
+        velocityVariance: [0.1, 0.05, 0.1], // Random floating movement
+        size: 0.08, // Small glowing dot
+        sizeVariance: 0.02,
+        lifetime: 12.0, // MC: 200-300 ticks = 10-15 sec, avg 12
+        lifetimeVariance: 2.0,
+        color: [1.0, 1.0, 0.6], // Warm yellow-green glow
+        alpha: 0.75, // MC: 0.75 base alpha
+        fadeIn: 0.3, // Gradual appearance
+        fadeOut: 0.4, // Gradual fade
+        friction: 0.96, // MC: exact value - allows floating
+        gravity: -0.02, // Slight upward buoyancy (fireflies rise)
+        hasPhysics: false, // Float through blocks
+      },
+    ],
+  },
+  
+  // ============================================================================
   // FALLING LEAF PARTICLES
   // From FallingLeavesParticle.class:
   // - INITIAL_LIFETIME = 300 ticks (15 seconds)
