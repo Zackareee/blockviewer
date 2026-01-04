@@ -1162,6 +1162,11 @@ export class ParticleEmitterManager {
     const emitter = new EmitterInstance(normalizedType, x, y, z, properties);
     emitter.qualityMultiplier = this.qualityMultiplier;
     this.emitters.set(key, emitter);
+    
+    // Debug: log first 5 emitters
+    if (this.emitters.size <= 5) {
+      console.log(`[ParticleEmitterManager] Added emitter #${this.emitters.size}: ${normalizedType} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
+    }
   }
   
   /**
@@ -1217,7 +1222,19 @@ export class ParticleEmitterManager {
     if (this._debugCounter === undefined) this._debugCounter = 0;
     this._debugCounter++;
     if (this._debugCounter % 300 === 1 && this.emitters.size > 0) {
-      console.log(`[ParticleEmitterManager] ${activeCount}/${this.emitters.size} emitters active, camera at ${this.cameraX.toFixed(0)},${this.cameraY.toFixed(0)},${this.cameraZ.toFixed(0)}`);
+      console.log(`[ParticleEmitterManager] ${activeCount}/${this.emitters.size} emitters active (maxDist=${this.maxDistance}), camera at (${this.cameraX.toFixed(1)},${this.cameraY.toFixed(1)},${this.cameraZ.toFixed(1)})`);
+      
+      // Log distance to first few emitters for debugging
+      let count = 0;
+      for (const emitter of this.emitters.values()) {
+        if (count >= 3) break;
+        const dx = emitter.x - this.cameraX;
+        const dy = emitter.y - this.cameraY;
+        const dz = emitter.z - this.cameraZ;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        console.log(`  - Emitter ${emitter.blockType} at (${emitter.x.toFixed(1)},${emitter.y.toFixed(1)},${emitter.z.toFixed(1)}): dist=${dist.toFixed(1)}`);
+        count++;
+      }
     }
   }
   
