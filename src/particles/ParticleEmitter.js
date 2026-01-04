@@ -1103,42 +1103,19 @@ const QUALITY_MULTIPLIERS = {
   'minimal': 0.1,    // 10% - heavily reduced
 };
 
-// Blocks that use ambient/random sampling (high-frequency blocks like leaves)
-// These don't create persistent emitters - they're sampled randomly each frame
-const AMBIENT_PARTICLE_BLOCKS = new Set([
-  'oak_leaves', 'birch_leaves', 'spruce_leaves', 'jungle_leaves',
-  'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves',
-  'azalea_leaves', 'flowering_azalea_leaves', 'cherry_leaves',
-  'pale_oak_leaves',
-]);
-
 /**
  * ParticleEmitterManager - Manages all emitter instances
  * 
- * Uses two approaches:
- * 1. Persistent emitters for important blocks (torches, campfires, etc.)
- * 2. Random sampling for ambient blocks (leaves) - Minecraft's animateTick approach
+ * Simple approach: All blocks use EmitterInstance objects.
+ * Distance culling ensures only nearby emitters are updated each frame.
  */
 export class ParticleEmitterManager {
   constructor() {
-    // Map of position key -> EmitterInstance (for persistent emitters only)
+    // Map of position key -> EmitterInstance
     this.emitters = new Map();
-    
-    // Ambient block positions for random sampling (leaves, etc.)
-    // Array of { blockType, x, y, z, properties }
-    this.ambientBlocks = [];
-    this.ambientBlocksMap = new Map(); // key -> index for dedup
     
     // Maximum distance from camera to update emitters (default: 3 chunks = 48 blocks)
     this.maxDistance = 48;
-    
-    // Maximum persistent emitters - set high enough to not artificially limit
-    // Distance culling handles performance, not this cap
-    this.maxPersistentEmitters = 50000;
-    
-    // Ambient block sampling settings (Minecraft-like)
-    // MC samples ~667 positions per tick within 16-block radius
-    this.ambientSamplesPerFrame = 50; // How many ambient blocks to check per frame
     
     // Quality setting: 'all', 'decreased', 'minimal'
     this.quality = 'all';
@@ -1179,39 +1156,12 @@ export class ParticleEmitterManager {
     
     const key = `${x},${y},${z}`;
     
-    // Ambient blocks (leaves) use random sampling instead of persistent emitters
-    if (AMBIENT_PARTICLE_BLOCKS.has(normalizedType)) {
-      // Don't add duplicates
-      if (this.ambientBlocksMap.has(key)) return;
-      
-      const index = this.ambientBlocks.length;
-      this.ambientBlocks.push({ blockType: normalizedType, x, y, z, properties });
-      this.ambientBlocksMap.set(key, index);
-      
-      // Debug: log first few ambient additions
-      if (this.ambientBlocks.length <= 3) {
-        console.log(`[ParticleEmitterManager] Added ambient block: ${normalizedType} at ${x},${y},${z}`);
-      }
-      return;
-    }
-    
-    // Persistent emitters for important blocks (torches, campfires, etc.)
     // Don't add duplicates
     if (this.emitters.has(key)) return;
-    
-    // Limit persistent emitters to prevent memory issues
-    if (this.emitters.size >= this.maxPersistentEmitters) {
-      return;
-    }
     
     const emitter = new EmitterInstance(normalizedType, x, y, z, properties);
     emitter.qualityMultiplier = this.qualityMultiplier;
     this.emitters.set(key, emitter);
-    
-    // Debug: log first few persistent emitter additions
-    if (this.emitters.size <= 3) {
-      console.log(`[ParticleEmitterManager] Added persistent emitter: ${normalizedType} at ${x},${y},${z}`);
-    }
   }
   
   /**
@@ -1247,17 +1197,9 @@ export class ParticleEmitterManager {
    * @param {ParticleSystem} particleSystem - Particle system to spawn into
    */
   update(deltaTime, particleSystem) {
-    // Debug: log first update call
-    if (!this._loggedFirstUpdate) {
-      console.log(`[ParticleEmitterManager] First update: ${this.emitters.size} persistent, ${this.ambientBlocks.length} ambient, maxDist=${this.maxDistance}`);
-      this._loggedFirstUpdate = true;
-    }
-    
     const maxDistSq = this.maxDistance * this.maxDistance;
     let activeCount = 0;
     
-    // Update persistent emitters (torches, campfires, etc.)
-    let persistentUpdated = 0;
     for (const emitter of this.emitters.values()) {
       // Distance culling
       const dx = emitter.x - this.cameraX;
@@ -1268,129 +1210,14 @@ export class ParticleEmitterManager {
       if (distSq <= maxDistSq) {
         emitter.update(deltaTime, particleSystem);
         activeCount++;
-        persistentUpdated++;
       }
     }
     
-    // Debug: log persistent emitter updates occasionally
-    if (this._debugCounter % 300 === 2 && this.emitters.size > 0) {
-      console.log(`[ParticleEmitterManager] Updated ${persistentUpdated}/${this.emitters.size} persistent emitters, deltaTime=${deltaTime.toFixed(4)}`);
-    }
-    
-    // Random sampling for ambient blocks (Minecraft's animateTick approach)
-    // This mimics how MC randomly calls animateTick for nearby blocks
-    if (this.ambientBlocks.length > 0) {
-      const samplesThisFrame = Math.min(
-        this.ambientSamplesPerFrame * this.qualityMultiplier,
-        this.ambientBlocks.length
-      );
-      
-      for (let i = 0; i < samplesThisFrame; i++) {
-        // Random selection from all ambient blocks
-        const index = Math.floor(Math.random() * this.ambientBlocks.length);
-        const block = this.ambientBlocks[index];
-        
-        // Distance check
-        const dx = block.x - this.cameraX;
-        const dy = block.y - this.cameraY;
-        const dz = block.z - this.cameraZ;
-        const distSq = dx * dx + dy * dy + dz * dz;
-        
-        if (distSq <= maxDistSq) {
-          // Spawn particles for this ambient block
-          this._spawnAmbientParticles(block, particleSystem);
-          activeCount++;
-        }
-      }
-    }
-    
-    // Debug: log active emitters periodically (every ~5 seconds)
+    // Debug: log occasionally
     if (this._debugCounter === undefined) this._debugCounter = 0;
     this._debugCounter++;
-    if (this._debugCounter % 300 === 1) {
-      console.log(`[ParticleEmitterManager] ${this.emitters.size} persistent + ${this.ambientBlocks.length} ambient, activeCount=${activeCount}, maxDistSq=${maxDistSq}, camera at ${this.cameraX.toFixed(0)},${this.cameraY.toFixed(0)},${this.cameraZ.toFixed(0)}`);
-    }
-  }
-  
-  /**
-   * Spawn particles for an ambient block (random sampling approach)
-   * @private
-   */
-  _spawnAmbientParticles(block, particleSystem) {
-    const config = BLOCK_EMITTERS[block.blockType];
-    if (!config || !config.particles) {
-      // Debug first time
-      if (!this._loggedMissingConfig) {
-        console.warn(`[ParticleEmitterManager] No config for ambient block: ${block.blockType}`);
-        this._loggedMissingConfig = true;
-      }
-      return;
-    }
-    
-    // For ambient blocks, we spawn with a lower probability per sample
-    // This creates the random, sparse effect like in Minecraft
-    for (const pConfig of config.particles) {
-      // Probability check - don't spawn every time we sample
-      // Adjusted so overall spawn rate matches config.rate when sampling many times per second
-      const spawnChance = pConfig.rate * 0.016 * this.qualityMultiplier; // ~60fps assumed
-      if (Math.random() > spawnChance) continue;
-      
-      // Debug: log first spawn
-      if (!this._loggedAmbientSpawn) {
-        console.log(`[ParticleEmitterManager] Spawning ambient particle: ${pConfig.type} at ${block.x},${block.y},${block.z}`);
-        this._loggedAmbientSpawn = true;
-      }
-      
-      // Calculate spawn position with variance
-      const ox = pConfig.offset?.[0] || 0.5;
-      const oy = pConfig.offset?.[1] || 0.5;
-      const oz = pConfig.offset?.[2] || 0.5;
-      const vx = pConfig.offsetVariance?.[0] || 0;
-      const vy = pConfig.offsetVariance?.[1] || 0;
-      const vz = pConfig.offsetVariance?.[2] || 0;
-      
-      const x = block.x + ox + (Math.random() - 0.5) * 2 * vx;
-      const y = block.y + oy + (Math.random() - 0.5) * 2 * vy;
-      const z = block.z + oz + (Math.random() - 0.5) * 2 * vz;
-      
-      // Calculate velocity with variance
-      const baseVx = pConfig.velocity?.[0] || 0;
-      const baseVy = pConfig.velocity?.[1] || 0;
-      const baseVz = pConfig.velocity?.[2] || 0;
-      const velVarX = pConfig.velocityVariance?.[0] || 0;
-      const velVarY = pConfig.velocityVariance?.[1] || 0;
-      const velVarZ = pConfig.velocityVariance?.[2] || 0;
-      
-      const velX = baseVx + (Math.random() - 0.5) * 2 * velVarX;
-      const velY = baseVy + (Math.random() - 0.5) * 2 * velVarY;
-      const velZ = baseVz + (Math.random() - 0.5) * 2 * velVarZ;
-      
-      // Calculate size with variance
-      const baseSize = pConfig.size || 0.1;
-      const sizeVar = pConfig.sizeVariance || 0;
-      const size = baseSize + (Math.random() - 0.5) * 2 * sizeVar;
-      
-      // Calculate lifetime with variance
-      const baseLifetime = pConfig.lifetime || 1.0;
-      const lifetimeVar = pConfig.lifetimeVariance || 0;
-      const lifetime = baseLifetime + (Math.random() - 0.5) * 2 * lifetimeVar;
-      
-      // Spawn the particle using type and options
-      particleSystem.spawn(pConfig.type, {
-        x, y, z,
-        vx: velX, vy: velY, vz: velZ,
-        size,
-        lifetime,
-        r: pConfig.color?.[0] ?? 1,
-        g: pConfig.color?.[1] ?? 1,
-        b: pConfig.color?.[2] ?? 1,
-        alpha: pConfig.alpha ?? 1,
-        fadeIn: pConfig.fadeIn ?? 0,
-        fadeOut: pConfig.fadeOut ?? 0.2,
-        friction: pConfig.friction ?? 1.0,
-        gravity: pConfig.gravity ?? 0,
-        hasPhysics: pConfig.hasPhysics ?? true,
-      });
+    if (this._debugCounter % 300 === 1 && this.emitters.size > 0) {
+      console.log(`[ParticleEmitterManager] ${activeCount}/${this.emitters.size} emitters active, camera at ${this.cameraX.toFixed(0)},${this.cameraY.toFixed(0)},${this.cameraZ.toFixed(0)}`);
     }
   }
   
@@ -1402,26 +1229,13 @@ export class ParticleEmitterManager {
       emitter.deactivate();
     }
     this.emitters.clear();
-    this.ambientBlocks = [];
-    this.ambientBlocksMap.clear();
   }
   
   /**
-   * Get emitter count (persistent + ambient)
+   * Get emitter count
    */
   getEmitterCount() {
-    return this.emitters.size + this.ambientBlocks.length;
-  }
-  
-  /**
-   * Get breakdown of emitter counts
-   */
-  getEmitterStats() {
-    return {
-      persistent: this.emitters.size,
-      ambient: this.ambientBlocks.length,
-      total: this.emitters.size + this.ambientBlocks.length,
-    };
+    return this.emitters.size;
   }
   
   /**
