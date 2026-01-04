@@ -265,12 +265,12 @@ export class BeaconBeamManager {
       depthWrite: false,
     });
     
-    // Outer glow material (more transparent, additive-like)
+    // Outer beam material (larger, more transparent - no additive glow like Minecraft)
     this.glowMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uTexture: { value: this.beamTexture },
         uColor: { value: new THREE.Color(1, 1, 1) },
-        uAlpha: { value: 0.25 },
+        uAlpha: { value: 0.15 }, // More transparent outer layer
         uTime: { value: 0 },
       },
       vertexShader: `
@@ -293,11 +293,11 @@ export class BeaconBeamManager {
         varying float vY;
         
         void main() {
-          // Scroll texture vertically (slightly faster for glow)
-          vec2 scrolledUV = vec2(vUv.x, vUv.y - uTime * 0.6);
+          // Scroll texture vertically (same speed as inner beam)
+          vec2 scrolledUV = vec2(vUv.x, vUv.y - uTime * 0.5);
           vec4 texColor = texture2D(uTexture, scrolledUV);
           
-          // Apply beam color with glow effect
+          // Apply beam color
           vec3 finalColor = texColor.rgb * uColor;
           
           gl_FragColor = vec4(finalColor, texColor.a * uAlpha);
@@ -306,7 +306,7 @@ export class BeaconBeamManager {
       transparent: true,
       side: THREE.DoubleSide,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      // Normal blending, not additive - matches Minecraft
     });
   }
   
