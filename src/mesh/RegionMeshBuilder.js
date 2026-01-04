@@ -201,6 +201,7 @@ export class RegionMeshBuilder {
     let modelLodMeshes = null;
     let instanceGroups = null; // GPU instancing data for repeated blocks
     let particleEmitters = null; // Particle emitter positions (torches, etc.)
+    let beaconPositions = null; // Beacon positions for beam rendering
     if (enableModelMeshes && stateGrid && stateGrid.stateCount > 0) {
       this.onProgress?.('modelMeshing', 0, 100, 'Building model meshes...');
       const modelStart = performance.now();
@@ -223,6 +224,7 @@ export class RegionMeshBuilder {
           overlayModelMesh = modelResult.overlay;
           instanceGroups = modelResult.instances; // GPU instancing data
           particleEmitters = modelResult.particleEmitters; // Torch positions for particles
+          beaconPositions = modelResult.beaconPositions; // Beacon positions for beams
         }
         
         // Generate LOD levels for model meshes when LOD is enabled
@@ -333,6 +335,7 @@ export class RegionMeshBuilder {
       overlayModelMesh, // Overlay glow effects (torch bulb panels) - rendered with depthWrite: false
       instanceGroups, // GPU instancing data for repeated blocks (grass, flowers, etc.)
       particleEmitters, // Particle emitter positions for torches, etc.
+      beaconPositions, // Beacon positions for beam rendering
       lodMeshes,
       modelLodMeshes, // LOD levels for model meshes (skip decorative at distance)
       offset,

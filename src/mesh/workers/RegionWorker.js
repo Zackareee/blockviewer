@@ -13,6 +13,54 @@
 import pako from 'pako';
 
 // ============================================================================
+// Decompression Helpers
+// ============================================================================
+
+// Check if native DecompressionStream is available (faster than pako)
+const hasNativeDecompress = typeof DecompressionStream !== 'undefined';
+
+/**
+ * Decompress data using native DecompressionStream API (faster) or pako fallback
+ * Note: Native API only supports 'deflate-raw' and 'gzip', not 'zlib' directly
+ * For zlib (compression type 2), we use pako as it handles the zlib wrapper
+ */
+async function decompressNative(data, format) {
+  try {
+    const stream = new DecompressionStream(format);
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    
+    // Write data and close
+    writer.write(data);
+    writer.close();
+    
+    // Read all chunks
+    const chunks = [];
+    let totalLength = 0;
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      totalLength += value.length;
+    }
+    
+    // Combine chunks
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    
+    return result;
+  } catch (e) {
+    // Native decompression failed, return null to trigger fallback
+    return null;
+  }
+}
+
+// ============================================================================
 // NBT Parser (embedded to run in worker context)
 // ============================================================================
 
@@ -142,7 +190,7 @@ class NBTReader {
 const SECTOR_SIZE = 4096;
 const CHUNKS_PER_REGION = 32;
 
-function parseMCABuffer(buffer) {
+async function parseMCABuffer(buffer) {
   const view = new DataView(buffer);
   const chunks = [];
   let skippedEmpty = 0;
@@ -151,7 +199,11 @@ function parseMCABuffer(buffer) {
   let failedNBT = 0;
   let totalDecompressTime = 0;
   let totalNBTTime = 0;
+  let usedNativeDecompress = false;
 
+  // Collect all chunk data to process
+  const chunkData = [];
+  
   for (let z = 0; z < CHUNKS_PER_REGION; z++) {
     for (let x = 0; x < CHUNKS_PER_REGION; x++) {
       const index = x + z * CHUNKS_PER_REGION;
@@ -164,43 +216,87 @@ function parseMCABuffer(buffer) {
         continue;
       }
 
+      const length = view.getUint32(offset, false);
+      const compressionType = view.getUint8(offset + 4);
+      
+      // Validate data length
+      if (length <= 1 || offset + 5 + length - 1 > buffer.byteLength) {
+        failedDecompress++;
+        continue;
+      }
+      
+      // Copy compressed data (needed since buffer may be transferred)
+      const compressedData = new Uint8Array(buffer, offset + 5, length - 1).slice();
+      chunkData.push({ x, z, compressedData, compressionType });
+    }
+  }
+
+  // Process chunks in batches for better parallelism
+  const BATCH_SIZE = 16;
+  
+  for (let i = 0; i < chunkData.length; i += BATCH_SIZE) {
+    const batch = chunkData.slice(i, i + BATCH_SIZE);
+    
+    // Process batch in parallel
+    const batchResults = await Promise.all(batch.map(async ({ x, z, compressedData, compressionType }) => {
       try {
-        const length = view.getUint32(offset, false);
-        const compressionType = view.getUint8(offset + 4);
-        
-        // Validate data length
-        if (length <= 1 || offset + 5 + length - 1 > buffer.byteLength) {
-          failedDecompress++;
-          continue;
-        }
-        
-        const compressedData = new Uint8Array(buffer, offset + 5, length - 1);
-        
         let decompressedData;
         const decompressStart = performance.now();
+        
         if (compressionType === 1) {
-          decompressedData = pako.ungzip(compressedData);
+          // GZip - try native first (much faster)
+          if (hasNativeDecompress) {
+            decompressedData = await decompressNative(compressedData, 'gzip');
+            if (decompressedData) usedNativeDecompress = true;
+          }
+          // Fallback to pako
+          if (!decompressedData) {
+            decompressedData = pako.ungzip(compressedData);
+          }
         } else if (compressionType === 2) {
-          decompressedData = pako.inflate(compressedData);
+          // Zlib - pako handles the zlib wrapper, native only does raw deflate
+          // Try to strip zlib header and use native deflate-raw
+          if (hasNativeDecompress && compressedData.length > 2) {
+            // Zlib header is 2 bytes, checksum is 4 bytes at end
+            const rawData = compressedData.slice(2, -4);
+            decompressedData = await decompressNative(rawData, 'deflate-raw');
+            if (decompressedData) usedNativeDecompress = true;
+          }
+          // Fallback to pako (handles zlib wrapper correctly)
+          if (!decompressedData) {
+            decompressedData = pako.inflate(compressedData);
+          }
         } else {
-          skippedCompression++;
-          continue;
+          return { x, z, error: 'unsupported_compression' };
         }
-        totalDecompressTime += performance.now() - decompressStart;
+        
+        const decompressTime = performance.now() - decompressStart;
 
         const nbtStart = performance.now();
         const reader = new NBTReader(decompressedData.buffer);
         const data = reader.parse();
-        totalNBTTime += performance.now() - nbtStart;
+        const nbtTime = performance.now() - nbtStart;
         
-        chunks.push({ x, z, data });
+        return { x, z, data, decompressTime, nbtTime };
       } catch (e) {
-        // Log specific failures for debugging
-        if (e.message?.includes('inflate') || e.message?.includes('gunzip')) {
-          failedDecompress++;
-        } else {
-          failedNBT++;
-        }
+        const errorType = e.message?.includes('inflate') || e.message?.includes('gunzip') 
+          ? 'decompress' : 'nbt';
+        return { x, z, error: errorType };
+      }
+    }));
+    
+    // Collect results
+    for (const result of batchResults) {
+      if (result.error === 'unsupported_compression') {
+        skippedCompression++;
+      } else if (result.error === 'decompress') {
+        failedDecompress++;
+      } else if (result.error === 'nbt') {
+        failedNBT++;
+      } else if (result.data) {
+        chunks.push({ x: result.x, z: result.z, data: result.data });
+        totalDecompressTime += result.decompressTime || 0;
+        totalNBTTime += result.nbtTime || 0;
       }
     }
   }
@@ -214,6 +310,7 @@ function parseMCABuffer(buffer) {
     failedNBT,
     decompressTimeMs: totalDecompressTime,
     nbtTimeMs: totalNBTTime,
+    usedNativeDecompress,
   };
 
   return chunks;
@@ -403,7 +500,91 @@ function unpackBlockIndices(data, bitsPerBlock, totalBlocks) {
     return indices;
   }
   
-  // STANDARD PATH: Use BigInt for all other cases
+  // FAST PATH: bitsPerBlock == 5 (palettes with 17-32 entries) - 12 entries per long
+  if (bitsPerBlock === 5) {
+    let i = 0;
+    const mask5 = 0x1F;
+    for (let longIndex = 0; longIndex < dataLen && i < totalBlocks; longIndex++) {
+      const val = data[longIndex];
+      let low, high;
+      if (typeof val === 'bigint') {
+        low = Number(val & 0xFFFFFFFFn);
+        high = Number((val >> 32n) & 0xFFFFFFFFn);
+      } else {
+        low = val >>> 0;
+        high = 0;
+      }
+      // Extract 12 entries (5 bits each, spanning low and high)
+      if (i < totalBlocks) indices[i++] = (low) & mask5;
+      if (i < totalBlocks) indices[i++] = (low >>> 5) & mask5;
+      if (i < totalBlocks) indices[i++] = (low >>> 10) & mask5;
+      if (i < totalBlocks) indices[i++] = (low >>> 15) & mask5;
+      if (i < totalBlocks) indices[i++] = (low >>> 20) & mask5;
+      if (i < totalBlocks) indices[i++] = (low >>> 25) & mask5;
+      if (i < totalBlocks) indices[i++] = ((low >>> 30) | (high << 2)) & mask5;
+      if (i < totalBlocks) indices[i++] = (high >>> 3) & mask5;
+      if (i < totalBlocks) indices[i++] = (high >>> 8) & mask5;
+      if (i < totalBlocks) indices[i++] = (high >>> 13) & mask5;
+      if (i < totalBlocks) indices[i++] = (high >>> 18) & mask5;
+      if (i < totalBlocks) indices[i++] = (high >>> 23) & mask5;
+    }
+    return indices;
+  }
+  
+  // FAST PATH: bitsPerBlock == 6 (palettes with 33-64 entries) - 10 entries per long
+  if (bitsPerBlock === 6) {
+    let i = 0;
+    const mask6 = 0x3F;
+    for (let longIndex = 0; longIndex < dataLen && i < totalBlocks; longIndex++) {
+      const val = data[longIndex];
+      let low, high;
+      if (typeof val === 'bigint') {
+        low = Number(val & 0xFFFFFFFFn);
+        high = Number((val >> 32n) & 0xFFFFFFFFn);
+      } else {
+        low = val >>> 0;
+        high = 0;
+      }
+      if (i < totalBlocks) indices[i++] = (low) & mask6;
+      if (i < totalBlocks) indices[i++] = (low >>> 6) & mask6;
+      if (i < totalBlocks) indices[i++] = (low >>> 12) & mask6;
+      if (i < totalBlocks) indices[i++] = (low >>> 18) & mask6;
+      if (i < totalBlocks) indices[i++] = (low >>> 24) & mask6;
+      if (i < totalBlocks) indices[i++] = ((low >>> 30) | (high << 2)) & mask6;
+      if (i < totalBlocks) indices[i++] = (high >>> 4) & mask6;
+      if (i < totalBlocks) indices[i++] = (high >>> 10) & mask6;
+      if (i < totalBlocks) indices[i++] = (high >>> 16) & mask6;
+      if (i < totalBlocks) indices[i++] = (high >>> 22) & mask6;
+    }
+    return indices;
+  }
+  
+  // FAST PATH: bitsPerBlock == 8 (palettes with 129-256 entries) - 8 entries per long
+  if (bitsPerBlock === 8) {
+    let i = 0;
+    for (let longIndex = 0; longIndex < dataLen && i < totalBlocks; longIndex++) {
+      const val = data[longIndex];
+      let low, high;
+      if (typeof val === 'bigint') {
+        low = Number(val & 0xFFFFFFFFn);
+        high = Number((val >> 32n) & 0xFFFFFFFFn);
+      } else {
+        low = val >>> 0;
+        high = 0;
+      }
+      if (i < totalBlocks) indices[i++] = (low) & 0xFF;
+      if (i < totalBlocks) indices[i++] = (low >>> 8) & 0xFF;
+      if (i < totalBlocks) indices[i++] = (low >>> 16) & 0xFF;
+      if (i < totalBlocks) indices[i++] = (low >>> 24) & 0xFF;
+      if (i < totalBlocks) indices[i++] = (high) & 0xFF;
+      if (i < totalBlocks) indices[i++] = (high >>> 8) & 0xFF;
+      if (i < totalBlocks) indices[i++] = (high >>> 16) & 0xFF;
+      if (i < totalBlocks) indices[i++] = (high >>> 24) & 0xFF;
+    }
+    return indices;
+  }
+  
+  // STANDARD PATH: Use BigInt for other cases (7, 9-15 bits)
   const mask = (1n << BigInt(bitsPerBlock)) - 1n;
   const longValues = data.map(v => typeof v === 'bigint' ? BigInt.asUintN(64, v) : BigInt(v >>> 0));
   const bitOffsets = bitsPerBlock < 16 ? BIT_OFFSETS[bitsPerBlock] : null;
@@ -1838,9 +2019,9 @@ self.onmessage = async function(e) {
     const startTime = performance.now();
     
     try {
-      // Phase 1: Parse MCA
+      // Phase 1: Parse MCA (async for native decompression)
       const parseStart = performance.now();
-      const chunks = parseMCABuffer(buffer);
+      const chunks = await parseMCABuffer(buffer);
       const parseTime = performance.now() - parseStart;
       
       // Extract parse stats for debugging
@@ -2013,6 +2194,7 @@ self.onmessage = async function(e) {
         skippedEmpty: parseStats.skippedEmpty || 0,
         failedDecompress: parseStats.failedDecompress || 0,
         failedNBT: parseStats.failedNBT || 0,
+        usedNativeDecompress: parseStats.usedNativeDecompress || false,
       };
       
       self.postMessage({

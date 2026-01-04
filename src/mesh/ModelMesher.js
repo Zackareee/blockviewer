@@ -409,6 +409,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   const stateHasPositionOffset = new Uint8Array(maxStateId); // 1 if block should have XZ position offset
   const stateHasParticleEmitter = new Uint8Array(maxStateId); // 1 if block emits particles (torch, etc.)
   const stateEmitterFacing = new Array(maxStateId); // Facing property for wall torches
+  const stateIsBeacon = new Uint8Array(maxStateId); // 1 if block is a beacon
   
   // Slab optimization: track slab types for enhanced face culling
   // 0 = not a slab, 1 = bottom slab, 2 = top slab, 3 = double slab
@@ -550,6 +551,11 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
           }
         }
         
+        // Track beacon blocks
+        if (blockName === 'beacon') {
+          stateIsBeacon[stateId] = 1;
+        }
+        
         // Detect transparent model blocks (glass panes, iron bars, slime, honey, etc.)
         // Note: packed_ice and blue_ice are OPAQUE, not transparent
         const isPackedOrBlueIce = blockName.includes('packed_ice') || blockName.includes('blue_ice');
@@ -616,6 +622,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
 
   // Collect particle emitter block positions (torches, etc.)
   const particleEmitters = [];
+  
+  // Collect beacon positions for beam rendering
+  const beaconPositions = [];
 
   const ox = offset.x, oy = offset.y, oz = offset.z;
 
@@ -690,6 +699,15 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             properties: state?.properties || {},
           });
         }
+      }
+      
+      // Check for beacon blocks
+      if (stateIsBeacon[stateId]) {
+        beaconPositions.push({
+          x: baseX + lx - ox,
+          y: baseY + ly - oy,
+          z: baseZ + lz - oz,
+        });
       }
       
       // Skip states that are being handled by instancing
@@ -1738,12 +1756,18 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     console.log(`[ModelMesher] Found ${particleEmitters.length} particle emitters (first: ${particleEmitters[0]?.blockType} at ${particleEmitters[0]?.x},${particleEmitters[0]?.y},${particleEmitters[0]?.z})`);
   }
   
+  // Debug: log beacon count
+  if (beaconPositions.length > 0) {
+    console.log(`[ModelMesher] Found ${beaconPositions.length} beacons`);
+  }
+  
   // Return split meshes for opaque, transparent, and overlay models
   return {
     opaque: opaqueResult,
     transparent: transparentResult,
     overlay: overlayResult,
     particleEmitters: particleEmitters.length > 0 ? particleEmitters : null,
+    beaconPositions: beaconPositions.length > 0 ? beaconPositions : null,
   };
 }
 
@@ -1808,6 +1832,7 @@ export function buildModelMeshesWithInstancing(grid, stateGrid, registry, stateR
       ...(regularMeshes || {}),
       instances: null,
       particleEmitters: regularMeshes?.particleEmitters || null,
+      beaconPositions: regularMeshes?.beaconPositions || null,
     };
   }
   
@@ -1996,6 +2021,8 @@ export function buildModelMeshesWithInstancing(grid, stateGrid, registry, stateR
   return {
     ...(regularMeshes || {}),
     instances: instanceGroups.length > 0 ? instanceGroups : null,
+    particleEmitters: regularMeshes?.particleEmitters || null,
+    beaconPositions: regularMeshes?.beaconPositions || null,
   };
 }
 

@@ -26,6 +26,7 @@ import { getBlockRegistry } from '../mesh/BlockRegistry';
 import { generateLightmap, DAYTIME_PARAMS, getLightmapParamsForTime } from '../mesh/LightmapGenerator';
 import { ParticleSystem } from '../particles/ParticleSystem';
 import { ParticleEmitterManager } from '../particles/ParticleEmitter';
+import { BeaconBeamManager } from './BeaconBeamManager';
 
 // WebGL has a max index count limit (~30M). Use 25M to be safe.
 const MAX_INDICES_PER_DRAW = 25000000;
@@ -162,6 +163,10 @@ export class ChunkManager {
     this.particleEmitterManager = new ParticleEmitterManager();
     this.particlesEnabled = options.enableParticles !== false;
     
+    // Beacon beam manager for rendering beacon beams
+    this.beaconBeamManager = new BeaconBeamManager();
+    this.beaconBeamsEnabled = options.enableBeaconBeams !== false;
+    
     // Enable debug grid for particle collision detection (needs block data)
     // This stores block IDs so particles can collide with blocks
     this.debugGrid = this.particlesEnabled ? new BinaryGrid() : null;
@@ -246,6 +251,24 @@ export class ChunkManager {
       this.instancedMaterial.uniforms.uUseRGSS.value = value;
     }
     console.log(`[ChunkManager] RGSS anti-aliasing: ${enabled ? 'enabled' : 'disabled'}`);
+  }
+  
+  /**
+   * Enable or disable continuous glass (connected glass textures)
+   * When enabled, glass blocks render without visible borders between adjacent blocks
+   * @param {boolean} enabled - true = borderless glass, false = normal glass with frame
+   */
+  setContinuousGlass(enabled) {
+    const value = enabled ? 1.0 : 0.0;
+    
+    if (this.glassMaterial?.uniforms?.uContinuousGlass) {
+      this.glassMaterial.uniforms.uContinuousGlass.value = value;
+    }
+    // Also update transparent model material for glass panes
+    if (this.transparentModelMaterial?.uniforms?.uContinuousGlass) {
+      this.transparentModelMaterial.uniforms.uContinuousGlass.value = value;
+    }
+    console.log(`[ChunkManager] Continuous glass: ${enabled ? 'enabled' : 'disabled'}`);
   }
   
   /**
@@ -1176,6 +1199,51 @@ export class ChunkManager {
   }
 
   /**
+   * Register beacon positions for beam rendering
+   * @param {Array} beacons - Array of { x, y, z }
+   */
+  _registerBeacons(beacons) {
+    if (!this.beaconBeamManager || !beacons || !this.beaconBeamsEnabled) return;
+    
+    for (const beacon of beacons) {
+      this.beaconBeamManager.addBeacon(beacon.x, beacon.y, beacon.z);
+    }
+    
+    if (beacons.length > 0) {
+      console.log(`[ChunkManager] Registered ${beacons.length} beacons`);
+    }
+  }
+
+  /**
+   * Initialize the beacon beam manager
+   * @param {TexturePackManager} [packManager] - Optional texture pack manager for loading beacon texture
+   */
+  async initBeaconBeamManager(packManager = null) {
+    if (!this.beaconBeamsEnabled) return;
+    
+    await this.beaconBeamManager.initialize(packManager);
+    this.scene.add(this.beaconBeamManager.getGroup());
+    
+    // Set up block lookup for beam tracing
+    // Uses debugGrid if available
+    this.beaconBeamManager.setBlockLookup((x, y, z) => {
+      if (this.debugGrid) {
+        const blockData = this.debugGrid.getBlock(
+          Math.floor(x),
+          Math.floor(y),
+          Math.floor(z)
+        );
+        // Get block name from registry
+        const registry = getBlockRegistry();
+        return registry?.getBlockName(blockData & 0xFFFF) || 'air';
+      }
+      return 'air';
+    });
+    
+    console.log('[ChunkManager] Beacon beam manager initialized');
+  }
+
+  /**
    * Initialize the particle system with the particle atlas
    * @param {ParticleAtlas} particleAtlas - The particle texture atlas
    */
@@ -1234,6 +1302,11 @@ export class ChunkManager {
     
     // Update particle physics and rendering (pass camera for depth sorting)
     this.particleSystem.update(deltaTime, time, camera);
+    
+    // Update beacon beams animation
+    if (this.beaconBeamManager && this.beaconBeamsEnabled) {
+      this.beaconBeamManager.update(deltaTime);
+    }
   }
 
   /**
@@ -1278,11 +1351,16 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, stats, _grid } = result;
       
       // Register particle emitters for torches and other light sources
       if (particleEmitters && this.particlesEnabled) {
         this._registerParticleEmitters(particleEmitters);
+      }
+      
+      // Register beacon positions for beam rendering
+      if (beaconPositions && this.beaconBeamsEnabled) {
+        this._registerBeacons(beaconPositions);
       }
       
       // Merge grid for debug lookups
@@ -1410,11 +1488,16 @@ export class ChunkManager {
         }
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, particleEmitters, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, particleEmitters, beaconPositions, stats } = result;
         
         // Register particle emitters for torches and other light sources
         if (particleEmitters && this.particlesEnabled) {
           this._registerParticleEmitters(particleEmitters);
+        }
+        
+        // Register beacon positions for beam rendering
+        if (beaconPositions && this.beaconBeamsEnabled) {
+          this._registerBeacons(beaconPositions);
         }
 
         let drawCalls = 0;
@@ -1679,11 +1762,16 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, beaconPositions: bp2, stats } = result;
         
         // Register particle emitters for torches and other light sources
         if (pe2 && this.particlesEnabled) {
           this._registerParticleEmitters(pe2);
+        }
+        
+        // Register beacon positions for beam rendering
+        if (bp2 && this.beaconBeamsEnabled) {
+          this._registerBeacons(bp2);
         }
         
         let drawCalls = 0;
@@ -1974,8 +2062,9 @@ export class ChunkManager {
         
         const lodInfo = shouldGenerateLOD ? `, LOD: ${(stats.lodTimeMs || 0).toFixed(0)}ms` : '';
         // Show timing breakdown: parse(decompress+NBT) → decode → mesh
+        const nativeTag = stats.usedNativeDecompress ? '⚡' : '';
         const parseBreakdown = stats.decompressTimeMs 
-          ? `decomp:${stats.decompressTimeMs.toFixed(0)}ms,NBT:${(stats.nbtParseTimeMs || 0).toFixed(0)}ms`
+          ? `decomp${nativeTag}:${stats.decompressTimeMs.toFixed(0)}ms,NBT:${(stats.nbtParseTimeMs || 0).toFixed(0)}ms`
           : `parse:${(stats.parseTimeMs || 0).toFixed(0)}ms`;
         const failInfo = (stats.failedDecompress || stats.failedNBT) 
           ? ` ⚠️ ${stats.failedDecompress || 0} decompress/${stats.failedNBT || 0} NBT failures`
@@ -2478,6 +2567,11 @@ export class ChunkManager {
       this.particleSystem.clear();
     }
     
+    // Clear beacon beams
+    if (this.beaconBeamManager) {
+      this.beaconBeamManager.clear();
+    }
+    
     this.totalBlocks = 0;
     this.loadedChunks = 0;
     this.loadedRegions = 0;
@@ -2505,6 +2599,13 @@ export class ChunkManager {
       this.scene.remove(this.particleSystem.getGroup());
       this.particleSystem.dispose();
       this.particleSystem = null;
+    }
+    
+    // Dispose beacon beam manager
+    if (this.beaconBeamManager) {
+      this.scene.remove(this.beaconBeamManager.getGroup());
+      this.beaconBeamManager.dispose();
+      this.beaconBeamManager = null;
     }
     
     this.solidMaterial.dispose();

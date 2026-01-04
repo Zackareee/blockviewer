@@ -488,6 +488,7 @@ function RegionScene({
   brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
   enableRGSS = true, // RGSS anti-aliasing for textures
   cloudsEnabled = true, // Show clouds
+  continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -557,6 +558,15 @@ function RegionScene({
       manager.initParticleSystem(particleAtlas);
     }
   }, [particleAtlas]);
+  
+  // Initialize beacon beam manager
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.beaconBeamsEnabled) {
+      console.log('[RegionViewer] Initializing beacon beam manager');
+      manager.initBeaconBeamManager();
+    }
+  }, []);
   
   // Update texture mode when it changes
   useEffect(() => {
@@ -841,6 +851,15 @@ function RegionScene({
     invalidate(); // Re-render with new RGSS setting
   }, [enableRGSS, invalidate]);
 
+  // Toggle continuous glass (connected glass textures)
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager) return;
+    
+    manager.setContinuousGlass(continuousGlass);
+    invalidate(); // Re-render with new glass mode
+  }, [continuousGlass, invalidate]);
+
   // Position camera at a specific target (updates initial position for SpectatorControls)
   const positionCameraAt = useCallback((cx, cy, cz, chunkCount = 100) => {
     // Position camera above and to the side of the center
@@ -952,6 +971,7 @@ export function RegionViewer({
   brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
   enableRGSS = true, // RGSS anti-aliasing for textures
   cloudsEnabled = true, // Show clouds
+  continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -1015,6 +1035,7 @@ export function RegionViewer({
         brightness={brightness}
         enableRGSS={enableRGSS}
         cloudsEnabled={cloudsEnabled}
+        continuousGlass={continuousGlass}
       />
     </Canvas>
   );

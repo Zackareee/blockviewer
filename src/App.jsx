@@ -81,6 +81,9 @@ function App() {
   // Clouds toggle
   const [cloudsEnabled, setCloudsEnabled] = useState(true);
   
+  // Continuous glass (connected glass textures - removes borders between adjacent glass blocks)
+  const [continuousGlass, setContinuousGlass] = useState(false);
+  
   // Camera state for coordinates display (Minecraft spectator mode)
   const [cameraState, setCameraState] = useState({
     x: 0, y: 100, z: 0,
@@ -424,6 +427,7 @@ function App() {
             brightness={brightness}
             enableRGSS={enableRGSS}
             cloudsEnabled={cloudsEnabled}
+            continuousGlass={continuousGlass}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -792,6 +796,17 @@ function App() {
             <span className="toggle-label">
               <span className="toggle-icon">☁️</span>
               Clouds
+            </span>
+          </label>
+          <label className={`toggle-option ${continuousGlass ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
+            <input 
+              type="checkbox"
+              checked={continuousGlass}
+              onChange={(e) => setContinuousGlass(e.target.checked)}
+            />
+            <span className="toggle-label">
+              <span className="toggle-icon">🪟</span>
+              Continuous Glass
             </span>
           </label>
           <button 

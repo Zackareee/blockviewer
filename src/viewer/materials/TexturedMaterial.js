@@ -86,6 +86,9 @@ uniform float uFogStart;         // Distance where fog starts (in blocks)
 uniform float uFogEnd;           // Distance where fog is fully opaque (in blocks)
 uniform float uFogEnabled;       // 0.0 = no fog, 1.0 = fog enabled
 
+// Continuous glass (connected textures) - when enabled, glass border patterns are hidden
+uniform float uContinuousGlass;  // 0.0 = normal glass with borders, 1.0 = borderless glass
+
 // Tint type constants (must match TINT_TYPE in biomeTinting.js)
 #define TINT_NONE 0
 #define TINT_GRASS 1
@@ -524,6 +527,21 @@ void main() {
     // For tinted blocks, the texture is grayscale and we multiply by tint
     finalColor = texColor.rgb * tintColor;
     alpha = texColor.a;
+    
+    // Continuous glass mode: hide the border frame pattern for seamless glass
+    // When enabled, glass blocks render without the visible grid pattern
+    if (uContinuousGlass > 0.5) {
+      // Check if this pixel is in the border region (outer 1 pixel of the 16x16 texture)
+      // Border is ~6.25% of the texture on each edge (1/16 = 0.0625)
+      float borderSize = 0.0625; // 1 pixel in a 16x16 texture
+      bool inBorder = localUV.x < borderSize || localUV.x > (1.0 - borderSize) ||
+                      localUV.y < borderSize || localUV.y > (1.0 - borderSize);
+      
+      if (inBorder) {
+        // In border region - make it fully transparent to hide the frame
+        discard;
+      }
+    }
   } else {
     // Use vertex color fallback (solid color mode)
     finalColor = vColor;
@@ -684,6 +702,8 @@ export function createTexturedMaterial(atlasData = null, useTextures = false, li
       uFogStart: { value: 100.0 },  // Start fading at 80% of render distance
       uFogEnd: { value: 128.0 },    // Fully faded at render distance
       uFogEnabled: { value: 0.0 },  // Disabled by default
+      // Continuous glass - not used for solid materials but needed for shader uniformity
+      uContinuousGlass: { value: 0.0 },
     },
     vertexShader,
     fragmentShader,
@@ -727,6 +747,8 @@ export function createTexturedGlassMaterial(atlasData = null, useTextures = fals
       uFogStart: { value: 100.0 },
       uFogEnd: { value: 200.0 },
       uFogEnabled: { value: 0.0 },
+      // Continuous glass (connected textures)
+      uContinuousGlass: { value: 0.0 }, // 0 = normal glass, 1 = seamless glass
     },
     vertexShader,
     fragmentShader,
