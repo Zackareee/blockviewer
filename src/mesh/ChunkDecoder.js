@@ -12,6 +12,7 @@ import { getBlockRegistry } from './BlockRegistry.js';
 import { BlockStateGrid } from './BlockStateGrid.js';
 import { isNonCubeBlock } from './ModelMesher.js';
 import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
+import { hasEmitter } from '../particles/ParticleEmitter.js';
 
 // Axis encoding for rotatable blocks (stored in bits 12-13 of block data)
 // Axis values: 0 = y (default), 1 = x, 2 = z
@@ -212,8 +213,9 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
       }
     }
     
-    // Check if this block needs state-based geometry
-    if (!isAir[i] && isNonCubeBlock(name)) {
+    // Check if this block needs state-based geometry OR has particle emitters
+    // We need to track state for both non-cube blocks AND particle emitting blocks
+    if (!isAir[i] && (isNonCubeBlock(name) || hasEmitter(name))) {
       needsState[i] = 1;
       if (stateRegistry) {
         stateIds[i] = stateRegistry.register(name, props || {});
