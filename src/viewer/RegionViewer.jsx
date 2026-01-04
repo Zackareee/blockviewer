@@ -801,14 +801,15 @@ function RegionScene({
           });
         },
         onRegionComplete: (index, total, name, stats) => {
+          const isLastRegion = index + 1 >= total;
           onProgress?.({ 
             current: index + 1, 
             total, 
-            isBuilding: index + 1 < total, 
-            message: `Completed: ${name}`,
-            stage: index + 1 < total ? 'parsing' : null,
-            stageProgress: 0,
-            regionName: index + 1 < total ? '' : name,
+            isBuilding: !isLastRegion, // Only hide after last region
+            message: isLastRegion ? `Completed: ${name}` : `Loading next region...`,
+            stage: isLastRegion ? 'complete' : 'parsing', // Show complete stage at end
+            stageProgress: isLastRegion ? 100 : 0,
+            regionName: name,
           });
           invalidate(); // Render after each region completes
         },
@@ -875,14 +876,15 @@ function RegionScene({
           });
         },
         onRegionComplete: (index, total, name, stats) => {
+          const isLastRegion = index + 1 >= total;
           onProgress?.({ 
             current: index + 1, 
             total, 
-            isBuilding: index + 1 < total, 
-            message: `Completed: ${name}`,
-            stage: index + 1 < total ? 'parsing' : null,
-            stageProgress: 0,
-            regionName: index + 1 < total ? '' : name,
+            isBuilding: !isLastRegion, // Only hide after last region
+            message: isLastRegion ? `Completed: ${name}` : `Loading next region...`,
+            stage: isLastRegion ? 'complete' : 'parsing', // Show complete stage at end
+            stageProgress: isLastRegion ? 100 : 0,
+            regionName: name,
           });
           invalidate(); // Render after each region completes
         },

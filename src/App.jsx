@@ -265,6 +265,16 @@ function App() {
     }
   }, []);
 
+  // Auto-hide the loading overlay after 'complete' stage is shown for a moment
+  useEffect(() => {
+    if (buildProgress.stage === 'complete') {
+      const timer = setTimeout(() => {
+        setBuildProgress(prev => ({ ...prev, stage: null }));
+      }, 500); // Show "complete" for 500ms before hiding
+      return () => clearTimeout(timer);
+    }
+  }, [buildProgress.stage]);
+
   // Throttle camera updates to avoid excessive re-renders
   const lastCameraUpdateRef = useRef(0);
   const handleCameraUpdate = useCallback((state) => {
@@ -402,7 +412,7 @@ function App() {
             <p>Processing regions...</p>
           </div>
         )}
-        {buildProgress.isBuilding && (
+        {(buildProgress.isBuilding || buildProgress.stage === 'complete') && (
           <div className="build-overlay">
             <div className="build-progress-container">
               {/* Region header */}
