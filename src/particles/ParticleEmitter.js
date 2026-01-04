@@ -798,8 +798,8 @@ const BLOCK_EMITTERS = {
         offsetVariance: [0.25, 0.0, 0.25],
         velocity: [0, -0.1, 0], // MC: 0.005/tick * 20 = 0.1 blocks/sec
         velocityVariance: [0.02, 0.02, 0.02],
-        size: 0.1, // MC quadSize ~0.125
-        sizeVariance: 0.02,
+        size: 0.18, // Visible drip - MC quadSize ~0.125 but appears larger
+        sizeVariance: 0.04,
         lifetime: 3.2, // MC: 64 ticks
         lifetimeVariance: 0.8,
         color: [0.32, 0.50, 0.22], // GREEN - exact MC values
@@ -821,8 +821,8 @@ const BLOCK_EMITTERS = {
         offsetVariance: [10.0, 6.0, 10.0], // MC: 10 block XZ radius, 16 blocks down
         velocity: [0, -0.4, 0], // Base downward drift
         velocityVariance: [0.4, 0.1, 0.4], // MC: lateral movement ±0.8 blocks/sec
-        size: 0.1,
-        sizeVariance: 0.02,
+        size: 0.15, // Visible floating spore - slightly smaller than drip
+        sizeVariance: 0.04,
         lifetime: 4.0, // Shorter life but more particles
         lifetimeVariance: 1.5,
         color: [0.32, 0.50, 0.22], // GREEN
