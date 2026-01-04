@@ -1297,11 +1297,6 @@ export class ParticleEmitterManager {
       const spawnChance = pConfig.rate * 0.016 * this.qualityMultiplier; // ~60fps assumed
       if (Math.random() > spawnChance) continue;
       
-      // Get sprite data for this particle type
-      const particleAtlas = particleSystem.particleAtlas;
-      const spriteData = particleAtlas?.getSpriteData(pConfig.type);
-      if (!spriteData) continue;
-      
       // Calculate spawn position with variance
       const ox = pConfig.offset?.[0] || 0.5;
       const oy = pConfig.offset?.[1] || 0.5;
@@ -1336,8 +1331,8 @@ export class ParticleEmitterManager {
       const lifetimeVar = pConfig.lifetimeVariance || 0;
       const lifetime = baseLifetime + (Math.random() - 0.5) * 2 * lifetimeVar;
       
-      // Spawn the particle
-      particleSystem.spawn({
+      // Spawn the particle using type and options
+      particleSystem.spawn(pConfig.type, {
         x, y, z,
         vx: velX, vy: velY, vz: velZ,
         size,
@@ -1351,10 +1346,6 @@ export class ParticleEmitterManager {
         friction: pConfig.friction ?? 1.0,
         gravity: pConfig.gravity ?? 0,
         hasPhysics: pConfig.hasPhysics ?? true,
-        spriteIndex: spriteData.index,
-        frameCount: spriteData.frameCount,
-        frameIndices: spriteData.frameIndices || null,
-        blendMode: spriteData.blendMode || 'normal',
       });
     }
   }
