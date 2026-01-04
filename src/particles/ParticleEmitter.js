@@ -853,25 +853,37 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   'firefly_bush': {
+    // From FireflyBushBlock.class and FireflyParticle.class:
+    // - Spawn radius: 10 blocks XZ, 5 blocks Y (doubles 87, 88)
+    // - Spawn chance: 0.7 (70%) per animateTick (double 83)
+    // - Lifetime: 200-300 ticks = 10-15 seconds (ints 129, 131)
+    // - Friction: 0.96 (float 15)
+    // - Size: quadSize 0.75 * scale [0.1, 0.3] = 0.075 to 0.225
+    // - Glow: full brightness (255), additive blend
+    // - Wandering: randomly changes velocity each tick within [-0.05, 0.95]
     particles: [
       {
         type: 'firefly',
-        rate: 1.5, // MC: ~30 ticks between spawns * 0.7 chance = ~1.5/sec
-        offset: [0.5, 0.5, 0.5], // Center of bush
-        offsetVariance: [0.5, 0.3, 0.5], // Spawn within bush volume
-        velocity: [0, 0.02, 0], // Slight upward drift
-        velocityVariance: [0.1, 0.05, 0.1], // Random floating movement
-        size: 0.08, // Small glowing dot
-        sizeVariance: 0.02,
+        rate: 1.4, // MC: 0.7 chance per animateTick (~2/sec * 0.7 = ~1.4/sec)
+        offset: [0.5, 0.5, 0.5], // Center of spawn volume
+        offsetVariance: [10.0, 5.0, 10.0], // MC: 10 block XZ radius, 5 block Y radius
+        velocity: [0, 0, 0], // Start stationary, wandering adds momentum
+        velocityVariance: [0.1, 0.05, 0.1], // Initial random direction
+        size: 0.15, // MC: quadSize 0.75 * scale ~0.2 = 0.15
+        sizeVariance: 0.05, // MC: scale varies 0.1-0.3
         lifetime: 12.0, // MC: 200-300 ticks = 10-15 sec, avg 12
-        lifetimeVariance: 2.0,
-        color: [1.0, 1.0, 0.6], // Warm yellow-green glow
-        alpha: 0.75, // MC: 0.75 base alpha
-        fadeIn: 0.3, // Gradual appearance
-        fadeOut: 0.4, // Gradual fade
-        friction: 0.96, // MC: exact value - allows floating
-        gravity: -0.02, // Slight upward buoyancy (fireflies rise)
+        lifetimeVariance: 2.5,
+        color: [1.0, 1.0, 0.6], // Warm yellow-green glow (firefly bioluminescence)
+        alpha: 0.9, // Bright glow
+        fadeIn: 0.25, // MC: fadeInTime ~0.25
+        fadeOut: 0.6, // MC: fadeOutTime ~0.6
+        friction: 0.96, // MC: exact friction from bytecode
+        gravity: 0, // No gravity - fireflies float
         hasPhysics: false, // Float through blocks
+        // Firefly wandering behavior - randomly changes direction each tick
+        randomMomentum: true,
+        randomMomentumStrength: 0.08, // MC: velocity changes ~0.05-0.1 per tick
+        randomMomentumBias: 0.02, // Slight upward bias (fireflies tend to rise slightly)
       },
     ],
   },
@@ -1121,6 +1133,10 @@ class EmitterInstance {
       // hasPhysics: false for smoke particles (they pass through blocks)
       // MC: BaseAshSmokeParticle sets hasPhysics = false
       hasPhysics: config.hasPhysics ?? !SMOKE_PARTICLE_TYPES.has(config.type),
+      // Firefly-style wandering behavior
+      randomMomentum: config.randomMomentum ?? false,
+      randomMomentumStrength: config.randomMomentumStrength ?? 0.05,
+      randomMomentumBias: config.randomMomentumBias ?? 0,
     });
     
   }

@@ -49,6 +49,10 @@ class Particle {
     this.gravity = 0;       // Downward acceleration (MC uses 0.75 for lava "sputtering")
     this.hasPhysics = true; // Whether particle collides with blocks (MC default: true)
     this.onGround = false;  // Whether particle landed on ground
+    // Firefly-style wandering behavior
+    this.randomMomentum = false;       // Whether to randomly change direction over time
+    this.randomMomentumStrength = 0.05; // Velocity change per tick
+    this.randomMomentumBias = 0;       // Center bias for velocity changes
   }
   
   reset() {
@@ -69,6 +73,9 @@ class Particle {
     this.gravity = 0;
     this.hasPhysics = true;
     this.onGround = false;
+    this.randomMomentum = false;
+    this.randomMomentumStrength = 0.05;
+    this.randomMomentumBias = 0;
   }
 }
 
@@ -138,6 +145,17 @@ class ParticlePool {
       // MC gravity is applied per tick, so scale by ticksElapsed
       if (p.gravity !== 0 && !p.onGround) {
         p.vy -= p.gravity * ticksElapsed * 0.05; // Scale factor for visual match
+      }
+      
+      // Apply random momentum changes (firefly wandering behavior)
+      // MC fireflies adjust velocity each tick with random values in [-0.05, 0.95]
+      if (p.randomMomentum) {
+        const strength = p.randomMomentumStrength * ticksElapsed;
+        const bias = p.randomMomentumBias;
+        // Random velocity adjustments centered around bias
+        p.vx += (Math.random() * 2 - 1) * strength + bias * (Math.random() - 0.5);
+        p.vy += (Math.random() * 2 - 1) * strength * 0.5 + bias * (Math.random() - 0.5) * 0.5;
+        p.vz += (Math.random() * 2 - 1) * strength + bias * (Math.random() - 0.5);
       }
       
       // Store old position for collision resolution
@@ -366,7 +384,7 @@ export class ParticleSystem {
     // Determine blend mode based on type - additive particles glow/emit light
     const ADDITIVE_PARTICLES = new Set([
       'flame', 'small_flame', 'soul_fire_flame', 'lava', 
-      'end_rod', 'copper_flame'
+      'end_rod', 'copper_flame', 'firefly'
     ]);
     const isAdditive = ADDITIVE_PARTICLES.has(type);
     const pool = isAdditive ? this.additivePool : this.normalPool;
@@ -398,6 +416,11 @@ export class ParticleSystem {
     particle.gravity = options.gravity ?? 0;  // Downward acceleration (MC lava uses 0.75)
     particle.hasPhysics = options.hasPhysics ?? true;  // MC default: collides with blocks
     particle.onGround = false;
+    
+    // Firefly-style wandering behavior
+    particle.randomMomentum = options.randomMomentum ?? false;
+    particle.randomMomentumStrength = options.randomMomentumStrength ?? 0.05;
+    particle.randomMomentumBias = options.randomMomentumBias ?? 0;
     
     // Get sprite info from atlas
     const spriteData = this.particleAtlas?.getParticleUV?.(type);
