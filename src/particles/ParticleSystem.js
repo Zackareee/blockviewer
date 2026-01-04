@@ -92,6 +92,10 @@ class ParticlePool {
     for (let i = 0; i < maxParticles; i++) {
       this.particles.push(new Particle());
     }
+    
+    // Pre-allocate sort array (reused each frame to avoid GC pressure)
+    this._sortArray = new Array(maxParticles);
+    this._sortArrayLength = 0;
   }
   
   /**
@@ -128,6 +132,22 @@ class ParticlePool {
   }
   
   /**
+   * Collect alive particles into pre-allocated array (avoids GC pressure)
+   * @returns {number} Number of alive particles
+   */
+  collectAlive() {
+    let count = 0;
+    for (let i = 0; i < this.maxParticles; i++) {
+      const p = this.particles[i];
+      if (p.state === PARTICLE_ALIVE) {
+        this._sortArray[count++] = p;
+      }
+    }
+    this._sortArrayLength = count;
+    return count;
+  }
+  
+  /**
    * Update all alive particles
    * @param {number} deltaTime - Time since last update in seconds
    * @param {Function} updateFn - Custom update function (particle, dt) => boolean (false = kill)
@@ -138,7 +158,12 @@ class ParticlePool {
     // MC runs at 20 ticks/sec, so we apply friction proportionally
     const ticksElapsed = deltaTime * 20;
     
-    for (const p of this.particles) {
+    // Pre-compute friction factor lookup (optimization: avoid Math.pow per particle)
+    // Common friction values: 0.96, 0.98, 0.99, 0.995
+    const frictionFactors = this._frictionFactors || (this._frictionFactors = {});
+    
+    for (let i = 0; i < this.maxParticles; i++) {
+      const p = this.particles[i];
       if (p.state !== PARTICLE_ALIVE) continue;
       
       // Apply gravity (accelerate downward)
@@ -148,11 +173,9 @@ class ParticlePool {
       }
       
       // Apply random momentum changes (firefly wandering behavior)
-      // MC fireflies adjust velocity each tick with random values in [-0.05, 0.95]
       if (p.randomMomentum) {
         const strength = p.randomMomentumStrength * ticksElapsed;
         const bias = p.randomMomentumBias;
-        // Random velocity adjustments centered around bias
         p.vx += (Math.random() * 2 - 1) * strength + bias * (Math.random() - 0.5);
         p.vy += (Math.random() * 2 - 1) * strength * 0.5 + bias * (Math.random() - 0.5) * 0.5;
         p.vz += (Math.random() * 2 - 1) * strength + bias * (Math.random() - 0.5);
@@ -167,50 +190,48 @@ class ParticlePool {
       p.z += p.vz * deltaTime;
       
       // Collision detection (only for particles with physics enabled)
-      // Grace period: don't check collisions for first 1.0 seconds (lets particles escape spawn block)
-      if (p.hasPhysics && collisionFn && p.age > 1.0) {
+      // Grace period: don't check collisions for first 1.0 seconds
+      // Optimization: Only check collisions for particles with significant velocity
+      if (p.hasPhysics && collisionFn && p.age > 1.0 && 
+          (Math.abs(p.vx) > 0.01 || Math.abs(p.vy) > 0.01 || Math.abs(p.vz) > 0.01)) {
         // Check if new position is inside a solid block
         if (collisionFn(p.x, p.y, p.z)) {
-          // Check which axis caused collision and resolve
-          const collidesX = collisionFn(p.x, oldY, oldZ);
-          const collidesY = collisionFn(oldX, p.y, oldZ);
-          const collidesZ = collisionFn(oldX, oldY, p.z);
-          
-          if (collidesY) {
-            // Vertical collision - most common (ground/ceiling)
+          // Simplified collision: just check Y first (most common case)
+          if (collisionFn(oldX, p.y, oldZ)) {
             p.y = oldY;
             if (p.vy < 0) {
-              // Hit ground - stop and mark as grounded
               p.onGround = true;
               p.vy = 0;
-              p.vx *= 0.7; // Friction when on ground
+              p.vx *= 0.7;
               p.vz *= 0.7;
             } else {
-              // Hit ceiling - just stop vertical motion
               p.vy = 0;
             }
+          } else {
+            // Only check X/Z if Y didn't resolve it
+            if (collisionFn(p.x, oldY, oldZ)) {
+              p.x = oldX;
+              p.vx = 0;
+            }
+            if (collisionFn(oldX, oldY, p.z)) {
+              p.z = oldZ;
+              p.vz = 0;
+            }
           }
-          if (collidesX) {
-            p.x = oldX;
-            p.vx = 0;
-          }
-          if (collidesZ) {
-            p.z = oldZ;
-            p.vz = 0;
-          }
-        } else {
-          // No longer on ground if we moved
-          if (p.onGround && p.vy !== 0) {
-            p.onGround = false;
-          }
+        } else if (p.onGround && p.vy !== 0) {
+          p.onGround = false;
         }
       }
       
       // Apply friction (velocity decay per tick)
-      // For friction 0.96 and 1 tick: v *= 0.96
-      // For fractional ticks, we use: v *= friction^ticksElapsed
       if (p.friction < 1.0) {
-        const frictionFactor = Math.pow(p.friction, ticksElapsed);
+        // Use cached friction factor if available (common values)
+        const key = p.friction.toFixed(3);
+        let frictionFactor = frictionFactors[key];
+        if (frictionFactor === undefined) {
+          frictionFactor = Math.pow(p.friction, ticksElapsed);
+          frictionFactors[key] = frictionFactor;
+        }
         p.vx *= frictionFactor;
         p.vy *= frictionFactor;
         p.vz *= frictionFactor;
@@ -276,6 +297,15 @@ export class ParticleSystem {
     // Performance tracking
     this.lastUpdateTime = 0;
     this.updateCount = 0;
+    
+    // Optimization: sort every N frames (sorting is expensive for many particles)
+    this.sortInterval = 3; // Sort every 3 frames
+    this._sortFrame = 0;
+    
+    // Optimization: cache last camera position to skip sorting if camera hasn't moved much
+    this._lastCamX = 0;
+    this._lastCamY = 0;
+    this._lastCamZ = 0;
     
     // Debug logging
     console.log('[ParticleSystem] Constructor called with atlas:', particleAtlas ? 'yes' : 'no', 'isBuilt:', particleAtlas?.isBuilt);
@@ -559,53 +589,79 @@ export class ParticleSystem {
    * @param {boolean} sortByDepth - Whether to sort particles back-to-front
    */
   _syncBuffers(pool, mesh, buffers, camPos, sortByDepth) {
-    // Collect alive particles
-    const aliveParticles = [];
-    for (const p of pool.particles) {
-      if (p.state === PARTICLE_ALIVE) {
-        aliveParticles.push(p);
+    // Use pre-allocated array to avoid GC pressure
+    const count = pool.collectAlive();
+    const aliveParticles = pool._sortArray;
+    
+    // Sort back-to-front (farthest first) for proper transparency
+    // Optimization: Only sort every N frames and when camera has moved
+    if (sortByDepth && camPos && count > 1) {
+      this._sortFrame++;
+      
+      // Check if camera moved significantly (> 2 blocks)
+      const camMoved = Math.abs(camPos.x - this._lastCamX) > 2 ||
+                       Math.abs(camPos.y - this._lastCamY) > 2 ||
+                       Math.abs(camPos.z - this._lastCamZ) > 2;
+      
+      // Sort only every N frames OR if camera moved significantly
+      if (this._sortFrame >= this.sortInterval || camMoved) {
+        this._sortFrame = 0;
+        this._lastCamX = camPos.x;
+        this._lastCamY = camPos.y;
+        this._lastCamZ = camPos.z;
+        
+        // Sort only the alive portion of the array
+        const camX = camPos.x, camY = camPos.y, camZ = camPos.z;
+        const sortSlice = aliveParticles.slice(0, count);
+        sortSlice.sort((a, b) => {
+          const distA = (a.x - camX) ** 2 + (a.y - camY) ** 2 + (a.z - camZ) ** 2;
+          const distB = (b.x - camX) ** 2 + (b.y - camY) ** 2 + (b.z - camZ) ** 2;
+          return distB - distA; // Farthest first
+        });
+        // Copy back to pre-allocated array
+        for (let i = 0; i < count; i++) {
+          aliveParticles[i] = sortSlice[i];
+        }
       }
     }
     
-    // Sort back-to-front (farthest first) for proper transparency
-    // Only sort if we have camera position and sorting is enabled
-    if (sortByDepth && camPos && aliveParticles.length > 1) {
-      aliveParticles.sort((a, b) => {
-        const distA = (a.x - camPos.x) ** 2 + (a.y - camPos.y) ** 2 + (a.z - camPos.z) ** 2;
-        const distB = (b.x - camPos.x) ** 2 + (b.y - camPos.y) ** 2 + (b.z - camPos.z) ** 2;
-        return distB - distA; // Farthest first
-      });
-    }
+    // Write particles to buffers
+    const posArr = buffers.position.array;
+    const sizeArr = buffers.size.array;
+    const ageArr = buffers.age.array;
+    const spriteArr = buffers.spriteIndex.array;
+    const colorArr = buffers.color.array;
+    const alphaArr = buffers.alpha.array;
     
-    // Write sorted particles to buffers
-    for (let i = 0; i < aliveParticles.length; i++) {
+    for (let i = 0; i < count; i++) {
       const p = aliveParticles[i];
+      const i3 = i * 3;
       
       // Position
-      buffers.position.array[i * 3] = p.x;
-      buffers.position.array[i * 3 + 1] = p.y;
-      buffers.position.array[i * 3 + 2] = p.z;
+      posArr[i3] = p.x;
+      posArr[i3 + 1] = p.y;
+      posArr[i3 + 2] = p.z;
       
       // Size
-      buffers.size.array[i] = p.size;
+      sizeArr[i] = p.size;
       
       // Age (normalized)
-      buffers.age.array[i] = p.age / p.lifetime;
+      ageArr[i] = p.age / p.lifetime;
       
       // Sprite index
-      buffers.spriteIndex.array[i] = p.spriteIndex;
+      spriteArr[i] = p.spriteIndex;
       
       // Color
-      buffers.color.array[i * 3] = p.r;
-      buffers.color.array[i * 3 + 1] = p.g;
-      buffers.color.array[i * 3 + 2] = p.b;
+      colorArr[i3] = p.r;
+      colorArr[i3 + 1] = p.g;
+      colorArr[i3 + 2] = p.b;
       
       // Alpha (use currentAlpha which includes fade calculations)
-      buffers.alpha.array[i] = p.currentAlpha;
+      alphaArr[i] = p.currentAlpha;
     }
     
     // Update buffer counts
-    mesh.count = aliveParticles.length;
+    mesh.count = count;
     
     // Mark buffers as needing update
     buffers.position.needsUpdate = true;

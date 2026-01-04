@@ -679,6 +679,12 @@ function RegionScene({
     if (!manager || !chunks || chunks.length === 0) return;
     if (regions && regions.length > 0) return; // Multi-region takes precedence
     
+    // Wait for textureAtlas to be ready (prevents race condition with incomplete model meshes)
+    if (!textureAtlas) {
+      console.log('[RegionViewer] Waiting for texture atlas before loading chunks...');
+      return;
+    }
+    
     manager.clear();
     console.log(`[RegionViewer] Loading ${chunks.length} chunks...`);
     
@@ -703,6 +709,15 @@ function RegionScene({
   useEffect(() => {
     const manager = managerRef.current;
     if (!manager || !regions || regions.length === 0) return;
+    
+    // IMPORTANT: Wait for textureAtlas to be ready before loading regions
+    // This prevents a race condition where the first load starts with null textureIndexLookup
+    // and produces incomplete model meshes (0 transparent triangles), then a second load
+    // starts when textureAtlas becomes available, causing a double-load
+    if (!textureAtlas) {
+      console.log('[RegionViewer] Waiting for texture atlas before loading regions...');
+      return;
+    }
     
     // Check if textureAtlas changed - if so, force a reload to rebuild meshes with new texture indices
     const textureAtlasChanged = textureAtlas !== lastTextureAtlasRef.current;
