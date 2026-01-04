@@ -812,23 +812,25 @@ const BLOCK_EMITTERS = {
       },
       {
         // Ambient floating spores (SuspendedParticle)
+        // MC: ADD_PARTICLE_ATTEMPTS=14, chance=0.7, animateTick ~5/sec = ~50 particles/sec
         // MC spawns in 10-block XZ radius, 16 blocks down
+        // MC has lateral velocity: xd/zd up to ±0.8, yd = -0.8
         type: 'spore_blossom_air',
-        rate: 3.0,
-        offset: [0.5, -4.0, 0.5], // Center of spawn volume
-        offsetVariance: [8.0, 4.0, 8.0],
-        velocity: [0, -0.4, 0], // Gentle constant drift
-        velocityVariance: [0.02, 0.05, 0.02],
-        size: 0.1, // MC quadSize ~0.125
+        rate: 25.0, // High density like MC (~50/sec but scaled for visual balance)
+        offset: [0.5, -6.0, 0.5], // Center of spawn volume (8 blocks below)
+        offsetVariance: [10.0, 6.0, 10.0], // MC: 10 block XZ radius, 16 blocks down
+        velocity: [0, -0.4, 0], // Base downward drift
+        velocityVariance: [0.4, 0.1, 0.4], // MC: lateral movement ±0.8 blocks/sec
+        size: 0.1,
         sizeVariance: 0.02,
-        lifetime: 5.0,
-        lifetimeVariance: 2.0,
+        lifetime: 4.0, // Shorter life but more particles
+        lifetimeVariance: 1.5,
         color: [0.32, 0.50, 0.22], // GREEN
         alpha: 0.8,
         fadeIn: 0.1,
         fadeOut: 0.4,
-        friction: 1.0, // Suspended particles - constant velocity
-        gravity: 0.0, // No acceleration
+        friction: 0.99, // Slight friction for natural movement
+        gravity: 0.0, // No gravity - drifts at constant speed
         hasPhysics: false,
       },
     ],
