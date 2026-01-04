@@ -552,6 +552,87 @@ export function extractActiveBeacons(chunks) {
 }
 
 /**
+ * Supported entity types for extraction
+ */
+const SUPPORTED_ENTITY_TYPES = new Set([
+  'item_frame',
+  'glow_item_frame',
+  'painting',
+  'armor_stand',
+]);
+
+/**
+ * Extract entities from chunks
+ * In modern MC (1.17+), entities are in separate entity region files.
+ * In legacy MC, entities are embedded in the chunk's Entities list.
+ * 
+ * @param {Array} chunks - Array of parsed chunks
+ * @returns {Array} Array of entity objects
+ */
+export function extractEntities(chunks) {
+  const entities = [];
+  
+  for (const chunk of chunks) {
+    const { data } = chunk;
+    
+    // Try different locations for entity storage
+    // Modern (1.17+): Entities are in separate files, but some servers embed them
+    // Legacy: data.Level.Entities
+    const chunkEntities = data.entities || (data.Level && data.Level.Entities) || [];
+    
+    for (const entity of chunkEntities) {
+      const id = (entity.id || entity.Id || '').replace('minecraft:', '');
+      
+      // Only extract supported entity types
+      if (!SUPPORTED_ENTITY_TYPES.has(id)) continue;
+      
+      // Get position
+      const pos = entity.Pos || [];
+      const x = pos[0] ?? 0;
+      const y = pos[1] ?? 0;
+      const z = pos[2] ?? 0;
+      
+      // Get rotation
+      const rotation = entity.Rotation || [];
+      const yaw = rotation[0] ?? 0;
+      const pitch = rotation[1] ?? 0;
+      
+      // Get facing direction for hanging entities (item frames, paintings)
+      const facing = entity.Facing ?? entity.facing ?? 2; // Default NORTH
+      
+      // Build extracted entity data
+      const extractedEntity = {
+        id: `minecraft:${id}`,
+        x, y, z,
+        yaw, pitch,
+        Facing: facing,
+      };
+      
+      // Type-specific data
+      if (id === 'item_frame' || id === 'glow_item_frame') {
+        extractedEntity.Item = entity.Item || null;
+        extractedEntity.ItemRotation = entity.ItemRotation ?? 0;
+        extractedEntity.Invisible = entity.Invisible ?? false;
+        extractedEntity.Fixed = entity.Fixed ?? false;
+      } else if (id === 'painting') {
+        extractedEntity.variant = entity.variant || 'minecraft:kebab';
+      } else if (id === 'armor_stand') {
+        extractedEntity.Pose = entity.Pose || {};
+        extractedEntity.ShowArms = entity.ShowArms ?? false;
+        extractedEntity.Small = entity.Small ?? false;
+        extractedEntity.NoBasePlate = entity.NoBasePlate ?? false;
+        extractedEntity.ArmorItems = entity.ArmorItems || [];
+        extractedEntity.HandItems = entity.HandItems || [];
+      }
+      
+      entities.push(extractedEntity);
+    }
+  }
+  
+  return entities;
+}
+
+/**
  * ChunkDecoder class - manages parallel chunk decoding
  */
 export class ChunkDecoder {

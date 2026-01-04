@@ -27,6 +27,7 @@ import { generateLightmap, DAYTIME_PARAMS, getLightmapParamsForTime } from '../m
 import { ParticleSystem } from '../particles/ParticleSystem';
 import { ParticleEmitterManager } from '../particles/ParticleEmitter';
 import { BeaconBeamManager } from './BeaconBeamManager';
+import { EntitySystem } from '../entities/EntitySystem';
 
 // WebGL has a max index count limit (~30M). Use 25M to be safe.
 const MAX_INDICES_PER_DRAW = 25000000;
@@ -166,6 +167,10 @@ export class ChunkManager {
     // Beacon beam manager for rendering beacon beams
     this.beaconBeamManager = new BeaconBeamManager();
     this.beaconBeamsEnabled = options.enableBeaconBeams !== false;
+    
+    // Entity system for item frames, paintings, armor stands, etc.
+    this.entitySystem = new EntitySystem();
+    this.entitiesEnabled = options.enableEntities !== false;
     
     // Enable debug grid for particle collision detection (needs block data)
     // This stores block IDs so particles can collide with blocks
@@ -1258,6 +1263,55 @@ export class ChunkManager {
   }
 
   /**
+   * Register entities for rendering
+   * @param {Array} entities - Array of entity objects
+   */
+  _registerEntities(entities) {
+    if (!this.entitySystem || !entities || !this.entitiesEnabled) return;
+    
+    this.entitySystem.addEntities(entities);
+    
+    if (entities.length > 0) {
+      console.log(`[ChunkManager] Registered ${entities.length} entities`);
+    }
+  }
+
+  /**
+   * Initialize the entity system
+   * @param {Object} options - Initialization options
+   * @param {ModelResolver} options.modelResolver - Model resolver for entity models
+   * @param {ModelGeometry} options.modelGeometry - Model geometry processor
+   * @param {Object} options.textureAtlas - Texture atlas for entity textures
+   */
+  async initEntitySystem(options = {}) {
+    if (!this.entitiesEnabled) return;
+    
+    const { modelResolver, modelGeometry, textureAtlas } = options;
+    
+    // Initialize with asset references
+    this.entitySystem.init({
+      modelResolver,
+      modelGeometry,
+      textureAtlas,
+      material: this.modelMaterial, // Use same material as model blocks
+    });
+    
+    // Add entity group to scene
+    this.scene.add(this.entitySystem.group);
+    
+    console.log('[ChunkManager] Entity system initialized');
+  }
+
+  /**
+   * Build entity meshes after all entities are registered
+   */
+  async buildEntityMeshes() {
+    if (!this.entitySystem || !this.entitiesEnabled) return;
+    
+    await this.entitySystem.buildMeshes();
+  }
+
+  /**
    * Initialize the particle system with the particle atlas
    * @param {ParticleAtlas} particleAtlas - The particle texture atlas
    */
@@ -1378,7 +1432,7 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, offset, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, entities, offset, stats, _grid } = result;
       
       // Register particle emitters for torches and other light sources
       if (particleEmitters && this.particlesEnabled) {
@@ -1398,6 +1452,11 @@ export class ChunkManager {
       // Register beacon positions for beam rendering (after grid is merged so block lookup works)
       if (beaconPositions && this.beaconBeamsEnabled) {
         this._registerBeacons(beaconPositions);
+      }
+      
+      // Register entities (item frames, paintings, armor stands)
+      if (entities && entities.length > 0 && this.entitiesEnabled) {
+        this._registerEntities(entities);
       }
       
       if (solidMesh) this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
@@ -2713,6 +2772,11 @@ export class ChunkManager {
       this.beaconBeamManager.clear();
     }
     
+    // Clear entities
+    if (this.entitySystem) {
+      this.entitySystem.clear();
+    }
+    
     this.totalBlocks = 0;
     this.loadedChunks = 0;
     this.loadedRegions = 0;
@@ -2747,6 +2811,13 @@ export class ChunkManager {
       this.scene.remove(this.beaconBeamManager.getGroup());
       this.beaconBeamManager.dispose();
       this.beaconBeamManager = null;
+    }
+    
+    // Dispose entity system
+    if (this.entitySystem) {
+      this.scene.remove(this.entitySystem.group);
+      this.entitySystem.dispose();
+      this.entitySystem = null;
     }
     
     this.solidMaterial.dispose();

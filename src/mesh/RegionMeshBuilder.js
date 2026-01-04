@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { BinaryGrid } from './BinaryGrid.js';
 import { BlockStateGrid } from './BlockStateGrid.js';
 import { getBlockRegistry } from './BlockRegistry.js';
-import { decodeChunk, extractActiveBeacons } from './ChunkDecoder.js';
+import { decodeChunk, extractActiveBeacons, extractEntities } from './ChunkDecoder.js';
 import { buildGridMeshes } from './FastMesher.js';
 import { buildGridMeshesParallel } from './ParallelMesher.js';
 import { buildSimplifiedMesh } from './SimplifiedMesher.js';
@@ -97,6 +97,13 @@ export class RegionMeshBuilder {
     
     stats.decodeTimeMs = performance.now() - decodeStart;
     stats.totalBlocks = grid.totalBlocks;
+    
+    // Extract entities from chunks (item frames, paintings, etc.)
+    const entities = extractEntities(chunks);
+    if (entities.length > 0) {
+      console.log(`[RegionMeshBuilder] Extracted ${entities.length} entities`);
+      stats.entityCount = entities.length;
+    }
     
     this.onProgress?.('decoding', chunks.length, chunks.length, 'Decode complete');
     
@@ -356,6 +363,7 @@ export class RegionMeshBuilder {
       instanceGroups, // GPU instancing data for repeated blocks (grass, flowers, etc.)
       particleEmitters, // Particle emitter positions for torches, etc.
       beaconPositions, // Beacon positions for beam rendering
+      entities, // Entities (item frames, paintings, armor stands, etc.)
       lodMeshes,
       modelLodMeshes, // LOD levels for model meshes (skip decorative at distance)
       offset,

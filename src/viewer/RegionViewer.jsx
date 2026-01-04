@@ -17,6 +17,7 @@ import { SpectatorControls } from './SpectatorControls';
 import { ChunkManager } from './ChunkManager';
 import { getBlockNameFromColor } from '../data/blockColors';
 import { MinecraftSky } from './MinecraftSky';
+import { getStateRegistry } from '../assets/StateRegistry';
 import * as THREE from 'three';
 
 /**
@@ -581,6 +582,27 @@ function RegionScene({
       manager.initBeaconBeamManager(packManager);
     }
   }, [packManager]);
+  
+  // Initialize entity system (depends on state registry being initialized)
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (manager && manager.entitiesEnabled) {
+      const initEntities = async () => {
+        const stateRegistry = getStateRegistry();
+        if (stateRegistry.initialized) {
+          await manager.initEntitySystem({
+            modelResolver: stateRegistry.modelResolver,
+            modelGeometry: stateRegistry.modelGeometry,
+            textureAtlas,
+          });
+          // Build meshes for any entities that were already registered
+          await manager.buildEntityMeshes();
+          invalidate();
+        }
+      };
+      initEntities();
+    }
+  }, [textureAtlas, invalidate]);
   
   // Update texture mode when it changes
   useEffect(() => {
