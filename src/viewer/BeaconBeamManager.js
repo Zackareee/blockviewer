@@ -18,8 +18,9 @@
 import * as THREE from 'three';
 
 // Beam rendering constants from Minecraft
-const SOLID_BEAM_RADIUS = 0.2;
-const BEAM_GLOW_RADIUS = 0.25;
+// Minecraft uses 0.2/0.25 but we scale up slightly for visibility
+const SOLID_BEAM_RADIUS = 0.3;
+const BEAM_GLOW_RADIUS = 0.5;
 const MAX_BEAM_HEIGHT = 2048;
 const ROTATION_SPEED = Math.PI / 4; // 45 degrees per second in radians
 
@@ -213,14 +214,20 @@ export class BeaconBeamManager {
   
   /**
    * Create beam materials
+   * 
+   * Minecraft's beacon beam uses:
+   * - Solid inner core at 100% alpha
+   * - Outer glow at 25% alpha with additive blending
+   * - The texture provides subtle gradient variation
+   * - The beam color is the primary visual, not texture alpha
    */
   _createMaterials() {
-    // Solid inner beam material
+    // Solid inner beam material - high visibility core
     this.solidMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uTexture: { value: this.beamTexture },
         uColor: { value: new THREE.Color(1, 1, 1) },
-        uAlpha: { value: 1.0 },
+        uAlpha: { value: 0.8 }, // High alpha for solid visibility
         uTime: { value: 0 },
       },
       vertexShader: `
@@ -247,10 +254,14 @@ export class BeaconBeamManager {
           vec2 scrolledUV = vec2(vUv.x, vUv.y - uTime * 0.5);
           vec4 texColor = texture2D(uTexture, scrolledUV);
           
-          // Apply beam color
-          vec3 finalColor = texColor.rgb * uColor;
+          // Minecraft beacon uses the beam color directly with texture as subtle modulation
+          // The texture alpha is mostly 1.0 with slight edge falloff
+          // We blend between solid color and texture-modulated color
+          float texMod = mix(0.8, 1.0, texColor.r); // Use texture for subtle variation
+          vec3 finalColor = uColor * texMod;
           
-          gl_FragColor = vec4(finalColor, texColor.a * uAlpha);
+          // High alpha for solid, visible beam core
+          gl_FragColor = vec4(finalColor, uAlpha);
         }
       `,
       transparent: true,
@@ -258,12 +269,12 @@ export class BeaconBeamManager {
       depthWrite: false,
     });
     
-    // Outer glow material (more transparent, additive-like)
+    // Outer glow material - additive glow effect
     this.glowMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uTexture: { value: this.beamTexture },
         uColor: { value: new THREE.Color(1, 1, 1) },
-        uAlpha: { value: 0.25 },
+        uAlpha: { value: 0.4 }, // Moderate alpha for glow
         uTime: { value: 0 },
       },
       vertexShader: `
@@ -290,10 +301,15 @@ export class BeaconBeamManager {
           vec2 scrolledUV = vec2(vUv.x, vUv.y - uTime * 0.6);
           vec4 texColor = texture2D(uTexture, scrolledUV);
           
-          // Apply beam color with glow effect
-          vec3 finalColor = texColor.rgb * uColor;
+          // Glow uses color directly with texture modulation
+          float texMod = mix(0.7, 1.0, texColor.r);
+          vec3 finalColor = uColor * texMod;
           
-          gl_FragColor = vec4(finalColor, texColor.a * uAlpha);
+          // Edge fade for glow effect - fade alpha near edges
+          float edgeFade = 1.0 - abs(vUv.x - 0.5) * 2.0;
+          edgeFade = edgeFade * edgeFade; // Quadratic falloff
+          
+          gl_FragColor = vec4(finalColor, uAlpha * edgeFade);
         }
       `,
       transparent: true,
