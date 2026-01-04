@@ -33,6 +33,115 @@ function parseChunk(buffer, view, offset, x, z) {
   return { x, z, data: nbt.value };
 }
 
+/**
+ * Parse an entity region file and extract entities
+ * Entity region files are stored in world/entities/ in MC 1.17+
+ * Structure: each chunk stores an "Entities" list
+ * 
+ * @param {File} file - Entity region file (.mca)
+ * @returns {Array} Array of entity objects
+ */
+export async function parseEntityRegionFile(file) {
+  const buffer = await file.arrayBuffer();
+  const view = new DataView(buffer);
+  const entities = [];
+  
+  // Supported entity types for extraction
+  const SUPPORTED_TYPES = new Set([
+    'item_frame', 'glow_item_frame', 'painting', 'armor_stand'
+  ]);
+  
+  // Parse all chunks in the region
+  for (let z = 0; z < CHUNKS_PER_REGION; z++) {
+    for (let x = 0; x < CHUNKS_PER_REGION; x++) {
+      const index = x + z * CHUNKS_PER_REGION;
+      const locationOffset = index * 4;
+      
+      const locationData = view.getUint32(locationOffset, false);
+      const offset = (locationData >> 8) * SECTOR_SIZE;
+      const sectorCount = locationData & 0xFF;
+      
+      if (offset === 0 || sectorCount === 0) continue;
+      
+      try {
+        const length = view.getUint32(offset, false);
+        const compressionType = view.getUint8(offset + 4);
+        
+        const compressedData = new Uint8Array(buffer, offset + 5, length - 1);
+        
+        let decompressedData;
+        if (compressionType === 1) {
+          decompressedData = pako.ungzip(compressedData);
+        } else if (compressionType === 2) {
+          decompressedData = pako.inflate(compressedData);
+        } else {
+          continue;
+        }
+        
+        const nbt = parseNBTRaw(decompressedData.buffer);
+        const chunkData = nbt.value;
+        
+        // Entity region files store entities in the "Entities" list
+        const chunkEntities = chunkData.Entities || [];
+        
+        for (const entity of chunkEntities) {
+          const id = (entity.id || '').replace('minecraft:', '');
+          
+          // Only extract supported entity types
+          if (!SUPPORTED_TYPES.has(id)) continue;
+          
+          // Get position (stored as double array)
+          const pos = entity.Pos || [];
+          const entityX = pos[0] ?? 0;
+          const entityY = pos[1] ?? 0;
+          const entityZ = pos[2] ?? 0;
+          
+          // Get rotation
+          const rotation = entity.Rotation || [];
+          const yaw = rotation[0] ?? 0;
+          const pitch = rotation[1] ?? 0;
+          
+          // Get facing direction for hanging entities
+          const facing = entity.Facing ?? 2; // Default NORTH
+          
+          // Build extracted entity data
+          const extractedEntity = {
+            id: `minecraft:${id}`,
+            Pos: [entityX, entityY, entityZ],
+            Rotation: [yaw, pitch],
+            Facing: facing,
+          };
+          
+          // Type-specific data
+          if (id === 'item_frame' || id === 'glow_item_frame') {
+            extractedEntity.Item = entity.Item || null;
+            extractedEntity.ItemRotation = entity.ItemRotation ?? 0;
+            extractedEntity.Invisible = entity.Invisible ?? false;
+            extractedEntity.Fixed = entity.Fixed ?? false;
+          } else if (id === 'painting') {
+            extractedEntity.variant = entity.variant || 'minecraft:kebab';
+          } else if (id === 'armor_stand') {
+            extractedEntity.Pose = entity.Pose || {};
+            extractedEntity.ShowArms = entity.ShowArms ?? false;
+            extractedEntity.Small = entity.Small ?? false;
+            extractedEntity.NoBasePlate = entity.NoBasePlate ?? false;
+            extractedEntity.ArmorItems = entity.ArmorItems || [];
+            extractedEntity.HandItems = entity.HandItems || [];
+          }
+          
+          entities.push(extractedEntity);
+        }
+      } catch (e) {
+        // Skip chunks that fail to parse
+        console.warn(`[EntityParser] Chunk ${x},${z} failed:`, e.message);
+      }
+    }
+  }
+  
+  console.log(`[EntityParser] Parsed ${file.name}: ${entities.length} entities`);
+  return entities;
+}
+
 export async function parseMCAFile(file) {
   const startTime = performance.now();
   const buffer = await file.arrayBuffer();

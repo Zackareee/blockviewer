@@ -465,7 +465,9 @@ function useBlockHover(debugMode, onBlockHover) {
 function RegionScene({ 
   chunks,
   regions,
+  entityRegions = [], // Entity region files (item frames, paintings, armor stands)
   parseRegion,
+  parseEntityRegion, // Function to parse entity region files
   enableLOD,
   enableModelMeshes,
   enableLighting,
@@ -603,6 +605,39 @@ function RegionScene({
       initEntities();
     }
   }, [textureAtlas, invalidate]);
+  
+  // Load and process entity region files when they change
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager || !manager.entitiesEnabled || !parseEntityRegion) return;
+    if (!entityRegions || entityRegions.length === 0) return;
+    
+    const loadEntityRegions = async () => {
+      console.log(`[RegionViewer] Loading ${entityRegions.length} entity region files...`);
+      
+      let totalEntities = 0;
+      
+      for (const regionInfo of entityRegions) {
+        try {
+          const entities = await parseEntityRegion(regionInfo.file);
+          if (entities.length > 0) {
+            manager._registerEntities(entities);
+            totalEntities += entities.length;
+          }
+        } catch (e) {
+          console.warn(`[RegionViewer] Failed to parse entity region ${regionInfo.file.name}:`, e.message);
+        }
+      }
+      
+      if (totalEntities > 0) {
+        console.log(`[RegionViewer] Loaded ${totalEntities} entities, building meshes...`);
+        await manager.buildEntityMeshes();
+        invalidate();
+      }
+    };
+    
+    loadEntityRegions();
+  }, [entityRegions, parseEntityRegion, invalidate]);
   
   // Update texture mode when it changes
   useEffect(() => {
@@ -1064,7 +1099,9 @@ function RegionScene({
 export function RegionViewer({ 
   chunks, 
   regions,
+  entityRegions = [], // Entity region files (item frames, paintings, armor stands)
   parseRegion,
+  parseEntityRegion, // Function to parse entity region files
   enableLOD = true,
   enableModelMeshes = true,
   enableLighting = true,
@@ -1168,7 +1205,9 @@ export function RegionViewer({
       <RegionScene
         chunks={chunks}
         regions={regions}
+        entityRegions={entityRegions}
         parseRegion={parseRegion}
+        parseEntityRegion={parseEntityRegion}
         enableLOD={enableLOD}
         enableModelMeshes={enableModelMeshes}
         enableLighting={enableLighting}

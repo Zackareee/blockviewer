@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { RegionViewer } from './viewer';
-import { parseMCAFile } from './utils/mcaParser';
+import { parseMCAFile, parseEntityRegionFile } from './utils/mcaParser';
 import { 
   getDefaultPackManager, 
   getCustomPackManager,
@@ -44,6 +44,9 @@ function App() {
   
   // Region files for progressive loading
   const [regionFiles, setRegionFiles] = useState([]);
+  
+  // Entity region files (separate from chunk region files in MC 1.17+)
+  const [entityRegionFiles, setEntityRegionFiles] = useState([]);
   
   // Rerender key - increment to force RegionViewer remount (useful after React hot-reload)
   const [rerenderKey, setRerenderKey] = useState(0);
@@ -404,6 +407,36 @@ function App() {
     event.target.value = '';
   }, [processRegionFiles]);
 
+  // Handle entity region file upload
+  const handleEntityRegionUpload = useCallback(async (event) => {
+    const files = Array.from(event.target.files);
+    if (files.length === 0) return;
+    
+    const newEntityRegions = files.map(file => {
+      const regionCoords = parseRegionCoords(file.name);
+      return {
+        file,
+        regionX: regionCoords.x,
+        regionZ: regionCoords.z,
+      };
+    });
+    
+    // Add to existing entity regions (or replace if none exist)
+    if (entityRegionFiles.length === 0) {
+      setEntityRegionFiles(newEntityRegions);
+    } else {
+      // Filter out duplicates
+      const existingKeys = new Set(entityRegionFiles.map(r => `${r.regionX},${r.regionZ}`));
+      const uniqueNew = newEntityRegions.filter(r => !existingKeys.has(`${r.regionX},${r.regionZ}`));
+      setEntityRegionFiles(prev => [...prev, ...uniqueNew]);
+    }
+    
+    console.log(`[App] Added ${newEntityRegions.length} entity region files`);
+    
+    // Reset file input so same file can be selected again
+    event.target.value = '';
+  }, [parseRegionCoords, entityRegionFiles]);
+
   const hasContent = chunks.length > 0 || regionFiles.length > 0;
 
   return (
@@ -490,7 +523,9 @@ function App() {
             key={rerenderKey}
             chunks={chunks}
             regions={regionFiles}
+            entityRegions={entityRegionFiles}
             parseRegion={parseMCAFile}
+            parseEntityRegion={parseEntityRegionFile}
             onBuildProgress={handleBuildProgress}
             enableModelMeshes={enableModelMeshes}
             enableLighting={enableLighting}
@@ -601,12 +636,26 @@ function App() {
                 </span>
               </label>
             )}
+            {/* Entity region file upload */}
+            <label className="file-upload file-upload-entity">
+              <input 
+                type="file" 
+                accept=".mca"
+                onChange={handleEntityRegionUpload}
+                disabled={loading}
+                multiple
+              />
+              <span className="upload-button upload-button-entity" title="Load entity region files from world/entities/ folder (item frames, paintings, armor stands)">
+                {loading ? '...' : '🖼️ Entities'}
+              </span>
+            </label>
           </div>
           {fileName && (
             <div className="file-info">
               <span className="file-name">{fileName}</span>
               <span className="chunk-count">
                 {regionFiles.length > 0 ? `${regionFiles.length} regions` : `${chunks.length} chunks`}
+                {entityRegionFiles.length > 0 && ` + ${entityRegionFiles.length} entity`}
               </span>
             </div>
           )}
