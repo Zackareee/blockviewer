@@ -559,14 +559,14 @@ function RegionScene({
     }
   }, [particleAtlas]);
   
-  // Initialize beacon beam manager
+  // Initialize beacon beam manager (depends on packManager for textures)
   useEffect(() => {
     const manager = managerRef.current;
-    if (manager && manager.beaconBeamsEnabled) {
-      console.log('[RegionViewer] Initializing beacon beam manager');
-      manager.initBeaconBeamManager();
+    if (manager && manager.beaconBeamsEnabled && packManager) {
+      console.log('[RegionViewer] Initializing beacon beam manager with pack manager');
+      manager.initBeaconBeamManager(packManager);
     }
-  }, []);
+  }, [packManager]);
   
   // Update texture mode when it changes
   useEffect(() => {
@@ -961,6 +961,7 @@ export function RegionViewer({
   textureMode = 'solid',
   textureAtlas = null,
   particleAtlas = null, // Particle texture atlas for flames, smoke, etc.
+  packManager = null, // Texture pack manager for beacon beams etc.
   fov = 60,  // Vertical FOV in degrees (Minecraft also uses vertical FOV internally)
   partialBlockDistance = 48, // Render distance for partial blocks (0 = unlimited)
   renderDistance = 0, // Chunk render distance in blocks (0 = unlimited)

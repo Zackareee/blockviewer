@@ -105,6 +105,7 @@ function App() {
   const [texturePackInfo, setTexturePackInfo] = useState(null);
   const [textureAtlas, setTextureAtlas] = useState(null);
   const [particleAtlas, setParticleAtlas] = useState(null);
+  const [packManager, setPackManager] = useState(null); // Texture pack manager for beacon beams etc.
   const [atlasDebugUrl, setAtlasDebugUrl] = useState(null); // Debug: atlas preview
   
   // Load default texture pack when mode changes to default
@@ -118,14 +119,15 @@ function App() {
   const loadDefaultTexturePack = useCallback(async () => {
     setTexturePackLoading(true);
     try {
-      const packManager = getDefaultPackManager();
-      await packManager.loadDefaultPack();
+      const pm = getDefaultPackManager();
+      await pm.loadDefaultPack();
+      setPackManager(pm); // Store for beacon beams etc.
       
       // Debug: Validate textures are loaded correctly
-      packManager.debugValidateTextures();
+      pm.debugValidateTextures();
       
       const atlas = getTextureAtlas();
-      await atlas.build(packManager);
+      await atlas.build(pm);
       
       // Pre-register all known blocks from BLOCK_COLORS to the registry
       // This is necessary because blocks are normally registered during chunk decoding,
@@ -154,13 +156,13 @@ function App() {
       
       // Build particle atlas for torch flames, smoke, etc.
       const pAtlas = getParticleAtlas();
-      const particleBuildSuccess = await pAtlas.build(packManager);
+      const particleBuildSuccess = await pAtlas.build(pm);
       console.log('[App] Particle atlas built:', particleBuildSuccess, 'isBuilt:', pAtlas.isBuilt, 'textures:', pAtlas.particleLookup?.size || 0);
       setParticleAtlas(pAtlas);
       
       // Set the material data (includes atlas, textureIndexLookup, and size)
       setTextureAtlas(atlas.getMaterialData());
-      setTexturePackInfo(packManager.getPackInfo());
+      setTexturePackInfo(pm.getPackInfo());
       
       // Debug: generate atlas preview URL
       setAtlasDebugUrl(atlas.toDataURL());
@@ -417,6 +419,7 @@ function App() {
             textureMode={textureMode}
             textureAtlas={textureAtlas}
             particleAtlas={particleAtlas}
+            packManager={packManager}
             fov={fov}
             partialBlockDistance={renderDistance === 0 ? 0 : renderDistance * 16}
             renderDistance={renderDistance}

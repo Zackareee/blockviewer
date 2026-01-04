@@ -169,6 +169,10 @@ class TexturePackManager {
     const particleMcmetaEntries = [];
     const particlePath = `${minecraftPath}textures/particle/`;
     
+    // Also load entity textures (for beacon beams, etc.)
+    const entityEntries = [];
+    const entityPath = `${minecraftPath}textures/entity/`;
+    
     for (const [path, file] of Object.entries(zip.files)) {
       // Block textures
       if (path.startsWith(texturePath) && !file.dir) {
@@ -190,6 +194,11 @@ class TexturePackManager {
           const relativePath = path.substring(minecraftPath.length);
           particleMcmetaEntries.push({ file, relativePath });
         }
+      }
+      // Entity textures (beacon_beam.png, etc.)
+      if (path.startsWith(entityPath) && !file.dir && path.endsWith('.png')) {
+        const relativePath = path.substring(minecraftPath.length);
+        entityEntries.push({ file, relativePath });
       }
     }
     
@@ -295,7 +304,23 @@ class TexturePackManager {
       }
     };
     
-    const texturePromises = [loadTexturesBatched(), loadParticleTexturesBatched()];
+    // Process entity textures in batches (for beacon beams, etc.)
+    const loadEntityTexturesBatched = async () => {
+      for (let i = 0; i < entityEntries.length; i += TEXTURE_CONCURRENCY) {
+        const batch = entityEntries.slice(i, i + TEXTURE_CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(({ file, relativePath }) => this._loadTextureEntry(file, relativePath))
+        );
+        for (const result of results) {
+          if (result) {
+            // Store entity textures in the main textures map
+            this.textures.set(result.path, result.bitmap);
+          }
+        }
+      }
+    };
+    
+    const texturePromises = [loadTexturesBatched(), loadParticleTexturesBatched(), loadEntityTexturesBatched()];
     
     // Load colormap textures for biome tinting
     const colormapPath = `${minecraftPath}textures/colormap/`;

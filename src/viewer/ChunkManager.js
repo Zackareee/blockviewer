@@ -263,6 +263,9 @@ export class ChunkManager {
     
     if (this.glassMaterial?.uniforms?.uContinuousGlass) {
       this.glassMaterial.uniforms.uContinuousGlass.value = value;
+      console.log(`[ChunkManager] Glass material uContinuousGlass set to ${value}`);
+    } else {
+      console.warn('[ChunkManager] Glass material missing uContinuousGlass uniform!');
     }
     // Also update transparent model material for glass panes
     if (this.transparentModelMaterial?.uniforms?.uContinuousGlass) {

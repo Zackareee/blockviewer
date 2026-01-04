@@ -158,28 +158,32 @@ export class BeaconBeamManager {
       
       if (beamTextureData) {
         try {
-          const img = new Image();
-          await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-            img.src = URL.createObjectURL(beamTextureData);
-          });
+          // beamTextureData is an ImageBitmap - draw it to a canvas to create a texture
+          const canvas = document.createElement('canvas');
+          canvas.width = beamTextureData.width;
+          canvas.height = beamTextureData.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(beamTextureData, 0, 0);
           
-          this.beamTexture = new THREE.Texture(img);
+          this.beamTexture = new THREE.CanvasTexture(canvas);
           this.beamTexture.magFilter = THREE.LinearFilter;
           this.beamTexture.minFilter = THREE.LinearFilter;
           this.beamTexture.wrapS = THREE.RepeatWrapping;
           this.beamTexture.wrapT = THREE.RepeatWrapping;
           this.beamTexture.needsUpdate = true;
           textureLoaded = true;
+          console.log(`[BeaconBeamManager] Loaded beacon beam texture: ${beamTextureData.width}x${beamTextureData.height}`);
         } catch (e) {
-          console.warn('[BeaconBeamManager] Failed to load beacon texture, using procedural');
+          console.warn('[BeaconBeamManager] Failed to load beacon texture, using procedural:', e);
         }
+      } else {
+        console.warn('[BeaconBeamManager] Beacon beam texture not found in pack');
       }
     }
     
     // Create procedural beacon beam texture (gradient from center to edges)
     if (!textureLoaded) {
+      console.log('[BeaconBeamManager] Creating procedural beacon beam texture');
       const canvas = document.createElement('canvas');
       canvas.width = 16;
       canvas.height = 16;

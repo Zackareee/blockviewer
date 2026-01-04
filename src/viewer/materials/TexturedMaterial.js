@@ -535,10 +535,10 @@ void main() {
       if (inBorder) {
         // Sample the center of the glass texture to get the interior color
         // Use center point (0.5, 0.5) to get the uniform glass interior
-        float tilesPerRow = uAtlasSize.x;
+        float tilesPerRow2 = uAtlasSize.x;
         AnimResult centerAnim = getAnimatedTexData(vTexIndex);
-        float centerCol = mod(centerAnim.currentIndex, tilesPerRow);
-        float centerRow = floor(centerAnim.currentIndex / tilesPerRow);
+        float centerCol = mod(centerAnim.currentIndex, tilesPerRow2);
+        float centerRow = floor(centerAnim.currentIndex / tilesPerRow2);
         vec2 centerAtlasOffset = vec2(centerCol, centerRow) * uTileUV;
         vec2 centerAtlasUV = centerAtlasOffset + uBorderUV + vec2(0.5, 0.5) * uTextureUV;
         
@@ -548,6 +548,10 @@ void main() {
         texColor.rgb = centerColor.rgb;
         // Keep original alpha for transparency consistency
       }
+      
+      // DEBUG: Tint all glass slightly green when continuous mode is on
+      // Remove this after testing
+      texColor.rgb = mix(texColor.rgb, vec3(0.0, 1.0, 0.0), 0.3);
     }
     
     // Apply tint to texture color
