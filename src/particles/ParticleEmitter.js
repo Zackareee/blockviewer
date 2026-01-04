@@ -1343,6 +1343,12 @@ class EmitterInstance {
       while (this.timers[i] >= spawnInterval) {
         this.timers[i] -= spawnInterval;
         this._spawnParticle(pConfig, particleSystem);
+        
+        // Debug: log leaf particle spawns (one-time per emitter)
+        if (this.blockType.includes('leaves') && !this._loggedLeafSpawn) {
+          console.log(`[EmitterInstance] Spawned leaf particle from ${this.blockType} at ${this.x},${this.y},${this.z}`);
+          this._loggedLeafSpawn = true;
+        }
       }
     }
   }
