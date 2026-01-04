@@ -354,13 +354,9 @@ export class BeaconBeamManager {
   
   /**
    * Update beacon beam sections based on blocks above
+   * Currently ignores obstruction checks and always creates a beam to world height
    */
   _updateBeacon(beaconData) {
-    if (!this.blockLookupFn) {
-      console.warn('[BeaconBeamManager] No block lookup function set');
-      return;
-    }
-    
     const { x, y, z } = beaconData;
     
     // Clear old meshes
@@ -371,47 +367,48 @@ export class BeaconBeamManager {
     beaconData.meshes = [];
     beaconData.sections = [];
     
-    // Trace upward and build sections
+    // World height limits (Minecraft 1.18+)
+    const worldMaxY = 320;
+    
+    // Trace upward and build sections, checking only for stained glass tinting
+    // For now, we ignore obstructions and always create the beam
     let currentColor = 0xFFFFFF; // Default white beam
     let currentStartY = y + 1;
     let currentHeight = 0;
     
-    for (let checkY = y + 1; checkY < y + MAX_BEAM_HEIGHT && checkY < 320; checkY++) {
-      const blockName = this.blockLookupFn(x, checkY, z);
-      
-      // Check if block stops the beam
-      if (!blockName || (!TRANSPARENT_BLOCKS.has(blockName) && !blockName.includes('stained_glass'))) {
-        // Beam is blocked - finalize current section if any
-        if (currentHeight > 0) {
-          beaconData.sections.push(new BeamSection(currentColor, currentStartY, currentHeight));
-        }
-        break;
-      }
-      
-      // Check if stained glass tints the beam
-      const glassColor = STAINED_GLASS_COLORS[blockName];
-      if (glassColor !== undefined) {
-        // Finalize current section before color change
-        if (currentHeight > 0) {
-          beaconData.sections.push(new BeamSection(currentColor, currentStartY, currentHeight));
-        }
+    for (let checkY = y + 1; checkY < worldMaxY; checkY++) {
+      // Check for stained glass tinting if we have a block lookup
+      if (this.blockLookupFn) {
+        const blockName = this.blockLookupFn(x, checkY, z);
         
-        // Average with current color (Minecraft behavior)
-        currentColor = averageColors(currentColor, glassColor);
-        currentStartY = checkY + 1;
-        currentHeight = 0;
-      } else {
-        // Continue current section
-        currentHeight++;
+        // Check if stained glass tints the beam
+        if (blockName) {
+          const glassColor = STAINED_GLASS_COLORS[blockName];
+          if (glassColor !== undefined) {
+            // Finalize current section before color change
+            if (currentHeight > 0) {
+              beaconData.sections.push(new BeamSection(currentColor, currentStartY, currentHeight));
+            }
+            
+            // Average with current color (Minecraft behavior)
+            currentColor = averageColors(currentColor, glassColor);
+            currentStartY = checkY + 1;
+            currentHeight = 0;
+            continue;
+          }
+        }
       }
+      
+      // Continue current section (ignore obstructions for now)
+      currentHeight++;
     }
     
-    // Finalize last section if beam reached max height
+    // Finalize last section to world height
     if (currentHeight > 0) {
       beaconData.sections.push(new BeamSection(currentColor, currentStartY, currentHeight));
     }
     
-    console.log(`[BeaconBeamManager] Beacon at ${beaconData.x},${beaconData.y},${beaconData.z} has ${beaconData.sections.length} sections`);
+    console.log(`[BeaconBeamManager] Beacon at ${beaconData.x},${beaconData.y},${beaconData.z} has ${beaconData.sections.length} sections, total height: ${beaconData.sections.reduce((sum, s) => sum + s.height, 0)}`);
     for (const s of beaconData.sections) {
       console.log(`  - Section: startY=${s.startY}, height=${s.height}, color=0x${s.color.toString(16)}`);
     }
