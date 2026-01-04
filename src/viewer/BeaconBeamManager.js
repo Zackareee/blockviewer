@@ -388,12 +388,19 @@ export class BeaconBeamManager {
     for (let checkY = y + 1; checkY < worldMaxY; checkY++) {
       // Check for stained glass tinting if we have a block lookup
       if (this.blockLookupFn) {
-        const blockName = this.blockLookupFn(x, checkY, z);
+        let blockName = this.blockLookupFn(x, checkY, z);
+        
+        // Normalize block name (strip minecraft: prefix)
+        if (blockName && blockName.startsWith('minecraft:')) {
+          blockName = blockName.substring(10);
+        }
         
         // Check if stained glass tints the beam
         if (blockName) {
           const glassColor = STAINED_GLASS_COLORS[blockName];
           if (glassColor !== undefined) {
+            console.log(`[BeaconBeamManager] Found stained glass at Y=${checkY}: ${blockName}, color=0x${glassColor.toString(16)}`);
+            
             // Finalize current section before color change
             if (currentHeight > 0) {
               beaconData.sections.push(new BeamSection(currentColor, currentStartY, currentHeight));
