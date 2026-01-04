@@ -1132,8 +1132,9 @@ export class ParticleEmitterManager {
     // Maximum distance from camera to update emitters (default: 3 chunks = 48 blocks)
     this.maxDistance = 48;
     
-    // Maximum persistent emitters to prevent memory issues
-    this.maxPersistentEmitters = 2000;
+    // Maximum persistent emitters - set high enough to not artificially limit
+    // Distance culling handles performance, not this cap
+    this.maxPersistentEmitters = 50000;
     
     // Ambient block sampling settings (Minecraft-like)
     // MC samples ~667 positions per tick within 16-block radius

@@ -650,13 +650,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       
       // Collect particle emitter positions BEFORE geometry check
       // This ensures we capture particles for ALL blocks (including full cubes like leaves)
+      // Apply same offset as mesh vertices so camera distance checks work correctly
       if (stateHasParticleEmitter[stateId]) {
         const state = stateRegistry.getState(stateId);
         particleEmitters.push({
           blockType: state ? state.blockName : 'torch',
-          x: baseX + lx, // Use actual world position (not offset-adjusted)
-          y: baseY + ly,
-          z: baseZ + lz,
+          x: baseX + lx - ox, // Apply offset like mesh vertices
+          y: baseY + ly - oy,
+          z: baseZ + lz - oz,
           properties: state?.properties || {},
         });
       }
