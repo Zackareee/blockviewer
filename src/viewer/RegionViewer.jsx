@@ -15,6 +15,7 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { AdaptiveDpr, PerformanceMonitor } from '@react-three/drei';
 import { SpectatorControls } from './SpectatorControls';
 import { ChunkManager } from './ChunkManager';
+import { ChunkStreamer } from './ChunkStreamer';
 import { getBlockNameFromColor } from '../data/blockColors';
 import { MinecraftSky } from './MinecraftSky';
 import { getStateRegistry } from '../assets/StateRegistry';
@@ -498,9 +499,12 @@ function RegionScene({
   enableRGSS = true, // RGSS anti-aliasing for textures
   cloudsEnabled = true, // Show clouds
   continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
+  enableChunkStreaming = false, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
+  chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
+  const streamerRef = useRef(null); // ChunkStreamer for player-centric loading
   const cameraPositionRef = useRef(initialCameraPosition || [0, 100, 0]);
   
   // Dynamic sky colors based on time of day
@@ -1009,6 +1013,116 @@ function RegionScene({
   // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
   }, [regions, parseRegion, invalidate, enableLOD, textureAtlas]);
   
+  // ============================================================================
+  // CHUNK STREAMING MODE
+  // When enabled, loads chunks around the player position instead of entire regions
+  // ============================================================================
+  
+  // Initialize ChunkStreamer when streaming mode is enabled
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager || !enableChunkStreaming || !regions || regions.length === 0) {
+      // Clean up streamer if streaming was disabled
+      if (streamerRef.current && !enableChunkStreaming) {
+        streamerRef.current.dispose();
+        streamerRef.current = null;
+      }
+      return;
+    }
+    
+    // Wait for texture atlas
+    if (!textureAtlas) {
+      console.log('[RegionViewer] ChunkStreamer waiting for texture atlas...');
+      return;
+    }
+    
+    // Create or reuse streamer
+    let streamer = streamerRef.current;
+    if (!streamer) {
+      streamer = new ChunkStreamer(manager, {
+        loadDistance: chunkStreamDistance,
+        unloadDistance: chunkStreamDistance + 4,
+        preloadDistance: chunkStreamDistance + 2,
+        enableModelMeshes,
+        onChunkLoaded: (chunkX, chunkZ) => {
+          invalidate(); // Render when chunks load
+        },
+        onProgress: (progress) => {
+          onProgress?.({
+            current: progress.loaded,
+            total: progress.loaded + progress.queued,
+            isBuilding: progress.queued > 0,
+            message: progress.message,
+            stage: 'streaming',
+          });
+        },
+      });
+      streamerRef.current = streamer;
+      
+      console.log('[RegionViewer] Created ChunkStreamer with distance:', chunkStreamDistance);
+    }
+    
+    // Register region files with streamer
+    streamer.setRegions(regions);
+    
+    // Calculate initial camera position from regions center
+    let minX = Infinity, maxX = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    for (const { regionX, regionZ } of regions) {
+      const rx = regionX * 512;
+      const rz = regionZ * 512;
+      minX = Math.min(minX, rx);
+      maxX = Math.max(maxX, rx + 512);
+      minZ = Math.min(minZ, rz);
+      maxZ = Math.max(maxZ, rz + 512);
+    }
+    const centerX = (minX + maxX) / 2;
+    const centerZ = (minZ + maxZ) / 2;
+    
+    // Start loading around center position
+    manager.clear(); // Clear any existing region-based meshes
+    streamer.loadAroundPosition(centerX, centerZ).then(result => {
+      console.log(`[RegionViewer] ChunkStreamer initial load: ${result.chunksLoaded} chunks`);
+      
+      // Position camera at center
+      positionCameraAt(centerX, 64, centerZ, result.chunksLoaded);
+      
+      onProgress?.({ current: 0, total: 0, isBuilding: false, message: '', stage: null });
+      onComplete?.();
+      invalidate();
+    });
+    
+    return () => {
+      // Don't dispose on cleanup - keep for HMR
+    };
+  }, [enableChunkStreaming, regions, textureAtlas, chunkStreamDistance, enableModelMeshes, invalidate]);
+  
+  // Update chunk streamer with camera position
+  useEffect(() => {
+    if (!enableChunkStreaming) return;
+    
+    const streamer = streamerRef.current;
+    if (!streamer) return;
+    
+    // Create a wrapper for camera updates that also updates the streamer
+    const originalOnCameraUpdate = onCameraUpdate;
+    
+    // We need to intercept camera updates to feed position to streamer
+    // This is handled in the SpectatorControls onCameraUpdate callback
+    
+  }, [enableChunkStreaming, onCameraUpdate]);
+  
+  // Wrap onCameraUpdate to also update ChunkStreamer
+  const handleCameraUpdate = useCallback((state) => {
+    // Update chunk streamer with new position
+    if (enableChunkStreaming && streamerRef.current) {
+      streamerRef.current.updatePlayerPosition(state.x, state.z);
+    }
+    
+    // Call original callback
+    onCameraUpdate?.(state);
+  }, [enableChunkStreaming, onCameraUpdate]);
+  
   // Toggle model meshes visibility (all partial block groups)
   useEffect(() => {
     const manager = managerRef.current;
@@ -1090,7 +1204,7 @@ function RegionScene({
       <SpectatorControls 
         ref={spectatorRef}
         initialPosition={cameraPositionRef.current}
-        onCameraUpdate={onCameraUpdate}
+        onCameraUpdate={handleCameraUpdate}
       />
       <ambientLight intensity={0.4} />
       <directionalLight position={[50, 100, 30]} intensity={0.8} />
@@ -1163,6 +1277,8 @@ export function RegionViewer({
   enableRGSS = true, // RGSS anti-aliasing for textures
   cloudsEnabled = true, // Show clouds
   continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
+  enableChunkStreaming = false, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
+  chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -1268,6 +1384,8 @@ export function RegionViewer({
         enableRGSS={enableRGSS}
         cloudsEnabled={cloudsEnabled}
         continuousGlass={continuousGlass}
+        enableChunkStreaming={enableChunkStreaming}
+        chunkStreamDistance={chunkStreamDistance}
       />
     </Canvas>
   );

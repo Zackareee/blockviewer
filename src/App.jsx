@@ -97,6 +97,10 @@ function App() {
   // Continuous glass (connected glass textures - removes borders between adjacent glass blocks)
   const [continuousGlass, setContinuousGlass] = useState(false);
   
+  // Chunk streaming mode - loads chunks around player position instead of entire regions
+  const [chunkStreamingEnabled, setChunkStreamingEnabled] = useState(false);
+  const [chunkStreamDistance, setChunkStreamDistance] = useState(8);
+  
   // Target resolution (controls rendering DPR)
   // 'native' = full resolution, or a vertical pixel count like 720, 1080, 1440, 2160
   const [targetResolution, setTargetResolution] = useState('native');
@@ -664,6 +668,8 @@ function App() {
             enableRGSS={enableRGSS}
             cloudsEnabled={cloudsEnabled}
             continuousGlass={continuousGlass}
+            enableChunkStreaming={chunkStreamingEnabled}
+            chunkStreamDistance={chunkStreamDistance}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -948,6 +954,51 @@ function App() {
               style={{ width: '100%', marginTop: '0.25rem' }}
             />
           </div>
+          
+          {/* Chunk Streaming Mode */}
+          <div className="toggle-item" style={{ marginTop: '0.75rem' }}>
+            <label className="toggle-label">
+              <span className="toggle-icon">⚡</span>
+              Chunk Streaming
+              <span className="toggle-beta" style={{ 
+                fontSize: '0.65rem', 
+                background: '#4a3f7a', 
+                padding: '0.1rem 0.3rem', 
+                borderRadius: '3px',
+                marginLeft: '0.3rem',
+                verticalAlign: 'middle'
+              }}>BETA</span>
+            </label>
+            <input 
+              type="checkbox"
+              checked={chunkStreamingEnabled}
+              onChange={(e) => setChunkStreamingEnabled(e.target.checked)}
+            />
+          </div>
+          {chunkStreamingEnabled && (
+            <div className="fov-control" style={{ marginTop: '0.5rem', marginLeft: '1.5rem' }}>
+              <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="toggle-label" style={{ fontSize: '0.85rem' }}>
+                  Stream Distance
+                </span>
+                <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                  {chunkStreamDistance} chunks
+                </span>
+              </div>
+              <input 
+                type="range"
+                min="4"
+                max="16"
+                step="1"
+                value={chunkStreamDistance}
+                onChange={(e) => setChunkStreamDistance(parseInt(e.target.value, 10))}
+                style={{ width: '100%', marginTop: '0.25rem' }}
+              />
+              <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '0.25rem' }}>
+                Loads chunks around player. Fast initial load, seamless streaming.
+              </div>
+            </div>
+          )}
           
           {/* Particle Distance Control */}
           <div className="fov-control" style={{ marginTop: '0.75rem' }}>
