@@ -972,7 +972,14 @@ class EmitterInstance {
    * @param {ParticleSystem} particleSystem - Particle system to spawn into
    */
   update(deltaTime, particleSystem) {
-    if (!this.active || !this.config || !particleSystem) return;
+    if (!this.active || !this.config || !particleSystem) {
+      // Debug: log why we're returning early
+      if (!this._loggedSkip) {
+        console.warn(`[EmitterInstance] Skipping update: active=${this.active}, config=${!!this.config}, particleSystem=${!!particleSystem}`);
+        this._loggedSkip = true;
+      }
+      return;
+    }
     
     for (let i = 0; i < this.config.particles.length; i++) {
       const pConfig = this.config.particles[i];
@@ -1249,6 +1256,7 @@ export class ParticleEmitterManager {
     let activeCount = 0;
     
     // Update persistent emitters (torches, campfires, etc.)
+    let persistentUpdated = 0;
     for (const emitter of this.emitters.values()) {
       // Distance culling
       const dx = emitter.x - this.cameraX;
@@ -1259,7 +1267,13 @@ export class ParticleEmitterManager {
       if (distSq <= maxDistSq) {
         emitter.update(deltaTime, particleSystem);
         activeCount++;
+        persistentUpdated++;
       }
+    }
+    
+    // Debug: log persistent emitter updates occasionally
+    if (this._debugCounter % 300 === 2 && this.emitters.size > 0) {
+      console.log(`[ParticleEmitterManager] Updated ${persistentUpdated}/${this.emitters.size} persistent emitters, deltaTime=${deltaTime.toFixed(4)}`);
     }
     
     // Random sampling for ambient blocks (Minecraft's animateTick approach)
