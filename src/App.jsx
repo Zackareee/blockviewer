@@ -93,6 +93,10 @@ function App() {
   // Continuous glass (connected glass textures - removes borders between adjacent glass blocks)
   const [continuousGlass, setContinuousGlass] = useState(false);
   
+  // Target resolution (controls rendering DPR)
+  // 'native' = full resolution, or a vertical pixel count like 720, 1080, 1440, 2160
+  const [targetResolution, setTargetResolution] = useState('native');
+  
   // Camera state for coordinates display (Minecraft spectator mode)
   const [cameraState, setCameraState] = useState({
     x: 0, y: 100, z: 0,
@@ -499,6 +503,7 @@ function App() {
             particleAtlas={particleAtlas}
             packManager={packManager}
             fov={fov}
+            targetResolution={targetResolution}
             partialBlockDistance={renderDistance === 0 ? 0 : renderDistance * 16}
             renderDistance={renderDistance}
             particleDistance={particleDistance}
@@ -721,6 +726,37 @@ function App() {
               onChange={(e) => setFov(parseInt(e.target.value, 10))}
               style={{ width: '100%', marginTop: '0.25rem' }}
             />
+          </div>
+          
+          {/* Resolution Control */}
+          <div className="fov-control" style={{ marginTop: '0.75rem' }}>
+            <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="toggle-label">
+                <span className="toggle-icon">🖥️</span>
+                Resolution
+              </span>
+            </div>
+            <select
+              value={targetResolution}
+              onChange={(e) => setTargetResolution(e.target.value)}
+              style={{ 
+                width: '100%', 
+                marginTop: '0.25rem',
+                padding: '0.4rem 0.5rem',
+                background: 'rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '4px',
+                color: '#e0e0e0',
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="native">Native</option>
+              <option value="2160">4K (2160p)</option>
+              <option value="1440">1440p</option>
+              <option value="1080">1080p</option>
+              <option value="720">720p</option>
+            </select>
           </div>
           
           {/* Render Distance Control */}

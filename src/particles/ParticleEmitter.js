@@ -117,7 +117,7 @@ const BLOCK_EMITTERS = {
       {
         type: 'flame',
         rate: 5.0, // Same as standing torch
-        offset: [0.5, 0.65, 0.28], // Default facing south
+        offset: [0.5, 0.7, 0.28], // Default facing south
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.12, 0],
         velocityVariance: [0.03, 0.03, 0.03],
@@ -134,7 +134,7 @@ const BLOCK_EMITTERS = {
       {
         type: 'smoke',
         rate: 4.0,
-        offset: [0.5, 0.7, 0.28],
+        offset: [0.5, 0.75, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.2, 0],
         velocityVariance: [0.04, 0.04, 0.04],
@@ -197,7 +197,7 @@ const BLOCK_EMITTERS = {
       {
         type: 'soul_fire_flame',
         rate: 5.0,
-        offset: [0.5, 0.65, 0.28],
+        offset: [0.5, 0.7, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.12, 0],
         velocityVariance: [0.03, 0.03, 0.03],
@@ -214,7 +214,7 @@ const BLOCK_EMITTERS = {
       {
         type: 'smoke',
         rate: 4.0,
-        offset: [0.5, 0.7, 0.28],
+        offset: [0.5, 0.75, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.2, 0],
         velocityVariance: [0.04, 0.04, 0.04],
@@ -236,7 +236,7 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'flame',
-        rate: 3.0, // Less frequent than regular torches
+        rate: 1.0, // Subtle redstone glow - less frequent than regular torches
         offset: [0.5, 0.65, 0.5],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.08, 0],
@@ -259,8 +259,8 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'flame',
-        rate: 3.0,
-        offset: [0.5, 0.6, 0.28],
+        rate: 1.0, // Subtle redstone glow
+        offset: [0.5, 0.65, 0.28],
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.08, 0],
         velocityVariance: [0.02, 0.02, 0.02],
@@ -636,21 +636,24 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   // Lava block - occasional bubbles/sparks that sputter up and fall
+  // From LavaFluid.class animateTick: random.nextInt(10) == 0 (~10% per animateTick)
+  // From LavaParticle.class: lifetime=16 ticks (0.8s), gravity=0.75, friction=0.999, quadSize=0.2
+  // Effective spawn rate: ~0.05 particles/sec per lava block (very sparse)
   'lava': {
     particles: [
       {
         type: 'lava',
-        rate: 0.3, // Occasional sparks
+        rate: 0.05, // MC: ~10% chance per animateTick, ~0.5 calls/sec = very occasional
         offset: [0.5, 1.0, 0.5], // Surface of lava
         offsetVariance: [0.4, 0.0, 0.4], // Spread across block
-        velocity: [0, 1.5, 0], // Pop UP (then falls due to gravity)
-        velocityVariance: [0.4, 0.5, 0.4], // Random arc trajectory
-        size: 0.2, // Visible size
-        sizeVariance: 0.06,
-        lifetime: 3.5, // Long enough to arc and rest
-        lifetimeVariance: 1.0,
-        color: [1.0, 1.0, 1.0], // Use texture color (lava.png is already orange)
-        alpha: 1.0,
+        velocity: [0, 1.0, 0], // MC: 0.05 blocks/tick base = 1 block/sec
+        velocityVariance: [0.3, 0.4, 0.3], // MC: random velocity variance
+        size: 0.2, // MC: quadSize = 0.2
+        sizeVariance: 0.04,
+        lifetime: 0.8, // MC: 16 ticks = 0.8 seconds
+        lifetimeVariance: 0.2,
+        color: [1.0, 0.85, 0.7], // Slightly tone down brightness (warm orange)
+        alpha: 0.9, // Slightly reduce alpha to tone down vibrancy
         fadeIn: 0.0,
         fadeOut: 0.3,
         friction: 0.999, // MC: very little air resistance

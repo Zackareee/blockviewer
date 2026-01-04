@@ -417,7 +417,12 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
       
       event.preventDefault();
       
-      const direction = event.deltaY < 0 ? 1 : -1;  // Scroll up = faster, scroll down = slower
+      // Use deltaY for normal scroll, but when shift is held browsers convert
+      // vertical scroll to horizontal (deltaX), so check both
+      const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+      if (delta === 0) return;
+      
+      const direction = delta < 0 ? 1 : -1;  // Scroll up = faster, scroll down = slower
       const newIndex = Math.max(0, Math.min(SPEED_LEVELS.length - 1, speedLevelRef.current + direction));
       
       if (newIndex !== speedLevelRef.current) {

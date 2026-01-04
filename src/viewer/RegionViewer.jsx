@@ -1057,6 +1057,7 @@ export function RegionViewer({
   particleAtlas = null, // Particle texture atlas for flames, smoke, etc.
   packManager = null, // Texture pack manager for beacon beams etc.
   fov = 60,  // Vertical FOV in degrees (Minecraft also uses vertical FOV internally)
+  targetResolution = 'native', // Target resolution: 'native', '2160', '1440', '1080', '720'
   partialBlockDistance = 48, // Render distance for partial blocks (0 = unlimited)
   renderDistance = 0, // Chunk render distance in blocks (0 = unlimited)
   particleDistance = 3, // Particle render distance in chunks
@@ -1071,6 +1072,44 @@ export function RegionViewer({
 }) {
   const statsRef = useRef(null);
   const handleStats = useCallback((s) => { statsRef.current = s; }, []);
+  
+  // Track window size for DPR calculation
+  const [windowHeight, setWindowHeight] = useState(
+    typeof window !== 'undefined' ? window.innerHeight : 1080
+  );
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowHeight(window.innerHeight);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  // Calculate DPR based on target resolution
+  // Formula: DPR = targetHeight / (canvasHeight * devicePixelRatio)
+  const calculatedDpr = useMemo(() => {
+    if (targetResolution === 'native') {
+      // Native resolution - use device pixel ratio capped at 1.0 (for performance)
+      return [0.5, 1.0];
+    }
+    
+    const targetHeight = parseInt(targetResolution, 10);
+    if (isNaN(targetHeight)) {
+      return [0.5, 1.0];
+    }
+    
+    // Calculate the DPR needed to achieve target resolution
+    const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
+    const nativeHeight = windowHeight * deviceDpr;
+    const dpr = targetHeight / nativeHeight;
+    
+    // Clamp to reasonable range [0.25, 2.0]
+    const clampedDpr = Math.max(0.25, Math.min(2.0, dpr));
+    
+    // Return as fixed value (not a range) for target resolution modes
+    return [clampedDpr, clampedDpr];
+  }, [targetResolution, windowHeight]);
   
   return (
     <Canvas
@@ -1092,8 +1131,8 @@ export function RegionViewer({
       flat={true}
       // Always render - demand mode can cause issues with LOD updates
       frameloop="always"
-      // Performance settings - more aggressive DPR reduction
-      dpr={[0.5, 1.0]} // PERFORMANCE: Cap at 1.0 instead of 1.5 - reduces fill rate significantly
+      // Performance settings - DPR based on target resolution
+      dpr={calculatedDpr} // Target resolution controls DPR
       performance={{ min: 0.3 }} // Allow more aggressive quality reduction
     >
       {/* Dynamic fog is handled inside RegionScene where we have access to dynamic sky colors */}
@@ -1101,8 +1140,8 @@ export function RegionViewer({
       {/* Dynamic FOV updater - responds to prop changes */}
       <DynamicFOV fov={fov} />
       
-      {/* Adaptive performance - automatically adjusts quality */}
-      {enablePerformanceMonitor && <AdaptivePerformance />}
+      {/* Adaptive performance - automatically adjusts quality (only when using native resolution) */}
+      {enablePerformanceMonitor && targetResolution === 'native' && <AdaptivePerformance />}
       
       <RegionScene
         chunks={chunks}
