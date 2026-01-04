@@ -1197,22 +1197,15 @@ export class ParticleEmitterManager {
     let activeCount = 0;
     
     for (const emitter of this.emitters.values()) {
-      // Distance culling
+      // Cylindrical distance culling (XZ only, like Minecraft render distance)
+      // This allows particles at any Y level within horizontal range
       const dx = emitter.x - this.cameraX;
-      const dy = emitter.y - this.cameraY;
       const dz = emitter.z - this.cameraZ;
-      const distSq = dx * dx + dy * dy + dz * dz;
+      const distSq = dx * dx + dz * dz; // 2D distance, ignoring Y
       
       if (distSq <= maxDistSq) {
         emitter.update(deltaTime, particleSystem);
         activeCount++;
-        
-        // Debug: log first active emitter vs camera position (once)
-        if (!this._loggedActiveEmitter) {
-          console.log(`[ParticleEmitterManager] First active emitter: ${emitter.blockType} at (${emitter.x.toFixed(1)}, ${emitter.y.toFixed(1)}, ${emitter.z.toFixed(1)})`);
-          console.log(`[ParticleEmitterManager] Camera at (${this.cameraX.toFixed(1)}, ${this.cameraY.toFixed(1)}, ${this.cameraZ.toFixed(1)}), dist=${Math.sqrt(distSq).toFixed(1)}`);
-          this._loggedActiveEmitter = true;
-        }
       }
     }
   }
