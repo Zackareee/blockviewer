@@ -222,12 +222,11 @@ export class BeaconBeamManager {
    * Create beam materials
    */
   _createMaterials() {
-    // Solid inner beam material
+    // Solid inner beam material - opaque like Minecraft
     this.solidMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uTexture: { value: this.beamTexture },
         uColor: { value: new THREE.Color(1, 1, 1) },
-        uAlpha: { value: 1.0 },
         uTime: { value: 0 },
       },
       vertexShader: `
@@ -243,7 +242,6 @@ export class BeaconBeamManager {
       fragmentShader: `
         uniform sampler2D uTexture;
         uniform vec3 uColor;
-        uniform float uAlpha;
         uniform float uTime;
         
         varying vec2 vUv;
@@ -254,23 +252,23 @@ export class BeaconBeamManager {
           vec2 scrolledUV = vec2(vUv.x, vUv.y - uTime * 0.5);
           vec4 texColor = texture2D(uTexture, scrolledUV);
           
-          // Apply beam color
+          // Apply beam color - inner beam is fully opaque
           vec3 finalColor = texColor.rgb * uColor;
           
-          gl_FragColor = vec4(finalColor, texColor.a * uAlpha);
+          gl_FragColor = vec4(finalColor, 1.0);
         }
       `,
-      transparent: true,
+      transparent: false, // Inner beam is opaque
       side: THREE.DoubleSide,
-      depthWrite: false,
+      depthWrite: true, // Write to depth buffer since opaque
     });
     
-    // Outer beam material (larger, more transparent - no additive glow like Minecraft)
+    // Outer beam material (larger, transparent - matches Minecraft's 0.1 alpha)
     this.glowMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uTexture: { value: this.beamTexture },
         uColor: { value: new THREE.Color(1, 1, 1) },
-        uAlpha: { value: 0.15 }, // More transparent outer layer
+        uAlpha: { value: 0.1 }, // From BeaconRenderer.class constant
         uTime: { value: 0 },
       },
       vertexShader: `
