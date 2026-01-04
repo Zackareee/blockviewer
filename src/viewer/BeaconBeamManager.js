@@ -406,10 +406,11 @@ export class BeaconBeamManager {
               beaconData.sections.push(new BeamSection(currentColor, currentStartY, currentHeight));
             }
             
-            // Average with current color (Minecraft behavior)
-            currentColor = averageColors(currentColor, glassColor);
-            currentStartY = checkY + 1;
-            currentHeight = 0;
+            // Switch to glass color (not averaging - each glass sets new color)
+            // Beam is visible inside the glass block itself
+            currentColor = glassColor;
+            currentStartY = checkY; // Start AT the glass, not above it
+            currentHeight = 1; // Include the glass block itself
             continue;
           }
         }
