@@ -515,12 +515,24 @@ function RegionScene({
       useStreaming: false,
       textureMode,
       textureAtlas,
-      onProgress: (loaded, total) => {
-        onProgress?.(loaded, total, loaded < total, `Loading: ${loaded}/${total} regions`);
+      onProgress: (progressInfo) => {
+        // Handle both old-style (loaded, total) and new-style (object) progress
+        if (typeof progressInfo === 'number') {
+          const loaded = progressInfo;
+          const total = arguments[1] || 1;
+          onProgress?.({ 
+            current: loaded, 
+            total, 
+            isBuilding: loaded < total, 
+            message: `Loading: ${loaded}/${total} regions` 
+          });
+        } else {
+          onProgress?.(progressInfo);
+        }
         invalidate(); // Request render on progress
       },
       onComplete: () => {
-        onProgress?.(0, 0, false, '');
+        onProgress?.({ current: 0, total: 0, isBuilding: false, message: '', stage: null });
         const stats = manager.getStats();
         onStats?.(stats);
         onComplete?.();
@@ -742,10 +754,37 @@ function RegionScene({
       
       streamingMethod(regionsToLoad, {
         onRegionStart: (index, total, name) => {
-          onProgress?.(index, total, true, `${isFreshLoad ? 'Loading' : 'Adding'}: ${name}`);
+          onProgress?.({ 
+            current: index, 
+            total, 
+            isBuilding: true, 
+            message: `${isFreshLoad ? 'Loading' : 'Adding'}: ${name}`,
+            stage: 'parsing',
+            stageProgress: 0,
+            regionName: name,
+          });
+        },
+        onStageChange: (index, total, name, stage, stageProgress) => {
+          onProgress?.({
+            current: index,
+            total,
+            isBuilding: true,
+            message: `Processing: ${name}`,
+            stage,
+            stageProgress,
+            regionName: name,
+          });
         },
         onRegionComplete: (index, total, name, stats) => {
-          onProgress?.(index + 1, total, index + 1 < total, `Completed: ${name}`);
+          onProgress?.({ 
+            current: index + 1, 
+            total, 
+            isBuilding: index + 1 < total, 
+            message: `Completed: ${name}`,
+            stage: index + 1 < total ? 'parsing' : null,
+            stageProgress: 0,
+            regionName: index + 1 < total ? '' : name,
+          });
           invalidate(); // Render after each region completes
         },
         enableLOD, // Pass through LOD setting
@@ -789,10 +828,37 @@ function RegionScene({
       
       loadMethod(regionsToLoad, parseRegion, {
         onRegionStart: (index, total, name) => {
-          onProgress?.(index, total, true, `${isFreshLoad ? 'Loading' : 'Adding'}: ${name}`);
+          onProgress?.({ 
+            current: index, 
+            total, 
+            isBuilding: true, 
+            message: `${isFreshLoad ? 'Loading' : 'Adding'}: ${name}`,
+            stage: 'parsing',
+            stageProgress: 0,
+            regionName: name,
+          });
+        },
+        onStageChange: (index, total, name, stage, stageProgress) => {
+          onProgress?.({
+            current: index,
+            total,
+            isBuilding: true,
+            message: `Processing: ${name}`,
+            stage,
+            stageProgress,
+            regionName: name,
+          });
         },
         onRegionComplete: (index, total, name, stats) => {
-          onProgress?.(index + 1, total, index + 1 < total, `Completed: ${name}`);
+          onProgress?.({ 
+            current: index + 1, 
+            total, 
+            isBuilding: index + 1 < total, 
+            message: `Completed: ${name}`,
+            stage: index + 1 < total ? 'parsing' : null,
+            stageProgress: 0,
+            regionName: index + 1 < total ? '' : name,
+          });
           invalidate(); // Render after each region completes
         },
         enableLOD, // Pass through LOD setting

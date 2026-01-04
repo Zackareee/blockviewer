@@ -304,6 +304,87 @@ const PARTICLE_DEFINITIONS = {
     animated: false,
     blendMode: 'additive', // Fireflies glow
   },
+  // White smoke (various uses)
+  white_smoke: {
+    textures: [
+      'textures/particle/generic_7.png',
+      'textures/particle/generic_6.png',
+      'textures/particle/generic_5.png',
+      'textures/particle/generic_4.png',
+      'textures/particle/generic_3.png',
+      'textures/particle/generic_2.png',
+      'textures/particle/generic_1.png',
+      'textures/particle/generic_0.png',
+    ],
+    animated: true,
+    frametime: 3,
+    blendMode: 'normal',
+  },
+  // Enchant particle (SGA letters for enchanting table)
+  enchant: {
+    textures: [
+      'textures/particle/sga_a.png',
+      'textures/particle/sga_b.png',
+      'textures/particle/sga_c.png',
+      'textures/particle/sga_d.png',
+      'textures/particle/sga_e.png',
+      'textures/particle/sga_f.png',
+      'textures/particle/sga_g.png',
+      'textures/particle/sga_h.png',
+      'textures/particle/sga_i.png',
+      'textures/particle/sga_j.png',
+      'textures/particle/sga_k.png',
+      'textures/particle/sga_l.png',
+      'textures/particle/sga_m.png',
+      'textures/particle/sga_n.png',
+      'textures/particle/sga_o.png',
+      'textures/particle/sga_p.png',
+      'textures/particle/sga_q.png',
+      'textures/particle/sga_r.png',
+      'textures/particle/sga_s.png',
+      'textures/particle/sga_t.png',
+      'textures/particle/sga_u.png',
+      'textures/particle/sga_v.png',
+      'textures/particle/sga_w.png',
+      'textures/particle/sga_x.png',
+      'textures/particle/sga_y.png',
+      'textures/particle/sga_z.png',
+    ],
+    animated: false, // Each particle picks a random letter
+    blendMode: 'additive',
+  },
+  // Glitter particle (sparkle effect)
+  glitter: {
+    textures: [
+      'textures/particle/glitter_0.png',
+      'textures/particle/glitter_1.png',
+      'textures/particle/glitter_2.png',
+      'textures/particle/glitter_3.png',
+      'textures/particle/glitter_4.png',
+      'textures/particle/glitter_5.png',
+      'textures/particle/glitter_6.png',
+      'textures/particle/glitter_7.png',
+    ],
+    animated: true,
+    frametime: 2,
+    blendMode: 'additive',
+  },
+  // Reverse portal (respawn anchor)
+  reverse_portal: {
+    textures: [
+      'textures/particle/generic_0.png',
+      'textures/particle/generic_1.png',
+      'textures/particle/generic_2.png',
+      'textures/particle/generic_3.png',
+      'textures/particle/generic_4.png',
+      'textures/particle/generic_5.png',
+      'textures/particle/generic_6.png',
+      'textures/particle/generic_7.png',
+    ],
+    animated: true,
+    frametime: 3,
+    blendMode: 'additive',
+  },
 };
 
 /**

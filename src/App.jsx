@@ -23,7 +23,16 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
   // Build progress for region rendering
-  const [buildProgress, setBuildProgress] = useState({ current: 0, total: 0, isBuilding: false, message: '' });
+  // stage: 'parsing' | 'decoding' | 'meshing' | 'adding' | 'particles' | 'complete'
+  const [buildProgress, setBuildProgress] = useState({ 
+    current: 0, 
+    total: 0, 
+    isBuilding: false, 
+    message: '',
+    stage: null,        // Current processing stage
+    stageProgress: 0,   // Progress within current stage (0-100)
+    regionName: '',     // Current region being processed
+  });
   
   // Streaming region loading state
   const [streamingState, setStreamingState] = useState({
@@ -235,8 +244,25 @@ function App() {
     }
   }, []);
 
-  const handleBuildProgress = useCallback((current, total, isBuilding, message = '') => {
-    setBuildProgress({ current, total, isBuilding, message });
+  const handleBuildProgress = useCallback((progressInfo) => {
+    // Support both old API (4 args) and new API (object)
+    if (typeof progressInfo === 'number') {
+      // Legacy API: (current, total, isBuilding, message)
+      const [current, total, isBuilding, message = ''] = arguments;
+      setBuildProgress(prev => ({ 
+        ...prev,
+        current, 
+        total, 
+        isBuilding, 
+        message,
+      }));
+    } else {
+      // New API: { current, total, isBuilding, message, stage, stageProgress, regionName }
+      setBuildProgress(prev => ({ 
+        ...prev,
+        ...progressInfo,
+      }));
+    }
   }, []);
 
   // Throttle camera updates to avoid excessive re-renders
@@ -379,27 +405,67 @@ function App() {
         {buildProgress.isBuilding && (
           <div className="build-overlay">
             <div className="build-progress-container">
-              {streamingState.isStreaming && (
-                <div className="streaming-region-header">
-                  <span>Region {streamingState.currentRegionIndex + 1} of {streamingState.totalRegions}</span>
-                  <span className="streaming-region-name">{streamingState.currentRegionName}</span>
-                </div>
-              )}
+              {/* Region header */}
+              <div className="streaming-region-header">
+                <span>Region {buildProgress.current + 1} of {buildProgress.total}</span>
+                {buildProgress.regionName && (
+                  <span className="streaming-region-name">{buildProgress.regionName}</span>
+                )}
+              </div>
+              
+              {/* Stage indicators */}
+              <div className="build-stages">
+                {['parsing', 'decoding', 'meshing', 'adding', 'particles'].map((stageName, idx) => {
+                  const stageLabels = {
+                    parsing: '📦 Parsing',
+                    decoding: '🔓 Decoding',
+                    meshing: '🧱 Building Mesh',
+                    adding: '🎨 Adding to Scene',
+                    particles: '✨ Particles',
+                  };
+                  const stageOrder = ['parsing', 'decoding', 'meshing', 'adding', 'particles'];
+                  const currentIdx = stageOrder.indexOf(buildProgress.stage);
+                  const thisIdx = stageOrder.indexOf(stageName);
+                  const isActive = stageName === buildProgress.stage;
+                  const isComplete = thisIdx < currentIdx;
+                  
+                  return (
+                    <div 
+                      key={stageName}
+                      className={`build-stage ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}`}
+                    >
+                      <div className="stage-header">
+                        <span className="stage-icon">
+                          {isComplete ? '✓' : isActive ? '◉' : '○'}
+                        </span>
+                        <span className="stage-label">{stageLabels[stageName]}</span>
+                      </div>
+                      {isActive && (
+                        <div className="stage-progress-bar">
+                          <div 
+                            className="stage-progress-fill"
+                            style={{ width: `${buildProgress.stageProgress || 0}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Overall progress bar */}
               <div className="build-progress-header">
-                <span>{buildProgress.message || 'Building chunk meshes...'}</span>
-                <span>{buildProgress.current} / {buildProgress.total}</span>
+                <span>{buildProgress.message || 'Processing...'}</span>
+                <span>{Math.round((buildProgress.current / buildProgress.total) * 100)}%</span>
               </div>
               <div className="build-progress-bar">
                 <div 
                   className="build-progress-fill"
-                  style={{ width: `${(buildProgress.current / buildProgress.total) * 100}%` }}
+                  style={{ 
+                    width: `${((buildProgress.current + (buildProgress.stageProgress || 0) / 100) / buildProgress.total) * 100}%` 
+                  }}
                 />
               </div>
-              <p className="build-progress-hint">
-                {buildProgress.current < buildProgress.total 
-                  ? `${Math.round((buildProgress.current / buildProgress.total) * 100)}% complete`
-                  : 'Finalizing...'}
-              </p>
             </div>
           </div>
         )}

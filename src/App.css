@@ -456,6 +456,107 @@ body {
   color: var(--text-muted);
 }
 
+/* Loading stage indicators */
+.build-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.build-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  transition: all var(--transition-fast);
+}
+
+.build-stage .stage-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.build-stage .stage-icon {
+  width: 1.2em;
+  text-align: center;
+  opacity: 0.5;
+  transition: all var(--transition-fast);
+}
+
+.build-stage .stage-label {
+  transition: all var(--transition-fast);
+}
+
+.stage-progress-bar {
+  height: 4px;
+  background: var(--bg-deep);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-left: 1.95rem;
+  margin-top: 0.25rem;
+}
+
+.stage-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--diamond) 0%, var(--accent-primary) 100%);
+  border-radius: 2px;
+  transition: width 0.15s ease-out;
+}
+
+.build-stage.complete {
+  color: var(--success);
+}
+
+.build-stage.complete .stage-icon {
+  opacity: 1;
+}
+
+.build-stage.active {
+  color: var(--diamond);
+  font-weight: 500;
+}
+
+.build-stage.active .stage-icon {
+  opacity: 1;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+.streaming-region-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.streaming-region-header span:first-child {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.streaming-region-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+}
+
 /* Streaming Region Progress Header */
 .streaming-region-header {
   display: flex;

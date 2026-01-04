@@ -13,14 +13,14 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | `soul_fire_flame` | 8x8 | No | ✅ Implemented |
 | `small_flame` | 8x8 | No | ✅ Implemented |
 | `smoke` | 8x64 | Yes (8 frames) | ✅ Implemented |
-| `large_smoke` | 8x64 | Yes (8 frames) | ⬜ Not implemented |
-| `white_smoke` | ? | ? | ⬜ Not implemented |
+| `large_smoke` | 8x64 | Yes (8 frames) | ✅ Implemented |
+| `white_smoke` | 8x64 | Yes (8 frames) | ✅ Implemented |
 | `campfire_cosy_smoke` | 16x192 | Yes (12 frames) | ✅ Implemented |
 | `campfire_signal_smoke` | 16x192 | Yes (12 frames) | ✅ Implemented |
 | `lava` | 8x8 | No | ✅ Implemented |
 | `end_rod` | 8x8 | No | ✅ Implemented |
-| `portal` | 8x64 | Yes (8 frames) | ⬜ Not implemented |
-| `enchant` | 8x64 | Yes (8 frames) | ⬜ Not implemented (simplified sparkle used) |
+| `portal` | 8x64 | Yes (8 frames) | ✅ Implemented |
+| `enchant` | 8x64 | Yes (26 SGA letters) | ✅ Implemented |
 
 ### Drip/Liquid Particles
 | Particle Type | Texture Size | Animated | Status |
@@ -167,8 +167,8 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | `soul_wall_torch` | soul_fire_flame, smoke | Always | ✅ Implemented |
 | `redstone_torch` | dust (red) | When powered | ⬜ Partial (uses flame tinted) |
 | `redstone_wall_torch` | dust (red) | When powered | ⬜ Partial (uses flame tinted) |
-| `fire` | flame, lava, smoke | Always | ⬜ Not implemented |
-| `soul_fire` | soul_fire_flame, smoke | Always | ⬜ Not implemented |
+| `fire` | flame, lava, large_smoke | Always | ✅ Implemented |
+| `soul_fire` | soul_fire_flame, large_smoke | Always | ✅ Implemented |
 | `campfire` | flame, lava, smoke, campfire_cosy_smoke | lit=true | ✅ Implemented |
 | `soul_campfire` | soul_fire_flame, smoke, campfire_signal_smoke | lit=true | ✅ Implemented |
 
@@ -205,7 +205,7 @@ This document tracks all particle types and particle-emitting blocks for impleme
 ### Portal Blocks
 | Block | Particles Used | State Condition | Status |
 |-------|----------------|-----------------|--------|
-| `nether_portal` | portal | Always | ⬜ Not implemented |
+| `nether_portal` | portal | Always | ✅ Implemented |
 | `end_portal` | (special shader) | Always | ⬜ Not implemented |
 | `end_gateway` | (special shader) | Always | ⬜ Not implemented |
 | `respawn_anchor` | portal (reverse) | charge > 0 | ⬜ Partial (simplified) |
@@ -217,7 +217,7 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | `beacon` | (beam particles) | Active | ⬜ Partial (simplified) |
 | `conduit` | nautilus, (effect) | Active | ⬜ Not implemented |
 | `brewing_stand` | effect (purple) | Always | ⬜ Partial (simplified) |
-| `ender_chest` | portal | Always | ⬜ Not implemented |
+| `ender_chest` | portal | Always | ✅ Implemented |
 
 ### Drip/Liquid Blocks
 | Block | Particles Used | State Condition | Status |
@@ -225,7 +225,7 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | `lava` | lava | Surface | ✅ Implemented |
 | `pointed_dripstone` | dripping_water/lava, falling_*, landing_* | Has fluid above | ⬜ Not implemented |
 | `wet_sponge` | dripping_water | In Nether | ⬜ Not implemented |
-| `crying_obsidian` | dripping_obsidian_tear | Always | ⬜ Not implemented |
+| `crying_obsidian` | dripping_obsidian_tear | Always | ✅ Implemented |
 | `honey_block` | dripping_honey, falling_honey | Always | ⬜ Not implemented |
 | `bubble_column` | bubble, bubble_column_up | In water | ⬜ Not implemented |
 
@@ -233,9 +233,9 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | Block | Particles Used | State Condition | Status |
 |-------|----------------|-----------------|--------|
 | `spore_blossom` | spore_blossom_air, falling_spore_blossom | Always | ✅ Implemented |
-| `mycelium` | mycelium | Random | ⬜ Not implemented |
+| `mycelium` | mycelium | Random | ✅ Implemented |
 | `cherry_leaves` | cherry_leaves | Random | ✅ Implemented |
-| `pale_oak_leaves` | pale_oak_leaves | Random | ⬜ Not implemented |
+| `pale_oak_leaves` | pale_oak_leaves | Random | ✅ Implemented |
 | `azalea_leaves` | tinted_leaves | Random | ✅ Implemented |
 | `flowering_azalea_leaves` | tinted_leaves | Random | ✅ Implemented |
 | `oak_leaves` | tinted_leaves | Random | ✅ Implemented |
@@ -254,8 +254,8 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | `end_rod` | end_rod | Always | ✅ Implemented |
 | `note_block` | note | When played | ⬜ Not implemented |
 | `composter` | composter | On use | ⬜ Not implemented |
-| `dragon_egg` | portal | Always | ⬜ Not implemented |
-| `wither_rose` | smoke | Random | ⬜ Not implemented |
+| `dragon_egg` | portal | Always | ✅ Implemented |
+| `wither_rose` | smoke | Random | ✅ Implemented |
 | `lightning_rod` | electric_spark | When struck | ⬜ Not implemented |
 | `firefly_bush` | firefly | Night time | ✅ Implemented (wandering behavior) |
 | `powder_snow` | snowflake | Entities inside | ⬜ Not implemented |
@@ -364,5 +364,5 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | Stained glass tinting | ✅ Implemented | All 16 colors supported |
 | Color averaging | ✅ Implemented | Multiple stained glass blocks average colors |
 | Beam blocking | ✅ Implemented | Opaque blocks stop beam |
-| Beacon activation check | ⬜ Not implemented | Would require pyramid structure validation |
+| Beacon activation check | ✅ Implemented | Reads Levels from block entity data |
 

@@ -523,18 +523,17 @@ void main() {
       tintColor = getBiomeTint(tintType);
     }
     
-    // Continuous glass mode: replace border frame pattern with glass interior color
-    // When enabled, the border pixels use the center glass color for seamless appearance
+    // Continuous glass mode: replace internal border patterns with glass interior
+    // This removes the grid pattern between adjacent glass blocks
     if (uContinuousGlass > 0.5) {
-      // Check if this pixel is in the border region (outer 1 pixel of the 16x16 texture)
-      // Border is ~6.25% of the texture on each edge (1/16 = 0.0625)
-      float borderSize = 0.0625; // 1 pixel in a 16x16 texture
+      // Check if this pixel is in the border region of the texture
+      // Border is the outer ~1 pixel (6.25%) on each edge of the 16x16 texture
+      float borderSize = 0.0625;
       bool inBorder = localUV.x < borderSize || localUV.x > (1.0 - borderSize) ||
                       localUV.y < borderSize || localUV.y > (1.0 - borderSize);
       
       if (inBorder) {
-        // Sample the center of the glass texture to get the interior color
-        // Use center point (0.5, 0.5) to get the uniform glass interior
+        // Sample the center of the glass texture for the interior color
         float tilesPerRow2 = uAtlasSize.x;
         AnimResult centerAnim = getAnimatedTexData(vTexIndex);
         float centerCol = mod(centerAnim.currentIndex, tilesPerRow2);
@@ -544,14 +543,12 @@ void main() {
         
         vec4 centerColor = texture2D(uAtlas, centerAtlasUV);
         
-        // Replace border texture with center glass color, keeping glass alpha
+        // Replace border pixels with center glass color
+        // This removes the grid lines between blocks
         texColor.rgb = centerColor.rgb;
-        // Keep original alpha for transparency consistency
+        texColor.a = max(centerColor.a, texColor.a);
       }
-      
-      // DEBUG: Tint all glass slightly green when continuous mode is on
-      // Remove this after testing
-      texColor.rgb = mix(texColor.rgb, vec3(0.0, 1.0, 0.0), 0.3);
+      // Non-border pixels keep their original texture (scratches, reflections, etc.)
     }
     
     // Apply tint to texture color

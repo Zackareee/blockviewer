@@ -468,6 +468,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         continue;
       }
       
+      // Skip full-cube blocks that are only in stateGrid for particle purposes
+      // These blocks (leaves, glass, ice, etc.) are rendered by FastMesher, not ModelMesher
+      // They're in stateGrid because hasEmitter() returned true, not because they need model geometry
+      if (blockName && !isNonCubeBlock(blockName)) {
+        stateGeometries[stateId] = null;
+        continue;
+      }
+      
       // Mark as processed (even if null)
       const geometries = stateRegistry.getGeometrySync(stateId);
       stateGeometries[stateId] = geometries && geometries.length > 0 ? geometries : null;

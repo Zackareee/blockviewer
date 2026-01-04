@@ -1436,7 +1436,7 @@ export class ChunkManager {
    */
   async loadRegionsProgressive(regionFiles, parseRegion, options = {}) {
     const startTime = performance.now();
-    const { onRegionStart, onRegionComplete, enableLOD = false, enableModelMeshes = false } = options;
+    const { onRegionStart, onRegionComplete, onStageChange, enableLOD = false, enableModelMeshes = false } = options;
     
     this.clear();
     
@@ -1460,6 +1460,9 @@ export class ChunkManager {
       onRegionStart?.(index, totalRegions, regionName);
       
       try {
+        // Stage 1: Parsing
+        onStageChange?.(index, totalRegions, regionName, 'parsing', 0);
+        
         // Step 1: Parse the region file
         const parseStart = performance.now();
         const chunks = await parseRegion(file);
@@ -1470,6 +1473,9 @@ export class ChunkManager {
           return null;
         }
         
+        // Stage 2: Decoding
+        onStageChange?.(index, totalRegions, regionName, 'decoding', 0);
+        
         // Apply world offset to chunks (region coords * 32 chunks * 16 blocks)
         // The chunk x/z from parser are local (0-31), we need world coordinates
         const offsetChunks = chunks.map(chunk => ({
@@ -1477,6 +1483,9 @@ export class ChunkManager {
           x: chunk.x + regionX * 32,
           z: chunk.z + regionZ * 32,
         }));
+        
+        // Stage 3: Meshing
+        onStageChange?.(index, totalRegions, regionName, 'meshing', 0);
         
         // Step 2: Build meshes (this region's builder is independent)
         // Don't center meshes - keep at world coordinates for proper multi-region positioning
@@ -1500,13 +1509,11 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
+        // Stage 4: Adding to scene
+        onStageChange?.(index, totalRegions, regionName, 'adding', 0);
+        
         // Step 3: Add to scene immediately (user sees progress)
         const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, particleEmitters, beaconPositions, offset, stats } = result;
-        
-        // Register particle emitters for torches and other light sources
-        if (particleEmitters && this.particlesEnabled) {
-          this._registerParticleEmitters(particleEmitters);
-        }
         
         // Set world offset for beacon beam manager (beacons use world coords, meshes use render coords)
         if (offset && this.beaconBeamManager) {
@@ -1521,6 +1528,7 @@ export class ChunkManager {
         let drawCalls = 0;
         let meshCenter = null;
         
+        // Solid blocks (15% progress)
         if (solidMesh) {
           if (shouldGenerateLOD && lodMeshes) {
             // Compute mesh center for LOD positioning (used by fluids too)
@@ -1536,6 +1544,7 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 15);
         
         // For water/lava/glass: use LOD to hide at distance (fluids baked into LOD surface)
         if (waterMesh) {
@@ -1545,6 +1554,8 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 30);
+        
         if (lavaMesh) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLOD(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter, 2);
@@ -1552,6 +1563,8 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 45);
+        
         if (glassMesh) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLOD(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter, 3);
@@ -1559,6 +1572,7 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 60);
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         // Use LOD to progressively hide decorative blocks at distance
@@ -1570,6 +1584,7 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes, undefined, 32);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 75);
         
         // Add transparent model meshes (glass panes, iron bars)
         // Use LOD to progressively simplify at distance
@@ -1585,6 +1600,7 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5, 32);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 85);
         
         // Add overlay model meshes (torch bulb glow panels)
         // Use LOD to progressively simplify at distance
@@ -1600,6 +1616,16 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4, 32);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 100);
+        
+        // Stage 5: Particles
+        onStageChange?.(index, totalRegions, regionName, 'particles', 0);
+        
+        // Register particle emitters for torches and other light sources
+        if (particleEmitters && this.particlesEnabled) {
+          this._registerParticleEmitters(particleEmitters);
+        }
+        onStageChange?.(index, totalRegions, regionName, 'particles', 100);
         
         // Add GPU-instanced meshes for repeated blocks (grass, flowers, etc.)
         // This dramatically reduces draw calls and vertex processing
@@ -1713,7 +1739,7 @@ export class ChunkManager {
    */
   async addRegionsProgressive(regionFiles, parseRegion, options = {}) {
     const startTime = performance.now();
-    const { onRegionStart, onRegionComplete, enableLOD = false, enableModelMeshes = false } = options;
+    const { onRegionStart, onRegionComplete, onStageChange, enableLOD = false, enableModelMeshes = false } = options;
     
     // Don't clear - keep existing meshes
     const totalRegions = regionFiles.length;
@@ -1742,6 +1768,9 @@ export class ChunkManager {
       onRegionStart?.(index, totalRegions, regionName);
       
       try {
+        // Stage 1: Parsing
+        onStageChange?.(index, totalRegions, regionName, 'parsing', 0);
+        
         const parseStart = performance.now();
         const chunks = await parseRegion(file);
         const parseTime = performance.now() - parseStart;
@@ -1751,11 +1780,17 @@ export class ChunkManager {
           return null;
         }
         
+        // Stage 2: Decoding
+        onStageChange?.(index, totalRegions, regionName, 'decoding', 0);
+        
         const offsetChunks = chunks.map(chunk => ({
           ...chunk,
           x: chunk.x + regionX * 32,
           z: chunk.z + regionZ * 32,
         }));
+        
+        // Stage 3: Meshing
+        onStageChange?.(index, totalRegions, regionName, 'meshing', 0);
         
         const meshBuilder = new RegionMeshBuilder({
           textureIndexLookup: this.getTextureIndexLookup(),
@@ -1780,12 +1815,10 @@ export class ChunkManager {
           this._mergeDebugGrid(result._grid);
         }
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, beaconPositions: bp2, offset: off2, stats } = result;
+        // Stage 4: Adding to scene
+        onStageChange?.(index, totalRegions, regionName, 'adding', 0);
         
-        // Register particle emitters for torches and other light sources
-        if (pe2 && this.particlesEnabled) {
-          this._registerParticleEmitters(pe2);
-        }
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, beaconPositions: bp2, offset: off2, stats } = result;
         
         // Set world offset for beacon beam manager (beacons use world coords, meshes use render coords)
         if (off2 && this.beaconBeamManager) {
@@ -1800,6 +1833,7 @@ export class ChunkManager {
         let drawCalls = 0;
         let meshCenter = null;
         
+        // Solid blocks (15% progress)
         if (solidMesh) {
           if (shouldGenerateLOD && lodMeshes) {
             // Compute mesh center for LOD positioning (used by fluids too)
@@ -1815,6 +1849,7 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(solidMesh, this.solidMaterial, this.solidGroup, this.solidMeshes);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 15);
         
         // For water/lava/glass: use LOD to hide at distance (fluids baked into LOD surface)
         if (waterMesh) {
@@ -1824,6 +1859,8 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(waterMesh, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 30);
+        
         if (lavaMesh) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLOD(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter, 2);
@@ -1831,6 +1868,8 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(lavaMesh, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 45);
+        
         if (glassMesh) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLOD(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter, 3);
@@ -1838,6 +1877,7 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(glassMesh, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 60);
         
         // Add model meshes (non-cube blocks like slabs, stairs, flowers)
         // Use LOD to progressively hide decorative blocks at distance
@@ -1849,6 +1889,7 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes, undefined, 32);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 75);
         
         // Add transparent model meshes (glass panes, iron bars)
         // Use LOD to progressively simplify at distance
@@ -1864,6 +1905,7 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5, 32);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 85);
         
         // Add overlay model meshes (torch bulb glow panels)
         // Use LOD to progressively simplify at distance
@@ -1879,11 +1921,22 @@ export class ChunkManager {
             drawCalls += this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4, 32);
           }
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 95);
         
         // Add GPU-instanced meshes for repeated blocks (grass, flowers, etc.)
         if (ig2 && ig2.length > 0) {
           drawCalls += this._addInstancedMeshes(ig2);
         }
+        onStageChange?.(index, totalRegions, regionName, 'adding', 100);
+        
+        // Stage 5: Particles
+        onStageChange?.(index, totalRegions, regionName, 'particles', 0);
+        
+        // Register particle emitters for torches and other light sources
+        if (pe2 && this.particlesEnabled) {
+          this._registerParticleEmitters(pe2);
+        }
+        onStageChange?.(index, totalRegions, regionName, 'particles', 100);
         
         meshBuilder.dispose();
         
@@ -1980,7 +2033,7 @@ export class ChunkManager {
    */
   async loadRegionsStreaming(regionFiles, options = {}) {
     const startTime = performance.now();
-    const { onRegionStart, onRegionComplete, enableLOD = true } = options;
+    const { onRegionStart, onRegionComplete, onStageChange, enableLOD = true } = options;
     
     // Note: Streaming loader uses simplified worker that doesn't collect particle emitters
     // Particles (torch flames, smoke) only work with progressive or loadChunks paths
@@ -2017,6 +2070,9 @@ export class ChunkManager {
       this.onProgress?.(i, totalRegions);
       
       try {
+        // Stage 1: Parsing (worker does parse + decode + mesh together)
+        onStageChange?.(i, totalRegions, regionName, 'parsing', 0);
+        
         const regionStart = performance.now();
         const { result, stats } = await this.streamingLoader.processRegion(
           region.file,
@@ -2026,11 +2082,20 @@ export class ChunkManager {
         );
         const regionTime = performance.now() - regionStart;
         
+        // Stage 2: Decoding complete (included in worker, but we can estimate from stats)
+        onStageChange?.(i, totalRegions, regionName, 'decoding', 50);
+        
+        // Stage 3: Meshing complete
+        onStageChange?.(i, totalRegions, regionName, 'meshing', 75);
+        
+        // Stage 4: Adding to scene
+        onStageChange?.(i, totalRegions, regionName, 'adding', 0);
+        
         // Add meshes to scene
         let drawCalls = 0;
         let meshCenter = null;
         
-        // Handle solid mesh with LOD
+        // Handle solid mesh with LOD (25% progress)
         if (result.solid) {
           if (shouldGenerateLOD && result.lodMeshes) {
             // Compute mesh center for LOD positioning
@@ -2052,8 +2117,9 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.solid, this.solidMaterial, this.solidGroup, this.solidMeshes);
           }
         }
+        onStageChange?.(i, totalRegions, regionName, 'adding', 25);
         
-        // Handle water/lava with LOD (hide at distance)
+        // Handle water/lava with LOD (hide at distance) - 50% progress
         if (result.water) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter, 1);
@@ -2061,6 +2127,8 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
           }
         }
+        onStageChange?.(i, totalRegions, regionName, 'adding', 50);
+        
         if (result.lava) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLODFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter, 2);
@@ -2068,6 +2136,8 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
           }
         }
+        onStageChange?.(i, totalRegions, regionName, 'adding', 75);
+        
         if (result.glass) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLODFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter, 3);
@@ -2075,6 +2145,10 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
           }
         }
+        onStageChange?.(i, totalRegions, regionName, 'adding', 100);
+        
+        // Stage 5: Particles (streaming mode doesn't have particles, but show stage anyway)
+        onStageChange?.(i, totalRegions, regionName, 'particles', 100);
         
         // Update stats
         totalBlocks += stats.totalBlocks || 0;
@@ -2154,7 +2228,7 @@ export class ChunkManager {
    */
   async addRegionsStreaming(regionFiles, options = {}) {
     const startTime = performance.now();
-    const { onRegionStart, onRegionComplete, enableLOD = true } = options;
+    const { onRegionStart, onRegionComplete, onStageChange, enableLOD = true } = options;
     
     // Don't clear - keep existing meshes
     
@@ -2185,6 +2259,9 @@ export class ChunkManager {
       this.onProgress?.(this.loadedRegions + i, this.loadedRegions + totalRegions);
       
       try {
+        // Stage 1: Parsing
+        onStageChange?.(i, totalRegions, regionName, 'parsing', 0);
+        
         const regionStart = performance.now();
         const { result, stats } = await this.streamingLoader.processRegion(
           region.file,
@@ -2194,11 +2271,18 @@ export class ChunkManager {
         );
         const regionTime = performance.now() - regionStart;
         
+        // Stage 2-3: Decoding and Meshing complete (worker did these)
+        onStageChange?.(i, totalRegions, regionName, 'decoding', 50);
+        onStageChange?.(i, totalRegions, regionName, 'meshing', 75);
+        
+        // Stage 4: Adding to scene
+        onStageChange?.(i, totalRegions, regionName, 'adding', 0);
+        
         // Add meshes to scene
         let drawCalls = 0;
         let meshCenter = null;
         
-        // Handle solid mesh with LOD
+        // Handle solid mesh with LOD (25% progress)
         if (result.solid) {
           if (shouldGenerateLOD && result.lodMeshes) {
             const geom = this._createGeometryFromBuffers(result.solid);
@@ -2219,8 +2303,9 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.solid, this.solidMaterial, this.solidGroup, this.solidMeshes);
           }
         }
+        onStageChange?.(i, totalRegions, regionName, 'adding', 25);
         
-        // Handle water/lava/glass with LOD (hide at distance)
+        // Handle water/lava/glass with LOD (hide at distance) - 50% progress
         if (result.water) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLODFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, meshCenter, 1);
@@ -2228,6 +2313,8 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.water, this.waterMaterial, this.waterGroup, this.waterMeshes, 1);
           }
         }
+        onStageChange?.(i, totalRegions, regionName, 'adding', 50);
+        
         if (result.lava) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLODFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, meshCenter, 2);
@@ -2235,6 +2322,8 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.lava, this.lavaMaterial, this.lavaGroup, this.lavaMeshes, 2);
           }
         }
+        onStageChange?.(i, totalRegions, regionName, 'adding', 75);
+        
         if (result.glass) {
           if (shouldGenerateLOD && meshCenter) {
             drawCalls += this._addFluidMeshWithLODFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, meshCenter, 3);
@@ -2242,6 +2331,10 @@ export class ChunkManager {
             drawCalls += this._addMeshFromBuffers(result.glass, this.glassMaterial, this.glassGroup, this.glassMeshes, 3);
           }
         }
+        onStageChange?.(i, totalRegions, regionName, 'adding', 100);
+        
+        // Stage 5: Particles complete
+        onStageChange?.(i, totalRegions, regionName, 'particles', 100);
         
         // Update stats
         addedBlocks += stats.totalBlocks || 0;

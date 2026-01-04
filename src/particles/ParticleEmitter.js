@@ -949,6 +949,301 @@ const BLOCK_EMITTERS = {
       },
     ],
   },
+  
+  // ============================================================================
+  // FIRE BLOCKS
+  // From FireBlock.class: animateTick spawns FLAME, LARGE_SMOKE, LAVA
+  // ============================================================================
+  
+  'fire': {
+    particles: [
+      {
+        type: 'flame',
+        rate: 4.0,
+        offset: [0.5, 0.5, 0.5],
+        offsetVariance: [0.4, 0.3, 0.4],
+        velocity: [0, 0.1, 0],
+        velocityVariance: [0.05, 0.05, 0.05],
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 0.6,
+        lifetimeVariance: 0.2,
+        alpha: 1.0,
+        fadeIn: 0.1,
+        fadeOut: 0.3,
+        friction: 0.95,
+      },
+      {
+        type: 'large_smoke',
+        rate: 2.0,
+        offset: [0.5, 0.7, 0.5],
+        offsetVariance: [0.3, 0.2, 0.3],
+        velocity: [0, 0.15, 0],
+        velocityVariance: [0.08, 0.05, 0.08],
+        size: 0.2,
+        sizeVariance: 0.05,
+        lifetime: 2.0,
+        lifetimeVariance: 0.5,
+        alpha: 0.6,
+        fadeIn: 0.1,
+        fadeOut: 0.5,
+        friction: 0.98,
+        hasPhysics: false,
+      },
+      {
+        type: 'lava', // Ember sparks
+        rate: 0.5,
+        offset: [0.5, 0.6, 0.5],
+        offsetVariance: [0.3, 0.2, 0.3],
+        velocity: [0, 0.5, 0],
+        velocityVariance: [0.3, 0.3, 0.3],
+        size: 0.06,
+        sizeVariance: 0.02,
+        lifetime: 1.5,
+        lifetimeVariance: 0.5,
+        color: [1.0, 0.6, 0.2],
+        alpha: 1.0,
+        fadeOut: 0.3,
+        friction: 0.95,
+        gravity: 0.75,
+        hasPhysics: true,
+      },
+    ],
+  },
+  
+  'soul_fire': {
+    particles: [
+      {
+        type: 'soul_fire_flame',
+        rate: 4.0,
+        offset: [0.5, 0.5, 0.5],
+        offsetVariance: [0.4, 0.3, 0.4],
+        velocity: [0, 0.08, 0],
+        velocityVariance: [0.05, 0.05, 0.05],
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 0.6,
+        lifetimeVariance: 0.2,
+        alpha: 1.0,
+        fadeIn: 0.1,
+        fadeOut: 0.3,
+        friction: 0.95,
+      },
+      {
+        type: 'large_smoke',
+        rate: 1.5,
+        offset: [0.5, 0.7, 0.5],
+        offsetVariance: [0.3, 0.2, 0.3],
+        velocity: [0, 0.12, 0],
+        velocityVariance: [0.06, 0.04, 0.06],
+        size: 0.18,
+        sizeVariance: 0.04,
+        lifetime: 2.5,
+        lifetimeVariance: 0.8,
+        color: [0.6, 0.8, 0.9], // Blueish smoke
+        alpha: 0.5,
+        fadeIn: 0.1,
+        fadeOut: 0.5,
+        friction: 0.98,
+        hasPhysics: false,
+      },
+    ],
+  },
+  
+  // ============================================================================
+  // NETHER PORTAL
+  // From NetherPortalBlock.class: spawns PORTAL particles (purple swirl)
+  // ============================================================================
+  
+  'nether_portal': {
+    particles: [
+      {
+        type: 'portal',
+        rate: 8.0,
+        offset: [0.5, 0.5, 0.5],
+        offsetVariance: [0.4, 0.8, 0.4], // Full block height
+        velocity: [0, 0.02, 0],
+        velocityVariance: [0.1, 0.05, 0.1],
+        size: 0.08,
+        sizeVariance: 0.02,
+        lifetime: 1.5,
+        lifetimeVariance: 0.5,
+        color: [0.6, 0.2, 0.9], // Purple portal color
+        alpha: 0.9,
+        fadeIn: 0.1,
+        fadeOut: 0.4,
+        friction: 0.96,
+      },
+    ],
+  },
+  
+  // ============================================================================
+  // ENDER CHEST
+  // From EnderChestBlock.class: spawns PORTAL particles (purple)
+  // ============================================================================
+  
+  'ender_chest': {
+    particles: [
+      {
+        type: 'portal',
+        rate: 2.0,
+        offset: [0.5, 0.6, 0.5],
+        offsetVariance: [0.3, 0.2, 0.3],
+        velocity: [0, -0.05, 0], // Sink toward chest
+        velocityVariance: [0.08, 0.03, 0.08],
+        size: 0.06,
+        sizeVariance: 0.02,
+        lifetime: 1.2,
+        lifetimeVariance: 0.4,
+        color: [0.5, 0.1, 0.8], // Deep purple
+        alpha: 0.8,
+        fadeIn: 0.1,
+        fadeOut: 0.3,
+        friction: 0.94,
+      },
+    ],
+  },
+  
+  // ============================================================================
+  // DRAGON EGG
+  // From DragonEggBlock.class: spawns PORTAL particles
+  // ============================================================================
+  
+  'dragon_egg': {
+    particles: [
+      {
+        type: 'portal',
+        rate: 3.0,
+        offset: [0.5, 0.5, 0.5],
+        offsetVariance: [0.2, 0.3, 0.2],
+        velocity: [0, 0.03, 0],
+        velocityVariance: [0.06, 0.03, 0.06],
+        size: 0.05,
+        sizeVariance: 0.02,
+        lifetime: 1.0,
+        lifetimeVariance: 0.3,
+        color: [0.4, 0.0, 0.6], // Dark purple
+        alpha: 0.85,
+        fadeIn: 0.1,
+        fadeOut: 0.3,
+        friction: 0.95,
+      },
+    ],
+  },
+  
+  // ============================================================================
+  // WITHER ROSE
+  // From WitherRoseBlock.class: spawns SMOKE particles
+  // ============================================================================
+  
+  'wither_rose': {
+    particles: [
+      {
+        type: 'smoke',
+        rate: 0.8,
+        offset: [0.5, 0.4, 0.5],
+        offsetVariance: [0.1, 0.1, 0.1],
+        velocity: [0, 0.03, 0],
+        velocityVariance: [0.02, 0.02, 0.02],
+        size: 0.08,
+        sizeVariance: 0.02,
+        lifetime: 1.5,
+        lifetimeVariance: 0.5,
+        color: [0.2, 0.2, 0.2], // Dark smoke
+        alpha: 0.6,
+        fadeIn: 0.1,
+        fadeOut: 0.4,
+        friction: 0.97,
+        hasPhysics: false,
+      },
+    ],
+  },
+  
+  // ============================================================================
+  // CRYING OBSIDIAN
+  // From CryingObsidianBlock.class: spawns DRIPPING_OBSIDIAN_TEAR
+  // ============================================================================
+  
+  'crying_obsidian': {
+    particles: [
+      {
+        type: 'dripping_obsidian_tear',
+        rate: 0.3,
+        offset: [0.5, 0.0, 0.5],
+        offsetVariance: [0.4, 0.0, 0.4],
+        velocity: [0, 0, 0], // Starts stationary (drip hangs)
+        velocityVariance: [0, 0, 0],
+        size: 0.08,
+        sizeVariance: 0.02,
+        lifetime: 2.0,
+        lifetimeVariance: 0.5,
+        color: [0.6, 0.2, 0.8], // Purple obsidian tear
+        alpha: 0.9,
+        fadeIn: 0.1,
+        fadeOut: 0.2,
+        friction: 0.99,
+        gravity: 0.3, // Slowly starts falling
+        hasPhysics: true,
+      },
+    ],
+  },
+  
+  // ============================================================================
+  // MYCELIUM
+  // From MyceliumBlock.class: spawns MYCELIUM particles (rising spores)
+  // ============================================================================
+  
+  'mycelium': {
+    particles: [
+      {
+        type: 'smoke', // Mycelium uses generic smoke-like particles
+        rate: 0.15, // Very sparse
+        offset: [0.5, 1.0, 0.5], // Above block
+        offsetVariance: [0.4, 0.0, 0.4],
+        velocity: [0, 0.02, 0],
+        velocityVariance: [0.03, 0.01, 0.03],
+        size: 0.04,
+        sizeVariance: 0.01,
+        lifetime: 2.0,
+        lifetimeVariance: 0.8,
+        color: [0.7, 0.6, 0.8], // Pale purple/gray
+        alpha: 0.5,
+        fadeIn: 0.2,
+        fadeOut: 0.5,
+        friction: 0.99,
+        hasPhysics: false,
+      },
+    ],
+  },
+  
+  // ============================================================================
+  // PALE OAK LEAVES
+  // Similar to tinted leaves but with pale/gray color
+  // ============================================================================
+  
+  'pale_oak_leaves': {
+    particles: [
+      {
+        type: 'tinted_leaves',
+        rate: 0.15,
+        offset: [0.5, -0.1, 0.5],
+        offsetVariance: [0.4, 0.0, 0.4],
+        velocity: [0, -0.15, 0],
+        velocityVariance: [0.1, 0.05, 0.1],
+        size: 0.12,
+        sizeVariance: 0.03,
+        lifetime: 12.0,
+        lifetimeVariance: 4.0,
+        color: [0.7, 0.7, 0.65], // Pale gray-green
+        alpha: 0.9,
+        fadeIn: 0.0,
+        fadeOut: 0.3,
+        friction: 0.995,
+        gravity: 0.04,
+        hasPhysics: true,
+      },
+    ],
+  },
 };
 
 // ============================================================================
