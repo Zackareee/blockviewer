@@ -18,9 +18,8 @@
 import * as THREE from 'three';
 
 // Beam rendering constants from Minecraft
-// Minecraft uses 0.2/0.25 but we scale up slightly for visibility
-const SOLID_BEAM_RADIUS = 0.3;
-const BEAM_GLOW_RADIUS = 0.5;
+const SOLID_BEAM_RADIUS = 0.2;
+const BEAM_GLOW_RADIUS = 0.25;
 const MAX_BEAM_HEIGHT = 2048;
 const ROTATION_SPEED = Math.PI / 4; // 45 degrees per second in radians
 
@@ -164,11 +163,14 @@ export class BeaconBeamManager {
           canvas.width = beamTextureData.width;
           canvas.height = beamTextureData.height;
           const ctx = canvas.getContext('2d');
+          // Disable image smoothing for crisp pixel art
+          ctx.imageSmoothingEnabled = false;
           ctx.drawImage(beamTextureData, 0, 0);
           
           this.beamTexture = new THREE.CanvasTexture(canvas);
-          this.beamTexture.magFilter = THREE.LinearFilter;
-          this.beamTexture.minFilter = THREE.LinearFilter;
+          // Use NearestFilter for crisp Minecraft-style pixels
+          this.beamTexture.magFilter = THREE.NearestFilter;
+          this.beamTexture.minFilter = THREE.NearestFilter;
           this.beamTexture.wrapS = THREE.RepeatWrapping;
           this.beamTexture.wrapT = THREE.RepeatWrapping;
           this.beamTexture.needsUpdate = true;
@@ -189,19 +191,23 @@ export class BeaconBeamManager {
       canvas.width = 16;
       canvas.height = 16;
       const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
       
-      // Create a subtle radial gradient for the beam texture
-      // Minecraft's beacon_beam.png is mostly solid white with slight transparency variation
+      // Create a horizontal gradient for the beam texture (edges fade out)
+      // This mimics Minecraft's beacon_beam.png which has transparency on edges
       const gradient = ctx.createLinearGradient(0, 0, 16, 0);
-      gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-      gradient.addColorStop(0.3, 'rgba(255, 255, 255, 1.0)');
-      gradient.addColorStop(0.7, 'rgba(255, 255, 255, 1.0)');
-      gradient.addColorStop(1, 'rgba(255, 255, 255, 0.8)');
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+      gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)');
+      gradient.addColorStop(0.5, 'rgba(255, 255, 255, 1.0)');
+      gradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.8)');
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0.3)');
       
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, 16, 16);
       
       this.beamTexture = new THREE.CanvasTexture(canvas);
+      this.beamTexture.magFilter = THREE.NearestFilter;
+      this.beamTexture.minFilter = THREE.NearestFilter;
       this.beamTexture.wrapS = THREE.RepeatWrapping;
       this.beamTexture.wrapT = THREE.RepeatWrapping;
     }
@@ -214,20 +220,14 @@ export class BeaconBeamManager {
   
   /**
    * Create beam materials
-   * 
-   * Minecraft's beacon beam uses:
-   * - Solid inner core at 100% alpha
-   * - Outer glow at 25% alpha with additive blending
-   * - The texture provides subtle gradient variation
-   * - The beam color is the primary visual, not texture alpha
    */
   _createMaterials() {
-    // Solid inner beam material - high visibility core
+    // Solid inner beam material
     this.solidMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uTexture: { value: this.beamTexture },
         uColor: { value: new THREE.Color(1, 1, 1) },
-        uAlpha: { value: 0.8 }, // High alpha for solid visibility
+        uAlpha: { value: 1.0 },
         uTime: { value: 0 },
       },
       vertexShader: `
@@ -254,14 +254,10 @@ export class BeaconBeamManager {
           vec2 scrolledUV = vec2(vUv.x, vUv.y - uTime * 0.5);
           vec4 texColor = texture2D(uTexture, scrolledUV);
           
-          // Minecraft beacon uses the beam color directly with texture as subtle modulation
-          // The texture alpha is mostly 1.0 with slight edge falloff
-          // We blend between solid color and texture-modulated color
-          float texMod = mix(0.8, 1.0, texColor.r); // Use texture for subtle variation
-          vec3 finalColor = uColor * texMod;
+          // Apply beam color
+          vec3 finalColor = texColor.rgb * uColor;
           
-          // High alpha for solid, visible beam core
-          gl_FragColor = vec4(finalColor, uAlpha);
+          gl_FragColor = vec4(finalColor, texColor.a * uAlpha);
         }
       `,
       transparent: true,
@@ -269,12 +265,12 @@ export class BeaconBeamManager {
       depthWrite: false,
     });
     
-    // Outer glow material - additive glow effect
+    // Outer glow material (more transparent, additive-like)
     this.glowMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uTexture: { value: this.beamTexture },
         uColor: { value: new THREE.Color(1, 1, 1) },
-        uAlpha: { value: 0.4 }, // Moderate alpha for glow
+        uAlpha: { value: 0.25 },
         uTime: { value: 0 },
       },
       vertexShader: `
@@ -301,15 +297,10 @@ export class BeaconBeamManager {
           vec2 scrolledUV = vec2(vUv.x, vUv.y - uTime * 0.6);
           vec4 texColor = texture2D(uTexture, scrolledUV);
           
-          // Glow uses color directly with texture modulation
-          float texMod = mix(0.7, 1.0, texColor.r);
-          vec3 finalColor = uColor * texMod;
+          // Apply beam color with glow effect
+          vec3 finalColor = texColor.rgb * uColor;
           
-          // Edge fade for glow effect - fade alpha near edges
-          float edgeFade = 1.0 - abs(vUv.x - 0.5) * 2.0;
-          edgeFade = edgeFade * edgeFade; // Quadratic falloff
-          
-          gl_FragColor = vec4(finalColor, uAlpha * edgeFade);
+          gl_FragColor = vec4(finalColor, texColor.a * uAlpha);
         }
       `,
       transparent: true,
@@ -483,7 +474,8 @@ export class BeaconBeamManager {
     const indices = [];
     
     // UV repeat based on height
-    const uvRepeat = height / 4; // Repeat every 4 blocks
+    // Scale so each texture tile covers ~2 blocks vertically for visible stripes
+    const uvRepeat = height / 2;
     
     // Create 4 faces
     for (let face = 0; face < 4; face++) {
