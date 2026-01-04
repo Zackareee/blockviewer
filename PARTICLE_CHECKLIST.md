@@ -257,7 +257,7 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | `dragon_egg` | portal | Always | ⬜ Not implemented |
 | `wither_rose` | smoke | Random | ⬜ Not implemented |
 | `lightning_rod` | electric_spark | When struck | ⬜ Not implemented |
-| `firefly_bush` | firefly | Night time | ⬜ Not implemented |
+| `firefly_bush` | firefly | Night time | ✅ Implemented (wandering behavior) |
 | `powder_snow` | snowflake | Entities inside | ⬜ Not implemented |
 
 ### Redstone Blocks
