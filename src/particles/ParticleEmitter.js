@@ -1270,7 +1270,12 @@ export class ParticleEmitterManager {
 export function hasEmitter(blockType) {
   // Remove minecraft: prefix if present
   const name = blockType.replace('minecraft:', '');
-  return BLOCK_EMITTERS.hasOwnProperty(name);
+  const hasIt = BLOCK_EMITTERS.hasOwnProperty(name);
+  // Debug: log leaves blocks
+  if (name.includes('leaves')) {
+    console.log(`[hasEmitter] ${name} -> ${hasIt}`);
+  }
+  return hasIt;
 }
 
 /**

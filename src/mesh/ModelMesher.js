@@ -643,6 +643,24 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       const stateId = stateSection[i];
       if (stateId === 0) continue;
       
+      // Local coordinates (bitwise ops are faster than modulo/floor)
+      const lx = i & 15;           // i % 16
+      const lz = (i >> 4) & 15;    // Math.floor(i / 16) % 16
+      const ly = i >> 8;           // Math.floor(i / 256)
+      
+      // Collect particle emitter positions BEFORE geometry check
+      // This ensures we capture particles for ALL blocks (including full cubes like leaves)
+      if (stateHasParticleEmitter[stateId]) {
+        const state = stateRegistry.getState(stateId);
+        particleEmitters.push({
+          blockType: state ? state.blockName : 'torch',
+          x: baseX + lx, // Use actual world position (not offset-adjusted)
+          y: baseY + ly,
+          z: baseZ + lz,
+          properties: state?.properties || {},
+        });
+      }
+      
       // Skip states that are being handled by instancing
       if (skipStateIds && skipStateIds.has(stateId)) continue;
 
@@ -654,11 +672,6 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       if (blockValue === 0) continue;
 
       const blockId = blockValue & BLOCK_ID_MASK;
-
-      // Local coordinates (bitwise ops are faster than modulo/floor)
-      const lx = i & 15;           // i % 16
-      const lz = (i >> 4) & 15;    // Math.floor(i / 16) % 16
-      const ly = i >> 8;           // Math.floor(i / 256)
 
       // World position
       const wx = baseX + lx - ox;
@@ -673,18 +686,6 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         const dz = wz - cpuCullCenter.z;
         const distSq = dx * dx + dy * dy + dz * dz;
         if (distSq > cpuCullDistanceSq) continue;
-      }
-
-      // Collect particle emitter positions
-      if (stateHasParticleEmitter[stateId]) {
-        const state = stateRegistry.getState(stateId);
-        particleEmitters.push({
-          blockType: state ? state.blockName : 'torch',
-          x: baseX + lx, // Use actual world position (not offset-adjusted)
-          y: baseY + ly,
-          z: baseZ + lz,
-          properties: state?.properties || {},
-        });
       }
 
       // Get block color
