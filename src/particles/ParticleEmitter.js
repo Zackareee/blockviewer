@@ -905,7 +905,7 @@ const BLOCK_EMITTERS = {
     particles: [
       {
         type: 'tinted_leaves',
-        rate: 0.1, // Very low rate - leaves fall occasionally (~1 per 10 sec)
+        rate: 0.3, // Low rate - leaves fall occasionally (~1 per 3 sec)
         offset: [0.5, -0.1, 0.5], // Just below block
         offsetVariance: [0.4, 0.0, 0.4],
         velocity: [0, -0.2, 0], // Gentle fall

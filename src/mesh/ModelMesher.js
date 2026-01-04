@@ -1762,7 +1762,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   
   // Debug: log particle emitter count
   if (particleEmitters.length > 0) {
-    console.log(`[ModelMesher] Found ${particleEmitters.length} particle emitters (first: ${particleEmitters[0]?.blockType} at ${particleEmitters[0]?.x},${particleEmitters[0]?.y},${particleEmitters[0]?.z})`);
+    const leafEmitters = particleEmitters.filter(e => e.blockType.includes('leaves'));
+    console.log(`[ModelMesher] Found ${particleEmitters.length} particle emitters (${leafEmitters.length} leaves) (first: ${particleEmitters[0]?.blockType} at ${particleEmitters[0]?.x},${particleEmitters[0]?.y},${particleEmitters[0]?.z})`);
   }
   
   // Debug: log beacon count
