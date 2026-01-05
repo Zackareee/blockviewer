@@ -342,9 +342,6 @@ function canMergeBlockLight(baseLight, checkLight, threshold = 0) {
 export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
   const { textureIndexLookup = null, lightGrid = null } = options;
   
-  if (textureIndexLookup) {
-    console.log(`[FastMesher] Using textureIndexLookup with ${textureIndexLookup.registeredBlocks.size} blocks, tiles: ${textureIndexLookup.tilesPerRow}x${textureIndexLookup.tilesPerCol}`);
-  }
   
   // Build lookup tables
   const isOpaque = new Uint8Array(4096);

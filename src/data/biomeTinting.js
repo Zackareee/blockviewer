@@ -179,29 +179,31 @@ export function getBlockTintTypeByShortName(shortName) {
   return getBlockTintType(`minecraft:${shortName}`);
 }
 
+// Cached lookups (singleton pattern for performance - these don't change after initial build)
+let cachedTintLookup = null;
+let cachedFaceTintLookup = null;
+
 /**
  * Build a lookup array for fast tint type retrieval by block ID
  * @param {Object} registry - BlockRegistry instance
  * @returns {Uint8Array} Array indexed by block ID containing TINT_TYPE values
  */
 export function buildTintTypeLookup(registry) {
+  // Return cached lookup if available
+  if (cachedTintLookup) return cachedTintLookup;
+  
   const maxId = 4096; // Match FastMesher's assumption
   const lookup = new Uint8Array(maxId);
-  
-  // Debug: count tinted blocks
-  let tintedCount = 0;
   
   for (let id = 0; id < maxId; id++) {
     const info = registry.getBlockInfo(id);
     if (info && info.name) {
-      const tintType = getBlockTintType(info.name);
-      lookup[id] = tintType;
-      if (tintType > 0) tintedCount++;
+      lookup[id] = getBlockTintType(info.name);
     }
   }
   
-  console.log(`[biomeTinting] Built block tint lookup: ${tintedCount} tinted blocks`);
-  
+  // Cache for future calls
+  cachedTintLookup = lookup;
   return lookup;
 }
 
@@ -212,29 +214,18 @@ export function buildTintTypeLookup(registry) {
  * @returns {Uint8Array} Array indexed by (blockId * 6 + faceIndex) containing TINT_TYPE values
  */
 export function buildFaceTintTypeLookup(registry) {
+  // Return cached lookup if available
+  if (cachedFaceTintLookup) return cachedFaceTintLookup;
+  
   const maxId = 4096;
   const lookup = new Uint8Array(maxId * 6);
-  
-  // Debug: count tinted blocks
-  let tintedCount = 0;
-  let registeredCount = 0;
-  const tintedBlocks = [];
   
   for (let id = 0; id < maxId; id++) {
     const info = registry.getBlockInfo(id);
     if (!info || !info.name) continue;
-    registeredCount++;
     
     const tintType = getBlockTintType(info.name);
     const baseIdx = id * 6;
-    
-    // Debug: track tinted blocks
-    if (tintType > 0) {
-      tintedCount++;
-      if (tintedBlocks.length < 20) {
-        tintedBlocks.push({ id, name: info.name, tintType });
-      }
-    }
     
     // Special case: grass_block only tints the top face (faceIndex 0)
     // The side overlay is rendered separately by ModelMesher
@@ -253,13 +244,8 @@ export function buildFaceTintTypeLookup(registry) {
     }
   }
   
-  console.log(`[biomeTinting] Built face tint lookup: ${registeredCount} blocks in registry, ${tintedCount} tinted blocks found`);
-  if (tintedBlocks.length > 0) {
-    console.log(`[biomeTinting] Sample tinted blocks:`, tintedBlocks);
-  } else if (registeredCount > 0) {
-    console.warn(`[biomeTinting] Warning: No tinted blocks found! This is unexpected.`);
-  }
-  
+  // Cache for future calls
+  cachedFaceTintLookup = lookup;
   return lookup;
 }
 

@@ -29,6 +29,7 @@ import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder.js';
 import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
+import { SuperChunkManager } from './SuperChunkManager.js';
 
 // Chunk size in blocks (Minecraft standard)
 const CHUNK_SIZE = 16;
@@ -181,7 +182,6 @@ class RegionCache {
         }
       }
       if (oldestKey) {
-        console.log(`[RegionCache] Evicting region ${oldestKey} (LRU)`);
         this.cache.delete(oldestKey);
       }
     }
@@ -215,7 +215,6 @@ class RegionCache {
     }
     
     for (const key of toEvict) {
-      console.log(`[RegionCache] Evicting distant region ${key}`);
       this.cache.delete(key);
     }
     
@@ -279,6 +278,9 @@ export class ChunkStreamer {
     this.meshBuilder = new RegionMeshBuilder({
       textureIndexLookup: chunkManager.getTextureIndexLookup?.() || null,
     });
+    
+    // Super-chunk manager for batched meshing (initialized lazily after stateRegistry is ready)
+    this.superChunkManager = null;
   }
 
   /**
@@ -297,13 +299,12 @@ export class ChunkStreamer {
     
     // Initialize state registry if needed for model meshes (slabs, stairs, etc.)
     if (this.enableModelMeshes && !this.stateRegistry) {
-      console.log('[ChunkStreamer] Initializing state registry for model meshes...');
       this.stateRegistry = getStateRegistry();
       await this.stateRegistry.init();
-      console.log('[ChunkStreamer] State registry initialized');
     }
     
-    console.log(`[ChunkStreamer] Registered ${regions.length} regions for streaming (models: ${this.enableModelMeshes}, stateRegistry: ${!!this.stateRegistry})`);
+    // Initialize super-chunk manager
+    this._initSuperChunkManager();
   }
 
   /**
@@ -317,8 +318,6 @@ export class ChunkStreamer {
     this.loadDistance = loadDistance;
     this.unloadDistance = loadDistance + 1; // Small hysteresis to prevent thrashing
     this.preloadDistance = loadDistance; // No longer used for lazy loading
-    
-    console.log(`[ChunkStreamer] Updated distances: load ${oldLoad}→${this.loadDistance}, unload ${oldUnload}→${this.unloadDistance}`);
     
     // If distance decreased, immediately unload distant chunks
     if (loadDistance < oldLoad) {
@@ -351,13 +350,28 @@ export class ChunkStreamer {
     
     // Initialize state registry if needed for model meshes (slabs, stairs, etc.)
     if (this.enableModelMeshes && !this.stateRegistry) {
-      console.log('[ChunkStreamer] Initializing state registry for model meshes...');
       this.stateRegistry = getStateRegistry();
       await this.stateRegistry.init();
-      console.log('[ChunkStreamer] State registry initialized');
     }
     
-    console.log(`[ChunkStreamer] Registered ${chunks.length} pre-parsed chunks (models: ${this.enableModelMeshes}, stateRegistry: ${!!this.stateRegistry})`);
+    // Initialize super-chunk manager
+    this._initSuperChunkManager();
+  }
+
+  /**
+   * Initialize super-chunk manager (called after stateRegistry is ready)
+   */
+  _initSuperChunkManager() {
+    if (this.superChunkManager) return;
+    
+    this.superChunkManager = new SuperChunkManager(this.chunkManager, {
+      registry: this.registry,
+      stateRegistry: this.stateRegistry,
+      enableModelMeshes: this.enableModelMeshes,
+      onSuperChunkRebuilt: () => {
+        this.chunkManager.invalidate?.();
+      }
+    });
   }
 
   /**
@@ -487,58 +501,40 @@ export class ChunkStreamer {
     }
     
     for (const { key, chunkData, chunkX, chunkZ } of toUnload) {
-      this._unloadChunk(key, chunkData);
+      this._unloadChunk(key, chunkData, chunkX, chunkZ);
       this.stats.totalChunksUnloaded++;
       this.onChunkUnloaded?.(chunkX, chunkZ);
+    }
+    
+    // Rebuild any dirty super-chunks after unloading
+    if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
+      // Defer rebuild to next frame to avoid blocking
+      setTimeout(() => this.superChunkManager.rebuildDirty(4), 0);
     }
     
     // Also evict distant regions from cache to free memory
     // Player region is determined by chunk position
     const playerRegionX = Math.floor(playerChunkX / REGION_SIZE);
     const playerRegionZ = Math.floor(playerChunkZ / REGION_SIZE);
-    const evicted = this.regionCache.evictDistant(playerRegionX, playerRegionZ);
-    if (evicted > 0) {
-      console.log(`[ChunkStreamer] Evicted ${evicted} distant region(s) from cache`);
-    }
+    this.regionCache.evictDistant(playerRegionX, playerRegionZ);
   }
 
   /**
-   * Remove a chunk's meshes from the scene and ChunkManager arrays
+   * Remove a chunk from the scene and SuperChunkManager
    */
-  _unloadChunk(key, chunkData) {
-    const { meshes } = chunkData;
+  _unloadChunk(key, chunkData, chunkX, chunkZ) {
+    // Remove from super-chunk manager (this marks the super-chunk dirty)
+    if (this.superChunkManager && chunkX !== undefined && chunkZ !== undefined) {
+      this.superChunkManager.removeChunk(chunkX, chunkZ);
+    }
     
-    // Helper to remove mesh from an array
-    const removeFromArray = (arr, mesh) => {
-      const idx = arr.indexOf(mesh);
-      if (idx !== -1) arr.splice(idx, 1);
-    };
-    
-    let geometryCount = 0;
-    for (const mesh of meshes) {
-      // Remove from parent group
-      if (mesh.parent) {
-        mesh.parent.remove(mesh);
-      }
-      
-      // Remove from ChunkManager's mesh arrays
-      removeFromArray(this.chunkManager.solidMeshes, mesh);
-      removeFromArray(this.chunkManager.waterMeshes, mesh);
-      removeFromArray(this.chunkManager.lavaMeshes, mesh);
-      removeFromArray(this.chunkManager.glassMeshes, mesh);
-      removeFromArray(this.chunkManager.modelMeshes, mesh);
-      removeFromArray(this.chunkManager.transparentModelMeshes, mesh);
-      removeFromArray(this.chunkManager.overlayModelMeshes, mesh);
-      
-      // Dispose geometry
-      if (mesh.geometry) {
-        mesh.geometry.dispose();
-        geometryCount++;
-      }
+    // Remove any particle emitters for this chunk
+    const emitterManager = this.chunkManager.particleEmitterManager;
+    if (emitterManager && chunkX !== undefined && chunkZ !== undefined) {
+      emitterManager.removeEmittersInChunk?.(chunkX, chunkZ);
     }
     
     this.loadedChunks.delete(key);
-    console.log(`[ChunkStreamer] Unloaded chunk ${key} (${geometryCount} geometries disposed)`);
   }
 
   /**
@@ -565,8 +561,10 @@ export class ChunkStreamer {
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        // Only report progress during initial load (not during player movement)
-        // This prevents the loading popup from appearing when exploring
+        // Rebuild dirty super-chunks after loading batch
+        if (this.superChunkManager) {
+          await this.superChunkManager.rebuildDirty(2);
+        }
         
         // Small delay to prevent frame drops
         await new Promise(r => setTimeout(r, 1));
@@ -613,6 +611,11 @@ export class ChunkStreamer {
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
+        // Rebuild dirty super-chunks after loading batch
+        if (this.superChunkManager) {
+          await this.superChunkManager.rebuildDirty(2);
+        }
+        
         // Report progress
         const loaded = this.loadedChunks.size;
         const queued = this.loadQueue.size;
@@ -621,6 +624,13 @@ export class ChunkStreamer {
           queued,
           message: `Loading chunks: ${loaded} loaded, ${queued} queued`,
         });
+      }
+      
+      // Rebuild any remaining dirty super-chunks after initial load
+      if (this.superChunkManager) {
+        while (this.superChunkManager.dirtySet.size > 0) {
+          await this.superChunkManager.rebuildDirty(4);
+        }
       }
     } finally {
       this.isProcessing = false;
@@ -697,12 +707,15 @@ export class ChunkStreamer {
         }
       }
       
-      // Build meshes for this single chunk
-      const meshes = await this._buildChunkMeshes(chunkData, chunkX, chunkZ);
+      // Add chunk to super-chunk manager (batched meshing)
+      // The actual meshing is deferred until rebuildDirty() is called
+      if (this.superChunkManager) {
+        this.superChunkManager.addChunk(chunkX, chunkZ, chunkData.data);
+      }
       
-      // Store loaded chunk
+      // Store loaded chunk (data only, meshes are in super-chunks)
       this.loadedChunks.set(chunkKey, {
-        meshes,
+        meshes: [], // Meshes are managed by SuperChunkManager now
         data: chunkData,
         chunkX,
         chunkZ,
@@ -790,8 +803,7 @@ export class ChunkStreamer {
     };
     
     // Decode chunk
-    const blocksDecoded = decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
-    console.log(`[ChunkStreamer] Decoded chunk ${worldChunkX},${worldChunkZ}: ${blocksDecoded} blocks, stateGrid.sections.size=${stateGrid?.sections?.size || 0}`);
+    decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
     
     // Handle light propagation if no Minecraft light data
     if (lightGrid.sections.size === 0) {
@@ -845,21 +857,12 @@ export class ChunkStreamer {
     }
     
     // Build model meshes if enabled
-    console.log(`[ChunkStreamer] Building chunk ${worldChunkX},${worldChunkZ}: enableModelMeshes=${this.enableModelMeshes}, stateGrid=${!!stateGrid}, stateRegistry=${!!this.stateRegistry}, stateGrid.sections.size=${stateGrid?.sections?.size || 0}`);
-    
     if (this.enableModelMeshes && stateGrid && this.stateRegistry) {
       // Precompute geometry for all registered states before meshing
       // This is needed because getGeometrySync only works after precomputation
-      console.log(`[ChunkStreamer] Precomputing geometry for ${this.stateRegistry.states?.length || 0} states...`);
       await this.stateRegistry.precomputeAll();
-      console.log(`[ChunkStreamer] Precompute done, building model meshes...`);
       
       const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
-      
-      const opaqueVerts = modelResult?.opaque?.positions?.length / 3 || 0;
-      const transparentVerts = modelResult?.transparent?.positions?.length / 3 || 0;
-      const emitters = modelResult?.particleEmitters?.length || 0;
-      console.log(`[ChunkStreamer] Chunk ${worldChunkX},${worldChunkZ} models: ${opaqueVerts} opaque verts, ${transparentVerts} transparent verts, ${emitters} emitters`);
       
       if (modelResult) {
         if (modelResult.opaque && modelResult.opaque.positions.length > 0) {
@@ -990,12 +993,16 @@ export class ChunkStreamer {
    * Get current stats
    */
   getStats() {
+    const superChunkStats = this.superChunkManager?.getStats() || {};
     return {
       ...this.stats,
       loadedChunks: this.loadedChunks.size,
       queueSize: this.loadQueue.size,
       loading: this.loadingChunks.size,
       cachedRegions: this.regionCache.cache.size,
+      superChunks: superChunkStats.superChunkCount || 0,
+      superChunkMeshes: superChunkStats.totalMeshes || 0,
+      dirtySuperChunks: superChunkStats.dirtyCount || 0,
     };
   }
 
@@ -1003,11 +1010,18 @@ export class ChunkStreamer {
    * Clear all loaded chunks
    */
   clear() {
-    // Unload all chunks
-    for (const [key, chunkData] of this.loadedChunks) {
-      this._unloadChunk(key, chunkData);
+    // Clear super-chunk manager (disposes all meshes)
+    if (this.superChunkManager) {
+      this.superChunkManager.clear();
     }
     
+    // Clear particle emitters
+    const emitterManager = this.chunkManager.particleEmitterManager;
+    if (emitterManager) {
+      emitterManager.clear?.();
+    }
+    
+    this.loadedChunks.clear();
     this.loadQueue.clear();
     this.loadingChunks.clear();
     this.regionCache.clear();
@@ -1025,6 +1039,11 @@ export class ChunkStreamer {
   dispose() {
     this.clear();
     this.regionFiles.clear();
+    
+    if (this.superChunkManager) {
+      this.superChunkManager.dispose();
+      this.superChunkManager = null;
+    }
   }
 }
 

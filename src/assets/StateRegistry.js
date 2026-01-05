@@ -258,13 +258,19 @@ class StateRegistry {
   /**
    * Pre-load and compute geometry for all registered states
    * Call after chunk decoding to prepare for meshing
+   * Optimized: only computes geometry for states that don't have it yet
    */
   async precomputeAll() {
     const promises = [];
     for (let i = 0; i < this.nextId; i++) {
+      // Skip states that already have geometry computed
+      if (this.states[i]?.geometry) continue;
       promises.push(this.getGeometry(i));
     }
-    await Promise.all(promises);
+    // Only await if there are new states to compute
+    if (promises.length > 0) {
+      await Promise.all(promises);
+    }
   }
 
   /**
