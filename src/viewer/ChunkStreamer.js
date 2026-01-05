@@ -27,6 +27,7 @@ import { LightGrid } from '../mesh/LightGrid.js';
 import { propagateSkyLight } from '../mesh/LightPropagator.js';
 import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder.js';
+import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
 
 // Chunk size in blocks (Minecraft standard)
@@ -236,8 +237,8 @@ export class ChunkStreamer {
     
     // Configuration
     this.loadDistance = options.loadDistance || 8; // Chunks to load around player
-    this.unloadDistance = options.unloadDistance || 12; // Distance to start unloading
-    this.preloadDistance = options.preloadDistance || 10; // Lazy preload distance
+    this.unloadDistance = options.unloadDistance || (this.loadDistance + 1); // Distance to start unloading
+    this.preloadDistance = options.preloadDistance || this.loadDistance; // Same as load distance
     this.enableModelMeshes = options.enableModelMeshes !== false;
     
     // Track if distances changed for dynamic updates
@@ -261,6 +262,7 @@ export class ChunkStreamer {
     
     // Processing state
     this.isProcessing = false;
+    this.initialLoadComplete = false; // Only show progress during initial load
     this.registry = getBlockRegistry();
     this.stateRegistry = null;
     
@@ -293,13 +295,15 @@ export class ChunkStreamer {
       this.regionFiles.set(key, region);
     }
     
-    // Initialize state registry if needed
+    // Initialize state registry if needed for model meshes (slabs, stairs, etc.)
     if (this.enableModelMeshes && !this.stateRegistry) {
+      console.log('[ChunkStreamer] Initializing state registry for model meshes...');
       this.stateRegistry = getStateRegistry();
       await this.stateRegistry.init();
+      console.log('[ChunkStreamer] State registry initialized');
     }
     
-    console.log(`[ChunkStreamer] Registered ${regions.length} regions for streaming`);
+    console.log(`[ChunkStreamer] Registered ${regions.length} regions for streaming (models: ${this.enableModelMeshes}, stateRegistry: ${!!this.stateRegistry})`);
   }
 
   /**
@@ -311,8 +315,8 @@ export class ChunkStreamer {
     const oldUnload = this.unloadDistance;
     
     this.loadDistance = loadDistance;
-    this.unloadDistance = loadDistance + 4;
-    this.preloadDistance = loadDistance + 2;
+    this.unloadDistance = loadDistance + 1; // Small hysteresis to prevent thrashing
+    this.preloadDistance = loadDistance; // No longer used for lazy loading
     
     console.log(`[ChunkStreamer] Updated distances: load ${oldLoad}→${this.loadDistance}, unload ${oldUnload}→${this.unloadDistance}`);
     
@@ -345,13 +349,15 @@ export class ChunkStreamer {
       this.parsedChunks.set(key, chunk);
     }
     
-    // Initialize state registry if needed
+    // Initialize state registry if needed for model meshes (slabs, stairs, etc.)
     if (this.enableModelMeshes && !this.stateRegistry) {
+      console.log('[ChunkStreamer] Initializing state registry for model meshes...');
       this.stateRegistry = getStateRegistry();
       await this.stateRegistry.init();
+      console.log('[ChunkStreamer] State registry initialized');
     }
     
-    console.log(`[ChunkStreamer] Registered ${chunks.length} pre-parsed chunks for streaming`);
+    console.log(`[ChunkStreamer] Registered ${chunks.length} pre-parsed chunks (models: ${this.enableModelMeshes}, stateRegistry: ${!!this.stateRegistry})`);
   }
 
   /**
@@ -404,13 +410,14 @@ export class ChunkStreamer {
    * @param {boolean} immediate - If true, all chunks get immediate priority
    */
   _queueChunksAroundPlayer(immediate = false) {
-    const { playerChunkX, playerChunkZ, loadDistance, preloadDistance, usePreParsedChunks } = this;
+    const { playerChunkX, playerChunkZ, loadDistance, usePreParsedChunks } = this;
     
     // Clear existing queue and re-prioritize
     this.loadQueue.clear();
     
     // Add chunks in spiral order for better visual loading
-    for (let r = 0; r <= preloadDistance; r++) {
+    // Only queue up to loadDistance (not preloadDistance) to match expected behavior
+    for (let r = 0; r <= loadDistance; r++) {
       for (let dx = -r; dx <= r; dx++) {
         for (let dz = -r; dz <= r; dz++) {
           // Only process ring at distance r
@@ -436,11 +443,9 @@ export class ChunkStreamer {
             if (!this.regionFiles.has(regionKey)) continue;
           }
           
-          // Calculate priority (lower = higher priority)
-          const dist = Math.sqrt(dx * dx + dz * dz);
-          const priority = immediate ? dist : (
-            dist <= loadDistance ? dist : PRIORITY_LAZY + dist
-          );
+          // Priority is just the distance (lower = higher priority)
+          // Chebyshev = max(|dx|, |dz|) - creates square loading area
+          const priority = r;
           
           const regionX = Math.floor(chunkX / REGION_SIZE);
           const regionZ = Math.floor(chunkZ / REGION_SIZE);
@@ -464,7 +469,8 @@ export class ChunkStreamer {
    */
   _unloadDistantChunks() {
     const { playerChunkX, playerChunkZ, unloadDistance } = this;
-    const unloadDist = unloadDistance + UNLOAD_HYSTERESIS;
+    // Hysteresis is already built into unloadDistance (loadDistance + 1)
+    const unloadDist = unloadDistance;
     
     const toUnload = [];
     
@@ -472,7 +478,8 @@ export class ChunkStreamer {
       const [cx, cz] = key.split(',').map(Number);
       const dx = cx - playerChunkX;
       const dz = cz - playerChunkZ;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+      // Use Chebyshev distance (same as Minecraft render distance)
+      const dist = Math.max(Math.abs(dx), Math.abs(dz));
       
       if (dist > unloadDist) {
         toUnload.push({ key, chunkData, chunkX: cx, chunkZ: cz });
@@ -496,16 +503,34 @@ export class ChunkStreamer {
   }
 
   /**
-   * Remove a chunk's meshes from the scene
+   * Remove a chunk's meshes from the scene and ChunkManager arrays
    */
   _unloadChunk(key, chunkData) {
     const { meshes } = chunkData;
     
+    // Helper to remove mesh from an array
+    const removeFromArray = (arr, mesh) => {
+      const idx = arr.indexOf(mesh);
+      if (idx !== -1) arr.splice(idx, 1);
+    };
+    
     let geometryCount = 0;
     for (const mesh of meshes) {
+      // Remove from parent group
       if (mesh.parent) {
         mesh.parent.remove(mesh);
       }
+      
+      // Remove from ChunkManager's mesh arrays
+      removeFromArray(this.chunkManager.solidMeshes, mesh);
+      removeFromArray(this.chunkManager.waterMeshes, mesh);
+      removeFromArray(this.chunkManager.lavaMeshes, mesh);
+      removeFromArray(this.chunkManager.glassMeshes, mesh);
+      removeFromArray(this.chunkManager.modelMeshes, mesh);
+      removeFromArray(this.chunkManager.transparentModelMeshes, mesh);
+      removeFromArray(this.chunkManager.overlayModelMeshes, mesh);
+      
+      // Dispose geometry
       if (mesh.geometry) {
         mesh.geometry.dispose();
         geometryCount++;
@@ -540,14 +565,8 @@ export class ChunkStreamer {
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        // Report progress
-        const loaded = this.loadedChunks.size;
-        const queued = this.loadQueue.size;
-        this.onProgress?.({
-          loaded,
-          queued,
-          message: `Loading chunks: ${loaded} loaded, ${queued} queued`,
-        });
+        // Only report progress during initial load (not during player movement)
+        // This prevents the loading popup from appearing when exploring
         
         // Small delay to prevent frame drops
         await new Promise(r => setTimeout(r, 1));
@@ -605,6 +624,7 @@ export class ChunkStreamer {
       }
     } finally {
       this.isProcessing = false;
+      this.initialLoadComplete = true; // Mark initial load as done
       
       // Continue with lazy loading in background
       if (this.loadQueue.size > 0) {
@@ -731,7 +751,8 @@ export class ChunkStreamer {
             continue;
           }
           
-          const nbt = this._parseNBT(decompressedData.buffer);
+          // Use the same NBT parser as mcaParser for consistent chunk data format
+          const nbt = parseNBTRaw(decompressedData.buffer);
           
           chunks.push({
             x,
@@ -748,105 +769,6 @@ export class ChunkStreamer {
     }
     
     return chunks;
-  }
-
-  /**
-   * Minimal NBT parser for worker-free parsing
-   */
-  _parseNBT(buffer) {
-    const view = new DataView(buffer);
-    let offset = 0;
-    
-    const TAG_END = 0, TAG_BYTE = 1, TAG_SHORT = 2, TAG_INT = 3, TAG_LONG = 4;
-    const TAG_FLOAT = 5, TAG_DOUBLE = 6, TAG_BYTE_ARRAY = 7, TAG_STRING = 8;
-    const TAG_LIST = 9, TAG_COMPOUND = 10, TAG_INT_ARRAY = 11, TAG_LONG_ARRAY = 12;
-    
-    function readByte() { return view.getInt8(offset++); }
-    function readShort() { const v = view.getInt16(offset, false); offset += 2; return v; }
-    function readInt() { const v = view.getInt32(offset, false); offset += 4; return v; }
-    function readFloat() { const v = view.getFloat32(offset, false); offset += 4; return v; }
-    function readDouble() { const v = view.getFloat64(offset, false); offset += 8; return v; }
-    function readLong() {
-      const high = view.getInt32(offset, false);
-      const low = view.getUint32(offset + 4, false);
-      offset += 8;
-      return BigInt(high) * BigInt(0x100000000) + BigInt(low);
-    }
-    
-    function readString() {
-      const length = view.getUint16(offset, false);
-      offset += 2;
-      const bytes = new Uint8Array(buffer, offset, length);
-      offset += length;
-      return new TextDecoder().decode(bytes);
-    }
-    
-    function readTag(type) {
-      switch (type) {
-        case TAG_END: return null;
-        case TAG_BYTE: return readByte();
-        case TAG_SHORT: return readShort();
-        case TAG_INT: return readInt();
-        case TAG_LONG: return Number(readLong());
-        case TAG_FLOAT: return readFloat();
-        case TAG_DOUBLE: return readDouble();
-        case TAG_BYTE_ARRAY: {
-          const len = readInt();
-          const arr = new Int8Array(buffer, offset, len);
-          offset += len;
-          return Array.from(arr);
-        }
-        case TAG_STRING: return readString();
-        case TAG_LIST: {
-          const listType = view.getUint8(offset++);
-          const len = readInt();
-          const arr = [];
-          for (let i = 0; i < len; i++) {
-            arr.push(readTag(listType));
-          }
-          return arr;
-        }
-        case TAG_COMPOUND: return readCompound();
-        case TAG_INT_ARRAY: {
-          const len = readInt();
-          const arr = new Int32Array(len);
-          for (let i = 0; i < len; i++) {
-            arr[i] = readInt();
-          }
-          return arr;
-        }
-        case TAG_LONG_ARRAY: {
-          const len = readInt();
-          const arr = [];
-          for (let i = 0; i < len; i++) {
-            arr.push(readLong());
-          }
-          return arr;
-        }
-        default:
-          throw new Error(`Unknown NBT tag type: ${type}`);
-      }
-    }
-    
-    function readCompound() {
-      const result = {};
-      while (true) {
-        const type = view.getUint8(offset++);
-        if (type === TAG_END) break;
-        const name = readString();
-        result[name] = readTag(type);
-      }
-      return result;
-    }
-    
-    // Read root compound
-    const rootType = view.getUint8(offset++);
-    if (rootType !== TAG_COMPOUND) {
-      throw new Error('NBT root must be compound');
-    }
-    readString(); // Root name (usually empty)
-    
-    return { value: readCompound() };
   }
 
   /**
@@ -868,7 +790,8 @@ export class ChunkStreamer {
     };
     
     // Decode chunk
-    decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
+    const blocksDecoded = decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
+    console.log(`[ChunkStreamer] Decoded chunk ${worldChunkX},${worldChunkZ}: ${blocksDecoded} blocks, stateGrid.sections.size=${stateGrid?.sections?.size || 0}`);
     
     // Handle light propagation if no Minecraft light data
     if (lightGrid.sections.size === 0) {
@@ -885,9 +808,13 @@ export class ChunkStreamer {
     const { solid, water, lava, glass } = buildGridMeshes(grid, this.registry, offset, mesherOptions);
     
     // Create Three.js geometries and meshes
+    // Also add to ChunkManager's mesh arrays so visibility culling works
     if (solid && solid.positions.length > 0) {
       const mesh = this._createMesh(solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
-      if (mesh) meshes.push(mesh);
+      if (mesh) {
+        meshes.push(mesh);
+        this.chunkManager.solidMeshes.push(mesh);
+      }
     }
     
     if (water && water.positions.length > 0) {
@@ -895,6 +822,7 @@ export class ChunkStreamer {
       if (mesh) {
         mesh.renderOrder = 2;
         meshes.push(mesh);
+        this.chunkManager.waterMeshes.push(mesh);
       }
     }
     
@@ -903,6 +831,7 @@ export class ChunkStreamer {
       if (mesh) {
         mesh.renderOrder = 3;
         meshes.push(mesh);
+        this.chunkManager.lavaMeshes.push(mesh);
       }
     }
     
@@ -911,25 +840,69 @@ export class ChunkStreamer {
       if (mesh) {
         mesh.renderOrder = 1;
         meshes.push(mesh);
+        this.chunkManager.glassMeshes.push(mesh);
       }
     }
     
     // Build model meshes if enabled
+    console.log(`[ChunkStreamer] Building chunk ${worldChunkX},${worldChunkZ}: enableModelMeshes=${this.enableModelMeshes}, stateGrid=${!!stateGrid}, stateRegistry=${!!this.stateRegistry}, stateGrid.sections.size=${stateGrid?.sections?.size || 0}`);
+    
     if (this.enableModelMeshes && stateGrid && this.stateRegistry) {
+      // Precompute geometry for all registered states before meshing
+      // This is needed because getGeometrySync only works after precomputation
+      console.log(`[ChunkStreamer] Precomputing geometry for ${this.stateRegistry.states?.length || 0} states...`);
+      await this.stateRegistry.precomputeAll();
+      console.log(`[ChunkStreamer] Precompute done, building model meshes...`);
+      
       const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
       
-      if (modelResult.opaque && modelResult.opaque.positions.length > 0) {
-        const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
-        if (mesh) meshes.push(mesh);
-      }
+      const opaqueVerts = modelResult?.opaque?.positions?.length / 3 || 0;
+      const transparentVerts = modelResult?.transparent?.positions?.length / 3 || 0;
+      const emitters = modelResult?.particleEmitters?.length || 0;
+      console.log(`[ChunkStreamer] Chunk ${worldChunkX},${worldChunkZ} models: ${opaqueVerts} opaque verts, ${transparentVerts} transparent verts, ${emitters} emitters`);
       
-      if (modelResult.transparent && modelResult.transparent.positions.length > 0) {
-        const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
-        if (mesh) {
-          mesh.renderOrder = 0.5;
-          meshes.push(mesh);
+      if (modelResult) {
+        if (modelResult.opaque && modelResult.opaque.positions.length > 0) {
+          const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+          if (mesh) {
+            meshes.push(mesh);
+            this.chunkManager.modelMeshes.push(mesh);
+          }
+        }
+        
+        if (modelResult.transparent && modelResult.transparent.positions.length > 0) {
+          const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.5;
+            meshes.push(mesh);
+            this.chunkManager.transparentModelMeshes.push(mesh);
+          }
+        }
+        
+        // Handle overlay meshes (torch glow effects, etc.)
+        if (modelResult.overlay && modelResult.overlay.positions.length > 0) {
+          const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayModelMaterial, this.chunkManager.overlayModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 4; // Render after everything
+            meshes.push(mesh);
+            this.chunkManager.overlayModelMeshes.push(mesh);
+          }
+        }
+        
+        // Register particle emitters (torches, candles, etc.)
+        if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
+          const emitterManager = this.chunkManager.particleEmitterManager;
+          if (emitterManager) {
+            for (const emitter of modelResult.particleEmitters) {
+              // addEmitter expects (blockType, x, y, z, properties)
+              emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
+            }
+          }
         }
       }
+    } else if (this.enableModelMeshes && !this.stateRegistry) {
+      // Log warning if stateRegistry not available
+      console.warn('[ChunkStreamer] Model meshes enabled but stateRegistry not initialized');
     }
     
     return meshes;
@@ -937,35 +910,72 @@ export class ChunkStreamer {
 
   /**
    * Create a Three.js mesh from mesh data
+   * Uses same attribute names as RegionMeshBuilder.createGeometry
    */
   _createMesh(meshData, material, group) {
-    const { positions, normals, colors, uvs, indices, aoLevels, lightLevels, textureIndices } = meshData;
-    
-    if (!positions || positions.length === 0) return null;
+    // Validate required data
+    if (!meshData) return null;
+    if (!meshData.positions || meshData.positions.length === 0) return null;
+    if (!meshData.normals || meshData.normals.length === 0) return null;
+    if (!meshData.indices || meshData.indices.length === 0) return null;
+    if (!material || !group) return null;
     
     const geometry = new THREE.BufferGeometry();
     
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
     
-    if (uvs && uvs.length > 0) {
-      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    // Colors attribute (for solid/glass blocks) - may not be present for fluids
+    if (meshData.colors && meshData.colors.length > 0) {
+      geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
     }
     
-    if (aoLevels && aoLevels.length > 0) {
-      geometry.setAttribute('aoLevel', new THREE.Float32BufferAttribute(aoLevels, 1));
+    // UV attribute (for fluid meshes from FluidMesher)
+    if (meshData.uvs && meshData.uvs.length > 0) {
+      geometry.setAttribute('modelUV', new THREE.BufferAttribute(meshData.uvs, 2));
     }
     
-    if (lightLevels && lightLevels.length > 0) {
-      geometry.setAttribute('lightLevel', new THREE.Float32BufferAttribute(lightLevels, 2));
+    // Add model UV attribute if present (for non-triplanar UV mapping)
+    if (meshData.modelUVs && meshData.modelUVs.length > 0) {
+      geometry.setAttribute('modelUV', new THREE.BufferAttribute(meshData.modelUVs, 2));
     }
     
-    if (textureIndices && textureIndices.length > 0) {
-      geometry.setAttribute('textureIndex', new THREE.Float32BufferAttribute(textureIndices, 1));
+    // Add texture index attribute if present (for texture atlas lookup in shader)
+    if (meshData.texIndices && meshData.texIndices.length > 0) {
+      geometry.setAttribute('texIndex', new THREE.BufferAttribute(meshData.texIndices, 1));
     }
     
-    geometry.setIndex(indices);
+    // Add texture rotation attribute if present (for UV rotation in shader)
+    if (meshData.texRotations && meshData.texRotations.length > 0) {
+      geometry.setAttribute('texRotation', new THREE.BufferAttribute(meshData.texRotations, 1));
+    }
+    
+    // Add biome tint type attribute if present (for biome tinting in shader)
+    if (meshData.tintTypes && meshData.tintTypes.length > 0) {
+      geometry.setAttribute('tintType', new THREE.BufferAttribute(meshData.tintTypes, 1));
+    }
+    
+    // Add shade flag attribute if present (for face shading control in shader)
+    if (meshData.shadeFlags && meshData.shadeFlags.length > 0) {
+      geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(meshData.shadeFlags, 1));
+    }
+    
+    // Add single-sided flag if present (for backface culling control in shader)
+    if (meshData.singleSidedFlags && meshData.singleSidedFlags.length > 0) {
+      geometry.setAttribute('singleSided', new THREE.BufferAttribute(meshData.singleSidedFlags, 1));
+    }
+    
+    // Add sky light attribute if present (for lightmap-based lighting)
+    if (meshData.skyLight && meshData.skyLight.length > 0) {
+      geometry.setAttribute('skyLight', new THREE.BufferAttribute(meshData.skyLight, 1));
+    }
+    
+    // Add block light attribute if present (for lightmap-based lighting)
+    if (meshData.blockLight && meshData.blockLight.length > 0) {
+      geometry.setAttribute('blockLight', new THREE.BufferAttribute(meshData.blockLight, 1));
+    }
+    
+    geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
     geometry.computeBoundingSphere();
     
     const mesh = new THREE.Mesh(geometry, material);

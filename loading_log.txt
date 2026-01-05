@@ -1,0 +1,35 @@
+[vite] connecting... client:733:9
+[FastMesher] Using textureIndexLookup with 1165 blocks, tiles: 56x56 FastMesher.js:346:13
+[biomeTinting] Built face tint lookup: 1166 blocks in registry, 35 tinted blocks found biomeTinting.js:256:11
+[biomeTinting] Sample tinted blocks: 
+Array(20) [ {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, … ]
+biomeTinting.js:258:13
+[biomeTinting] Built block tint lookup: 35 tinted blocks biomeTinting.js:203:11
+[FastMesher] Using textureIndexLookup with 1165 blocks, tiles: 56x56 FastMesher.js:346:13
+[biomeTinting] Built face tint lookup: 1166 blocks in registry, 35 tinted blocks found biomeTinting.js:256:11
+[biomeTinting] Sample tinted blocks: 
+Array(20) [ {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, … ]
+biomeTinting.js:258:13
+[biomeTinting] Built block tint lookup: 35 tinted blocks biomeTinting.js:203:11
+[FastMesher] Using textureIndexLookup with 1165 blocks, tiles: 56x56 FastMesher.js:346:13
+[biomeTinting] Built face tint lookup: 1166 blocks in registry, 35 tinted blocks found biomeTinting.js:256:11
+[biomeTinting] Sample tinted blocks: 
+Array(20) [ {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, … ]
+biomeTinting.js:258:13
+[biomeTinting] Built block tint lookup: 35 tinted blocks biomeTinting.js:203:11
+[FastMesher] Using textureIndexLookup with 1165 blocks, tiles: 56x56 FastMesher.js:346:13
+[biomeTinting] Built face tint lookup: 1166 blocks in registry, 35 tinted blocks found biomeTinting.js:256:11
+[biomeTinting] Sample tinted blocks: 
+Array(20) [ {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, … ]
+biomeTinting.js:258:13
+[biomeTinting] Built block tint lookup: 35 tinted blocks biomeTinting.js:203:11
+[FastMesher] Using textureIndexLookup with 1165 blocks, tiles: 56x56 FastMesher.js:346:13
+[biomeTinting] Built face tint lookup: 1166 blocks in registry, 35 tinted blocks found biomeTinting.js:256:11
+[biomeTinting] Sample tinted blocks: 
+Array(20) [ {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, … ]
+biomeTinting.js:258:13
+[biomeTinting] Built block tint lookup: 35 tinted blocks biomeTinting.js:203:11
+[FastMesher] Using textureIndexLookup with 1165 blocks, tiles: 56x56 FastMesher.js:346:13
+[biomeTinting] Built face tint lookup: 1166 blocks in registry, 35 tinted blocks found biomeTinting.js:256:11
+[biomeTinting] Sample tinted blocks: 
+Array(20) [ {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, … ]

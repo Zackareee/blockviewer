@@ -499,7 +499,7 @@ function RegionScene({
   enableRGSS = true, // RGSS anti-aliasing for textures
   cloudsEnabled = true, // Show clouds
   continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
-  enableChunkStreaming = false, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
+  enableChunkStreaming = true, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
 }) {
   const { scene, camera, invalidate } = useThree();
@@ -807,6 +807,7 @@ function RegionScene({
   useEffect(() => {
     const manager = managerRef.current;
     if (!manager || !regions || regions.length === 0) return;
+    if (enableChunkStreaming) return; // Chunk streaming handles region loading separately
     
     // IMPORTANT: Wait for textureAtlas to be ready before loading regions
     // This prevents a race condition where the first load starts with null textureIndexLookup
@@ -1012,7 +1013,7 @@ function RegionScene({
     }
     
   // Also reload when textureAtlas changes (to rebuild meshes with texture indices)
-  }, [regions, parseRegion, invalidate, enableLOD, textureAtlas]);
+  }, [regions, parseRegion, invalidate, enableLOD, textureAtlas, enableChunkStreaming]);
   
   // ============================================================================
   // CHUNK STREAMING MODE
@@ -1046,8 +1047,8 @@ function RegionScene({
     if (!streamer) {
       streamer = new ChunkStreamer(manager, {
         loadDistance: chunkStreamDistance,
-        unloadDistance: chunkStreamDistance + 4,
-        preloadDistance: chunkStreamDistance + 2,
+        unloadDistance: chunkStreamDistance + 1, // Small hysteresis to prevent thrashing
+        preloadDistance: chunkStreamDistance, // Same as load distance (no lazy preloading)
         enableModelMeshes,
         onChunkLoaded: (chunkX, chunkZ) => {
           invalidate(); // Render when chunks load
@@ -1070,45 +1071,47 @@ function RegionScene({
     // Calculate center position and register data
     let centerX, centerZ;
     
-    if (hasRegions) {
-      // Multi-region mode: register region files with streamer
-      streamer.setRegions(regions);
-      
-      // Calculate initial camera position from regions center
-      let minX = Infinity, maxX = -Infinity;
-      let minZ = Infinity, maxZ = -Infinity;
-      for (const { regionX, regionZ } of regions) {
-        const rx = regionX * 512;
-        const rz = regionZ * 512;
-        minX = Math.min(minX, rx);
-        maxX = Math.max(maxX, rx + 512);
-        minZ = Math.min(minZ, rz);
-        maxZ = Math.max(maxZ, rz + 512);
+    // Helper async function to setup and start loading
+    const startStreaming = async () => {
+      if (hasRegions) {
+        // Multi-region mode: register region files with streamer
+        await streamer.setRegions(regions);
+        
+        // Calculate initial camera position from regions center
+        let minX = Infinity, maxX = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
+        for (const { regionX, regionZ } of regions) {
+          const rx = regionX * 512;
+          const rz = regionZ * 512;
+          minX = Math.min(minX, rx);
+          maxX = Math.max(maxX, rx + 512);
+          minZ = Math.min(minZ, rz);
+          maxZ = Math.max(maxZ, rz + 512);
+        }
+        centerX = (minX + maxX) / 2;
+        centerZ = (minZ + maxZ) / 2;
+      } else {
+        // Single-region mode: use pre-parsed chunks
+        await streamer.setParsedChunks(chunks);
+        
+        // Calculate center from chunk coordinates
+        let minX = Infinity, maxX = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
+        for (const chunk of chunks) {
+          const cx = chunk.x * 16;
+          const cz = chunk.z * 16;
+          minX = Math.min(minX, cx);
+          maxX = Math.max(maxX, cx + 16);
+          minZ = Math.min(minZ, cz);
+          maxZ = Math.max(maxZ, cz + 16);
+        }
+        centerX = (minX + maxX) / 2;
+        centerZ = (minZ + maxZ) / 2;
       }
-      centerX = (minX + maxX) / 2;
-      centerZ = (minZ + maxZ) / 2;
-    } else {
-      // Single-region mode: use pre-parsed chunks
-      streamer.setParsedChunks(chunks);
       
-      // Calculate center from chunk coordinates
-      let minX = Infinity, maxX = -Infinity;
-      let minZ = Infinity, maxZ = -Infinity;
-      for (const chunk of chunks) {
-        const cx = chunk.x * 16;
-        const cz = chunk.z * 16;
-        minX = Math.min(minX, cx);
-        maxX = Math.max(maxX, cx + 16);
-        minZ = Math.min(minZ, cz);
-        maxZ = Math.max(maxZ, cz + 16);
-      }
-      centerX = (minX + maxX) / 2;
-      centerZ = (minZ + maxZ) / 2;
-    }
-    
-    // Start loading around center position
-    manager.clear(); // Clear any existing meshes
-    streamer.loadAroundPosition(centerX, centerZ).then(result => {
+      // Start loading around center position
+      manager.clear(); // Clear any existing meshes
+      const result = await streamer.loadAroundPosition(centerX, centerZ);
       console.log(`[RegionViewer] ChunkStreamer initial load: ${result.chunksLoaded} chunks`);
       
       // Position camera at center
@@ -1117,7 +1120,9 @@ function RegionScene({
       onProgress?.({ current: 0, total: 0, isBuilding: false, message: '', stage: null });
       onComplete?.();
       invalidate();
-    });
+    };
+    
+    startStreaming();
     
     return () => {
       // Don't dispose on cleanup - keep for HMR
@@ -1313,7 +1318,7 @@ export function RegionViewer({
   enableRGSS = true, // RGSS anti-aliasing for textures
   cloudsEnabled = true, // Show clouds
   continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
-  enableChunkStreaming = false, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
+  enableChunkStreaming = true, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
   style = {}
 }) {
@@ -1337,8 +1342,9 @@ export function RegionViewer({
   // Formula: DPR = targetHeight / (canvasHeight * devicePixelRatio)
   const calculatedDpr = useMemo(() => {
     if (targetResolution === 'native') {
-      // Native resolution - use device pixel ratio capped at 1.0 (for performance)
-      return [0.5, 1.0];
+      // Native resolution - fixed at 1.0 when chunk streaming (no auto-reduction)
+      // Otherwise allow range for performance monitor to adjust
+      return enableChunkStreaming ? [1.0, 1.0] : [0.5, 1.0];
     }
     
     const targetHeight = parseInt(targetResolution, 10);
@@ -1356,7 +1362,7 @@ export function RegionViewer({
     
     // Return as fixed value (not a range) for target resolution modes
     return [clampedDpr, clampedDpr];
-  }, [targetResolution, windowHeight]);
+  }, [targetResolution, windowHeight, enableChunkStreaming]);
   
   return (
     <Canvas
@@ -1388,7 +1394,8 @@ export function RegionViewer({
       <DynamicFOV fov={fov} />
       
       {/* Adaptive performance - automatically adjusts quality (only when using native resolution) */}
-      {enablePerformanceMonitor && targetResolution === 'native' && <AdaptivePerformance />}
+      {/* Disabled when chunk streaming is enabled since streaming is designed to be smooth */}
+      {enablePerformanceMonitor && targetResolution === 'native' && !enableChunkStreaming && <AdaptivePerformance />}
       
       <RegionScene
         chunks={chunks}

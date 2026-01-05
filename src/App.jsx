@@ -98,7 +98,7 @@ function App() {
   const [continuousGlass, setContinuousGlass] = useState(false);
   
   // Chunk streaming mode - loads chunks around player position instead of entire regions
-  const [chunkStreamingEnabled, setChunkStreamingEnabled] = useState(false);
+  const [chunkStreamingEnabled, setChunkStreamingEnabled] = useState(true);
   const [chunkStreamDistance, setChunkStreamDistance] = useState(8);
   
   // Target resolution (controls rendering DPR)
@@ -678,7 +678,7 @@ function App() {
             cloudsEnabled={cloudsEnabled}
             continuousGlass={continuousGlass}
             enableChunkStreaming={chunkStreamingEnabled}
-            chunkStreamDistance={chunkStreamDistance}
+            chunkStreamDistance={renderDistance === 0 ? 16 : renderDistance} // Use render distance for streaming
           />
         ) : !loading && (
           <div className="empty-state">
