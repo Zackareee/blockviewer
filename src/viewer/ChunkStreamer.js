@@ -506,10 +506,9 @@ export class ChunkStreamer {
       this.onChunkUnloaded?.(chunkX, chunkZ);
     }
     
-    // Rebuild any dirty super-chunks after unloading
+    // Schedule idle rebuild for removed chunks (non-blocking)
     if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
-      // Defer rebuild to next frame to avoid blocking
-      setTimeout(() => this.superChunkManager.rebuildDirty(4), 0);
+      this.superChunkManager.scheduleIdleRebuild();
     }
     
     // Also evict distant regions from cache to free memory
@@ -561,13 +560,14 @@ export class ChunkStreamer {
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        // Rebuild dirty super-chunks after loading batch
-        if (this.superChunkManager) {
-          await this.superChunkManager.rebuildDirty(2);
+        // Schedule idle rebuilds during continuous loading (non-blocking)
+        // This allows the main thread to stay responsive
+        if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
+          this.superChunkManager.scheduleIdleRebuild();
         }
         
-        // Small delay to prevent frame drops
-        await new Promise(r => setTimeout(r, 1));
+        // Yield to browser between batches
+        await new Promise(r => setTimeout(r, 0));
       }
     } finally {
       this.isProcessing = false;
@@ -611,12 +611,7 @@ export class ChunkStreamer {
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        // Rebuild dirty super-chunks after loading batch
-        if (this.superChunkManager) {
-          await this.superChunkManager.rebuildDirty(2);
-        }
-        
-        // Report progress
+        // Report progress (but don't rebuild yet - wait for all chunks)
         const loaded = this.loadedChunks.size;
         const queued = this.loadQueue.size;
         this.onProgress?.({
@@ -626,7 +621,8 @@ export class ChunkStreamer {
         });
       }
       
-      // Rebuild any remaining dirty super-chunks after initial load
+      // Rebuild ALL dirty super-chunks after initial load is complete
+      // This is more efficient than rebuilding after each batch
       if (this.superChunkManager) {
         while (this.superChunkManager.dirtySet.size > 0) {
           await this.superChunkManager.rebuildDirty(4);

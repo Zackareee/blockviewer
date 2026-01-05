@@ -20,9 +20,10 @@ import { buildModelMeshesWithInstancing } from '../mesh/ModelMesher.js';
 import { propagateSkyLight } from '../mesh/LightPropagator.js';
 import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
 
-// Super-chunk is 4x4 Minecraft chunks (64x64 blocks)
-const SUPER_CHUNK_SIZE = 4;
-const BLOCKS_PER_SUPER_CHUNK = SUPER_CHUNK_SIZE * 16; // 64 blocks
+// Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
+// Smaller size = faster rebuilds, less jank, more responsive loading
+const SUPER_CHUNK_SIZE = 2;
+const BLOCKS_PER_SUPER_CHUNK = SUPER_CHUNK_SIZE * 16; // 32 blocks
 
 /**
  * Represents a single super-chunk containing multiple Minecraft chunks
@@ -203,13 +204,15 @@ export class SuperChunkManager {
       return;
     }
     
+    
     // Create shared grids for all chunks in this super-chunk
     const grid = new BinaryGrid();
     const stateGrid = this.enableModelMeshes ? new BlockStateGrid() : null;
     const lightGrid = new LightGrid();
     
     // Decode all chunks into the shared grid
-    for (const [, chunkInfo] of superChunk.loadedChunks) {
+    for (const [key, chunkInfo] of superChunk.loadedChunks) {
+      if (!chunkInfo.data) continue;
       const adjustedChunk = {
         x: chunkInfo.chunkX,
         z: chunkInfo.chunkZ,
@@ -338,11 +341,43 @@ export class SuperChunkManager {
         
         await this.buildSuperChunk(superChunk);
         rebuiltCount++;
+        
+        // Yield to browser between super-chunks to maintain responsiveness
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
       this.dirtySet.delete(key);
     }
     
     return rebuiltCount;
+  }
+  
+  /**
+   * Schedule rebuild using requestIdleCallback for non-blocking updates
+   * Used during player movement to avoid frame drops
+   */
+  scheduleIdleRebuild() {
+    if (this._idleCallbackId) return; // Already scheduled
+    
+    const callback = async (deadline) => {
+      this._idleCallbackId = null;
+      
+      // Only rebuild if we have time remaining in idle period
+      while (this.dirtySet.size > 0 && deadline.timeRemaining() > 10) {
+        await this.rebuildDirty(1);
+      }
+      
+      // Schedule another callback if more rebuilds needed
+      if (this.dirtySet.size > 0) {
+        this.scheduleIdleRebuild();
+      }
+    };
+    
+    if (typeof requestIdleCallback !== 'undefined') {
+      this._idleCallbackId = requestIdleCallback(callback, { timeout: 100 });
+    } else {
+      // Fallback for browsers without requestIdleCallback
+      this._idleCallbackId = setTimeout(() => callback({ timeRemaining: () => 50 }), 16);
+    }
   }
 
   /**
