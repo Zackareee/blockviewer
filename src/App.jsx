@@ -344,9 +344,10 @@ function App() {
     return { x: 0, z: 0 }; // Default if pattern doesn't match
   }, []);
 
-  // Extract region files from a world zip file
-  // Returns array of File objects for region files, or null if not a valid world zip
-  const extractRegionsFromZip = useCallback(async (zipFile) => {
+  // Scan a world zip file and return lazy-loading region file objects
+  // Returns array of lazy File-like objects, or null if not a valid world zip
+  // The actual extraction happens on-demand when arrayBuffer() is called
+  const scanRegionsFromZip = useCallback(async (zipFile) => {
     try {
       const zip = await JSZip.loadAsync(zipFile);
       
@@ -372,42 +373,50 @@ function App() {
       
       console.log(`[App] Found region folder at: ${regionPrefix}`);
       
-      // Get all .mca files in the region folder
-      const regionFiles = [];
+      // Collect region file info WITHOUT extracting data
+      const regionInfos = [];
       for (const [path, file] of Object.entries(zip.files)) {
         if (path.startsWith(regionPrefix) && path.endsWith('.mca') && !file.dir) {
           // Extract just the filename (e.g., "r.0.0.mca")
           const filename = path.substring(regionPrefix.length);
           // Skip files in subdirectories
           if (!filename.includes('/')) {
-            regionFiles.push({ path, filename, file });
+            regionInfos.push({ path, filename, zipFile: file });
           }
         }
       }
       
-      if (regionFiles.length === 0) {
+      if (regionInfos.length === 0) {
         console.log('[App] No .mca files found in region folder');
         return null;
       }
       
-      console.log(`[App] Found ${regionFiles.length} region files in zip`);
+      console.log(`[App] Found ${regionInfos.length} region files in zip (lazy loading enabled)`);
       
-      // For now, load only the first region file
-      // TODO: Could load all or let user choose
-      const firstRegion = regionFiles[0];
-      const regionData = await firstRegion.file.async('arraybuffer');
+      // Create lazy-loading File-like objects
+      // These have the same interface as File but extract data on-demand
+      const lazyFiles = regionInfos.map(({ filename, zipFile }) => {
+        // Cache for extracted data
+        let cachedBuffer = null;
+        
+        return {
+          name: filename,
+          // Lazy arrayBuffer() - only extracts when called
+          arrayBuffer: async () => {
+            if (cachedBuffer) {
+              console.log(`[App] Using cached data for ${filename}`);
+              return cachedBuffer;
+            }
+            console.log(`[App] Extracting ${filename} from zip on-demand...`);
+            cachedBuffer = await zipFile.async('arraybuffer');
+            return cachedBuffer;
+          },
+        };
+      });
       
-      // Create a File object from the extracted data
-      const extractedFile = new File(
-        [regionData], 
-        firstRegion.filename,
-        { type: 'application/octet-stream' }
-      );
-      
-      console.log(`[App] Extracted region file: ${firstRegion.filename}`);
-      return [extractedFile];
+      return lazyFiles;
     } catch (err) {
-      console.error('[App] Failed to extract regions from zip:', err);
+      console.error('[App] Failed to scan regions from zip:', err);
       return null;
     }
   }, []);
@@ -472,13 +481,13 @@ function App() {
     let filesToProcess = [];
     for (const file of files) {
       if (file.name.toLowerCase().endsWith('.zip')) {
-        // Try to extract region files from the zip
+        // Scan zip for region files (lazy loading - doesn't extract yet)
         setLoading(true);
-        const extractedRegions = await extractRegionsFromZip(file);
+        const lazyRegions = await scanRegionsFromZip(file);
         setLoading(false);
         
-        if (extractedRegions && extractedRegions.length > 0) {
-          filesToProcess.push(...extractedRegions);
+        if (lazyRegions && lazyRegions.length > 0) {
+          filesToProcess.push(...lazyRegions);
         } else {
           setError('No region files found in zip. Expected a world save with a region/ folder.');
         }
@@ -493,7 +502,7 @@ function App() {
     
     // Reset file input so same file can be selected again
     event.target.value = '';
-  }, [processRegionFiles, extractRegionsFromZip]);
+  }, [processRegionFiles, scanRegionsFromZip]);
 
   // Handle adding region files (append to existing)
   const handleAddRegionFiles = useCallback(async (event) => {
@@ -503,13 +512,13 @@ function App() {
     let filesToProcess = [];
     for (const file of files) {
       if (file.name.toLowerCase().endsWith('.zip')) {
-        // Try to extract region files from the zip
+        // Scan zip for region files (lazy loading - doesn't extract yet)
         setLoading(true);
-        const extractedRegions = await extractRegionsFromZip(file);
+        const lazyRegions = await scanRegionsFromZip(file);
         setLoading(false);
         
-        if (extractedRegions && extractedRegions.length > 0) {
-          filesToProcess.push(...extractedRegions);
+        if (lazyRegions && lazyRegions.length > 0) {
+          filesToProcess.push(...lazyRegions);
         } else {
           setError('No region files found in zip. Expected a world save with a region/ folder.');
         }
@@ -524,7 +533,7 @@ function App() {
     
     // Reset file input so same file can be selected again
     event.target.value = '';
-  }, [processRegionFiles, extractRegionsFromZip]);
+  }, [processRegionFiles, scanRegionsFromZip]);
 
   // Handle entity region file upload
   const handleEntityRegionUpload = useCallback(async (event) => {

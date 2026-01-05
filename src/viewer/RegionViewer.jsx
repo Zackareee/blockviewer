@@ -1124,6 +1124,15 @@ function RegionScene({
     };
   }, [enableChunkStreaming, regions, chunks, textureAtlas, chunkStreamDistance, enableModelMeshes, invalidate]);
   
+  // Update streamer distances when chunkStreamDistance changes
+  useEffect(() => {
+    const streamer = streamerRef.current;
+    if (!streamer || !enableChunkStreaming) return;
+    
+    // Update the streamer's load distances
+    streamer.setLoadDistance(chunkStreamDistance);
+  }, [chunkStreamDistance, enableChunkStreaming]);
+  
   // Update chunk streamer with camera position
   useEffect(() => {
     if (!enableChunkStreaming) return;

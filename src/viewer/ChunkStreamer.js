@@ -143,8 +143,8 @@ class ChunkPriorityQueue {
  * Cached region data for fast chunk extraction
  */
 class RegionCache {
-  constructor(maxSize = 32) {
-    this.cache = new Map(); // regionKey -> { buffer, chunks, lastAccess }
+  constructor(maxSize = 8) { // Reduced from 32 to 8 for better memory management
+    this.cache = new Map(); // regionKey -> { buffer, chunks, lastAccess, regionX, regionZ }
     this.maxSize = maxSize;
   }
 
@@ -180,6 +180,7 @@ class RegionCache {
         }
       }
       if (oldestKey) {
+        console.log(`[RegionCache] Evicting region ${oldestKey} (LRU)`);
         this.cache.delete(oldestKey);
       }
     }
@@ -187,8 +188,37 @@ class RegionCache {
     this.cache.set(key, {
       buffer,
       chunks,
+      regionX,
+      regionZ,
       lastAccess: performance.now(),
     });
+  }
+
+  /**
+   * Evict regions that are too far from the player
+   * @param {number} playerRegionX - Player's current region X
+   * @param {number} playerRegionZ - Player's current region Z
+   * @param {number} maxDistance - Max region distance to keep (default 2 = ~1024 blocks)
+   */
+  evictDistant(playerRegionX, playerRegionZ, maxDistance = 2) {
+    const toEvict = [];
+    
+    for (const [key, entry] of this.cache) {
+      const dx = entry.regionX - playerRegionX;
+      const dz = entry.regionZ - playerRegionZ;
+      const dist = Math.max(Math.abs(dx), Math.abs(dz)); // Chebyshev distance
+      
+      if (dist > maxDistance) {
+        toEvict.push(key);
+      }
+    }
+    
+    for (const key of toEvict) {
+      console.log(`[RegionCache] Evicting distant region ${key}`);
+      this.cache.delete(key);
+    }
+    
+    return toEvict.length;
   }
 
   clear() {
@@ -209,6 +239,9 @@ export class ChunkStreamer {
     this.unloadDistance = options.unloadDistance || 12; // Distance to start unloading
     this.preloadDistance = options.preloadDistance || 10; // Lazy preload distance
     this.enableModelMeshes = options.enableModelMeshes !== false;
+    
+    // Track if distances changed for dynamic updates
+    this._pendingDistanceUpdate = false;
     
     // Callbacks
     this.onChunkLoaded = options.onChunkLoaded || null;
@@ -267,6 +300,34 @@ export class ChunkStreamer {
     }
     
     console.log(`[ChunkStreamer] Registered ${regions.length} regions for streaming`);
+  }
+
+  /**
+   * Update streaming distances (called when user changes settings)
+   * @param {number} loadDistance - New load distance in chunks
+   */
+  setLoadDistance(loadDistance) {
+    const oldLoad = this.loadDistance;
+    const oldUnload = this.unloadDistance;
+    
+    this.loadDistance = loadDistance;
+    this.unloadDistance = loadDistance + 4;
+    this.preloadDistance = loadDistance + 2;
+    
+    console.log(`[ChunkStreamer] Updated distances: load ${oldLoad}→${this.loadDistance}, unload ${oldUnload}→${this.unloadDistance}`);
+    
+    // If distance decreased, immediately unload distant chunks
+    if (loadDistance < oldLoad) {
+      this._unloadDistantChunks();
+    }
+    
+    // If distance increased, queue new chunks
+    if (loadDistance > oldLoad) {
+      this._queueChunksAroundPlayer();
+      if (!this.isProcessing) {
+        this._processQueue();
+      }
+    }
   }
 
   /**
@@ -423,6 +484,15 @@ export class ChunkStreamer {
       this.stats.totalChunksUnloaded++;
       this.onChunkUnloaded?.(chunkX, chunkZ);
     }
+    
+    // Also evict distant regions from cache to free memory
+    // Player region is determined by chunk position
+    const playerRegionX = Math.floor(playerChunkX / REGION_SIZE);
+    const playerRegionZ = Math.floor(playerChunkZ / REGION_SIZE);
+    const evicted = this.regionCache.evictDistant(playerRegionX, playerRegionZ);
+    if (evicted > 0) {
+      console.log(`[ChunkStreamer] Evicted ${evicted} distant region(s) from cache`);
+    }
   }
 
   /**
@@ -431,16 +501,19 @@ export class ChunkStreamer {
   _unloadChunk(key, chunkData) {
     const { meshes } = chunkData;
     
+    let geometryCount = 0;
     for (const mesh of meshes) {
       if (mesh.parent) {
         mesh.parent.remove(mesh);
       }
       if (mesh.geometry) {
         mesh.geometry.dispose();
+        geometryCount++;
       }
     }
     
     this.loadedChunks.delete(key);
+    console.log(`[ChunkStreamer] Unloaded chunk ${key} (${geometryCount} geometries disposed)`);
   }
 
   /**
@@ -807,7 +880,9 @@ export class ChunkStreamer {
     const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
     const mesherOptions = { textureIndexLookup, lightGrid };
     
-    const { solid, water, lava, glass } = buildGridMeshes(grid, this.registry, mesherOptions);
+    // Offset is { x: 0, y: 0, z: 0 } since chunks are already at world coordinates
+    const offset = { x: 0, y: 0, z: 0 };
+    const { solid, water, lava, glass } = buildGridMeshes(grid, this.registry, offset, mesherOptions);
     
     // Create Three.js geometries and meshes
     if (solid && solid.positions.length > 0) {
@@ -840,8 +915,8 @@ export class ChunkStreamer {
     }
     
     // Build model meshes if enabled
-    if (this.enableModelMeshes && stateGrid) {
-      const modelResult = buildModelMeshesWithInstancing(stateGrid, this.stateRegistry, mesherOptions);
+    if (this.enableModelMeshes && stateGrid && this.stateRegistry) {
+      const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
       
       if (modelResult.opaque && modelResult.opaque.positions.length > 0) {
         const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
