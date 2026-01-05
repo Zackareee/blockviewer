@@ -261,6 +261,56 @@ export class LightGrid {
       bytesUsed: this.sections.size * SECTION_VOLUME,
     };
   }
+
+  /**
+   * Export grid data for worker transfer
+   * Returns data that can be sent to workers via postMessage
+   */
+  export() {
+    const sectionsData = [];
+    
+    for (const [key, section] of this.sections) {
+      sectionsData.push({
+        key,
+        data: section.buffer.slice(0), // Copy buffer
+      });
+    }
+    
+    return {
+      sections: sectionsData,
+      bounds: {
+        minChunkX: this.minChunkX,
+        maxChunkX: this.maxChunkX,
+        minChunkZ: this.minChunkZ,
+        maxChunkZ: this.maxChunkZ,
+        minSectionY: this.minSectionY,
+        maxSectionY: this.maxSectionY,
+      },
+    };
+  }
+
+  /**
+   * Import grid data from export
+   */
+  static import(data) {
+    const grid = new LightGrid();
+    
+    for (const { key, data: buffer } of data.sections) {
+      const section = new Uint8Array(buffer);
+      grid.sections.set(key, section);
+    }
+    
+    if (data.bounds) {
+      grid.minChunkX = data.bounds.minChunkX;
+      grid.maxChunkX = data.bounds.maxChunkX;
+      grid.minChunkZ = data.bounds.minChunkZ;
+      grid.maxChunkZ = data.bounds.maxChunkZ;
+      grid.minSectionY = data.bounds.minSectionY;
+      grid.maxSectionY = data.bounds.maxSectionY;
+    }
+    
+    return grid;
+  }
 }
 
 export default LightGrid;

@@ -345,6 +345,101 @@ class StateRegistry {
     }
     console.log('[StateRegistry] Geometry cache cleared');
   }
+
+  /**
+   * Export registry data for worker transfer
+   * Only exports states with pre-computed geometry
+   */
+  export() {
+    const statesData = [];
+    
+    for (let i = 0; i < this.nextId; i++) {
+      const state = this.states[i];
+      if (!state || !state.geometry) continue;
+      
+      // Serialize geometry arrays
+      const geometryData = state.geometry.map(geom => ({
+        positions: geom.positions ? Array.from(geom.positions) : null,
+        normals: geom.normals ? Array.from(geom.normals) : null,
+        uvs: geom.uvs ? Array.from(geom.uvs) : null,
+        texIndices: geom.texIndices ? Array.from(geom.texIndices) : null,
+        colors: geom.colors ? Array.from(geom.colors) : null,
+        indices: geom.indices ? Array.from(geom.indices) : null,
+        isFullCube: geom.isFullCube,
+        isTransparent: geom.isTransparent,
+        isOverlay: geom.isOverlay,
+        hasShade: geom.hasShade,
+        faces: geom.faces ? geom.faces.map(face => ({
+          normal: face.normal,
+          cullFace: face.cullFace,
+          vertexCount: face.vertexCount,
+          tintIndex: face.tintIndex,
+          textureIndex: face.textureIndex,
+          shade: face.shade,
+        })) : null,
+      }));
+      
+      statesData.push({
+        id: state.id,
+        blockName: state.blockName,
+        properties: state.properties,
+        propsKey: state.propsKey,
+        geometry: geometryData,
+        isFullCube: state.isFullCube,
+      });
+    }
+    
+    return {
+      states: statesData,
+      nextId: this.nextId,
+    };
+  }
+
+  /**
+   * Import registry data from export (for workers)
+   */
+  static import(data) {
+    const registry = new StateRegistry();
+    registry.initialized = true; // Workers don't need resolvers
+    
+    for (const stateData of data.states) {
+      // Reconstruct geometry with TypedArrays
+      const geometry = stateData.geometry.map(geomData => ({
+        positions: geomData.positions ? new Float32Array(geomData.positions) : null,
+        normals: geomData.normals ? new Float32Array(geomData.normals) : null,
+        uvs: geomData.uvs ? new Float32Array(geomData.uvs) : null,
+        texIndices: geomData.texIndices ? new Uint16Array(geomData.texIndices) : null,
+        colors: geomData.colors ? new Float32Array(geomData.colors) : null,
+        indices: geomData.indices ? new Uint16Array(geomData.indices) : null,
+        isFullCube: geomData.isFullCube,
+        isTransparent: geomData.isTransparent,
+        isOverlay: geomData.isOverlay,
+        hasShade: geomData.hasShade,
+        faces: geomData.faces,
+      }));
+      
+      const state = {
+        id: stateData.id,
+        blockName: stateData.blockName,
+        properties: stateData.properties,
+        propsKey: stateData.propsKey,
+        variants: null, // Not needed in worker
+        geometry,
+        isFullCube: stateData.isFullCube,
+      };
+      
+      registry.states[state.id] = state;
+      registry.lookup.set(`${state.blockName}|${state.propsKey}`, state.id);
+      
+      if (!registry.byBlock.has(state.blockName)) {
+        registry.byBlock.set(state.blockName, new Set());
+      }
+      registry.byBlock.get(state.blockName).add(state.id);
+    }
+    
+    registry.nextId = data.nextId;
+    return registry;
+  }
 }
 
 // Singleton

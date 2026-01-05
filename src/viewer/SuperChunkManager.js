@@ -8,6 +8,10 @@
  * - Fewer mesh objects = fewer draw calls
  * 
  * A super-chunk is 4x4 Minecraft chunks (64x64 blocks horizontally).
+ * 
+ * Worker-based meshing:
+ * - FastMesher and ModelMesher run in parallel workers
+ * - Main thread only handles Three.js mesh creation
  */
 
 import * as THREE from 'three';
@@ -19,6 +23,7 @@ import { buildGridMeshes } from '../mesh/FastMesher.js';
 import { buildModelMeshesWithInstancing } from '../mesh/ModelMesher.js';
 import { propagateSkyLight } from '../mesh/LightPropagator.js';
 import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
+import { getMeshWorkerPool } from '../mesh/workers/MeshWorkerPool.js';
 
 // Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
 // Smaller size = faster rebuilds, less jank, more responsive loading
@@ -130,6 +135,66 @@ export class SuperChunkManager {
     
     // Callbacks
     this.onSuperChunkRebuilt = options.onSuperChunkRebuilt || null;
+    
+    // Worker pool state
+    this.workerPool = null;
+    this.workerPoolInitialized = false;
+    this.workerPoolInitPromise = null;
+    
+    // Use workers for meshing (can be disabled for debugging)
+    this.useWorkers = options.useWorkers !== false;
+  }
+
+  /**
+   * Initialize the worker pool with registry and texture data
+   * Call this before building any super-chunks
+   */
+  async initializeWorkerPool() {
+    if (this.workerPoolInitialized) return;
+    if (this.workerPoolInitPromise) return this.workerPoolInitPromise;
+    
+    this.workerPoolInitPromise = this._doInitializeWorkerPool();
+    return this.workerPoolInitPromise;
+  }
+
+  async _doInitializeWorkerPool() {
+    try {
+      console.log('[SuperChunkManager] Initializing worker pool...');
+      
+      // Export registry data
+      const registryData = this.registry.export();
+      
+      // Ensure state registry geometries are pre-computed before export
+      if (this.stateRegistry) {
+        await this.stateRegistry.precomputeAll();
+      }
+      const stateRegistryData = this.stateRegistry ? this.stateRegistry.export() : null;
+      
+      // Get texture lookup data
+      const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.();
+      const textureIndices = textureIndexLookup?.textureIndices || null;
+      
+      // Get atlas info
+      const atlasInfo = this.chunkManager.getAtlasInfo?.() || { tilesPerRow: 64, tilesPerCol: 64 };
+      
+      // Additional data for workers
+      const additionalData = {
+        stateRegistryData,
+        enableModelMeshes: this.enableModelMeshes,
+      };
+      
+      // Get or create the worker pool
+      this.workerPool = getMeshWorkerPool();
+      
+      // Initialize with data
+      await this.workerPool.initialize(registryData, textureIndices, atlasInfo, additionalData);
+      
+      this.workerPoolInitialized = true;
+      console.log('[SuperChunkManager] Worker pool initialized');
+    } catch (error) {
+      console.error('[SuperChunkManager] Failed to initialize worker pool:', error);
+      this.useWorkers = false; // Fall back to main thread meshing
+    }
   }
 
   /**
@@ -199,6 +264,7 @@ export class SuperChunkManager {
   /**
    * Build meshes for a super-chunk
    * This decodes all chunks into a shared grid and runs the greedy mesher once.
+   * Uses worker pool if available, falls back to main thread meshing.
    */
   async buildSuperChunk(superChunk) {
     // Dispose old meshes
@@ -208,7 +274,6 @@ export class SuperChunkManager {
       superChunk.isDirty = false;
       return;
     }
-    
     
     // Create shared grids for all chunks in this super-chunk
     const grid = new BinaryGrid();
@@ -232,10 +297,66 @@ export class SuperChunkManager {
       propagateBlockLight(grid, lightGrid, this.registry);
     }
     
-    // Build meshes with offset { x: 0, y: 0, z: 0 } to keep world coordinates
+    const offset = { x: 0, y: 0, z: 0 };
+    
+    // Try to use worker pool for meshing
+    if (this.useWorkers && this.workerPoolInitialized && this.workerPool) {
+      await this._buildSuperChunkWithWorker(superChunk, grid, stateGrid, lightGrid, offset);
+    } else {
+      // Fall back to main thread meshing
+      await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset);
+    }
+    
+    superChunk.isDirty = false;
+    superChunk.hasBeenBuilt = true;
+    
+    console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
+    
+    this.onSuperChunkRebuilt?.(superChunk);
+  }
+
+  /**
+   * Build super-chunk meshes using worker pool (offloads meshing to worker threads)
+   */
+  async _buildSuperChunkWithWorker(superChunk, grid, stateGrid, lightGrid, offset) {
+    // Export grids for worker transfer
+    const gridData = grid.export();
+    const lightGridData = lightGrid.export();
+    const stateGridData = stateGrid ? stateGrid.export() : null;
+    
+    // Calculate priority based on distance to camera (lower = higher priority)
+    const cameraPos = this.chunkManager.camera?.position || { x: 0, z: 0 };
+    const superChunkCenterX = superChunk.superX * BLOCKS_PER_SUPER_CHUNK + BLOCKS_PER_SUPER_CHUNK / 2;
+    const superChunkCenterZ = superChunk.superZ * BLOCKS_PER_SUPER_CHUNK + BLOCKS_PER_SUPER_CHUNK / 2;
+    const dx = cameraPos.x - superChunkCenterX;
+    const dz = cameraPos.z - superChunkCenterZ;
+    const priority = Math.sqrt(dx * dx + dz * dz);
+    
+    // Options for the worker
+    const options = {
+      stateGridData,
+      enableModelMeshes: this.enableModelMeshes,
+    };
+    
+    try {
+      // Send meshing job to worker
+      const meshResult = await this.workerPool.meshChunk(gridData, lightGridData, offset, options, priority);
+      
+      // Create Three.js meshes from returned data
+      this._createMeshesFromWorkerResult(superChunk, meshResult);
+    } catch (error) {
+      console.error('[SuperChunkManager] Worker meshing failed, falling back to main thread:', error);
+      // Fall back to main thread on error
+      await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset);
+    }
+  }
+
+  /**
+   * Build super-chunk meshes on main thread (fallback)
+   */
+  async _buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset) {
     const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
     const mesherOptions = { textureIndexLookup, lightGrid };
-    const offset = { x: 0, y: 0, z: 0 };
     
     // Build solid/fluid/glass meshes
     const { solid, water, lava, glass } = buildGridMeshes(grid, this.registry, offset, mesherOptions);
@@ -320,27 +441,246 @@ export class SuperChunkManager {
         }
       }
     }
-    
-    superChunk.isDirty = false;
-    superChunk.hasBeenBuilt = true;
-    
-    console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
-    
-    this.onSuperChunkRebuilt?.(superChunk);
   }
 
   /**
-   * Rebuild all dirty super-chunks
-   * @param {number} maxRebuilds - Maximum number of super-chunks to rebuild per call (for frame budgeting)
+   * Create Three.js meshes from worker result data
+   */
+  _createMeshesFromWorkerResult(superChunk, meshResult) {
+    if (!meshResult) return;
+    
+    // Process solid meshes
+    if (meshResult.solid && meshResult.solid.positions && meshResult.solid.positions.length > 0) {
+      const mesh = this._createMeshFromData(meshResult.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.solidMeshes.push(mesh);
+      }
+    }
+    
+    // Process water meshes
+    if (meshResult.water && meshResult.water.positions && meshResult.water.positions.length > 0) {
+      const mesh = this._createMeshFromData(meshResult.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
+      if (mesh) {
+        mesh.renderOrder = 2;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.waterMeshes.push(mesh);
+      }
+    }
+    
+    // Process lava meshes
+    if (meshResult.lava && meshResult.lava.positions && meshResult.lava.positions.length > 0) {
+      const mesh = this._createMeshFromData(meshResult.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
+      if (mesh) {
+        mesh.renderOrder = 3;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.lavaMeshes.push(mesh);
+      }
+    }
+    
+    // Process glass meshes
+    if (meshResult.glass && meshResult.glass.positions && meshResult.glass.positions.length > 0) {
+      const mesh = this._createMeshFromData(meshResult.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
+      if (mesh) {
+        mesh.renderOrder = 1;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.glassMeshes.push(mesh);
+      }
+    }
+    
+    // Process model meshes
+    if (meshResult.model) {
+      if (meshResult.model.opaque && meshResult.model.opaque.positions && meshResult.model.opaque.positions.length > 0) {
+        const mesh = this._createMeshFromData(meshResult.model.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+        if (mesh) {
+          superChunk.meshes.push(mesh);
+          this.chunkManager.modelMeshes.push(mesh);
+        }
+      }
+      
+      if (meshResult.model.transparent && meshResult.model.transparent.positions && meshResult.model.transparent.positions.length > 0) {
+        const mesh = this._createMeshFromData(meshResult.model.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+        if (mesh) {
+          mesh.renderOrder = 0.5;
+          superChunk.meshes.push(mesh);
+          this.chunkManager.transparentModelMeshes.push(mesh);
+        }
+      }
+      
+      if (meshResult.model.overlay && meshResult.model.overlay.positions && meshResult.model.overlay.positions.length > 0) {
+        const mesh = this._createMeshFromData(meshResult.model.overlay, this.chunkManager.overlayModelMaterial, this.chunkManager.overlayModelGroup);
+        if (mesh) {
+          mesh.renderOrder = 4;
+          superChunk.meshes.push(mesh);
+          this.chunkManager.overlayModelMeshes.push(mesh);
+        }
+      }
+      
+      // Register particle emitters
+      if (meshResult.model.particleEmitters && meshResult.model.particleEmitters.length > 0) {
+        const emitterManager = this.chunkManager.particleEmitterManager;
+        if (emitterManager) {
+          for (const emitter of meshResult.model.particleEmitters) {
+            emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Create a Three.js mesh from worker data (ArrayBuffer based)
+   */
+  _createMeshFromData(data, material, group) {
+    if (!data || !material || !group) return null;
+    
+    // Convert ArrayBuffers back to typed arrays
+    const positions = data.positions instanceof ArrayBuffer 
+      ? new Float32Array(data.positions) 
+      : data.positions;
+    const normals = data.normals instanceof ArrayBuffer
+      ? new Float32Array(data.normals)
+      : data.normals;
+    const indices = data.indices instanceof ArrayBuffer
+      ? new Uint32Array(data.indices)
+      : data.indices;
+    
+    if (!positions || positions.length === 0) return null;
+    if (!normals || normals.length === 0) return null;
+    if (!indices || indices.length === 0) return null;
+    
+    const geometry = new THREE.BufferGeometry();
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    
+    if (data.colors) {
+      const colors = data.colors instanceof ArrayBuffer
+        ? new Float32Array(data.colors)
+        : data.colors;
+      if (colors && colors.length > 0) {
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      }
+    }
+    
+    if (data.uvs) {
+      const uvs = data.uvs instanceof ArrayBuffer
+        ? new Float32Array(data.uvs)
+        : data.uvs;
+      if (uvs && uvs.length > 0) {
+        geometry.setAttribute('modelUV', new THREE.BufferAttribute(uvs, 2));
+      }
+    }
+    
+    if (data.modelUVs) {
+      const modelUVs = data.modelUVs instanceof ArrayBuffer
+        ? new Float32Array(data.modelUVs)
+        : data.modelUVs;
+      if (modelUVs && modelUVs.length > 0) {
+        geometry.setAttribute('modelUV', new THREE.BufferAttribute(modelUVs, 2));
+      }
+    }
+    
+    if (data.texIndices) {
+      const texIndices = data.texIndices instanceof ArrayBuffer
+        ? new Float32Array(data.texIndices)
+        : data.texIndices;
+      if (texIndices && texIndices.length > 0) {
+        geometry.setAttribute('texIndex', new THREE.BufferAttribute(texIndices, 1));
+      }
+    }
+    
+    if (data.texRotations) {
+      const texRotations = data.texRotations instanceof ArrayBuffer
+        ? new Float32Array(data.texRotations)
+        : data.texRotations;
+      if (texRotations && texRotations.length > 0) {
+        geometry.setAttribute('texRotation', new THREE.BufferAttribute(texRotations, 1));
+      }
+    }
+    
+    if (data.tintTypes) {
+      const tintTypes = data.tintTypes instanceof ArrayBuffer
+        ? new Float32Array(data.tintTypes)
+        : data.tintTypes;
+      if (tintTypes && tintTypes.length > 0) {
+        geometry.setAttribute('tintType', new THREE.BufferAttribute(tintTypes, 1));
+      }
+    }
+    
+    if (data.shadeFlags) {
+      const shadeFlags = data.shadeFlags instanceof ArrayBuffer
+        ? new Float32Array(data.shadeFlags)
+        : data.shadeFlags;
+      if (shadeFlags && shadeFlags.length > 0) {
+        geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(shadeFlags, 1));
+      }
+    }
+    
+    if (data.singleSided) {
+      const singleSided = data.singleSided instanceof ArrayBuffer
+        ? new Float32Array(data.singleSided)
+        : data.singleSided;
+      if (singleSided && singleSided.length > 0) {
+        geometry.setAttribute('singleSided', new THREE.BufferAttribute(singleSided, 1));
+      }
+    }
+    
+    if (data.skyLight) {
+      const skyLight = data.skyLight instanceof ArrayBuffer
+        ? new Float32Array(data.skyLight)
+        : data.skyLight;
+      if (skyLight && skyLight.length > 0) {
+        geometry.setAttribute('skyLight', new THREE.BufferAttribute(skyLight, 1));
+      }
+    }
+    
+    if (data.blockLight) {
+      const blockLight = data.blockLight instanceof ArrayBuffer
+        ? new Float32Array(data.blockLight)
+        : data.blockLight;
+      if (blockLight && blockLight.length > 0) {
+        geometry.setAttribute('blockLight', new THREE.BufferAttribute(blockLight, 1));
+      }
+    }
+    
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeBoundingSphere();
+    
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = true;
+    
+    // Store super-chunk center for visibility calculations
+    geometry.computeBoundingBox();
+    const center = new THREE.Vector3();
+    geometry.boundingBox.getCenter(center);
+    mesh.userData.chunkCenterX = center.x;
+    mesh.userData.chunkCenterZ = center.z;
+    
+    group.add(mesh);
+    
+    return mesh;
+  }
+
+  /**
+   * Rebuild all dirty super-chunks with frame budget awareness
+   * @param {number} maxRebuilds - Maximum number of super-chunks to rebuild per call
+   * @param {number} budgetMs - Maximum time budget in ms (0 = no limit)
    * @returns {number} Number of super-chunks rebuilt
    */
-  async rebuildDirty(maxRebuilds = 2) {
+  async rebuildDirty(maxRebuilds = 2, budgetMs = 0) {
     if (this.dirtySet.size === 0) return 0;
     
     let rebuiltCount = 0;
+    const startTime = performance.now();
     const keysToRebuild = [...this.dirtySet].slice(0, maxRebuilds);
     
     for (const key of keysToRebuild) {
+      // Check budget if specified
+      if (budgetMs > 0 && (performance.now() - startTime) >= budgetMs) {
+        break; // Exceeded time budget
+      }
+      
       const superChunk = this.superChunks.get(key);
       if (superChunk && superChunk.isDirty) {
         // Remove old meshes from ChunkManager arrays before rebuilding
@@ -361,29 +701,58 @@ export class SuperChunkManager {
   /**
    * Schedule rebuild using requestIdleCallback for non-blocking updates
    * Used during player movement to avoid frame drops
+   * @param {boolean} lowPriority - If true, use longer timeout and smaller batches
    */
-  scheduleIdleRebuild() {
+  scheduleIdleRebuild(lowPriority = false) {
     if (this._idleCallbackId) return; // Already scheduled
     
     const callback = async (deadline) => {
       this._idleCallbackId = null;
       
+      // Adjust work based on priority
+      const minTimeRemaining = lowPriority ? 15 : 8;
+      const maxRebuilds = lowPriority ? 1 : 2;
+      
       // Only rebuild if we have time remaining in idle period
-      while (this.dirtySet.size > 0 && deadline.timeRemaining() > 10) {
-        await this.rebuildDirty(1);
+      // Use smaller threshold to leave room for other work
+      while (this.dirtySet.size > 0 && deadline.timeRemaining() > minTimeRemaining) {
+        // Use time-budgeted rebuild
+        const budgetMs = Math.min(deadline.timeRemaining() - 5, 10);
+        await this.rebuildDirty(maxRebuilds, budgetMs);
       }
       
       // Schedule another callback if more rebuilds needed
       if (this.dirtySet.size > 0) {
-        this.scheduleIdleRebuild();
+        this.scheduleIdleRebuild(lowPriority);
       }
     };
     
+    // Timeout determines how long we wait before forcing the callback
+    const timeout = lowPriority ? 200 : 50;
+    
     if (typeof requestIdleCallback !== 'undefined') {
-      this._idleCallbackId = requestIdleCallback(callback, { timeout: 100 });
+      this._idleCallbackId = requestIdleCallback(callback, { timeout });
     } else {
       // Fallback for browsers without requestIdleCallback
-      this._idleCallbackId = setTimeout(() => callback({ timeRemaining: () => 50 }), 16);
+      // Use requestAnimationFrame for better frame alignment
+      this._idleCallbackId = requestAnimationFrame(() => {
+        callback({ timeRemaining: () => lowPriority ? 5 : 10 });
+      });
+    }
+  }
+
+  /**
+   * Cancel any pending idle rebuilds
+   * Useful when movement is detected
+   */
+  cancelIdleRebuild() {
+    if (this._idleCallbackId) {
+      if (typeof cancelIdleCallback !== 'undefined') {
+        cancelIdleCallback(this._idleCallbackId);
+      } else {
+        cancelAnimationFrame(this._idleCallbackId);
+      }
+      this._idleCallbackId = null;
     }
   }
 
@@ -512,6 +881,14 @@ export class SuperChunkManager {
    */
   dispose() {
     this.clear();
+    
+    // Terminate worker pool
+    if (this.workerPool) {
+      this.workerPool.terminate();
+      this.workerPool = null;
+      this.workerPoolInitialized = false;
+      this.workerPoolInitPromise = null;
+    }
   }
 }
 

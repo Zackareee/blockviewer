@@ -8,11 +8,16 @@
  * - Unloads distant chunks to save memory
  * - Integrates with existing ChunkManager for rendering
  * 
+ * Performance Optimizations (Minecraft-style):
+ * - Load distance > Render distance: Pre-load chunks beyond view for instant visibility toggle
+ * - Predictive loading: Prioritize chunks in front of player based on view direction
+ * - Visibility culling: Hide loaded chunks beyond render distance (cheap to show later)
+ * 
  * Architecture:
  * - Region data is cached once parsed
  * - Individual chunks are extracted and meshed on-demand
  * - Chunk meshes are managed independently for efficient add/remove
- * - Priority queue ensures nearest chunks load first
+ * - Priority queue ensures nearest/forward chunks load first
  */
 
 import * as THREE from 'three';
@@ -41,9 +46,27 @@ const MAX_CONCURRENT_CHUNKS = 4; // How many chunks to mesh at once
 const LOAD_BATCH_SIZE = 8; // How many chunks to queue per frame
 const UNLOAD_HYSTERESIS = 2; // Extra chunks beyond unload distance before removal
 
-// Priority weights
+// Priority weights (lower = higher priority)
 const PRIORITY_IMMEDIATE = 0; // Within view distance
 const PRIORITY_LAZY = 100; // Beyond view but pre-loading
+
+// Predictive loading configuration
+// These values are tuned to match Minecraft's chunk loading behavior
+const FORWARD_PRIORITY_BONUS = -3; // Bonus for chunks directly in front of player
+const SIDE_PRIORITY_PENALTY = 1; // Penalty for chunks to the side
+const BEHIND_PRIORITY_PENALTY = 2; // Penalty for chunks behind player
+
+// Load distance buffer (chunks beyond render distance to pre-load)
+// Minecraft typically loads ~2-3 chunks beyond render distance
+const DEFAULT_LOAD_BUFFER = 2;
+
+// Frame budget configuration (Minecraft-style frame pacing)
+// Target 60fps = 16.67ms per frame, reserve ~10ms for rendering
+const FRAME_BUDGET_MS = 6; // Max time per frame for chunk work
+const MIN_FRAME_BUDGET_MS = 2; // Minimum when moving fast
+const MOVEMENT_SPEED_THRESHOLD = 8; // blocks/sec to trigger throttling
+const FAST_MOVEMENT_THRESHOLD = 15; // blocks/sec to heavily throttle
+const IDLE_BUDGET_MULTIPLIER = 3; // Allow more work when stationary
 
 /**
  * Simple min-heap priority queue for chunk loading
@@ -234,10 +257,13 @@ export class ChunkStreamer {
     this.chunkManager = chunkManager;
     this.scene = chunkManager.scene;
     
-    // Configuration
-    this.loadDistance = options.loadDistance || 8; // Chunks to load around player
-    this.unloadDistance = options.unloadDistance || (this.loadDistance + 1); // Distance to start unloading
-    this.preloadDistance = options.preloadDistance || this.loadDistance; // Same as load distance
+    // Configuration - Minecraft-style render vs load distance
+    // renderDistance: chunks that are visible (render distance setting)
+    // loadDistance: chunks that are loaded/meshed (render + buffer for instant show)
+    const baseRenderDistance = options.renderDistance || options.loadDistance || 8;
+    this.renderDistance = baseRenderDistance; // Visible chunks
+    this.loadDistance = baseRenderDistance + (options.loadBuffer || DEFAULT_LOAD_BUFFER); // Pre-loaded chunks
+    this.unloadDistance = this.loadDistance + 1; // Distance to start unloading
     this.enableModelMeshes = options.enableModelMeshes !== false;
     
     // Track if distances changed for dynamic updates
@@ -253,17 +279,39 @@ export class ChunkStreamer {
     this.playerChunkZ = 0;
     this.regionCache = new RegionCache();
     this.loadQueue = new ChunkPriorityQueue();
-    this.loadedChunks = new Map(); // chunkKey -> { meshes, data }
+    this.loadedChunks = new Map(); // chunkKey -> { meshes, data, visible }
     this.loadingChunks = new Set(); // Currently processing
     this.regionFiles = new Map(); // regionKey -> File
     this.parsedChunks = new Map(); // chunkKey -> parsed chunk data (for single-region mode)
     this.usePreParsedChunks = false; // Whether to use pre-parsed chunks instead of region files
+    
+    // Player direction tracking for predictive loading
+    // Yaw is in radians: 0 = +Z (south), PI/2 = -X (west), PI = -Z (north), -PI/2 = +X (east)
+    this.playerYaw = 0; // Player's look direction (radians)
+    this.playerViewDirX = 0; // Normalized view direction X (-1 to 1)
+    this.playerViewDirZ = 1; // Normalized view direction Z (-1 to 1)
+    this.playerVelocityX = 0; // Movement velocity for prediction
+    this.playerVelocityZ = 0;
+    this.lastPlayerX = 0; // For velocity calculation
+    this.lastPlayerZ = 0;
+    this.lastPositionTime = 0;
     
     // Processing state
     this.isProcessing = false;
     this.initialLoadComplete = false; // Only show progress during initial load
     this.registry = getBlockRegistry();
     this.stateRegistry = null;
+    
+    // Frame budget system - prevents chunk loading from causing jitter
+    this.frameBudget = FRAME_BUDGET_MS;
+    this.lastFrameTime = 0;
+    this.frameWorkTime = 0; // Time spent on chunk work this frame
+    this.isMovingFast = false;
+    this.isPaused = false; // Pause loading during fast movement
+    
+    // Deferred mesh queue - spread mesh creation across frames
+    this.pendingMeshCreations = []; // Array of { superChunk, meshData }
+    this.meshCreationBudgetMs = 2; // Max time per frame for mesh creation
     
     // Stats
     this.stats = {
@@ -272,6 +320,9 @@ export class ChunkStreamer {
       queueSize: 0,
       cacheHits: 0,
       cacheMisses: 0,
+      hiddenChunks: 0, // Chunks loaded but not visible
+      frameDrops: 0, // Times we exceeded frame budget
+      throttledFrames: 0, // Frames where we throttled due to movement
     };
 
     // Mesh builder (reused for all chunks)
@@ -305,32 +356,51 @@ export class ChunkStreamer {
     
     // Initialize super-chunk manager
     this._initSuperChunkManager();
+    
+    // Initialize worker pool for parallel meshing (async, non-blocking)
+    // This will speed up meshing once initialized
+    this.initializeWorkerPool().catch(err => {
+      console.warn('[ChunkStreamer] Worker pool init failed, using main thread:', err);
+    });
   }
 
   /**
    * Update streaming distances (called when user changes settings)
-   * @param {number} loadDistance - New load distance in chunks
+   * @param {number} renderDistance - New render distance in chunks
+   * @param {number} loadBuffer - Optional buffer beyond render distance (default: 2)
    */
-  setLoadDistance(loadDistance) {
+  setRenderDistance(renderDistance, loadBuffer = DEFAULT_LOAD_BUFFER) {
+    const oldRender = this.renderDistance;
     const oldLoad = this.loadDistance;
-    const oldUnload = this.unloadDistance;
     
-    this.loadDistance = loadDistance;
-    this.unloadDistance = loadDistance + 1; // Small hysteresis to prevent thrashing
-    this.preloadDistance = loadDistance; // No longer used for lazy loading
+    this.renderDistance = renderDistance;
+    this.loadDistance = renderDistance + loadBuffer;
+    this.unloadDistance = this.loadDistance + 1;
     
-    // If distance decreased, immediately unload distant chunks
-    if (loadDistance < oldLoad) {
+    // Update visibility for existing chunks
+    this._updateChunkVisibility();
+    
+    // If load distance decreased, unload distant chunks
+    if (this.loadDistance < oldLoad) {
       this._unloadDistantChunks();
     }
     
-    // If distance increased, queue new chunks
-    if (loadDistance > oldLoad) {
+    // If load distance increased, queue new chunks
+    if (this.loadDistance > oldLoad) {
       this._queueChunksAroundPlayer();
       if (!this.isProcessing) {
         this._processQueue();
       }
     }
+  }
+
+  /**
+   * Legacy method for backwards compatibility
+   * @param {number} loadDistance - New load distance in chunks
+   */
+  setLoadDistance(loadDistance) {
+    // Treat as render distance with default buffer
+    this.setRenderDistance(loadDistance, DEFAULT_LOAD_BUFFER);
   }
 
   /**
@@ -356,6 +426,11 @@ export class ChunkStreamer {
     
     // Initialize super-chunk manager
     this._initSuperChunkManager();
+    
+    // Initialize worker pool for parallel meshing (async, non-blocking)
+    this.initializeWorkerPool().catch(err => {
+      console.warn('[ChunkStreamer] Worker pool init failed, using main thread:', err);
+    });
   }
 
   /**
@@ -368,6 +443,7 @@ export class ChunkStreamer {
       registry: this.registry,
       stateRegistry: this.stateRegistry,
       enableModelMeshes: this.enableModelMeshes,
+      useWorkers: true, // Enable worker-based meshing
       onSuperChunkRebuilt: () => {
         this.chunkManager.invalidate?.();
       }
@@ -375,21 +451,67 @@ export class ChunkStreamer {
   }
 
   /**
+   * Initialize the worker pool for parallel meshing
+   * Call this before loading chunks for best performance
+   */
+  async initializeWorkerPool() {
+    if (!this.superChunkManager) {
+      console.warn('[ChunkStreamer] SuperChunkManager not initialized yet');
+      return false;
+    }
+    
+    try {
+      await this.superChunkManager.initializeWorkerPool();
+      console.log('[ChunkStreamer] Worker pool initialized successfully');
+      return true;
+    } catch (error) {
+      console.error('[ChunkStreamer] Failed to initialize worker pool:', error);
+      return false;
+    }
+  }
+
+  /**
    * Update player position and trigger chunk loading/unloading
+   * Also tracks velocity for predictive loading
    * @param {number} worldX - Player world X position
    * @param {number} worldZ - Player world Z position
+   * @param {number} yaw - Optional player yaw in radians (view direction)
    */
-  updatePlayerPosition(worldX, worldZ) {
+  updatePlayerPosition(worldX, worldZ, yaw = null) {
     const chunkX = Math.floor(worldX / CHUNK_SIZE);
     const chunkZ = Math.floor(worldZ / CHUNK_SIZE);
     
-    // Only update if player moved to a new chunk
+    // Track velocity for predictive loading
+    const now = performance.now();
+    const dt = (now - this.lastPositionTime) / 1000; // seconds
+    if (dt > 0 && dt < 1 && this.lastPositionTime > 0) {
+      // Smooth velocity calculation (exponential moving average)
+      const vx = (worldX - this.lastPlayerX) / dt;
+      const vz = (worldZ - this.lastPlayerZ) / dt;
+      this.playerVelocityX = this.playerVelocityX * 0.7 + vx * 0.3;
+      this.playerVelocityZ = this.playerVelocityZ * 0.7 + vz * 0.3;
+    }
+    this.lastPlayerX = worldX;
+    this.lastPlayerZ = worldZ;
+    this.lastPositionTime = now;
+    
+    // Update yaw if provided
+    if (yaw !== null) {
+      this.updatePlayerDirection(yaw);
+    }
+    
+    // Only update chunks if player moved to a new chunk
     if (chunkX === this.playerChunkX && chunkZ === this.playerChunkZ) {
+      // Still update visibility even without chunk change
+      this._updateChunkVisibility();
       return;
     }
     
     this.playerChunkX = chunkX;
     this.playerChunkZ = chunkZ;
+    
+    // Update visibility for loaded chunks
+    this._updateChunkVisibility();
     
     // Queue chunks for loading
     this._queueChunksAroundPlayer();
@@ -401,6 +523,133 @@ export class ChunkStreamer {
     if (!this.isProcessing) {
       this._processQueue();
     }
+  }
+
+  /**
+   * Update player look direction for predictive chunk loading
+   * Minecraft-style: prioritize chunks in front of the player
+   * @param {number} yaw - Player yaw in radians (0 = +Z, PI/2 = -X, PI = -Z, -PI/2 = +X)
+   */
+  updatePlayerDirection(yaw) {
+    this.playerYaw = yaw;
+    // Convert yaw to normalized direction vector
+    // Minecraft: yaw 0 = +Z (south), increases counterclockwise when viewed from above
+    this.playerViewDirX = -Math.sin(yaw);
+    this.playerViewDirZ = Math.cos(yaw);
+  }
+
+  /**
+   * Update visibility of loaded chunks based on render distance
+   * Chunks beyond renderDistance but within loadDistance are hidden (mesh.visible = false)
+   * This is much cheaper than loading/unloading chunks
+   */
+  _updateChunkVisibility() {
+    const { playerChunkX, playerChunkZ, renderDistance } = this;
+    let hiddenCount = 0;
+    
+    // Update visibility of super-chunks
+    if (this.superChunkManager) {
+      for (const [key, superChunk] of this.superChunkManager.superChunks) {
+        // Calculate distance from player to super-chunk center
+        const centerChunkX = superChunk.superX * 2 + 0.5; // Super-chunk is 2x2 chunks
+        const centerChunkZ = superChunk.superZ * 2 + 0.5;
+        const dx = centerChunkX - playerChunkX;
+        const dz = centerChunkZ - playerChunkZ;
+        const dist = Math.max(Math.abs(dx), Math.abs(dz));
+        
+        // Should this super-chunk be visible?
+        const shouldBeVisible = dist <= renderDistance + 1; // +1 for super-chunk size
+        
+        // Update mesh visibility
+        for (const mesh of superChunk.meshes) {
+          if (mesh.visible !== shouldBeVisible) {
+            mesh.visible = shouldBeVisible;
+            if (!shouldBeVisible) hiddenCount++;
+          }
+        }
+      }
+    }
+    
+    this.stats.hiddenChunks = hiddenCount;
+  }
+
+  /**
+   * Calculate current frame budget based on player movement
+   * Fast movement = smaller budget to maintain smooth frame rate
+   */
+  _calculateFrameBudget() {
+    const speed = Math.sqrt(this.playerVelocityX ** 2 + this.playerVelocityZ ** 2);
+    
+    if (speed > FAST_MOVEMENT_THRESHOLD) {
+      // Very fast movement - minimal loading
+      this.isMovingFast = true;
+      this.isPaused = true; // Pause chunk loading entirely
+      this.stats.throttledFrames++;
+      return MIN_FRAME_BUDGET_MS;
+    } else if (speed > MOVEMENT_SPEED_THRESHOLD) {
+      // Moving - reduced budget
+      this.isMovingFast = true;
+      this.isPaused = false;
+      return MIN_FRAME_BUDGET_MS + (FRAME_BUDGET_MS - MIN_FRAME_BUDGET_MS) * 
+        (1 - (speed - MOVEMENT_SPEED_THRESHOLD) / (FAST_MOVEMENT_THRESHOLD - MOVEMENT_SPEED_THRESHOLD));
+    } else if (speed < 1) {
+      // Nearly stationary - allow more work
+      this.isMovingFast = false;
+      this.isPaused = false;
+      return FRAME_BUDGET_MS * IDLE_BUDGET_MULTIPLIER;
+    } else {
+      // Slow movement - normal budget
+      this.isMovingFast = false;
+      this.isPaused = false;
+      return FRAME_BUDGET_MS;
+    }
+  }
+
+  /**
+   * Check if we have budget remaining for this frame
+   */
+  _hasFrameBudget() {
+    return this.frameWorkTime < this.frameBudget;
+  }
+
+  /**
+   * Start tracking work time for a new frame
+   * Call this at the beginning of each frame from the render loop
+   */
+  beginFrame() {
+    const now = performance.now();
+    this.lastFrameTime = now;
+    this.frameWorkTime = 0;
+    this.frameBudget = this._calculateFrameBudget();
+    
+    // Process any deferred mesh creations with remaining budget
+    this._processDeferredMeshCreations();
+  }
+
+  /**
+   * Process deferred mesh creations with frame budget
+   * Spreads expensive Three.js mesh creation across multiple frames
+   */
+  _processDeferredMeshCreations() {
+    if (this.pendingMeshCreations.length === 0) return;
+    
+    const startTime = performance.now();
+    const budget = this.meshCreationBudgetMs;
+    
+    while (this.pendingMeshCreations.length > 0 && 
+           (performance.now() - startTime) < budget) {
+      const { superChunkKey, meshResult } = this.pendingMeshCreations.shift();
+      
+      // Find the super-chunk and create meshes
+      if (this.superChunkManager) {
+        const superChunk = this.superChunkManager.superChunks.get(superChunkKey);
+        if (superChunk) {
+          this.superChunkManager._createMeshesFromWorkerResult(superChunk, meshResult);
+        }
+      }
+    }
+    
+    this.frameWorkTime += performance.now() - startTime;
   }
 
   /**
@@ -420,19 +669,73 @@ export class ChunkStreamer {
   }
 
   /**
-   * Queue chunks around player based on distance
+   * Calculate priority adjustment based on chunk direction relative to player view
+   * Minecraft-style predictive loading: chunks in front get priority
+   * @param {number} dx - Chunk offset X from player
+   * @param {number} dz - Chunk offset Z from player
+   * @returns {number} Priority adjustment (negative = higher priority)
+   */
+  _getDirectionalPriorityBonus(dx, dz) {
+    // Normalize the chunk direction
+    const chunkDist = Math.sqrt(dx * dx + dz * dz);
+    if (chunkDist < 0.5) return FORWARD_PRIORITY_BONUS; // Player's chunk
+    
+    const chunkDirX = dx / chunkDist;
+    const chunkDirZ = dz / chunkDist;
+    
+    // Combine view direction with movement velocity for prediction
+    // Weight view direction more than velocity
+    let predictDirX = this.playerViewDirX * 0.7;
+    let predictDirZ = this.playerViewDirZ * 0.7;
+    
+    // Add velocity component if moving
+    const velMag = Math.sqrt(this.playerVelocityX ** 2 + this.playerVelocityZ ** 2);
+    if (velMag > 1) { // Moving at least 1 block/sec
+      const velNormX = this.playerVelocityX / velMag;
+      const velNormZ = this.playerVelocityZ / velMag;
+      predictDirX += velNormX * 0.3;
+      predictDirZ += velNormZ * 0.3;
+    }
+    
+    // Normalize prediction direction
+    const predictMag = Math.sqrt(predictDirX ** 2 + predictDirZ ** 2);
+    if (predictMag > 0.01) {
+      predictDirX /= predictMag;
+      predictDirZ /= predictMag;
+    } else {
+      return 0; // No direction preference
+    }
+    
+    // Dot product: 1 = directly in front, 0 = perpendicular, -1 = behind
+    const dot = chunkDirX * predictDirX + chunkDirZ * predictDirZ;
+    
+    // Map dot product to priority bonus
+    // In front (dot > 0.7): bonus
+    // To the side (dot 0 to 0.7): small penalty
+    // Behind (dot < 0): larger penalty
+    if (dot > 0.7) {
+      return FORWARD_PRIORITY_BONUS * dot; // Max bonus for directly ahead
+    } else if (dot > 0) {
+      return SIDE_PRIORITY_PENALTY * (1 - dot); // Small penalty for side
+    } else {
+      return BEHIND_PRIORITY_PENALTY * (1 - dot); // Larger penalty for behind
+    }
+  }
+
+  /**
+   * Queue chunks around player based on distance and view direction
+   * Uses predictive loading to prioritize chunks the player is likely to see soon
    * @param {boolean} immediate - If true, all chunks get immediate priority
    */
   _queueChunksAroundPlayer(immediate = false) {
-    const { playerChunkX, playerChunkZ, loadDistance, usePreParsedChunks } = this;
+    const { playerChunkX, playerChunkZ, loadDistance, renderDistance, usePreParsedChunks } = this;
     
-    console.log(`[ChunkStreamer] Queueing chunks around ${playerChunkX},${playerChunkZ} with loadDistance=${loadDistance}`);
+    console.log(`[ChunkStreamer] Queueing chunks around ${playerChunkX},${playerChunkZ} (render=${renderDistance}, load=${loadDistance})`);
     
     // Clear existing queue and re-prioritize
     this.loadQueue.clear();
     
     // Add chunks in spiral order for better visual loading
-    // Only queue up to loadDistance (not preloadDistance) to match expected behavior
     for (let r = 0; r <= loadDistance; r++) {
       for (let dx = -r; dx <= r; dx++) {
         for (let dz = -r; dz <= r; dz++) {
@@ -459,9 +762,20 @@ export class ChunkStreamer {
             if (!this.regionFiles.has(regionKey)) continue;
           }
           
-          // Priority is just the distance (lower = higher priority)
-          // Chebyshev = max(|dx|, |dz|) - creates square loading area
-          const priority = r;
+          // Base priority is distance (Chebyshev)
+          let priority = r;
+          
+          // Chunks within render distance get immediate priority
+          // Chunks beyond render distance (pre-load buffer) get lazy priority
+          if (r > renderDistance) {
+            priority += PRIORITY_LAZY;
+          }
+          
+          // Apply directional bonus for predictive loading
+          // Only apply to non-immediate chunks and when not in initial load
+          if (!immediate && this.initialLoadComplete) {
+            priority += this._getDirectionalPriorityBonus(dx, dz);
+          }
           
           const regionX = Math.floor(chunkX / REGION_SIZE);
           const regionZ = Math.floor(chunkZ / REGION_SIZE);
@@ -540,7 +854,8 @@ export class ChunkStreamer {
   }
 
   /**
-   * Process the load queue asynchronously
+   * Process the load queue with frame budget awareness
+   * Uses adaptive batch sizing and pauses during fast movement
    */
   async _processQueue() {
     if (this.isProcessing) return;
@@ -548,9 +863,21 @@ export class ChunkStreamer {
     
     try {
       while (this.loadQueue.size > 0) {
+        // Skip processing if paused due to fast movement
+        if (this.isPaused) {
+          // Wait a bit and check again
+          await new Promise(r => setTimeout(r, 50));
+          continue;
+        }
+        
+        // Adaptive batch size based on available frame budget
+        // When moving, use smaller batches; when stationary, larger batches
+        const batchSize = this.isMovingFast ? 1 : 
+                         (this.frameBudget > FRAME_BUDGET_MS ? MAX_CONCURRENT_CHUNKS : 2);
+        
         // Process batch of chunks concurrently
         const batch = [];
-        for (let i = 0; i < MAX_CONCURRENT_CHUNKS && this.loadQueue.size > 0; i++) {
+        for (let i = 0; i < batchSize && this.loadQueue.size > 0; i++) {
           const item = this.loadQueue.pop();
           if (item && !this.loadedChunks.has(`${item.chunkX},${item.chunkZ}`)) {
             batch.push(item);
@@ -560,17 +887,31 @@ export class ChunkStreamer {
         
         if (batch.length === 0) break;
         
+        const batchStartTime = performance.now();
+        
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
+        const batchTime = performance.now() - batchStartTime;
+        this.frameWorkTime += batchTime;
+        
+        // Track frame budget overruns
+        if (this.frameWorkTime > this.frameBudget) {
+          this.stats.frameDrops++;
+        }
+        
         // Schedule idle rebuilds during continuous loading (non-blocking)
-        // This allows the main thread to stay responsive
+        // Use frame-budget aware rebuilding with movement-based priority
         if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
-          this.superChunkManager.scheduleIdleRebuild();
+          // Use low priority when moving to maintain frame rate
+          const lowPriority = this.isMovingFast;
+          this.superChunkManager.scheduleIdleRebuild(lowPriority);
         }
         
         // Yield to browser between batches
-        await new Promise(r => setTimeout(r, 0));
+        // Use longer delay when frame budget is exceeded
+        const yieldTime = this.frameWorkTime > this.frameBudget ? 16 : 0;
+        await new Promise(r => setTimeout(r, yieldTime));
       }
     } finally {
       this.isProcessing = false;
@@ -1004,6 +1345,11 @@ export class ChunkStreamer {
       superChunks: superChunkStats.superChunkCount || 0,
       superChunkMeshes: superChunkStats.totalMeshes || 0,
       dirtySuperChunks: superChunkStats.dirtyCount || 0,
+      // New stats for Minecraft-style loading
+      renderDistance: this.renderDistance,
+      loadDistance: this.loadDistance,
+      playerViewDir: { x: this.playerViewDirX, z: this.playerViewDirZ },
+      playerVelocity: { x: this.playerVelocityX, z: this.playerVelocityZ },
     };
   }
 
@@ -1042,8 +1388,61 @@ export class ChunkStreamer {
     this.regionFiles.clear();
     
     if (this.superChunkManager) {
+      // Worker pool is terminated by SuperChunkManager.dispose()
       this.superChunkManager.dispose();
       this.superChunkManager = null;
+    }
+  }
+
+  /**
+   * Get worker pool statistics for debugging
+   */
+  getWorkerStats() {
+    if (this.superChunkManager?.workerPool) {
+      return this.superChunkManager.workerPool.getStats();
+    }
+    return null;
+  }
+
+  /**
+   * Tick method - call this every frame from your render loop
+   * Manages frame budgets and deferred operations
+   * 
+   * @param {number} deltaTime - Time since last frame in seconds (optional)
+   */
+  tick(deltaTime = 0) {
+    // Start a new frame budget period
+    this.beginFrame();
+    
+    // If we're moving fast, cancel any pending heavy work
+    if (this.isPaused && this.superChunkManager) {
+      this.superChunkManager.cancelIdleRebuild();
+    }
+    
+    // Resume processing if queue has items and we're not paused
+    if (!this.isProcessing && this.loadQueue.size > 0 && !this.isPaused) {
+      this._processQueue();
+    }
+  }
+
+  /**
+   * Pause chunk loading temporarily
+   * Useful during intense camera movement or other heavy operations
+   */
+  pause() {
+    this.isPaused = true;
+    if (this.superChunkManager) {
+      this.superChunkManager.cancelIdleRebuild();
+    }
+  }
+
+  /**
+   * Resume chunk loading
+   */
+  resume() {
+    this.isPaused = false;
+    if (!this.isProcessing && this.loadQueue.size > 0) {
+      this._processQueue();
     }
   }
 }
