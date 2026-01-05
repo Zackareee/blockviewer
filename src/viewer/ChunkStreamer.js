@@ -426,6 +426,8 @@ export class ChunkStreamer {
   _queueChunksAroundPlayer(immediate = false) {
     const { playerChunkX, playerChunkZ, loadDistance, usePreParsedChunks } = this;
     
+    console.log(`[ChunkStreamer] Queueing chunks around ${playerChunkX},${playerChunkZ} with loadDistance=${loadDistance}`);
+    
     // Clear existing queue and re-prioritize
     this.loadQueue.clear();
     
@@ -476,6 +478,7 @@ export class ChunkStreamer {
     }
     
     this.stats.queueSize = this.loadQueue.size;
+    console.log(`[ChunkStreamer] Queued ${this.loadQueue.size} chunks`);
   }
 
   /**
@@ -579,12 +582,14 @@ export class ChunkStreamer {
    */
   async _processQueueUntilComplete() {
     this.isProcessing = true;
+    console.log(`[ChunkStreamer] Starting initial load, queue size: ${this.loadQueue.size}`);
     
     try {
       while (this.loadQueue.size > 0) {
         // Check if remaining items are all lazy priority
         const next = this.loadQueue.peek();
         if (next && next.priority >= PRIORITY_LAZY) {
+          console.log(`[ChunkStreamer] Stopping at lazy priority, remaining: ${this.loadQueue.size}`);
           break; // Only lazy chunks left, stop waiting
         }
         

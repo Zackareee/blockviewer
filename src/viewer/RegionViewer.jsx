@@ -506,6 +506,7 @@ function RegionScene({
   const managerRef = useRef(null);
   const streamerRef = useRef(null); // ChunkStreamer for player-centric loading
   const cameraPositionRef = useRef(initialCameraPosition || [0, 100, 0]);
+  const [streamingReady, setStreamingReady] = useState(false); // Track when initial position is calculated
   
   // Dynamic sky colors based on time of day
   const [skyColors, setSkyColors] = useState({
@@ -1114,14 +1115,19 @@ function RegionScene({
       const result = await streamer.loadAroundPosition(centerX, centerZ);
       console.log(`[RegionViewer] ChunkStreamer initial load: ${result.chunksLoaded} chunks`);
       
-      // Position camera at center
+      // Position camera at center BEFORE marking ready
       positionCameraAt(centerX, 64, centerZ, result.chunksLoaded);
+      
+      // Now mark streaming as ready - SpectatorControls can render
+      setStreamingReady(true);
       
       onProgress?.({ current: 0, total: 0, isBuilding: false, message: '', stage: null });
       onComplete?.();
       invalidate();
     };
     
+    // Reset ready state when starting new streaming session
+    setStreamingReady(false);
     startStreaming();
     
     return () => {
@@ -1242,11 +1248,14 @@ function RegionScene({
         fogColor={skyColors.fogColor}
       />
       
-      <SpectatorControls 
-        ref={spectatorRef}
-        initialPosition={cameraPositionRef.current}
-        onCameraUpdate={handleCameraUpdate}
-      />
+      {/* Only render SpectatorControls after initial position is known (when streaming) */}
+      {(!enableChunkStreaming || streamingReady) && (
+        <SpectatorControls 
+          ref={spectatorRef}
+          initialPosition={cameraPositionRef.current}
+          onCameraUpdate={handleCameraUpdate}
+        />
+      )}
       <ambientLight intensity={0.4} />
       <directionalLight position={[50, 100, 30]} intensity={0.8} />
       

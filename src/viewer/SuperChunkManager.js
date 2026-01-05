@@ -161,6 +161,11 @@ export class SuperChunkManager {
    * @param {Object} chunkData - Parsed chunk data with NBT
    */
   addChunk(chunkX, chunkZ, chunkData) {
+    if (!chunkData) {
+      console.warn(`[SuperChunkManager] No data for chunk ${chunkX},${chunkZ}`);
+      return;
+    }
+    
     const superChunk = this.getOrCreateSuperChunk(chunkX, chunkZ);
     superChunk.addChunk(chunkX, chunkZ, chunkData);
     
@@ -318,6 +323,8 @@ export class SuperChunkManager {
     
     superChunk.isDirty = false;
     superChunk.hasBeenBuilt = true;
+    
+    console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
     
     this.onSuperChunkRebuilt?.(superChunk);
   }
