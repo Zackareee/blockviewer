@@ -1770,10 +1770,6 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     return null;
   }
   
-  // Debug: log particle emitter count
-  if (particleEmitters.length > 0) {
-    console.log(`[ModelMesher] Found ${particleEmitters.length} particle emitters`);
-  }
   
   // Debug: log beacon count
   if (beaconPositions.length > 0) {
