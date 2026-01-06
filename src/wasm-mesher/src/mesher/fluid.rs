@@ -248,6 +248,27 @@ fn flow_to_rotation(flow_x: f32, flow_z: f32) -> f32 {
     }
 }
 
+/// Rotate UV coordinates by 90 degree increments
+fn rotate_uvs(uvs: [(f32, f32); 4], rotation: i32) -> [(f32, f32); 4] {
+    if rotation == 0 {
+        return uvs;
+    }
+    
+    let rotation = rotation % 4;
+    let cos_vals = [1.0f32, 0.0, -1.0, 0.0];
+    let sin_vals = [0.0f32, 1.0, 0.0, -1.0];
+    let cos = cos_vals[rotation as usize];
+    let sin = sin_vals[rotation as usize];
+    
+    let mut result = [(0.0f32, 0.0f32); 4];
+    for i in 0..4 {
+        let cu = uvs[i].0 - 0.5;
+        let cv = uvs[i].1 - 0.5;
+        result[i] = (cu * cos - cv * sin + 0.5, cu * sin + cv * cos + 0.5);
+    }
+    result
+}
+
 /// Mesh all fluids in the grid
 pub fn mesh_fluids(
     grid: &BinaryGrid,
@@ -397,10 +418,14 @@ fn mesh_fluid_block(
         let light = get_face_light(light_grid, x, y + 1, z);
         let tex_idx = if has_flow { flow_idx } else { still_idx };
         
-        mesh.add_quad(
+        // UVs for top face - rotated based on flow direction
+        let uvs = rotate_uvs([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)], rotation as i32);
+        
+        mesh.add_quad_with_uvs(
             positions,
             normal,
             color,
+            uvs,
             tex_idx,
             rotation,
             0.0, // No tint type for fluids
@@ -420,13 +445,15 @@ fn mesh_fluid_block(
             (xf + 1.0, yf, zf + 1.0),
             (xf, yf, zf + 1.0),
         ];
+        let uvs = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
 
         let light = get_face_light(light_grid, x, y - 1, z);
         
-        mesh.add_quad(
+        mesh.add_quad_with_uvs(
             positions,
             Face::Down.normal(),
             color,
+            uvs,
             still_idx,
             0.0,
             0.0,
@@ -450,8 +477,10 @@ fn mesh_fluid_block(
             (xf + 1.0, yf + top_y_11, zf + 1.0),
             (xf + 1.0, yf + top_y_10, zf),
         ];
+        // UVs for side faces: bottom at 1.0, top at (1-height)
+        let uvs = [(0.0, 1.0), (1.0, 1.0), (1.0, 1.0 - top_y_11), (0.0, 1.0 - top_y_10)];
         let light = get_face_light(light_grid, x + 1, y, z);
-        mesh.add_quad(positions, Face::East.normal(), color, flow_idx, 0.0, 0.0, light, [0.0; 4], false);
+        mesh.add_quad_with_uvs(positions, Face::East.normal(), color, uvs, flow_idx, 0.0, 0.0, light, [0.0; 4], false);
     }
 
     // -X face (west)
@@ -462,8 +491,9 @@ fn mesh_fluid_block(
             (xf, yf + top_y_00, zf),
             (xf, yf + top_y_01, zf + 1.0),
         ];
+        let uvs = [(0.0, 1.0), (1.0, 1.0), (1.0, 1.0 - top_y_00), (0.0, 1.0 - top_y_01)];
         let light = get_face_light(light_grid, x - 1, y, z);
-        mesh.add_quad(positions, Face::West.normal(), color, flow_idx, 0.0, 0.0, light, [0.0; 4], false);
+        mesh.add_quad_with_uvs(positions, Face::West.normal(), color, uvs, flow_idx, 0.0, 0.0, light, [0.0; 4], false);
     }
 
     // +Z face (south)
@@ -474,8 +504,9 @@ fn mesh_fluid_block(
             (xf, yf + top_y_01, zf + 1.0),
             (xf + 1.0, yf + top_y_11, zf + 1.0),
         ];
+        let uvs = [(0.0, 1.0), (1.0, 1.0), (1.0, 1.0 - top_y_01), (0.0, 1.0 - top_y_11)];
         let light = get_face_light(light_grid, x, y, z + 1);
-        mesh.add_quad(positions, Face::South.normal(), color, flow_idx, 0.0, 0.0, light, [0.0; 4], false);
+        mesh.add_quad_with_uvs(positions, Face::South.normal(), color, uvs, flow_idx, 0.0, 0.0, light, [0.0; 4], false);
     }
 
     // -Z face (north)
@@ -486,8 +517,9 @@ fn mesh_fluid_block(
             (xf + 1.0, yf + top_y_10, zf),
             (xf, yf + top_y_00, zf),
         ];
+        let uvs = [(0.0, 1.0), (1.0, 1.0), (1.0, 1.0 - top_y_10), (0.0, 1.0 - top_y_00)];
         let light = get_face_light(light_grid, x, y, z - 1);
-        mesh.add_quad(positions, Face::North.normal(), color, flow_idx, 0.0, 0.0, light, [0.0; 4], false);
+        mesh.add_quad_with_uvs(positions, Face::North.normal(), color, uvs, flow_idx, 0.0, 0.0, light, [0.0; 4], false);
     }
 }
 

@@ -145,6 +145,11 @@ impl MeshResult {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn water_uvs(&self) -> Vec<f32> {
+        self.water.uvs.clone()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn water_tex_indices(&self) -> Vec<f32> {
         self.water.tex_indices.clone()
     }
@@ -183,6 +188,11 @@ impl MeshResult {
     #[wasm_bindgen(getter)]
     pub fn lava_colors(&self) -> Vec<f32> {
         self.lava.colors.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn lava_uvs(&self) -> Vec<f32> {
+        self.lava.uvs.clone()
     }
 
     #[wasm_bindgen(getter)]
