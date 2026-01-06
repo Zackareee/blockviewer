@@ -7,7 +7,7 @@
  * - Pre-1.13: Blocks byte array
  */
 
-import { BinaryGrid, SECTION_SIZE, MIN_Y, makeSectionKey } from './BinaryGrid.js';
+import { BinaryGrid, SECTION_SIZE, MIN_Y, MAX_Y, makeSectionKey } from './BinaryGrid.js';
 import { getBlockRegistry } from './BlockRegistry.js';
 import { BlockStateGrid } from './BlockStateGrid.js';
 import { isNonCubeBlock } from './ModelMesher.js';
@@ -250,7 +250,8 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
   const baseY = sectionY * SECTION_SIZE;
   
   // Skip sections outside valid range (silently - this is normal for some worlds)
-  if (baseY < MIN_Y || baseY > 320) {
+  // Valid Y range: MIN_Y (-64) to MAX_Y (320, exclusive), so sections -4 to 19
+  if (baseY < MIN_Y || baseY >= MAX_Y) {
     return 0;
   }
   

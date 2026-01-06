@@ -33,10 +33,10 @@ export const SLAB_DOUBLE = 3;             // Double slab (full cube)
 export const CHUNKS_PER_REGION = 32;
 export const REGION_SIZE_XZ = CHUNKS_PER_REGION * SECTION_SIZE; // 512 blocks
 
-// Y bounds (Minecraft 1.18+: -64 to 320)
+// Y bounds (Minecraft 1.18+: -64 to 320 inclusive)
 export const MIN_Y = -64;
-export const MAX_Y = 320;
-export const Y_SECTIONS = (MAX_Y - MIN_Y) / SECTION_SIZE; // 24 sections
+export const MAX_Y = 321; // Exclusive upper bound (blocks can exist at Y=320)
+export const Y_SECTIONS = Math.ceil((MAX_Y - MIN_Y) / SECTION_SIZE); // 25 sections (section 20 contains Y=320)
 
 /**
  * Convert world Y to section index

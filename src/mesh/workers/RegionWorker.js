@@ -403,6 +403,7 @@ class WorkerBlockRegistry {
 const S = 16, S2 = 256, S3 = 4096;
 const BLOCK_ID_MASK = 0x0FFF, LEVEL_MASK = 0xF000, LEVEL_SHIFT = 12;
 const MIN_Y = -64;
+const MAX_Y = 321; // Exclusive upper bound (blocks can exist at Y=320)
 
 function makeSectionKey(cx, cz, sy) { return `${cx},${cz},${sy}`; }
 function parseSectionKey(key) {
@@ -611,7 +612,7 @@ function decodeChunk(chunk, grid, registry, regionX, regionZ) {
   for (const section of sections) {
     const sectionY = section.Y !== undefined ? Number(section.Y) : 0;
     const baseY = sectionY * S;
-    if (baseY < MIN_Y || baseY > 320) continue;
+    if (baseY < MIN_Y || baseY >= MAX_Y) continue;
     
     const internalSY = sectionY - Math.floor(MIN_Y / S);
     const blockStates = section.block_states;

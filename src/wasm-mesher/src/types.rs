@@ -15,10 +15,10 @@ pub const SLAB_BOTTOM: u8 = 1;
 pub const SLAB_TOP: u8 = 2;
 pub const SLAB_DOUBLE: u8 = 3;
 
-/// Y bounds (Minecraft 1.18+: -64 to 320)
+/// Y bounds (Minecraft 1.18+: -64 to 320 inclusive)
 pub const MIN_Y: i32 = -64;
-pub const MAX_Y: i32 = 320;
-pub const Y_SECTIONS: usize = ((MAX_Y - MIN_Y) / SECTION_SIZE as i32) as usize; // 24 sections
+pub const MAX_Y: i32 = 321; // Exclusive upper bound (blocks can exist at Y=320)
+pub const Y_SECTIONS: usize = ((MAX_Y - MIN_Y + SECTION_SIZE as i32 - 1) / SECTION_SIZE as i32) as usize; // 25 sections
 
 /// Face directions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

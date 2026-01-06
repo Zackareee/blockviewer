@@ -7,7 +7,7 @@
 
 // Import block registry (will be recreated from transferred data)
 import { BlockRegistry } from '../BlockRegistry.js';
-import { BinaryGrid, SECTION_SIZE, MIN_Y } from '../BinaryGrid.js';
+import { BinaryGrid, SECTION_SIZE, MIN_Y, MAX_Y } from '../BinaryGrid.js';
 
 // Pre-computed BigInt bit offsets for common bitsPerBlock values (4-15)
 const BIT_OFFSETS = Array.from({ length: 16 }, (_, i) => 
@@ -124,7 +124,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry) {
   const sectionY = section.Y !== undefined ? Number(section.Y) : 0;
   const baseY = sectionY * SECTION_SIZE;
   
-  if (baseY < MIN_Y || baseY > 320) return 0;
+  if (baseY < MIN_Y || baseY >= MAX_Y) return 0;
   
   let blocksDecoded = 0;
   

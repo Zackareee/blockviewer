@@ -384,8 +384,8 @@ export function extractBlocks(chunk) {
     const y = section.Y !== undefined ? Number(section.Y) : 0;
     const baseY = y * 16;
     
-    // Skip sections outside reasonable range
-    if (baseY < -64 || baseY > 320) continue;
+    // Skip sections outside reasonable range (MIN_Y=-64, MAX_Y=321 exclusive, so Y=320 is valid)
+    if (baseY < -64 || baseY >= 321) continue;
     
     // Modern format with block_states (1.18+)
     const blockStates = section.block_states;
