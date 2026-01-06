@@ -9,6 +9,7 @@ use crate::mesher::{MeshData, ao};
 use crate::types::{
     Face, SectionKey, SECTION_SIZE, SECTION_VOLUME, BLOCK_ID_MASK, SLAB_MASK, SLAB_SHIFT,
     SLAB_DOUBLE, block_index_in_section, section_to_world_y,
+    get_block_axis, get_rotated_face, get_texture_rotation, AXIS_Y,
 };
 
 const S: usize = SECTION_SIZE;
@@ -224,7 +225,11 @@ fn mesh_face_top(
             };
 
             if !neighbor_blocks_face(n_value, lookups) {
-                mask[j] = value & BLOCK_ID_MASK;
+                // Store full value to preserve axis info (bits 12-13)
+                // Use block_id in lower bits, axis in upper bits for merge comparison
+                let block_id = value & BLOCK_ID_MASK;
+                let axis = get_block_axis(value);
+                mask[j] = block_id | ((axis as u16) << 12);
                 has_faces = true;
             }
         }
@@ -244,7 +249,9 @@ fn mesh_face_top(
                     continue;
                 }
 
-                let block_id = mask[mi];
+                let mask_value = mask[mi];
+                let block_id = mask_value & BLOCK_ID_MASK;
+                let axis = ((mask_value >> 12) & 0x3) as u8;
                 let world_x = base_x + ii as i32;
                 let world_z = base_z + jj as i32;
 
@@ -253,9 +260,9 @@ fn mesh_face_top(
                 let face_y = block_y + 1;
                 let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, face_y, world_z);
 
-                // Expand width (+X)
+                // Expand width (+X) - compare mask_value to ensure same block type AND axis
                 let mut w = 1usize;
-                while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
+                while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_top_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
                     if !start_ao.matches(&check_ao) {
                         break;
@@ -273,7 +280,7 @@ fn mesh_face_top(
                 'outer: while jj + h < S {
                     for k in 0..w {
                         let ci = (jj + h) * S + ii + k;
-                        if visited[ci] || mask[ci] != block_id {
+                        if visited[ci] || mask[ci] != mask_value {
                             break 'outer;
                         }
                         let check_ao = ao::get_top_face_ao(grid, lookups, world_x + k as i32, block_y, world_z + h as i32);
@@ -337,7 +344,16 @@ fn mesh_face_top(
                 }
 
                 let color = lookups.color(block_id);
-                let tex_idx = lookups.texture_index(block_id, Face::Up as u8);
+                
+                // Apply rotation for rotatable blocks (logs, pillars, etc.)
+                let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
+                    let rotated_face = get_rotated_face(axis, Face::Up);
+                    let idx = lookups.texture_index(block_id, rotated_face as u8);
+                    let rot = get_texture_rotation(axis, Face::Up);
+                    (idx, rot)
+                } else {
+                    (lookups.texture_index(block_id, Face::Up as u8), 0.0)
+                };
                 let tint_type = lookups.face_tint_type(block_id, Face::Up as u8) as f32;
 
                 mesh.add_quad(
@@ -345,7 +361,7 @@ fn mesh_face_top(
                     Face::Up.normal(),
                     color,
                     tex_idx,
-                    0.0,
+                    tex_rot,
                     tint_type,
                     sky,
                     block_light,
@@ -393,7 +409,9 @@ fn mesh_face_bottom(
             };
 
             if !neighbor_blocks_face(n_value, lookups) {
-                mask[j] = value & BLOCK_ID_MASK;
+                let block_id = value & BLOCK_ID_MASK;
+                let axis = get_block_axis(value);
+                mask[j] = block_id | ((axis as u16) << 12);
                 has_faces = true;
             }
         }
@@ -412,7 +430,9 @@ fn mesh_face_bottom(
                     continue;
                 }
 
-                let block_id = mask[mi];
+                let mask_value = mask[mi];
+                let block_id = mask_value & BLOCK_ID_MASK;
+                let axis = ((mask_value >> 12) & 0x3) as u8;
                 let world_x = base_x + ii as i32;
                 let world_z = base_z + jj as i32;
 
@@ -421,7 +441,7 @@ fn mesh_face_bottom(
                 let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, face_y, world_z);
 
                 let mut w = 1usize;
-                while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
+                while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_bottom_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
                     if !start_ao.matches(&check_ao) {
                         break;
@@ -437,7 +457,7 @@ fn mesh_face_bottom(
                 'outer: while jj + h < S {
                     for k in 0..w {
                         let ci = (jj + h) * S + ii + k;
-                        if visited[ci] || mask[ci] != block_id {
+                        if visited[ci] || mask[ci] != mask_value {
                             break 'outer;
                         }
                         let check_ao = ao::get_bottom_face_ao(grid, lookups, world_x + k as i32, block_y, world_z + h as i32);
@@ -497,7 +517,14 @@ fn mesh_face_bottom(
                 }
 
                 let color = lookups.color(block_id);
-                let tex_idx = lookups.texture_index(block_id, Face::Down as u8);
+                let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
+                    let rotated_face = get_rotated_face(axis, Face::Down);
+                    let idx = lookups.texture_index(block_id, rotated_face as u8);
+                    let rot = get_texture_rotation(axis, Face::Down);
+                    (idx, rot)
+                } else {
+                    (lookups.texture_index(block_id, Face::Down as u8), 0.0)
+                };
                 let tint_type = lookups.face_tint_type(block_id, Face::Down as u8) as f32;
 
                 mesh.add_quad(
@@ -505,7 +532,7 @@ fn mesh_face_bottom(
                     Face::Down.normal(),
                     color,
                     tex_idx,
-                    0.0,
+                    tex_rot,
                     tint_type,
                     sky,
                     block_light,
@@ -554,7 +581,9 @@ fn mesh_face_north(
                 };
 
                 if !neighbor_blocks_face(n_value, lookups) {
-                    mask[ly * S + lx] = value & BLOCK_ID_MASK;
+                    let block_id = value & BLOCK_ID_MASK;
+                    let axis = get_block_axis(value);
+                    mask[ly * S + lx] = block_id | ((axis as u16) << 12);
                     has_faces = true;
                 }
             }
@@ -574,7 +603,9 @@ fn mesh_face_north(
                     continue;
                 }
 
-                let block_id = mask[mi];
+                let mask_value = mask[mi];
+                let block_id = mask_value & BLOCK_ID_MASK;
+                let axis = ((mask_value >> 12) & 0x3) as u8;
                 let world_x = base_x + ii as i32;
                 let block_y = base_y + jj as i32;
 
@@ -583,7 +614,7 @@ fn mesh_face_north(
                 let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, block_y, face_z);
 
                 let mut w = 1usize;
-                while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
+                while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_north_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
                     if !start_ao.matches(&check_ao) {
                         break;
@@ -599,7 +630,7 @@ fn mesh_face_north(
                 'outer: while jj + h < S {
                     for k in 0..w {
                         let ci = (jj + h) * S + ii + k;
-                        if visited[ci] || mask[ci] != block_id {
+                        if visited[ci] || mask[ci] != mask_value {
                             break 'outer;
                         }
                         let check_ao = ao::get_north_face_ao(grid, lookups, world_x + k as i32, block_y + h as i32, world_z);
@@ -659,7 +690,14 @@ fn mesh_face_north(
                 }
 
                 let color = lookups.color(block_id);
-                let tex_idx = lookups.texture_index(block_id, Face::North as u8);
+                let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
+                    let rotated_face = get_rotated_face(axis, Face::North);
+                    let idx = lookups.texture_index(block_id, rotated_face as u8);
+                    let rot = get_texture_rotation(axis, Face::North);
+                    (idx, rot)
+                } else {
+                    (lookups.texture_index(block_id, Face::North as u8), 0.0)
+                };
                 let tint_type = lookups.face_tint_type(block_id, Face::North as u8) as f32;
 
                 mesh.add_quad(
@@ -667,7 +705,7 @@ fn mesh_face_north(
                     Face::North.normal(),
                     color,
                     tex_idx,
-                    0.0,
+                    tex_rot,
                     tint_type,
                     sky,
                     block_light,
@@ -716,7 +754,9 @@ fn mesh_face_south(
                 };
 
                 if !neighbor_blocks_face(n_value, lookups) {
-                    mask[ly * S + lx] = value & BLOCK_ID_MASK;
+                    let block_id = value & BLOCK_ID_MASK;
+                    let axis = get_block_axis(value);
+                    mask[ly * S + lx] = block_id | ((axis as u16) << 12);
                     has_faces = true;
                 }
             }
@@ -736,7 +776,9 @@ fn mesh_face_south(
                     continue;
                 }
 
-                let block_id = mask[mi];
+                let mask_value = mask[mi];
+                let block_id = mask_value & BLOCK_ID_MASK;
+                let axis = ((mask_value >> 12) & 0x3) as u8;
                 let world_x = base_x + ii as i32;
                 let block_y = base_y + jj as i32;
 
@@ -745,7 +787,7 @@ fn mesh_face_south(
                 let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, block_y, face_z);
 
                 let mut w = 1usize;
-                while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
+                while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_south_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
                     if !start_ao.matches(&check_ao) {
                         break;
@@ -761,7 +803,7 @@ fn mesh_face_south(
                 'outer: while jj + h < S {
                     for k in 0..w {
                         let ci = (jj + h) * S + ii + k;
-                        if visited[ci] || mask[ci] != block_id {
+                        if visited[ci] || mask[ci] != mask_value {
                             break 'outer;
                         }
                         let check_ao = ao::get_south_face_ao(grid, lookups, world_x + k as i32, block_y + h as i32, world_z);
@@ -821,7 +863,14 @@ fn mesh_face_south(
                 }
 
                 let color = lookups.color(block_id);
-                let tex_idx = lookups.texture_index(block_id, Face::South as u8);
+                let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
+                    let rotated_face = get_rotated_face(axis, Face::South);
+                    let idx = lookups.texture_index(block_id, rotated_face as u8);
+                    let rot = get_texture_rotation(axis, Face::South);
+                    (idx, rot)
+                } else {
+                    (lookups.texture_index(block_id, Face::South as u8), 0.0)
+                };
                 let tint_type = lookups.face_tint_type(block_id, Face::South as u8) as f32;
 
                 mesh.add_quad(
@@ -829,7 +878,7 @@ fn mesh_face_south(
                     Face::South.normal(),
                     color,
                     tex_idx,
-                    0.0,
+                    tex_rot,
                     tint_type,
                     sky,
                     block_light,
@@ -878,7 +927,9 @@ fn mesh_face_east(
                 };
 
                 if !neighbor_blocks_face(n_value, lookups) {
-                    mask[ly * S + lz] = value & BLOCK_ID_MASK;
+                    let block_id = value & BLOCK_ID_MASK;
+                    let axis = get_block_axis(value);
+                    mask[ly * S + lz] = block_id | ((axis as u16) << 12);
                     has_faces = true;
                 }
             }
@@ -898,7 +949,9 @@ fn mesh_face_east(
                     continue;
                 }
 
-                let block_id = mask[mi];
+                let mask_value = mask[mi];
+                let block_id = mask_value & BLOCK_ID_MASK;
+                let axis = ((mask_value >> 12) & 0x3) as u8;
                 let world_z = base_z + ii as i32;
                 let block_y = base_y + jj as i32;
 
@@ -907,7 +960,7 @@ fn mesh_face_east(
                 let (start_sky, start_block) = ao::get_face_light(light_grid, face_x, block_y, world_z);
 
                 let mut w = 1usize;
-                while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
+                while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_east_face_ao(grid, lookups, world_x, block_y, world_z + w as i32);
                     if !start_ao.matches(&check_ao) {
                         break;
@@ -923,7 +976,7 @@ fn mesh_face_east(
                 'outer: while jj + h < S {
                     for k in 0..w {
                         let ci = (jj + h) * S + ii + k;
-                        if visited[ci] || mask[ci] != block_id {
+                        if visited[ci] || mask[ci] != mask_value {
                             break 'outer;
                         }
                         let check_ao = ao::get_east_face_ao(grid, lookups, world_x, block_y + h as i32, world_z + k as i32);
@@ -983,7 +1036,14 @@ fn mesh_face_east(
                 }
 
                 let color = lookups.color(block_id);
-                let tex_idx = lookups.texture_index(block_id, Face::East as u8);
+                let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
+                    let rotated_face = get_rotated_face(axis, Face::East);
+                    let idx = lookups.texture_index(block_id, rotated_face as u8);
+                    let rot = get_texture_rotation(axis, Face::East);
+                    (idx, rot)
+                } else {
+                    (lookups.texture_index(block_id, Face::East as u8), 0.0)
+                };
                 let tint_type = lookups.face_tint_type(block_id, Face::East as u8) as f32;
 
                 mesh.add_quad(
@@ -991,7 +1051,7 @@ fn mesh_face_east(
                     Face::East.normal(),
                     color,
                     tex_idx,
-                    0.0,
+                    tex_rot,
                     tint_type,
                     sky,
                     block_light,
@@ -1040,7 +1100,9 @@ fn mesh_face_west(
                 };
 
                 if !neighbor_blocks_face(n_value, lookups) {
-                    mask[ly * S + lz] = value & BLOCK_ID_MASK;
+                    let block_id = value & BLOCK_ID_MASK;
+                    let axis = get_block_axis(value);
+                    mask[ly * S + lz] = block_id | ((axis as u16) << 12);
                     has_faces = true;
                 }
             }
@@ -1060,7 +1122,9 @@ fn mesh_face_west(
                     continue;
                 }
 
-                let block_id = mask[mi];
+                let mask_value = mask[mi];
+                let block_id = mask_value & BLOCK_ID_MASK;
+                let axis = ((mask_value >> 12) & 0x3) as u8;
                 let world_z = base_z + ii as i32;
                 let block_y = base_y + jj as i32;
 
@@ -1069,7 +1133,7 @@ fn mesh_face_west(
                 let (start_sky, start_block) = ao::get_face_light(light_grid, face_x, block_y, world_z);
 
                 let mut w = 1usize;
-                while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
+                while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_west_face_ao(grid, lookups, world_x, block_y, world_z + w as i32);
                     if !start_ao.matches(&check_ao) {
                         break;
@@ -1085,7 +1149,7 @@ fn mesh_face_west(
                 'outer: while jj + h < S {
                     for k in 0..w {
                         let ci = (jj + h) * S + ii + k;
-                        if visited[ci] || mask[ci] != block_id {
+                        if visited[ci] || mask[ci] != mask_value {
                             break 'outer;
                         }
                         let check_ao = ao::get_west_face_ao(grid, lookups, world_x, block_y + h as i32, world_z + k as i32);
@@ -1145,7 +1209,14 @@ fn mesh_face_west(
                 }
 
                 let color = lookups.color(block_id);
-                let tex_idx = lookups.texture_index(block_id, Face::West as u8);
+                let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
+                    let rotated_face = get_rotated_face(axis, Face::West);
+                    let idx = lookups.texture_index(block_id, rotated_face as u8);
+                    let rot = get_texture_rotation(axis, Face::West);
+                    (idx, rot)
+                } else {
+                    (lookups.texture_index(block_id, Face::West as u8), 0.0)
+                };
                 let tint_type = lookups.face_tint_type(block_id, Face::West as u8) as f32;
 
                 mesh.add_quad(
@@ -1153,7 +1224,7 @@ fn mesh_face_west(
                     Face::West.normal(),
                     color,
                     tex_idx,
-                    0.0,
+                    tex_rot,
                     tint_type,
                     sky,
                     block_light,

@@ -15,6 +15,13 @@ pub const SLAB_BOTTOM: u8 = 1;
 pub const SLAB_TOP: u8 = 2;
 pub const SLAB_DOUBLE: u8 = 3;
 
+/// Axis encoding for rotatable blocks (stored in bits 12-13)
+pub const AXIS_SHIFT: u16 = 12;
+pub const AXIS_MASK: u16 = 0x3000;          // Bits 12-13 (3 axis values)
+pub const AXIS_Y: u8 = 0;                    // Default vertical orientation
+pub const AXIS_X: u8 = 1;                    // East-west horizontal
+pub const AXIS_Z: u8 = 2;                    // North-south horizontal
+
 /// Y bounds (Minecraft 1.18+: -64 to 320 inclusive)
 pub const MIN_Y: i32 = -64;
 pub const MAX_Y: i32 = 321; // Exclusive upper bound (blocks can exist at Y=320)
@@ -55,6 +62,69 @@ impl Face {
             Face::East => (1, 0, 0),
             Face::West => (-1, 0, 0),
         }
+    }
+}
+
+/// Extract axis from block value (bits 12-13)
+#[inline]
+pub fn get_block_axis(block_value: u16) -> u8 {
+    ((block_value & AXIS_MASK) >> AXIS_SHIFT) as u8
+}
+
+/// Get the effective face direction for texture lookup on a rotated block
+/// Maps the actual face to the "logical" face for texture selection
+#[inline]
+pub fn get_rotated_face(axis: u8, face: Face) -> Face {
+    if axis == AXIS_Y {
+        return face; // No remapping for default orientation
+    }
+    
+    if axis == AXIS_X {
+        // Block is horizontal along X axis (east-west)
+        // East/West are now the "end" faces (like top/bottom of upright block)
+        match face {
+            Face::East | Face::West => Face::Up, // Use top texture
+            _ => Face::North, // Use side texture
+        }
+    } else if axis == AXIS_Z {
+        // Block is horizontal along Z axis (north-south)
+        // North/South are now the "end" faces
+        match face {
+            Face::North | Face::South => Face::Up, // Use top texture
+            _ => Face::East, // Use side texture
+        }
+    } else {
+        face
+    }
+}
+
+/// Calculate texture rotation for a rotated block face
+/// Matches Minecraft's cube_column model UV behavior
+/// Returns: 0=0°, 1=90°, 2=180°, 3=270°
+#[inline]
+pub fn get_texture_rotation(axis: u8, face: Face) -> f32 {
+    if axis == AXIS_Y {
+        // Vertical logs: no rotation needed
+        return 0.0;
+    }
+    
+    if axis == AXIS_X {
+        // Block is horizontal along X axis (east-west)
+        match face {
+            Face::East => 2.0,  // 180° rotation (from model's UP face rotation)
+            Face::West => 0.0,  // No rotation
+            _ => 1.0,           // All bark faces need 90° rotation
+        }
+    } else if axis == AXIS_Z {
+        // Block is horizontal along Z axis (north-south)
+        match face {
+            Face::South => 2.0, // 180° rotation
+            Face::North => 0.0, // No rotation
+            Face::East | Face::West => 1.0, // 90° rotation for side bark
+            _ => 0.0, // TOP/BOTTOM bark faces - no rotation
+        }
+    } else {
+        0.0
     }
 }
 

@@ -79,6 +79,7 @@ export function initLookups(lookups) {
     lookups.isFluid,
     lookups.isGlass,
     lookups.isAOTransparent,
+    lookups.isRotatable,
     lookups.colorR,
     lookups.colorG,
     lookups.colorB,
@@ -312,6 +313,7 @@ export function meshChunk(grid, lightGrid, stateGrid, bounds = null) {
 
 // Import tint type lookup builder
 import { buildFaceTintTypeLookup } from '../../data/biomeTinting.js';
+import { isRotatableBlock } from '../../assets/BlockTextureRegistry.js';
 
 /**
  * Build lookup tables from a BlockRegistry
@@ -329,6 +331,7 @@ export function buildLookupTables(registry, textureIndexLookup) {
   const isFluid = new Uint8Array(MAX_BLOCKS);
   const isGlass = new Uint8Array(MAX_BLOCKS);
   const isAOTransparent = new Uint8Array(MAX_BLOCKS);
+  const isRotatable = new Uint8Array(MAX_BLOCKS);
   const colorR = new Float32Array(MAX_BLOCKS);
   const colorG = new Float32Array(MAX_BLOCKS);
   const colorB = new Float32Array(MAX_BLOCKS);
@@ -348,6 +351,7 @@ export function buildLookupTables(registry, textureIndexLookup) {
     
     isOpaque[id] = registry.isOpaque(id) ? 1 : 0;
     isNonCube[id] = registry.isNonCube(id) ? 1 : 0;
+    isRotatable[id] = (info.name && isRotatableBlock(info.name)) ? 1 : 0;
     
     const col = registry.getColor(id);
     colorR[id] = col.r;
@@ -411,6 +415,7 @@ export function buildLookupTables(registry, textureIndexLookup) {
     isFluid,
     isGlass,
     isAOTransparent,
+    isRotatable,  // For logs, pillars, etc.
     colorR,
     colorG,
     colorB,
