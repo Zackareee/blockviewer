@@ -40,6 +40,58 @@ const SUPER_CHUNK_SIZE = 2;
 const BLOCKS_PER_SUPER_CHUNK = SUPER_CHUNK_SIZE * 16; // 32 blocks
 
 /**
+ * Decode only light data from a chunk (no blocks)
+ * Used to include neighbor chunk light for smooth boundary lighting
+ */
+function decodeLightOnly(chunk, lightGrid) {
+  if (!chunk?.data?.sections) return;
+  
+  const chunkX = chunk.x;
+  const chunkZ = chunk.z;
+  
+  for (const section of chunk.data.sections) {
+    if (!section) continue;
+    
+    const sectionY = section.Y ?? section.y;
+    if (sectionY === undefined) continue;
+    
+    // Convert to internal section Y
+    const internalSectionY = sectionY - Math.floor(-64 / 16);
+    
+    const skyLightData = section.SkyLight || section.sky_light;
+    const blockLightData = section.BlockLight || section.block_light;
+    
+    if (!skyLightData && !blockLightData) continue;
+    
+    const lightSection = lightGrid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
+    
+    // Unpack sky light
+    if (skyLightData && skyLightData.length >= 2048) {
+      for (let i = 0; i < 4096; i++) {
+        const byteIdx = Math.floor(i / 2);
+        const nibbleIdx = i % 2;
+        const sky = nibbleIdx === 0 
+          ? (skyLightData[byteIdx] & 0x0F)
+          : ((skyLightData[byteIdx] >> 4) & 0x0F);
+        lightSection[i] = (lightSection[i] & 0xF0) | sky;
+      }
+    }
+    
+    // Unpack block light
+    if (blockLightData && blockLightData.length >= 2048) {
+      for (let i = 0; i < 4096; i++) {
+        const byteIdx = Math.floor(i / 2);
+        const nibbleIdx = i % 2;
+        const block = nibbleIdx === 0 
+          ? (blockLightData[byteIdx] & 0x0F)
+          : ((blockLightData[byteIdx] >> 4) & 0x0F);
+        lightSection[i] = (lightSection[i] & 0x0F) | (block << 4);
+      }
+    }
+  }
+}
+
+/**
  * Represents a single super-chunk containing multiple Minecraft chunks
  */
 class SuperChunk {
@@ -364,6 +416,10 @@ export class SuperChunkManager {
       decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
     }
     
+    // Include light data from adjacent chunks (from neighboring super-chunks)
+    // This prevents hard light cutoffs at super-chunk boundaries
+    this._includeNeighborLight(superChunk, lightGrid);
+    
     // Handle light propagation if no Minecraft light data
     if (lightGrid.sections.size === 0) {
       propagateSkyLight(grid, lightGrid, this.registry);
@@ -391,6 +447,69 @@ export class SuperChunkManager {
     // console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
     
     this.onSuperChunkRebuilt?.(superChunk);
+  }
+
+  /**
+   * Include light data from adjacent chunks to prevent hard cutoffs at boundaries.
+   * This decodes light (not blocks) from chunks that border this super-chunk.
+   */
+  _includeNeighborLight(superChunk, lightGrid) {
+    const sx = superChunk.superX;
+    const sz = superChunk.superZ;
+    
+    // Calculate the chunk coordinate ranges for this super-chunk
+    const minChunkX = sx * SUPER_CHUNK_SIZE;
+    const maxChunkX = minChunkX + SUPER_CHUNK_SIZE - 1;
+    const minChunkZ = sz * SUPER_CHUNK_SIZE;
+    const maxChunkZ = minChunkZ + SUPER_CHUNK_SIZE - 1;
+    
+    // Check 8 adjacent super-chunks (N, S, E, W, NE, NW, SE, SW)
+    const neighborOffsets = [
+      { dx: -1, dz: 0 },  // West
+      { dx: 1, dz: 0 },   // East
+      { dx: 0, dz: -1 },  // North
+      { dx: 0, dz: 1 },   // South
+      { dx: -1, dz: -1 }, // Northwest
+      { dx: 1, dz: -1 },  // Northeast
+      { dx: -1, dz: 1 },  // Southwest
+      { dx: 1, dz: 1 },   // Southeast
+    ];
+    
+    for (const { dx, dz } of neighborOffsets) {
+      const neighborKey = `${sx + dx},${sz + dz}`;
+      const neighborSuperChunk = this.superChunks.get(neighborKey);
+      
+      if (!neighborSuperChunk) continue;
+      
+      // Get the border chunks from the neighbor super-chunk
+      // We only need chunks that are adjacent to our border
+      for (const [key, chunkInfo] of neighborSuperChunk.loadedChunks) {
+        if (!chunkInfo.data) continue;
+        
+        const cx = chunkInfo.chunkX;
+        const cz = chunkInfo.chunkZ;
+        
+        // Check if this chunk is adjacent to our super-chunk border
+        const isAdjacentX = (dx === -1 && cx === minChunkX - 1) || 
+                           (dx === 1 && cx === maxChunkX + 1);
+        const isAdjacentZ = (dz === -1 && cz === minChunkZ - 1) || 
+                           (dz === 1 && cz === maxChunkZ + 1);
+        const isInRangeX = cx >= minChunkX - 1 && cx <= maxChunkX + 1;
+        const isInRangeZ = cz >= minChunkZ - 1 && cz <= maxChunkZ + 1;
+        
+        // Include if chunk borders our super-chunk
+        const shouldInclude = (isAdjacentX && isInRangeZ) || (isAdjacentZ && isInRangeX);
+        
+        if (shouldInclude) {
+          const adjustedChunk = {
+            x: cx,
+            z: cz,
+            data: chunkInfo.data
+          };
+          decodeLightOnly(adjustedChunk, lightGrid);
+        }
+      }
+    }
   }
 
   /**
