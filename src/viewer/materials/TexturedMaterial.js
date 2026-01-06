@@ -1318,11 +1318,6 @@ export function createTexturedModelMaterial(atlasData = null, useTextures = fals
     transparent: false,    // Opaque models don't need transparency
     depthWrite: true,
     depthTest: true,       // Ensure depth testing is enabled
-    // Polygon offset for thin overlay elements (e.g., chiseled bookshelf slots)
-    // Pushes geometry slightly back in depth to prevent z-fighting with co-planar faces
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
   });
   
   return material;

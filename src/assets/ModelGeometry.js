@@ -151,10 +151,8 @@ class ModelGeometry {
 
     // Small offset to prevent z-fighting on thin blocks (in block units)
     // These values need to be large enough to prevent z-fighting but small enough
-    // to not be visually noticeable (at 16 pixels per block, 0.01 = ~0.16 pixels)
-    // Increased from 0.005 to 0.01 to better handle overlapping elements like
-    // chiseled bookshelf slots which share edges
-    const THIN_FACE_OFFSET = 0.01;
+    // to not be visually noticeable (at 16 pixels per block, 0.002 = ~0.03 pixels)
+    const THIN_FACE_OFFSET = 0.002;
     const THIN_THRESHOLD = 0.02; // Elements thinner than this get offset
     
     // For cross-pattern blocks with multiple thin elements, we also need to offset
@@ -343,12 +341,20 @@ class ModelGeometry {
       const isZeroThicknessZ = sizeZ < ZERO_THRESHOLD;
       const faceCount = Object.keys(element.faces || {}).length;
       
-      // Elements with only 1 face are always single-sided (used for glow/overlay effects)
-      // This catches: standing torch bulbs (zero-thickness), wall torch bulbs (3x3x3),
-      // repeater torch bulbs (3x3x3), comparator torch bulbs (3x3x3)
-      // NOTE: Elements with 2 faces (like azalea cross-pattern) are NOT single-sided -
-      // each face has proper winding and should render normally with FrontSide culling
-      const isSingleSidedElement = faceCount === 1;
+      // Overlay detection: Only small single-faced zero-thickness elements are overlays
+      // (torch bulb panels, comparator torches, etc.)
+      // Large single-faced elements like chiseled bookshelf slots (6x8) should NOT be overlays
+      // because they need to properly occlude geometry behind them
+      const MAX_OVERLAY_SIZE = 0.25; // 4 pixels in normalized space (0.25 = 4/16)
+      const faceAreaXY = sizeX * sizeY;
+      const faceAreaXZ = sizeX * sizeZ;
+      const faceAreaYZ = sizeY * sizeZ;
+      const maxFaceArea = Math.max(faceAreaXY, faceAreaXZ, faceAreaYZ);
+      const isSmallElement = maxFaceArea < MAX_OVERLAY_SIZE * MAX_OVERLAY_SIZE; // ~16 sq pixels
+      
+      // Single-sided overlay: only 1 face, zero thickness, AND small size
+      // This catches torch bulb panels but NOT chiseled bookshelf slots
+      const isSingleSidedElement = faceCount === 1 && isSmallElement;
 
       // Element-level rotation (optional)
       const elRot = element.rotation;
@@ -415,12 +421,12 @@ class ModelGeometry {
             if (faceName === 'up') normalOffsetY = THIN_FACE_OFFSET;
             else if (faceName === 'down') normalOffsetY = -THIN_FACE_OFFSET;
           }
-          // For flat vertical planes (thin in Z), offset north/south faces apart
+          // For flat vertical planes (thin in Z), offset north/south faces outward
           if (sizeZ < THIN_THRESHOLD) {
             if (faceName === 'north') normalOffsetZ = -THIN_FACE_OFFSET;
             else if (faceName === 'south') normalOffsetZ = THIN_FACE_OFFSET;
           }
-          // For flat vertical planes (thin in X), offset east/west faces apart
+          // For flat vertical planes (thin in X), offset east/west faces outward
           if (sizeX < THIN_THRESHOLD) {
             if (faceName === 'west') normalOffsetX = -THIN_FACE_OFFSET;
             else if (faceName === 'east') normalOffsetX = THIN_FACE_OFFSET;
