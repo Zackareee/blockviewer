@@ -232,6 +232,16 @@ impl MeshResult {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn glass_tex_rotations(&self) -> Vec<f32> {
+        self.glass.tex_rotations.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn glass_tint_types(&self) -> Vec<f32> {
+        self.glass.tint_types.clone()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn glass_sky_light(&self) -> Vec<f32> {
         self.glass.sky_light.clone()
     }

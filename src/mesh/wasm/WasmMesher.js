@@ -285,6 +285,8 @@ export function meshChunk(grid, lightGrid, stateGrid) {
       normals: new Float32Array(result.glass_normals),
       colors: new Float32Array(result.glass_colors),
       texIndices: new Float32Array(result.glass_tex_indices),
+      texRotations: new Float32Array(result.glass_tex_rotations),
+      tintTypes: new Float32Array(result.glass_tint_types),
       skyLight: new Float32Array(result.glass_sky_light),
       blockLight: new Float32Array(result.glass_block_light),
       indices: new Uint32Array(result.glass_indices),
