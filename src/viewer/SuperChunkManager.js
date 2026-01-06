@@ -325,7 +325,8 @@ export class SuperChunkManager {
     superChunk.isDirty = false;
     superChunk.hasBeenBuilt = true;
     
-    console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
+    // Reduce log noise during normal operation - uncomment for debugging
+    // console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
     
     this.onSuperChunkRebuilt?.(superChunk);
   }
@@ -734,35 +735,31 @@ export class SuperChunkManager {
     const callback = async (deadline) => {
       this._idleCallbackId = null;
       
-      // Adjust work based on priority
-      const minTimeRemaining = lowPriority ? 15 : 8;
-      const maxRebuilds = lowPriority ? 1 : 2;
+      if (this.dirtySet.size === 0) return;
       
-      // Only rebuild if we have time remaining in idle period
-      // Use smaller threshold to leave room for other work
-      while (this.dirtySet.size > 0 && deadline.timeRemaining() > minTimeRemaining) {
-        // Use time-budgeted rebuild
-        const budgetMs = Math.min(deadline.timeRemaining() - 5, 10);
-        await this.rebuildDirty(maxRebuilds, budgetMs);
-      }
+      // Always do at least one rebuild per callback to make progress
+      // But limit time spent based on remaining deadline
+      const budgetMs = lowPriority ? 8 : 12;
+      await this.rebuildDirty(1, budgetMs);
       
       // Schedule another callback if more rebuilds needed
       if (this.dirtySet.size > 0) {
-        this.scheduleIdleRebuild(lowPriority);
+        // Use setTimeout for consistent scheduling - rIC has variable delays
+        setTimeout(() => this.scheduleIdleRebuild(lowPriority), lowPriority ? 32 : 16);
       }
     };
     
     // Timeout determines how long we wait before forcing the callback
-    const timeout = lowPriority ? 200 : 50;
+    const timeout = lowPriority ? 100 : 32;
     
     if (typeof requestIdleCallback !== 'undefined') {
       this._idleCallbackId = requestIdleCallback(callback, { timeout });
     } else {
-      // Fallback for browsers without requestIdleCallback
-      // Use requestAnimationFrame for better frame alignment
-      this._idleCallbackId = requestAnimationFrame(() => {
-        callback({ timeRemaining: () => lowPriority ? 5 : 10 });
-      });
+      // Fallback: use setTimeout with small delay
+      this._idleCallbackId = setTimeout(
+        () => callback({ timeRemaining: () => lowPriority ? 8 : 12 }),
+        lowPriority ? 32 : 16
+      );
     }
   }
 
@@ -774,9 +771,9 @@ export class SuperChunkManager {
     if (this._idleCallbackId) {
       if (typeof cancelIdleCallback !== 'undefined') {
         cancelIdleCallback(this._idleCallbackId);
-      } else {
-        cancelAnimationFrame(this._idleCallbackId);
       }
+      // Also clear timeout in case we're using the fallback
+      clearTimeout(this._idleCallbackId);
       this._idleCallbackId = null;
     }
   }

@@ -496,7 +496,7 @@ export class ChunkStreamer {
     // Update visibility for loaded chunks
     this._updateChunkVisibility();
     
-    // Queue chunks for loading (but don't rebuild during fast movement)
+    // Queue chunks for loading
     this._queueChunksAroundPlayer();
     
     // Unload distant chunks
@@ -635,7 +635,8 @@ export class ChunkStreamer {
   _queueChunksAroundPlayer(immediate = false) {
     const { playerChunkX, playerChunkZ, loadDistance, renderDistance, usePreParsedChunks } = this;
     
-    console.log(`[ChunkStreamer] Queueing chunks around ${playerChunkX},${playerChunkZ} (render=${renderDistance}, load=${loadDistance})`);
+    // Reduce log noise during movement - uncomment for debugging
+    // console.log(`[ChunkStreamer] Queueing chunks around ${playerChunkX},${playerChunkZ} (render=${renderDistance}, load=${loadDistance})`);
     
     // Clear existing queue and re-prioritize
     this.loadQueue.clear();
@@ -697,7 +698,7 @@ export class ChunkStreamer {
     }
     
     this.stats.queueSize = this.loadQueue.size;
-    console.log(`[ChunkStreamer] Queued ${this.loadQueue.size} chunks`);
+    // console.log(`[ChunkStreamer] Queued ${this.loadQueue.size} chunks`);
   }
 
   /**
@@ -787,13 +788,13 @@ export class ChunkStreamer {
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        // Schedule super-chunk rebuilds to run during browser idle time
-        // This prevents blocking the main thread during movement
+        // Schedule super-chunk rebuilds for idle time instead of blocking
+        // This prevents stuttering during movement
         if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
           this.superChunkManager.scheduleIdleRebuild(true); // Low priority during streaming
         }
         
-        // Yield to browser between batches to maintain frame rate
+        // Yield to browser between batches
         await new Promise(r => setTimeout(r, 0));
       }
       
