@@ -20,9 +20,24 @@ export function getBlockTexture(blockName, face = 'up') {
   // Check for special multi-face blocks
   const multiface = MULTIFACE_BLOCKS[name];
   if (multiface) {
+    // Handle 'all' first (same texture on all faces)
+    if (multiface.all) return multiface.all;
+    
+    // Handle top/bottom faces
     if (face === 'up' && multiface.top) return multiface.top;
     if (face === 'down' && multiface.bottom) return multiface.bottom;
-    return multiface.side || multiface.all || `block/${name}`;
+    
+    // Handle directional blocks with 'front' face
+    // Default facing in Minecraft is typically 'north', so 'north' face shows 'front'
+    // For solid block rendering without state, we use 'north' as the front
+    if (multiface.front) {
+      if (face === 'north') return multiface.front;
+      // Back face (south) uses side texture
+      if (face === 'south' && multiface.back) return multiface.back;
+    }
+    
+    // Fall back to side texture
+    return multiface.side || `block/${name}`;
   }
   
   // Check for special mappings
@@ -369,8 +384,8 @@ const MULTIFACE_BLOCKS = {
   
   // Pumpkin and melon
   'pumpkin': { top: 'block/pumpkin_top', side: 'block/pumpkin_side' },
-  'carved_pumpkin': { top: 'block/pumpkin_top', side: 'block/carved_pumpkin', back: 'block/pumpkin_side' },
-  'jack_o_lantern': { top: 'block/pumpkin_top', side: 'block/jack_o_lantern', back: 'block/pumpkin_side' },
+  'carved_pumpkin': { top: 'block/pumpkin_top', side: 'block/pumpkin_side', front: 'block/carved_pumpkin' },
+  'jack_o_lantern': { top: 'block/pumpkin_top', side: 'block/pumpkin_side', front: 'block/jack_o_lantern' },
   'melon': { top: 'block/melon_top', side: 'block/melon_side' },
   
   // Hay block
@@ -389,6 +404,18 @@ const MULTIFACE_BLOCKS = {
   // Beehive/Bee nest
   'beehive': { top: 'block/beehive_end', side: 'block/beehive_side', front: 'block/beehive_front' },
   'bee_nest': { top: 'block/bee_nest_top', side: 'block/bee_nest_side', front: 'block/bee_nest_front' },
+  
+  // Respawn anchor
+  'respawn_anchor': { top: 'block/respawn_anchor_top_off', side: 'block/respawn_anchor_side0', bottom: 'block/respawn_anchor_bottom' },
+  
+  // Chiseled bookshelf (empty state - filled states handled separately)
+  'chiseled_bookshelf': { top: 'block/chiseled_bookshelf_top', side: 'block/chiseled_bookshelf_side', front: 'block/chiseled_bookshelf_empty' },
+  
+  // Loom
+  'loom': { top: 'block/loom_top', side: 'block/loom_side', front: 'block/loom_front' },
+  
+  // Lectern
+  'lectern': { top: 'block/lectern_top', side: 'block/lectern_sides', front: 'block/lectern_front', bottom: 'block/lectern_base' },
 };
 
 /**
@@ -973,7 +1000,6 @@ const TEXTURE_MAPPINGS = {
   
   // Special blocks
   'bamboo_sapling': 'block/bamboo_stage0',
-  'respawn_anchor': 'block/respawn_anchor_side0',
   'end_portal_frame': 'block/end_portal_frame_side',
   'frosted_ice': 'block/frosted_ice_0',
   
@@ -1031,8 +1057,6 @@ const TEXTURE_MAPPINGS = {
   'smithing_table': 'block/smithing_table_side',
   'grindstone': 'block/grindstone_side',
   'stonecutter': 'block/stonecutter_side',
-  'chiseled_bookshelf': 'block/chiseled_bookshelf_side',
-  'lectern': 'block/lectern_front',
   
   // Anvils
   'chipped_anvil': 'block/anvil_top',
