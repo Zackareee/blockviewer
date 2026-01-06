@@ -6,7 +6,7 @@
 
 use crate::grid::{BinaryGrid, LightGrid};
 use crate::lookup::Lookups;
-use crate::types::{Face, BLOCK_ID_MASK};
+use crate::types::Face;
 
 /// AO brightness levels (0=darkest, 3=brightest)
 pub const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
@@ -263,20 +263,74 @@ pub fn get_face_ao(
 }
 
 /// Sample smooth vertex light with AO applied
-pub fn sample_vertex_light(
+/// Samples 4 blocks around the vertex corner and averages non-solid block light
+pub fn sample_smooth_vertex_light(
+    grid: &BinaryGrid,
     light_grid: Option<&LightGrid>,
-    ao_brightness: f32,
-    world_x: i32,
-    world_y: i32,
-    world_z: i32,
+    lookups: &Lookups,
+    vertex_x: i32,
+    vertex_y: i32,
+    vertex_z: i32,
+    ao_level: u8,
+    plane: Plane,
 ) -> (f32, f32) {
-    let (sky, block) = if let Some(lg) = light_grid {
-        let light = lg.get_light(world_x, world_y, world_z);
-        (light.sky_light as f32, light.block_light as f32)
-    } else {
-        (15.0, 0.0)
+    let ao_brightness = AO_BRIGHTNESS[ao_level as usize];
+    
+    let lg = match light_grid {
+        Some(lg) => lg,
+        None => return (15.0 * ao_brightness, 0.0),
     };
+    
+    // Sample 4 blocks touching this vertex corner
+    let mut total_sky = 0.0f32;
+    let mut total_block = 0.0f32;
+    let mut count = 0;
+    
+    // Get offsets based on plane
+    let offsets: [(i32, i32, i32); 4] = match plane {
+        Plane::XZ => [
+            (-1, 0, -1), (0, 0, -1), (-1, 0, 0), (0, 0, 0)
+        ],
+        Plane::YZ => [
+            (0, -1, -1), (0, 0, -1), (0, -1, 0), (0, 0, 0)
+        ],
+        Plane::XY => [
+            (-1, -1, 0), (0, -1, 0), (-1, 0, 0), (0, 0, 0)
+        ],
+    };
+    
+    for (dx, dy, dz) in offsets {
+        let bx = vertex_x + dx;
+        let by = vertex_y + dy;
+        let bz = vertex_z + dz;
+        
+        let block_id = grid.get_block_id(bx, by, bz);
+        
+        // Only sample from non-solid blocks (air spaces)
+        if block_id == 0 || lookups.is_ao_transparent(block_id) || !lookups.is_opaque(block_id) {
+            let light = lg.get_light(bx, by, bz);
+            total_sky += light.sky_light as f32;
+            total_block += light.block_light as f32;
+            count += 1;
+        }
+    }
+    
+    // Average or fallback to direct sample
+    let (avg_sky, avg_block) = if count > 0 {
+        (total_sky / count as f32, total_block / count as f32)
+    } else {
+        let light = lg.get_light(vertex_x, vertex_y, vertex_z);
+        (light.sky_light as f32, light.block_light as f32)
+    };
+    
+    (avg_sky * ao_brightness, avg_block * ao_brightness)
+}
 
-    (sky * ao_brightness, block * ao_brightness)
+/// Plane for light sampling
+#[derive(Clone, Copy)]
+pub enum Plane {
+    XZ, // Top/Bottom faces
+    YZ, // East/West faces
+    XY, // North/South faces
 }
 

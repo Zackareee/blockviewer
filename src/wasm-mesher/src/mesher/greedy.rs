@@ -264,20 +264,30 @@ fn mesh_face_top(
                     (x, y, z),           // V3 (NW)
                 ];
 
-                let ao_bright = start_ao.brightness();
+                // Sample smooth light with AO at each vertex corner
+                // Vertex positions in world coords: (world_x, block_y+1, world_z+h), etc.
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (world_x, world_z + h as i32),      // V0 (SW)
+                    (world_x + w as i32, world_z + h as i32), // V1 (SE)
+                    (world_x + w as i32, world_z),      // V2 (NE)
+                    (world_x, world_z),                 // V3 (NW)
+                ];
+                
                 let mut sky = [15.0f32; 4];
                 let mut block_light = [0.0f32; 4];
-
-                if let Some(lg) = light_grid {
-                    for (i, pos) in positions.iter().enumerate() {
-                        let light = lg.get_light(pos.0 as i32, block_y + 1, pos.2 as i32);
-                        sky[i] = light.sky_light as f32 * ao_bright[i];
-                        block_light[i] = light.block_light as f32 * ao_bright[i];
-                    }
-                } else {
-                    for i in 0..4 {
-                        sky[i] = 15.0 * ao_bright[i];
-                    }
+                
+                let face_y = block_y + 1;
+                for i in 0..4 {
+                    let (vx, vz) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        vx, face_y, vz,
+                        ao_levels[i],
+                        ao::Plane::XZ,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
                 }
 
                 let color = lookups.color(block_id);
@@ -405,20 +415,29 @@ fn mesh_face_bottom(
                     (x, y, z + hf),      // V3 (SW)
                 ];
 
-                let ao_bright = start_ao.brightness();
+                // Sample smooth light with AO at each vertex corner
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (world_x, world_z),                 // V0 (NW)
+                    (world_x + w as i32, world_z),      // V1 (NE)
+                    (world_x + w as i32, world_z + h as i32), // V2 (SE)
+                    (world_x, world_z + h as i32),      // V3 (SW)
+                ];
+                
                 let mut sky = [15.0f32; 4];
                 let mut block_light = [0.0f32; 4];
-
-                if let Some(lg) = light_grid {
-                    for (i, pos) in positions.iter().enumerate() {
-                        let light = lg.get_light(pos.0 as i32, block_y - 1, pos.2 as i32);
-                        sky[i] = light.sky_light as f32 * ao_bright[i];
-                        block_light[i] = light.block_light as f32 * ao_bright[i];
-                    }
-                } else {
-                    for i in 0..4 {
-                        sky[i] = 15.0 * ao_bright[i];
-                    }
+                
+                let face_y = block_y - 1;
+                for i in 0..4 {
+                    let (vx, vz) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        vx, face_y, vz,
+                        ao_levels[i],
+                        ao::Plane::XZ,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
                 }
 
                 let color = lookups.color(block_id);
@@ -548,20 +567,29 @@ fn mesh_face_north(
                     (x + wf, y + hf, z), // V3
                 ];
 
-                let ao_bright = start_ao.brightness();
+                // Sample smooth light with AO at each vertex corner
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (world_x + w as i32, block_y),      // V0
+                    (world_x, block_y),                 // V1
+                    (world_x, block_y + h as i32),      // V2
+                    (world_x + w as i32, block_y + h as i32), // V3
+                ];
+                
                 let mut sky = [15.0f32; 4];
                 let mut block_light = [0.0f32; 4];
-
-                if let Some(lg) = light_grid {
-                    for (i, pos) in positions.iter().enumerate() {
-                        let light = lg.get_light(pos.0 as i32, pos.1 as i32, world_z - 1);
-                        sky[i] = light.sky_light as f32 * ao_bright[i];
-                        block_light[i] = light.block_light as f32 * ao_bright[i];
-                    }
-                } else {
-                    for i in 0..4 {
-                        sky[i] = 15.0 * ao_bright[i];
-                    }
+                
+                let face_z = world_z - 1;
+                for i in 0..4 {
+                    let (vx, vy) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        vx, vy, face_z,
+                        ao_levels[i],
+                        ao::Plane::XY,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
                 }
 
                 let color = lookups.color(block_id);
@@ -691,20 +719,29 @@ fn mesh_face_south(
                     (x, y + hf, z),      // V3
                 ];
 
-                let ao_bright = start_ao.brightness();
+                // Sample smooth light with AO at each vertex corner
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (world_x, block_y),                 // V0
+                    (world_x + w as i32, block_y),      // V1
+                    (world_x + w as i32, block_y + h as i32), // V2
+                    (world_x, block_y + h as i32),      // V3
+                ];
+                
                 let mut sky = [15.0f32; 4];
                 let mut block_light = [0.0f32; 4];
-
-                if let Some(lg) = light_grid {
-                    for (i, pos) in positions.iter().enumerate() {
-                        let light = lg.get_light(pos.0 as i32, pos.1 as i32, world_z + 1);
-                        sky[i] = light.sky_light as f32 * ao_bright[i];
-                        block_light[i] = light.block_light as f32 * ao_bright[i];
-                    }
-                } else {
-                    for i in 0..4 {
-                        sky[i] = 15.0 * ao_bright[i];
-                    }
+                
+                let face_z = world_z + 1;
+                for i in 0..4 {
+                    let (vx, vy) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        vx, vy, face_z,
+                        ao_levels[i],
+                        ao::Plane::XY,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
                 }
 
                 let color = lookups.color(block_id);
@@ -834,20 +871,29 @@ fn mesh_face_east(
                     (x, y + hf, z + wf), // V3
                 ];
 
-                let ao_bright = start_ao.brightness();
+                // Sample smooth light with AO at each vertex corner
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (block_y, world_z + w as i32),      // V0
+                    (block_y, world_z),                 // V1
+                    (block_y + h as i32, world_z),      // V2
+                    (block_y + h as i32, world_z + w as i32), // V3
+                ];
+                
                 let mut sky = [15.0f32; 4];
                 let mut block_light = [0.0f32; 4];
-
-                if let Some(lg) = light_grid {
-                    for (i, pos) in positions.iter().enumerate() {
-                        let light = lg.get_light(world_x + 1, pos.1 as i32, pos.2 as i32);
-                        sky[i] = light.sky_light as f32 * ao_bright[i];
-                        block_light[i] = light.block_light as f32 * ao_bright[i];
-                    }
-                } else {
-                    for i in 0..4 {
-                        sky[i] = 15.0 * ao_bright[i];
-                    }
+                
+                let face_x = world_x + 1;
+                for i in 0..4 {
+                    let (vy, vz) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        face_x, vy, vz,
+                        ao_levels[i],
+                        ao::Plane::YZ,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
                 }
 
                 let color = lookups.color(block_id);
@@ -977,20 +1023,29 @@ fn mesh_face_west(
                     (x, y + hf, z),      // V3
                 ];
 
-                let ao_bright = start_ao.brightness();
+                // Sample smooth light with AO at each vertex corner
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (block_y, world_z),                 // V0
+                    (block_y, world_z + w as i32),      // V1
+                    (block_y + h as i32, world_z + w as i32), // V2
+                    (block_y + h as i32, world_z),      // V3
+                ];
+                
                 let mut sky = [15.0f32; 4];
                 let mut block_light = [0.0f32; 4];
-
-                if let Some(lg) = light_grid {
-                    for (i, pos) in positions.iter().enumerate() {
-                        let light = lg.get_light(world_x - 1, pos.1 as i32, pos.2 as i32);
-                        sky[i] = light.sky_light as f32 * ao_bright[i];
-                        block_light[i] = light.block_light as f32 * ao_bright[i];
-                    }
-                } else {
-                    for i in 0..4 {
-                        sky[i] = 15.0 * ao_bright[i];
-                    }
+                
+                let face_x = world_x - 1;
+                for i in 0..4 {
+                    let (vy, vz) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        face_x, vy, vz,
+                        ao_levels[i],
+                        ao::Plane::YZ,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
                 }
 
                 let color = lookups.color(block_id);
