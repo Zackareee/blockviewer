@@ -157,7 +157,9 @@ class ModelGeometry {
     
     // For cross-pattern blocks with multiple thin elements, we also need to offset
     // entire elements apart from each other to prevent z-fighting at intersections
-    const ELEMENT_OFFSET = 0.002;
+    // This needs to be large enough to prevent GPU depth buffer precision issues
+    // 0.005 = ~0.08 pixels at 16px/block, should be imperceptible but fix z-fighting
+    const ELEMENT_OFFSET = 0.005;
     
     // Pre-compute element bounds for internal face culling
     // This detects when faces from different elements overlap within the same model
@@ -403,15 +405,18 @@ class ModelGeometry {
         }
         
         // Cross-pattern: multiple thin elements with same-axis rotation that intersect
-        // For these, we offset ENTIRE elements (not individual faces) to separate panes
+        // For these, we offset ENTIRE elements in the Y direction to separate panes
+        // This prevents z-fighting at the center intersection line of X-shaped crosses
         const isCrossPattern = thinRotatedCount >= 2 && sameAxisRotation && hasElementRotation;
         
         if (isThinElement && isCrossPattern) {
-          // Offset entire pane along its thin axis to separate from other panes
-          const elementSign = (elementIdx % 2 === 0) ? 1 : -1;
-          if (sizeZ < THIN_THRESHOLD) normalOffsetZ = ELEMENT_OFFSET * elementSign;
-          if (sizeX < THIN_THRESHOLD) normalOffsetX = ELEMENT_OFFSET * elementSign;
-          if (sizeY < THIN_THRESHOLD) normalOffsetY = ELEMENT_OFFSET * elementSign;
+          // Offset the planes slightly in Y to separate them at the intersection
+          // Use the rotation angle sign to determine which plane goes up/down
+          // +45° rotation -> offset up, -45° rotation -> offset down
+          const rotAngle = elRot?.angle || 0;
+          const elementSign = rotAngle >= 0 ? 1 : -1;
+          // Offset in Y separates the intersection line into two non-intersecting lines
+          normalOffsetY = ELEMENT_OFFSET * elementSign;
         }
         // For any OTHER thin element (rotated or not), offset faces along their normals
         // This handles: diagonal rails, sunflower face, lily pads, flat rails, carpets, etc.

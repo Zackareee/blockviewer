@@ -361,6 +361,11 @@ export function createInstancedModelMaterial(atlasData = null, useTextures = fal
     transparent: false,
     depthWrite: true,
     depthTest: true,
+    // Polygon offset to prevent z-fighting on cross-pattern intersections
+    // The two diagonal planes of an X-cross intersect at the center line
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
   });
   
   return material;
@@ -418,19 +423,24 @@ export function createCrossGeometry(textureIndex = 0) {
   const sqrt2 = Math.SQRT2;
   const halfSqrt2 = sqrt2 / 2;
   
-  // First diagonal (from corner 0,0 to 1,1)
+  // Small Y offset to prevent z-fighting where the two quads intersect
+  // One quad is slightly above, one slightly below the center line
+  // 0.001 blocks = 0.016 pixels at 16px/block, imperceptible but prevents fighting
+  const Y_OFFSET = 0.001;
+  
+  // First diagonal (from corner 0,0 to 1,1) - offset slightly UP
   const positions = new Float32Array([
     // Quad 1: diagonal from (0,0) to (1,1)
-    0.5 - halfSqrt2/2, 0, 0.5 - halfSqrt2/2,  // bottom-left
-    0.5 + halfSqrt2/2, 0, 0.5 + halfSqrt2/2,  // bottom-right
-    0.5 + halfSqrt2/2, 1, 0.5 + halfSqrt2/2,  // top-right
-    0.5 - halfSqrt2/2, 1, 0.5 - halfSqrt2/2,  // top-left
+    0.5 - halfSqrt2/2, 0 + Y_OFFSET, 0.5 - halfSqrt2/2,  // bottom-left
+    0.5 + halfSqrt2/2, 0 + Y_OFFSET, 0.5 + halfSqrt2/2,  // bottom-right
+    0.5 + halfSqrt2/2, 1 + Y_OFFSET, 0.5 + halfSqrt2/2,  // top-right
+    0.5 - halfSqrt2/2, 1 + Y_OFFSET, 0.5 - halfSqrt2/2,  // top-left
     
-    // Quad 2: diagonal from (1,0) to (0,1)
-    0.5 + halfSqrt2/2, 0, 0.5 - halfSqrt2/2,  // bottom-left
-    0.5 - halfSqrt2/2, 0, 0.5 + halfSqrt2/2,  // bottom-right
-    0.5 - halfSqrt2/2, 1, 0.5 + halfSqrt2/2,  // top-right
-    0.5 + halfSqrt2/2, 1, 0.5 - halfSqrt2/2,  // top-left
+    // Quad 2: diagonal from (1,0) to (0,1) - offset slightly DOWN
+    0.5 + halfSqrt2/2, 0 - Y_OFFSET, 0.5 - halfSqrt2/2,  // bottom-left
+    0.5 - halfSqrt2/2, 0 - Y_OFFSET, 0.5 + halfSqrt2/2,  // bottom-right
+    0.5 - halfSqrt2/2, 1 - Y_OFFSET, 0.5 + halfSqrt2/2,  // top-right
+    0.5 + halfSqrt2/2, 1 - Y_OFFSET, 0.5 - halfSqrt2/2,  // top-left
   ]);
   
   // UVs (standard 0-1 mapping)
