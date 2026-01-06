@@ -22,6 +22,22 @@ export const AXIS_Z = 2;
 export const AXIS_SHIFT = 12;
 export const AXIS_MASK = 0x3000; // Bits 12-13
 
+// Facing encoding for directional blocks (stored in bits 12-13, same as axis - mutually exclusive)
+// Facing values: 0 = north, 1 = east, 2 = south, 3 = west
+export const FACING_NORTH = 0;
+export const FACING_EAST = 1;
+export const FACING_SOUTH = 2;
+export const FACING_WEST = 3;
+export const FACING_SHIFT = 12; // Same bits as axis
+export const FACING_MASK = 0x3000; // Bits 12-13
+
+// Directional blocks that need facing encoding
+const DIRECTIONAL_BLOCKS = new Set([
+  'furnace', 'blast_furnace', 'smoker',
+  'loom',
+  'carved_pumpkin', 'jack_o_lantern',
+]);
+
 // Pre-computed BigInt bit offsets for common bitsPerBlock values (4-15)
 const BIT_OFFSETS = Array.from({ length: 16 }, (_, i) => 
   Array.from({ length: 64 }, (_, j) => BigInt(j * i))
@@ -217,6 +233,19 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
         axisValues[i] = AXIS_Z;
       } else {
         axisValues[i] = AXIS_Y; // Default or explicit 'y'
+      }
+    }
+    // Extract facing for directional blocks (furnace, loom, pumpkins, etc.)
+    // Uses same bits 12-13 as axis since these block types are mutually exclusive
+    else if (DIRECTIONAL_BLOCKS.has(name) && props?.facing) {
+      if (props.facing === 'east') {
+        axisValues[i] = FACING_EAST;
+      } else if (props.facing === 'south') {
+        axisValues[i] = FACING_SOUTH;
+      } else if (props.facing === 'west') {
+        axisValues[i] = FACING_WEST;
+      } else {
+        axisValues[i] = FACING_NORTH; // Default or explicit 'north'
       }
     }
     

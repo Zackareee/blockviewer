@@ -16,7 +16,8 @@ pub struct Lookups {
     pub is_fluid: &'static [u8],
     pub is_glass: &'static [u8],
     pub is_ao_transparent: &'static [u8],
-    pub is_rotatable: &'static [u8],  // Blocks that can have axis rotation (logs, pillars)
+    pub is_rotatable: &'static [u8],    // Blocks that can have axis rotation (logs, pillars)
+    pub is_directional: &'static [u8],  // Blocks with horizontal facing (furnace, loom, etc.)
     pub color_r: &'static [f32],
     pub color_g: &'static [f32],
     pub color_b: &'static [f32],
@@ -42,6 +43,7 @@ struct LookupStorage {
     is_glass: Vec<u8>,
     is_ao_transparent: Vec<u8>,
     is_rotatable: Vec<u8>,
+    is_directional: Vec<u8>,
     color_r: Vec<f32>,
     color_g: Vec<f32>,
     color_b: Vec<f32>,
@@ -67,6 +69,7 @@ impl Lookups {
             is_glass: &storage.is_glass,
             is_ao_transparent: &storage.is_ao_transparent,
             is_rotatable: &storage.is_rotatable,
+            is_directional: &storage.is_directional,
             color_r: &storage.color_r,
             color_g: &storage.color_g,
             color_b: &storage.color_b,
@@ -126,6 +129,12 @@ impl Lookups {
     #[inline]
     pub fn is_rotatable(&self, block_id: u16) -> bool {
         self.is_rotatable.get(block_id as usize).copied().unwrap_or(0) != 0
+    }
+
+    /// Check if block is directional (furnace, loom, pumpkins, etc.)
+    #[inline]
+    pub fn is_directional(&self, block_id: u16) -> bool {
+        self.is_directional.get(block_id as usize).copied().unwrap_or(0) != 0
     }
 
     /// Get block color
@@ -188,6 +197,7 @@ pub fn init_lookups(
     is_glass: &[u8],
     is_ao_transparent: &[u8],
     is_rotatable: &[u8],
+    is_directional: &[u8],
     color_r: &[f32],
     color_g: &[f32],
     color_b: &[f32],
@@ -206,6 +216,7 @@ pub fn init_lookups(
         is_glass: is_glass.to_vec(),
         is_ao_transparent: is_ao_transparent.to_vec(),
         is_rotatable: is_rotatable.to_vec(),
+        is_directional: is_directional.to_vec(),
         color_r: color_r.to_vec(),
         color_g: color_g.to_vec(),
         color_b: color_b.to_vec(),

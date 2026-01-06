@@ -80,6 +80,7 @@ export function initLookups(lookups) {
     lookups.isGlass,
     lookups.isAOTransparent,
     lookups.isRotatable,
+    lookups.isDirectional,
     lookups.colorR,
     lookups.colorG,
     lookups.colorB,
@@ -332,6 +333,7 @@ export function buildLookupTables(registry, textureIndexLookup) {
   const isGlass = new Uint8Array(MAX_BLOCKS);
   const isAOTransparent = new Uint8Array(MAX_BLOCKS);
   const isRotatable = new Uint8Array(MAX_BLOCKS);
+  const isDirectional = new Uint8Array(MAX_BLOCKS); // Blocks with horizontal facing (furnace, loom, etc.)
   const colorR = new Float32Array(MAX_BLOCKS);
   const colorG = new Float32Array(MAX_BLOCKS);
   const colorB = new Float32Array(MAX_BLOCKS);
@@ -352,6 +354,14 @@ export function buildLookupTables(registry, textureIndexLookup) {
     isOpaque[id] = registry.isOpaque(id) ? 1 : 0;
     isNonCube[id] = registry.isNonCube(id) ? 1 : 0;
     isRotatable[id] = (info.name && isRotatableBlock(info.name)) ? 1 : 0;
+    
+    // Directional blocks with horizontal facing
+    if (info.name) {
+      const DIRECTIONAL_BLOCKS = ['furnace', 'blast_furnace', 'smoker', 'loom', 'carved_pumpkin', 'jack_o_lantern'];
+      if (DIRECTIONAL_BLOCKS.some(b => info.name === b || info.name === `minecraft:${b}`)) {
+        isDirectional[id] = 1;
+      }
+    }
     
     const col = registry.getColor(id);
     colorR[id] = col.r;
@@ -415,7 +425,8 @@ export function buildLookupTables(registry, textureIndexLookup) {
     isFluid,
     isGlass,
     isAOTransparent,
-    isRotatable,  // For logs, pillars, etc.
+    isRotatable,     // For logs, pillars, etc.
+    isDirectional,   // For horizontal facing blocks (furnace, loom, etc.)
     colorR,
     colorG,
     colorB,

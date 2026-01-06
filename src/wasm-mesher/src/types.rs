@@ -22,6 +22,15 @@ pub const AXIS_Y: u8 = 0;                    // Default vertical orientation
 pub const AXIS_X: u8 = 1;                    // East-west horizontal
 pub const AXIS_Z: u8 = 2;                    // North-south horizontal
 
+/// Facing encoding for directional blocks (uses same bits 12-13 as axis, mutually exclusive)
+/// Facing values represent which direction the "front" face points
+pub const FACING_SHIFT: u16 = 12;
+pub const FACING_MASK: u16 = 0x3000;        // Bits 12-13 (4 facing values)
+pub const FACING_NORTH: u8 = 0;              // Default: front faces -Z
+pub const FACING_EAST: u8 = 1;               // Front faces +X
+pub const FACING_SOUTH: u8 = 2;              // Front faces +Z
+pub const FACING_WEST: u8 = 3;               // Front faces -X
+
 /// Y bounds (Minecraft 1.18+: -64 to 320 inclusive)
 pub const MIN_Y: i32 = -64;
 pub const MAX_Y: i32 = 321; // Exclusive upper bound (blocks can exist at Y=320)
@@ -69,6 +78,58 @@ impl Face {
 #[inline]
 pub fn get_block_axis(block_value: u16) -> u8 {
     ((block_value & AXIS_MASK) >> AXIS_SHIFT) as u8
+}
+
+/// Extract facing from block value (bits 12-13) - same bits as axis, mutually exclusive
+#[inline]
+pub fn get_block_facing(block_value: u16) -> u8 {
+    ((block_value & FACING_MASK) >> FACING_SHIFT) as u8
+}
+
+/// Remap face for directional blocks based on facing direction
+/// TextureIndexLookup is built assuming north = front, so we remap the actual face
+/// to get the correct texture when the block faces a different direction
+/// 
+/// facing=north (0): no remapping
+/// facing=east  (1): rotate 90° clockwise
+/// facing=south (2): rotate 180°
+/// facing=west  (3): rotate 270° (90° counter-clockwise)
+#[inline]
+pub fn get_directional_face(facing: u8, actual_face: Face) -> Face {
+    match facing {
+        FACING_NORTH => actual_face, // Default orientation, no remapping
+        FACING_EAST => {
+            // Block faces east: east->north, north->west, west->south, south->east
+            match actual_face {
+                Face::North => Face::West,
+                Face::East => Face::North,
+                Face::South => Face::East,
+                Face::West => Face::South,
+                _ => actual_face, // Up/Down unchanged
+            }
+        }
+        FACING_SOUTH => {
+            // Block faces south: north->south, south->north, east->west, west->east
+            match actual_face {
+                Face::North => Face::South,
+                Face::South => Face::North,
+                Face::East => Face::West,
+                Face::West => Face::East,
+                _ => actual_face, // Up/Down unchanged
+            }
+        }
+        FACING_WEST => {
+            // Block faces west: west->north, north->east, east->south, south->west
+            match actual_face {
+                Face::North => Face::East,
+                Face::East => Face::South,
+                Face::South => Face::West,
+                Face::West => Face::North,
+                _ => actual_face, // Up/Down unchanged
+            }
+        }
+        _ => actual_face,
+    }
 }
 
 /// Get the effective face direction for texture lookup on a rotated block

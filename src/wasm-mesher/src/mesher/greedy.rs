@@ -7,9 +7,10 @@ use crate::grid::{BinaryGrid, LightGrid};
 use crate::lookup::Lookups;
 use crate::mesher::{MeshData, ao};
 use crate::types::{
-    Face, SectionKey, SECTION_SIZE, SECTION_VOLUME, BLOCK_ID_MASK, SLAB_MASK, SLAB_SHIFT,
-    SLAB_DOUBLE, block_index_in_section, section_to_world_y,
+    Face, SECTION_SIZE, SECTION_VOLUME, BLOCK_ID_MASK, SLAB_MASK, SLAB_SHIFT,
+    SLAB_DOUBLE, section_to_world_y,
     get_block_axis, get_rotated_face, get_texture_rotation, AXIS_Y,
+    get_directional_face,
 };
 
 const S: usize = SECTION_SIZE;
@@ -346,11 +347,16 @@ fn mesh_face_top(
                 let color = lookups.color(block_id);
                 
                 // Apply rotation for rotatable blocks (logs, pillars, etc.)
+                // Or face remapping for directional blocks (furnace, loom, etc.)
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
                     let rotated_face = get_rotated_face(axis, Face::Up);
                     let idx = lookups.texture_index(block_id, rotated_face as u8);
                     let rot = get_texture_rotation(axis, Face::Up);
                     (idx, rot)
+                } else if lookups.is_directional(block_id) {
+                    let facing = ((mask_value >> 12) & 0x3) as u8;
+                    let remapped_face = get_directional_face(facing, Face::Up);
+                    (lookups.texture_index(block_id, remapped_face as u8), 0.0)
                 } else {
                     (lookups.texture_index(block_id, Face::Up as u8), 0.0)
                 };
@@ -522,6 +528,10 @@ fn mesh_face_bottom(
                     let idx = lookups.texture_index(block_id, rotated_face as u8);
                     let rot = get_texture_rotation(axis, Face::Down);
                     (idx, rot)
+                } else if lookups.is_directional(block_id) {
+                    let facing = ((mask_value >> 12) & 0x3) as u8;
+                    let remapped_face = get_directional_face(facing, Face::Down);
+                    (lookups.texture_index(block_id, remapped_face as u8), 0.0)
                 } else {
                     (lookups.texture_index(block_id, Face::Down as u8), 0.0)
                 };
@@ -695,6 +705,10 @@ fn mesh_face_north(
                     let idx = lookups.texture_index(block_id, rotated_face as u8);
                     let rot = get_texture_rotation(axis, Face::North);
                     (idx, rot)
+                } else if lookups.is_directional(block_id) {
+                    let facing = ((mask_value >> 12) & 0x3) as u8;
+                    let remapped_face = get_directional_face(facing, Face::North);
+                    (lookups.texture_index(block_id, remapped_face as u8), 0.0)
                 } else {
                     (lookups.texture_index(block_id, Face::North as u8), 0.0)
                 };
@@ -868,6 +882,10 @@ fn mesh_face_south(
                     let idx = lookups.texture_index(block_id, rotated_face as u8);
                     let rot = get_texture_rotation(axis, Face::South);
                     (idx, rot)
+                } else if lookups.is_directional(block_id) {
+                    let facing = ((mask_value >> 12) & 0x3) as u8;
+                    let remapped_face = get_directional_face(facing, Face::South);
+                    (lookups.texture_index(block_id, remapped_face as u8), 0.0)
                 } else {
                     (lookups.texture_index(block_id, Face::South as u8), 0.0)
                 };
@@ -1041,6 +1059,10 @@ fn mesh_face_east(
                     let idx = lookups.texture_index(block_id, rotated_face as u8);
                     let rot = get_texture_rotation(axis, Face::East);
                     (idx, rot)
+                } else if lookups.is_directional(block_id) {
+                    let facing = ((mask_value >> 12) & 0x3) as u8;
+                    let remapped_face = get_directional_face(facing, Face::East);
+                    (lookups.texture_index(block_id, remapped_face as u8), 0.0)
                 } else {
                     (lookups.texture_index(block_id, Face::East as u8), 0.0)
                 };
@@ -1214,6 +1236,10 @@ fn mesh_face_west(
                     let idx = lookups.texture_index(block_id, rotated_face as u8);
                     let rot = get_texture_rotation(axis, Face::West);
                     (idx, rot)
+                } else if lookups.is_directional(block_id) {
+                    let facing = ((mask_value >> 12) & 0x3) as u8;
+                    let remapped_face = get_directional_face(facing, Face::West);
+                    (lookups.texture_index(block_id, remapped_face as u8), 0.0)
                 } else {
                     (lookups.texture_index(block_id, Face::West as u8), 0.0)
                 };
