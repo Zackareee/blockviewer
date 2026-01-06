@@ -173,8 +173,16 @@ class BlockDefinitionLoader {
    */
   _extractPropertiesFromWhen(when, definition) {
     if (when.OR) {
-      // OR condition: array of conditions
+      // Explicit OR condition: array of conditions
       for (const cond of when.OR) {
+        this._extractPropertiesFromWhen(cond, definition);
+      }
+      return;
+    }
+
+    if (when.AND) {
+      // Explicit AND condition: array of conditions (used by chiseled_bookshelf)
+      for (const cond of when.AND) {
         this._extractPropertiesFromWhen(cond, definition);
       }
       return;
@@ -182,7 +190,7 @@ class BlockDefinitionLoader {
 
     // Regular condition: { prop: value } or { prop: "value1|value2" }
     for (const [propName, propValue] of Object.entries(when)) {
-      if (propName === 'OR') continue;
+      if (propName === 'OR' || propName === 'AND') continue;
       
       definition.properties.add(propName);
       

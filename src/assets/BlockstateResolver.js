@@ -285,12 +285,17 @@ class BlockstateResolver {
   _matchesCondition(when, properties) {
     if (!when) return true; // No condition = always apply
 
-    // OR condition
+    // Explicit OR condition
     if (when.OR) {
       return when.OR.some(cond => this._matchesCondition(cond, properties));
     }
 
-    // AND condition (implicit - all keys must match)
+    // Explicit AND condition (used by chiseled_bookshelf)
+    if (when.AND) {
+      return when.AND.every(cond => this._matchesCondition(cond, properties));
+    }
+
+    // Implicit AND condition - all keys must match
     for (const [key, value] of Object.entries(when)) {
       const propValue = properties[key];
       
