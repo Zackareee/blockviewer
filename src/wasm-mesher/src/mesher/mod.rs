@@ -1,0 +1,105 @@
+//! Mesh generation algorithms
+
+pub mod ao;
+pub mod fluid;
+pub mod greedy;
+pub mod model;
+
+/// Common mesh data output
+#[derive(Debug, Clone, Default)]
+pub struct MeshData {
+    pub positions: Vec<f32>,
+    pub normals: Vec<f32>,
+    pub colors: Vec<f32>,
+    pub tex_indices: Vec<f32>,
+    pub tex_rotations: Vec<f32>,
+    pub tint_types: Vec<f32>,
+    pub sky_light: Vec<f32>,
+    pub block_light: Vec<f32>,
+    pub indices: Vec<u32>,
+    pub vertex_count: u32,
+}
+
+impl MeshData {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(vertex_cap: usize, index_cap: usize) -> Self {
+        Self {
+            positions: Vec::with_capacity(vertex_cap * 3),
+            normals: Vec::with_capacity(vertex_cap * 3),
+            colors: Vec::with_capacity(vertex_cap * 3),
+            tex_indices: Vec::with_capacity(vertex_cap),
+            tex_rotations: Vec::with_capacity(vertex_cap),
+            tint_types: Vec::with_capacity(vertex_cap),
+            sky_light: Vec::with_capacity(vertex_cap),
+            block_light: Vec::with_capacity(vertex_cap),
+            indices: Vec::with_capacity(index_cap),
+            vertex_count: 0,
+        }
+    }
+
+    /// Add a quad (4 vertices, 6 indices)
+    pub fn add_quad(
+        &mut self,
+        positions: [(f32, f32, f32); 4],
+        normal: (f32, f32, f32),
+        color: (f32, f32, f32),
+        tex_idx: f32,
+        tex_rot: f32,
+        tint: f32,
+        sky: [f32; 4],
+        block: [f32; 4],
+        flip_winding: bool,
+    ) {
+        let base = self.vertex_count;
+
+        // Add vertex data
+        for i in 0..4 {
+            self.positions.push(positions[i].0);
+            self.positions.push(positions[i].1);
+            self.positions.push(positions[i].2);
+            self.normals.push(normal.0);
+            self.normals.push(normal.1);
+            self.normals.push(normal.2);
+            self.colors.push(color.0);
+            self.colors.push(color.1);
+            self.colors.push(color.2);
+            self.tex_indices.push(tex_idx);
+            self.tex_rotations.push(tex_rot);
+            self.tint_types.push(tint);
+            self.sky_light.push(sky[i]);
+            self.block_light.push(block[i]);
+        }
+
+        // Add indices (two triangles)
+        if flip_winding {
+            // AO-based winding: 0-1-2, 0-2-3
+            self.indices.push(base);
+            self.indices.push(base + 1);
+            self.indices.push(base + 2);
+            self.indices.push(base);
+            self.indices.push(base + 2);
+            self.indices.push(base + 3);
+        } else {
+            // Standard winding: 0-1-2, 0-2-3
+            self.indices.push(base);
+            self.indices.push(base + 1);
+            self.indices.push(base + 2);
+            self.indices.push(base);
+            self.indices.push(base + 2);
+            self.indices.push(base + 3);
+        }
+
+        self.vertex_count += 4;
+    }
+}
+
+/// Result from fluid meshing (water + lava)
+#[derive(Debug, Default)]
+pub struct FluidMeshResult {
+    pub water: MeshData,
+    pub lava: MeshData,
+}
+

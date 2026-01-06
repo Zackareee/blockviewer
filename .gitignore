@@ -25,3 +25,8 @@ dist-ssr
 
 # Large binary files
 minecraft_versions
+
+# Rust/WASM build artifacts
+src/wasm-mesher/target/
+src/wasm-mesher/Cargo.lock
+src/mesh/wasm/pkg/

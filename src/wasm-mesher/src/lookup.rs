@@ -1,0 +1,162 @@
+//! Block property lookup tables
+//!
+//! These tables are initialized once from JavaScript and stored in static memory
+//! for fast access during meshing.
+
+use std::sync::OnceLock;
+
+/// Maximum block ID (12-bit = 4096)
+const MAX_BLOCK_ID: usize = 4096;
+
+/// Lookup tables for block properties
+pub struct Lookups {
+    pub is_opaque: &'static [u8],
+    pub is_non_cube: &'static [u8],
+    pub is_slab: &'static [u8],
+    pub is_fluid: &'static [u8],
+    pub is_glass: &'static [u8],
+    pub is_ao_transparent: &'static [u8],
+    pub color_r: &'static [f32],
+    pub color_g: &'static [f32],
+    pub color_b: &'static [f32],
+    pub face_tint_types: &'static [u8],
+    pub texture_indices: &'static [f32],
+}
+
+/// Static storage for lookup tables
+static LOOKUP_STORAGE: OnceLock<LookupStorage> = OnceLock::new();
+
+struct LookupStorage {
+    is_opaque: Vec<u8>,
+    is_non_cube: Vec<u8>,
+    is_slab: Vec<u8>,
+    is_fluid: Vec<u8>,
+    is_glass: Vec<u8>,
+    is_ao_transparent: Vec<u8>,
+    color_r: Vec<f32>,
+    color_g: Vec<f32>,
+    color_b: Vec<f32>,
+    face_tint_types: Vec<u8>,
+    texture_indices: Vec<f32>,
+}
+
+impl Lookups {
+    /// Create lookups from static storage
+    pub fn get() -> Option<Self> {
+        LOOKUP_STORAGE.get().map(|storage| Self {
+            is_opaque: &storage.is_opaque,
+            is_non_cube: &storage.is_non_cube,
+            is_slab: &storage.is_slab,
+            is_fluid: &storage.is_fluid,
+            is_glass: &storage.is_glass,
+            is_ao_transparent: &storage.is_ao_transparent,
+            color_r: &storage.color_r,
+            color_g: &storage.color_g,
+            color_b: &storage.color_b,
+            face_tint_types: &storage.face_tint_types,
+            texture_indices: &storage.texture_indices,
+        })
+    }
+
+    /// Unsafe: create from raw pointer (for legacy API)
+    pub unsafe fn from_ptr(_ptr: *const u8, _len: usize) -> Self {
+        Self::get().expect("Lookups not initialized - call init_lookups first")
+    }
+
+    /// Check if block is opaque
+    #[inline]
+    pub fn is_opaque(&self, block_id: u16) -> bool {
+        self.is_opaque.get(block_id as usize).copied().unwrap_or(0) != 0
+    }
+
+    /// Check if block is a non-cube (model block)
+    #[inline]
+    pub fn is_non_cube(&self, block_id: u16) -> bool {
+        self.is_non_cube.get(block_id as usize).copied().unwrap_or(0) != 0
+    }
+
+    /// Check if block is a slab
+    #[inline]
+    pub fn is_slab(&self, block_id: u16) -> bool {
+        self.is_slab.get(block_id as usize).copied().unwrap_or(0) != 0
+    }
+
+    /// Get fluid type (0=none, 1=water, 2=lava)
+    #[inline]
+    pub fn fluid_type(&self, block_id: u16) -> u8 {
+        self.is_fluid.get(block_id as usize).copied().unwrap_or(0)
+    }
+
+    /// Check if block is glass/transparent
+    #[inline]
+    pub fn is_glass(&self, block_id: u16) -> bool {
+        self.is_glass.get(block_id as usize).copied().unwrap_or(0) != 0
+    }
+
+    /// Check if block is AO transparent (doesn't block light for AO)
+    #[inline]
+    pub fn is_ao_transparent(&self, block_id: u16) -> bool {
+        self.is_ao_transparent.get(block_id as usize).copied().unwrap_or(1) != 0
+    }
+
+    /// Get block color
+    #[inline]
+    pub fn color(&self, block_id: u16) -> (f32, f32, f32) {
+        let id = block_id as usize;
+        (
+            self.color_r.get(id).copied().unwrap_or(1.0),
+            self.color_g.get(id).copied().unwrap_or(1.0),
+            self.color_b.get(id).copied().unwrap_or(1.0),
+        )
+    }
+
+    /// Get tint type for a face (block_id * 6 + face)
+    #[inline]
+    pub fn face_tint_type(&self, block_id: u16, face: u8) -> u8 {
+        let idx = block_id as usize * 6 + face as usize;
+        self.face_tint_types.get(idx).copied().unwrap_or(0)
+    }
+
+    /// Get texture index for a face (block_id * 6 + face)
+    #[inline]
+    pub fn texture_index(&self, block_id: u16, face: u8) -> f32 {
+        let idx = block_id as usize * 6 + face as usize;
+        self.texture_indices.get(idx).copied().unwrap_or(0.0)
+    }
+}
+
+/// Initialize lookup tables from JavaScript
+/// Returns a pointer that can be passed back to mesh_chunk
+pub fn init_lookups(
+    is_opaque: &[u8],
+    is_non_cube: &[u8],
+    is_slab: &[u8],
+    is_fluid: &[u8],
+    is_glass: &[u8],
+    is_ao_transparent: &[u8],
+    color_r: &[f32],
+    color_g: &[f32],
+    color_b: &[f32],
+    face_tint_types: &[u8],
+    texture_indices: &[f32],
+) -> *const u8 {
+    let storage = LookupStorage {
+        is_opaque: is_opaque.to_vec(),
+        is_non_cube: is_non_cube.to_vec(),
+        is_slab: is_slab.to_vec(),
+        is_fluid: is_fluid.to_vec(),
+        is_glass: is_glass.to_vec(),
+        is_ao_transparent: is_ao_transparent.to_vec(),
+        color_r: color_r.to_vec(),
+        color_g: color_g.to_vec(),
+        color_b: color_b.to_vec(),
+        face_tint_types: face_tint_types.to_vec(),
+        texture_indices: texture_indices.to_vec(),
+    };
+
+    let _ = LOOKUP_STORAGE.set(storage);
+    
+    // Return a dummy pointer - the actual data is in static storage
+    std::ptr::null()
+}
+

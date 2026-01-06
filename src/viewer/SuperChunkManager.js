@@ -24,6 +24,15 @@ import { buildModelMeshesWithInstancing } from '../mesh/ModelMesher.js';
 import { propagateSkyLight } from '../mesh/LightPropagator.js';
 import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
 import { getMeshWorkerPool } from '../mesh/workers/MeshWorkerPool.js';
+import { 
+  initWasmMesher, 
+  isWasmAvailable, 
+  initLookups as initWasmLookups,
+  buildLookupTables,
+  meshChunk as wasmMeshChunk,
+  serializeGrid,
+  serializeLightGrid,
+} from '../mesh/wasm/WasmMesher.js';
 
 // Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
 // Smaller size = faster rebuilds, less jank, more responsive loading
@@ -149,10 +158,59 @@ export class SuperChunkManager {
     this.workerPoolInitialized = false;
     this.workerPoolInitPromise = null;
     
-    // Use workers for meshing (can be disabled for debugging)
-    // TEMPORARILY DISABLED: Worker mesher is incomplete (missing water/lava/models/tinting)
-    // TODO: Complete the worker mesher implementation
-    this.useWorkers = false; // options.useWorkers !== false;
+    // WASM mesher state
+    this.wasmInitialized = false;
+    this.wasmInitPromise = null;
+    this.useWasm = options.useWasm !== false; // Enable WASM meshing by default
+    
+    // Use workers for meshing (disabled - WASM is preferred)
+    this.useWorkers = false;
+  }
+
+  /**
+   * Initialize the WASM mesher module
+   * Call this before building any super-chunks for best performance
+   */
+  async initializeWasm() {
+    if (this.wasmInitialized) return true;
+    if (this.wasmInitPromise) return this.wasmInitPromise;
+    
+    this.wasmInitPromise = this._doInitializeWasm();
+    return this.wasmInitPromise;
+  }
+
+  async _doInitializeWasm() {
+    if (!this.useWasm) {
+      console.log('[SuperChunkManager] WASM meshing disabled');
+      return false;
+    }
+
+    try {
+      console.log('[SuperChunkManager] Initializing WASM mesher...');
+      
+      // Initialize the WASM module
+      const wasmLoaded = await initWasmMesher();
+      if (!wasmLoaded) {
+        console.warn('[SuperChunkManager] WASM mesher not available, using JavaScript fallback');
+        this.useWasm = false;
+        return false;
+      }
+      
+      // Build lookup tables from registry
+      const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
+      const lookups = buildLookupTables(this.registry, textureIndexLookup);
+      
+      // Initialize lookups in WASM memory
+      initWasmLookups(lookups);
+      
+      this.wasmInitialized = true;
+      console.log('[SuperChunkManager] WASM mesher initialized successfully');
+      return true;
+    } catch (error) {
+      console.error('[SuperChunkManager] Failed to initialize WASM mesher:', error);
+      this.useWasm = false;
+      return false;
+    }
   }
 
   /**
@@ -314,11 +372,15 @@ export class SuperChunkManager {
     
     const offset = { x: 0, y: 0, z: 0 };
     
-    // Try to use worker pool for meshing
-    if (this.useWorkers && this.workerPoolInitialized && this.workerPool) {
+    // Try WASM mesher first (fastest)
+    if (this.useWasm && this.wasmInitialized && isWasmAvailable()) {
+      await this._buildSuperChunkWithWasm(superChunk, grid, stateGrid, lightGrid, offset);
+    }
+    // Try worker pool for meshing (if WASM unavailable)
+    else if (this.useWorkers && this.workerPoolInitialized && this.workerPool) {
       await this._buildSuperChunkWithWorker(superChunk, grid, stateGrid, lightGrid, offset);
     } else {
-      // Fall back to main thread meshing
+      // Fall back to main thread JavaScript meshing
       await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset);
     }
     
@@ -363,6 +425,109 @@ export class SuperChunkManager {
     } catch (error) {
       console.error('[SuperChunkManager] Worker meshing failed, falling back to main thread:', error);
       // Fall back to main thread on error
+      await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset);
+    }
+  }
+
+  /**
+   * Build super-chunk meshes using WASM mesher (fastest)
+   */
+  async _buildSuperChunkWithWasm(superChunk, grid, stateGrid, lightGrid, offset) {
+    try {
+      const startTime = performance.now();
+      
+      // Run WASM mesher for solid/fluid/glass
+      const meshResult = wasmMeshChunk(grid, lightGrid, stateGrid);
+      
+      const wasmTime = performance.now() - startTime;
+      
+      // Create Three.js meshes from WASM results
+      if (meshResult.solid && meshResult.solid.positions.length > 0) {
+        const mesh = this._createMesh(meshResult.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
+        if (mesh) {
+          superChunk.meshes.push(mesh);
+          this.chunkManager.solidMeshes.push(mesh);
+        }
+      }
+      
+      if (meshResult.water && meshResult.water.positions.length > 0) {
+        const mesh = this._createMesh(meshResult.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
+        if (mesh) {
+          mesh.renderOrder = 2;
+          superChunk.meshes.push(mesh);
+          this.chunkManager.waterMeshes.push(mesh);
+        }
+      }
+      
+      if (meshResult.lava && meshResult.lava.positions.length > 0) {
+        const mesh = this._createMesh(meshResult.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
+        if (mesh) {
+          mesh.renderOrder = 3;
+          superChunk.meshes.push(mesh);
+          this.chunkManager.lavaMeshes.push(mesh);
+        }
+      }
+      
+      if (meshResult.glass && meshResult.glass.positions.length > 0) {
+        const mesh = this._createMesh(meshResult.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
+        if (mesh) {
+          mesh.renderOrder = 1;
+          superChunk.meshes.push(mesh);
+          this.chunkManager.glassMeshes.push(mesh);
+        }
+      }
+      
+      // Model meshes still use JS (WASM model meshing is a placeholder)
+      // This is because model geometry requires complex JSON data
+      if (this.enableModelMeshes && stateGrid && this.stateRegistry) {
+        await this.stateRegistry.precomputeAll();
+        
+        const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
+        const collectEmitters = this.chunkManager.particleQuality !== 'off';
+        const mesherOptions = { textureIndexLookup, lightGrid, collectEmitters };
+        
+        const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
+        
+        if (modelResult) {
+          if (modelResult.opaque && modelResult.opaque.positions.length > 0) {
+            const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+            if (mesh) {
+              superChunk.meshes.push(mesh);
+              this.chunkManager.modelMeshes.push(mesh);
+            }
+          }
+          
+          if (modelResult.transparent && modelResult.transparent.positions.length > 0) {
+            const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+            if (mesh) {
+              mesh.renderOrder = 0.5;
+              superChunk.meshes.push(mesh);
+              this.chunkManager.transparentModelMeshes.push(mesh);
+            }
+          }
+          
+          if (modelResult.overlay && modelResult.overlay.positions.length > 0) {
+            const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayModelMaterial, this.chunkManager.overlayModelGroup);
+            if (mesh) {
+              mesh.renderOrder = 4;
+              superChunk.meshes.push(mesh);
+              this.chunkManager.overlayModelMeshes.push(mesh);
+            }
+          }
+          
+          // Register particle emitters if collected
+          if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
+            this.chunkManager._registerParticleEmitters?.(modelResult.particleEmitters);
+          }
+        }
+      }
+      
+      // Debug timing (uncomment for profiling)
+      // console.log(`[WASM] Meshed super-chunk in ${wasmTime.toFixed(1)}ms`);
+      
+    } catch (error) {
+      console.error('[SuperChunkManager] WASM meshing failed, falling back to JS:', error);
+      // Fall back to JavaScript meshing on error
       await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset);
     }
   }

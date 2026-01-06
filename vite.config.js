@@ -16,6 +16,24 @@ export default defineConfig({
   clearScreen: false,
   // Serve textures folder as additional public assets
   publicDir: 'public',
+  // WASM configuration
+  optimizeDeps: {
+    exclude: ['wasm-mesher'], // Don't pre-bundle WASM
+  },
+  build: {
+    // Ensure WASM files are copied to output
+    rollupOptions: {
+      output: {
+        // Keep WASM files with their original names
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name?.endsWith('.wasm')) {
+            return 'assets/[name][extname]';
+          }
+          return 'assets/[name]-[hash][extname]';
+        },
+      },
+    },
+  },
   // Enable SharedArrayBuffer support with COOP/COEP headers
   server: {
     headers: {

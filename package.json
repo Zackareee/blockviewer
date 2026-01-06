@@ -4,8 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "build:wasm": "cd src/wasm-mesher && wasm-pack build --target web --out-dir ../mesh/wasm/pkg",
+    "build:wasm:release": "cd src/wasm-mesher && wasm-pack build --target web --release --out-dir ../mesh/wasm/pkg",
     "dev": "vite",
-    "build": "vite build",
+    "dev:wasm": "npm run build:wasm && vite",
+    "build": "npm run build:wasm:release && vite build",
+    "build:js-only": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "benchmark": "node benchmark.js",
