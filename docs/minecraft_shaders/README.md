@@ -99,3 +99,4 @@ docs/minecraft_shaders/
 3. **Shader reference**: Look at actual shaders in `core/` and `include/`
 4. **Quick formulas**: Use this README's quick reference section
 
+

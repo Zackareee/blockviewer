@@ -178,18 +178,25 @@ export class MeshWorkerPool {
 
       worker.addEventListener('message', initHandler);
 
-      // Send init data
-      const initMessage = {
-        type: 'init',
-        data: this.initData,
+      // Create a fresh copy of init data for this worker
+      // IMPORTANT: We must NOT mutate this.initData since multiple workers share it
+      const workerData = {
+        ...this.initData,
+        // Clone texture indices buffer for this worker (will be transferred)
+        textureIndices: this.initData.textureIndices 
+          ? this.initData.textureIndices.slice(0) 
+          : null,
       };
 
-      // Transfer texture indices buffer if available
+      const initMessage = {
+        type: 'init',
+        data: workerData,
+      };
+
+      // Transfer the cloned texture indices buffer
       const transferables = [];
-      if (this.initData.textureIndices) {
-        // Clone the buffer for each worker since they each need their own copy
-        initMessage.data.textureIndices = this.initData.textureIndices.slice(0);
-        transferables.push(initMessage.data.textureIndices);
+      if (workerData.textureIndices) {
+        transferables.push(workerData.textureIndices);
       }
 
       worker.postMessage(initMessage, transferables);

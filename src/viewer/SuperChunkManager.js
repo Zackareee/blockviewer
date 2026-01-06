@@ -142,7 +142,9 @@ export class SuperChunkManager {
     this.workerPoolInitPromise = null;
     
     // Use workers for meshing (can be disabled for debugging)
-    this.useWorkers = options.useWorkers !== false;
+    // TEMPORARILY DISABLED: Worker mesher is incomplete (missing water/lava/models/tinting)
+    // TODO: Complete the worker mesher implementation
+    this.useWorkers = false; // options.useWorkers !== false;
   }
 
   /**
@@ -172,7 +174,7 @@ export class SuperChunkManager {
       
       // Get texture lookup data
       const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.();
-      const textureIndices = textureIndexLookup?.textureIndices || null;
+      const textureIndices = textureIndexLookup?.getIndicesArray() || null;
       
       // Get atlas info
       const atlasInfo = this.chunkManager.getAtlasInfo?.() || { tilesPerRow: 64, tilesPerCol: 64 };
@@ -449,8 +451,16 @@ export class SuperChunkManager {
   _createMeshesFromWorkerResult(superChunk, meshResult) {
     if (!meshResult) return;
     
+    // Helper to check if mesh data has vertices
+    // ArrayBuffer uses byteLength, TypedArrays use length
+    const hasVertices = (data) => {
+      if (!data || !data.positions) return false;
+      const size = data.positions.byteLength ?? data.positions.length;
+      return size > 0;
+    };
+    
     // Process solid meshes
-    if (meshResult.solid && meshResult.solid.positions && meshResult.solid.positions.length > 0) {
+    if (hasVertices(meshResult.solid)) {
       const mesh = this._createMeshFromData(meshResult.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
       if (mesh) {
         superChunk.meshes.push(mesh);
@@ -459,7 +469,7 @@ export class SuperChunkManager {
     }
     
     // Process water meshes
-    if (meshResult.water && meshResult.water.positions && meshResult.water.positions.length > 0) {
+    if (hasVertices(meshResult.water)) {
       const mesh = this._createMeshFromData(meshResult.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
       if (mesh) {
         mesh.renderOrder = 2;
@@ -469,7 +479,7 @@ export class SuperChunkManager {
     }
     
     // Process lava meshes
-    if (meshResult.lava && meshResult.lava.positions && meshResult.lava.positions.length > 0) {
+    if (hasVertices(meshResult.lava)) {
       const mesh = this._createMeshFromData(meshResult.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
       if (mesh) {
         mesh.renderOrder = 3;
@@ -479,7 +489,7 @@ export class SuperChunkManager {
     }
     
     // Process glass meshes
-    if (meshResult.glass && meshResult.glass.positions && meshResult.glass.positions.length > 0) {
+    if (hasVertices(meshResult.glass)) {
       const mesh = this._createMeshFromData(meshResult.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
       if (mesh) {
         mesh.renderOrder = 1;
@@ -490,7 +500,7 @@ export class SuperChunkManager {
     
     // Process model meshes
     if (meshResult.model) {
-      if (meshResult.model.opaque && meshResult.model.opaque.positions && meshResult.model.opaque.positions.length > 0) {
+      if (hasVertices(meshResult.model.opaque)) {
         const mesh = this._createMeshFromData(meshResult.model.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
         if (mesh) {
           superChunk.meshes.push(mesh);
@@ -498,7 +508,7 @@ export class SuperChunkManager {
         }
       }
       
-      if (meshResult.model.transparent && meshResult.model.transparent.positions && meshResult.model.transparent.positions.length > 0) {
+      if (hasVertices(meshResult.model.transparent)) {
         const mesh = this._createMeshFromData(meshResult.model.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
         if (mesh) {
           mesh.renderOrder = 0.5;
@@ -507,7 +517,7 @@ export class SuperChunkManager {
         }
       }
       
-      if (meshResult.model.overlay && meshResult.model.overlay.positions && meshResult.model.overlay.positions.length > 0) {
+      if (hasVertices(meshResult.model.overlay)) {
         const mesh = this._createMeshFromData(meshResult.model.overlay, this.chunkManager.overlayModelMaterial, this.chunkManager.overlayModelGroup);
         if (mesh) {
           mesh.renderOrder = 4;

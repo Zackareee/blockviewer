@@ -60,13 +60,6 @@ const BEHIND_PRIORITY_PENALTY = 2; // Penalty for chunks behind player
 // Minecraft typically loads ~2-3 chunks beyond render distance
 const DEFAULT_LOAD_BUFFER = 2;
 
-// Frame budget configuration (Minecraft-style frame pacing)
-// Target 60fps = 16.67ms per frame, reserve ~10ms for rendering
-const FRAME_BUDGET_MS = 6; // Max time per frame for chunk work
-const MIN_FRAME_BUDGET_MS = 2; // Minimum when moving fast
-const MOVEMENT_SPEED_THRESHOLD = 8; // blocks/sec to trigger throttling
-const FAST_MOVEMENT_THRESHOLD = 15; // blocks/sec to heavily throttle
-const IDLE_BUDGET_MULTIPLIER = 3; // Allow more work when stationary
 
 /**
  * Simple min-heap priority queue for chunk loading
@@ -302,16 +295,8 @@ export class ChunkStreamer {
     this.registry = getBlockRegistry();
     this.stateRegistry = null;
     
-    // Frame budget system - prevents chunk loading from causing jitter
-    this.frameBudget = FRAME_BUDGET_MS;
-    this.lastFrameTime = 0;
-    this.frameWorkTime = 0; // Time spent on chunk work this frame
-    this.isMovingFast = false;
-    this.isPaused = false; // Pause loading during fast movement
-    
-    // Deferred mesh queue - spread mesh creation across frames
-    this.pendingMeshCreations = []; // Array of { superChunk, meshData }
-    this.meshCreationBudgetMs = 2; // Max time per frame for mesh creation
+    // Pause flag for manual control
+    this.isPaused = false;
     
     // Stats
     this.stats = {
@@ -321,8 +306,6 @@ export class ChunkStreamer {
       cacheHits: 0,
       cacheMisses: 0,
       hiddenChunks: 0, // Chunks loaded but not visible
-      frameDrops: 0, // Times we exceeded frame budget
-      throttledFrames: 0, // Frames where we throttled due to movement
     };
 
     // Mesh builder (reused for all chunks)
@@ -573,84 +556,6 @@ export class ChunkStreamer {
     this.stats.hiddenChunks = hiddenCount;
   }
 
-  /**
-   * Calculate current frame budget based on player movement
-   * Fast movement = smaller budget to maintain smooth frame rate
-   */
-  _calculateFrameBudget() {
-    const speed = Math.sqrt(this.playerVelocityX ** 2 + this.playerVelocityZ ** 2);
-    
-    if (speed > FAST_MOVEMENT_THRESHOLD) {
-      // Very fast movement - minimal loading
-      this.isMovingFast = true;
-      this.isPaused = true; // Pause chunk loading entirely
-      this.stats.throttledFrames++;
-      return MIN_FRAME_BUDGET_MS;
-    } else if (speed > MOVEMENT_SPEED_THRESHOLD) {
-      // Moving - reduced budget
-      this.isMovingFast = true;
-      this.isPaused = false;
-      return MIN_FRAME_BUDGET_MS + (FRAME_BUDGET_MS - MIN_FRAME_BUDGET_MS) * 
-        (1 - (speed - MOVEMENT_SPEED_THRESHOLD) / (FAST_MOVEMENT_THRESHOLD - MOVEMENT_SPEED_THRESHOLD));
-    } else if (speed < 1) {
-      // Nearly stationary - allow more work
-      this.isMovingFast = false;
-      this.isPaused = false;
-      return FRAME_BUDGET_MS * IDLE_BUDGET_MULTIPLIER;
-    } else {
-      // Slow movement - normal budget
-      this.isMovingFast = false;
-      this.isPaused = false;
-      return FRAME_BUDGET_MS;
-    }
-  }
-
-  /**
-   * Check if we have budget remaining for this frame
-   */
-  _hasFrameBudget() {
-    return this.frameWorkTime < this.frameBudget;
-  }
-
-  /**
-   * Start tracking work time for a new frame
-   * Call this at the beginning of each frame from the render loop
-   */
-  beginFrame() {
-    const now = performance.now();
-    this.lastFrameTime = now;
-    this.frameWorkTime = 0;
-    this.frameBudget = this._calculateFrameBudget();
-    
-    // Process any deferred mesh creations with remaining budget
-    this._processDeferredMeshCreations();
-  }
-
-  /**
-   * Process deferred mesh creations with frame budget
-   * Spreads expensive Three.js mesh creation across multiple frames
-   */
-  _processDeferredMeshCreations() {
-    if (this.pendingMeshCreations.length === 0) return;
-    
-    const startTime = performance.now();
-    const budget = this.meshCreationBudgetMs;
-    
-    while (this.pendingMeshCreations.length > 0 && 
-           (performance.now() - startTime) < budget) {
-      const { superChunkKey, meshResult } = this.pendingMeshCreations.shift();
-      
-      // Find the super-chunk and create meshes
-      if (this.superChunkManager) {
-        const superChunk = this.superChunkManager.superChunks.get(superChunkKey);
-        if (superChunk) {
-          this.superChunkManager._createMeshesFromWorkerResult(superChunk, meshResult);
-        }
-      }
-    }
-    
-    this.frameWorkTime += performance.now() - startTime;
-  }
 
   /**
    * Force initial load of chunks around a position
@@ -854,30 +759,22 @@ export class ChunkStreamer {
   }
 
   /**
-   * Process the load queue with frame budget awareness
-   * Uses adaptive batch sizing and pauses during fast movement
+   * Process the load queue asynchronously
+   * Uses batched processing with yields to maintain responsiveness
    */
   async _processQueue() {
     if (this.isProcessing) return;
+    if (this.isPaused) return;
     this.isProcessing = true;
     
     try {
       while (this.loadQueue.size > 0) {
-        // Skip processing if paused due to fast movement
-        if (this.isPaused) {
-          // Wait a bit and check again
-          await new Promise(r => setTimeout(r, 50));
-          continue;
-        }
-        
-        // Adaptive batch size based on available frame budget
-        // When moving, use smaller batches; when stationary, larger batches
-        const batchSize = this.isMovingFast ? 1 : 
-                         (this.frameBudget > FRAME_BUDGET_MS ? MAX_CONCURRENT_CHUNKS : 2);
+        // Check if paused
+        if (this.isPaused) break;
         
         // Process batch of chunks concurrently
         const batch = [];
-        for (let i = 0; i < batchSize && this.loadQueue.size > 0; i++) {
+        for (let i = 0; i < MAX_CONCURRENT_CHUNKS && this.loadQueue.size > 0; i++) {
           const item = this.loadQueue.pop();
           if (item && !this.loadedChunks.has(`${item.chunkX},${item.chunkZ}`)) {
             batch.push(item);
@@ -887,34 +784,34 @@ export class ChunkStreamer {
         
         if (batch.length === 0) break;
         
-        const batchStartTime = performance.now();
-        
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        const batchTime = performance.now() - batchStartTime;
-        this.frameWorkTime += batchTime;
-        
-        // Track frame budget overruns
-        if (this.frameWorkTime > this.frameBudget) {
-          this.stats.frameDrops++;
-        }
-        
-        // Schedule idle rebuilds during continuous loading (non-blocking)
-        // Use frame-budget aware rebuilding with movement-based priority
+        // Rebuild dirty super-chunks after each batch
+        // This actually creates the meshes (unlike scheduleIdleRebuild which may not fire)
         if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
-          // Use low priority when moving to maintain frame rate
-          const lowPriority = this.isMovingFast;
-          this.superChunkManager.scheduleIdleRebuild(lowPriority);
+          await this.superChunkManager.rebuildDirty(2);
         }
         
-        // Yield to browser between batches
-        // Use longer delay when frame budget is exceeded
-        const yieldTime = this.frameWorkTime > this.frameBudget ? 16 : 0;
-        await new Promise(r => setTimeout(r, yieldTime));
+        // Yield to browser between batches to maintain frame rate
+        await new Promise(r => setTimeout(r, 0));
+      }
+      
+      // Rebuild any remaining dirty super-chunks
+      if (this.superChunkManager) {
+        while (this.superChunkManager.dirtySet.size > 0) {
+          await this.superChunkManager.rebuildDirty(2);
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
     } finally {
       this.isProcessing = false;
+      
+      // Check if more chunks were queued while we were processing
+      // If so, schedule another processing run
+      if (this.loadQueue.size > 0 && !this.isPaused) {
+        setTimeout(() => this._processQueue(), 16);
+      }
     }
   }
 
@@ -1402,27 +1299,6 @@ export class ChunkStreamer {
       return this.superChunkManager.workerPool.getStats();
     }
     return null;
-  }
-
-  /**
-   * Tick method - call this every frame from your render loop
-   * Manages frame budgets and deferred operations
-   * 
-   * @param {number} deltaTime - Time since last frame in seconds (optional)
-   */
-  tick(deltaTime = 0) {
-    // Start a new frame budget period
-    this.beginFrame();
-    
-    // If we're moving fast, cancel any pending heavy work
-    if (this.isPaused && this.superChunkManager) {
-      this.superChunkManager.cancelIdleRebuild();
-    }
-    
-    // Resume processing if queue has items and we're not paused
-    if (!this.isProcessing && this.loadQueue.size > 0 && !this.isPaused) {
-      this._processQueue();
-    }
   }
 
   /**
