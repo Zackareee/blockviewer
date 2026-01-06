@@ -2231,8 +2231,8 @@ export const NON_CUBE_PATTERNS = [
   // Scaffolding
   'scaffolding',
   
-  // Shulker boxes (not full cubes when open)
-  'shulker_box',
+  // Note: Shulker boxes removed - they're entity-rendered in Minecraft and have no block model.
+  // The greedy mesher will render them as solid colored cubes instead.
 ];
 
 // Exact match blocks that would otherwise overlap with full cube variants

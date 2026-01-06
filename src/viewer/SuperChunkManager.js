@@ -423,6 +423,18 @@ export class SuperChunkManager {
       decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
     }
     
+    // DEBUG: Log sections with blocks at high Y
+    for (const [key, section] of grid.sections) {
+      const parts = key.split(',');
+      const sectionY = parseInt(parts[2], 10);
+      if (sectionY >= 23) { // Internal section 23 = world Y 304-319, section 24 = world Y 320+
+        const nonAir = section.filter(v => v !== 0).length;
+        if (nonAir > 0) {
+          console.log(`[SuperChunkManager] High section key=${key} (internal Y=${sectionY}): ${nonAir} non-air blocks`);
+        }
+      }
+    }
+    
     // Include data from adjacent chunks (from neighboring super-chunks)
     // This prevents hard light cutoffs and enables correct fluid rendering at boundaries
     this._includeNeighborData(superChunk, grid, lightGrid);

@@ -250,7 +250,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
   const baseY = sectionY * SECTION_SIZE;
   
   // Skip sections outside valid range (silently - this is normal for some worlds)
-  // Valid Y range: MIN_Y (-64) to MAX_Y (320, exclusive), so sections -4 to 19
+  // Valid Y range: MIN_Y (-64) to MAX_Y (321, exclusive), so sections -4 to 20
   if (baseY < MIN_Y || baseY >= MAX_Y) {
     return 0;
   }

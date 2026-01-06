@@ -210,8 +210,8 @@ const NON_CUBE_PATTERNS = [
   // Scaffolding
   'scaffolding',
   
-  // Shulker boxes (not full cubes when open)
-  'shulker_box',
+  // Note: Shulker boxes removed - they're entity-rendered and have no block model.
+  // Rendered as solid colored cubes by the greedy mesher.
 ];
 
 // Pre-defined block colors (hex values) - loaded from comprehensive color map
