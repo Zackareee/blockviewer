@@ -16,6 +16,110 @@ const S = 16;
 const S2 = 256;
 const S3 = 4096;
 
+// ============================================================================
+// LOOKUP TABLE CACHE
+// Caches expensive-to-build lookup tables per registry instance
+// ============================================================================
+let cachedRegistry = null;
+let cachedTextureIndexLookup = null;
+let cachedLookupTables = null;
+
+function getCachedLookupTables(registry, textureIndexLookup) {
+  // Return cached tables if registry and textureIndexLookup haven't changed
+  if (cachedRegistry === registry && cachedTextureIndexLookup === textureIndexLookup && cachedLookupTables) {
+    return cachedLookupTables;
+  }
+  
+  // Build new lookup tables
+  const isOpaque = new Uint8Array(4096);
+  const isNonCube = new Uint8Array(4096);
+  const isSlab = new Uint8Array(4096);
+  const colorR = new Float32Array(4096);
+  const colorG = new Float32Array(4096);
+  const colorB = new Float32Array(4096);
+  const isFluid = new Uint8Array(4096);
+  const isGlass = new Uint8Array(4096);
+  const isRotatable = new Uint8Array(4096);
+  const hasRandomRotation = new Uint8Array(4096);
+  const isTopOnlyRotation = new Uint8Array(4096);
+  const isHalfRotation = new Uint8Array(4096);
+  const needsSideOverlay = new Uint8Array(4096);
+  const sideOverlayTexIdx = new Float32Array(4096);
+  const isAOTransparent = new Uint8Array(4096);
+  
+  const randomRotationRegistry = getRandomRotationRegistry();
+  const faceTintTypeLookup = buildFaceTintTypeLookup(registry);
+  
+  for (let id = 0; id < 4096; id++) {
+    const info = registry.getBlockInfo(id);
+    if (info) {
+      isOpaque[id] = registry.isOpaque(id) ? 1 : 0;
+      isNonCube[id] = registry.isNonCube(id) ? 1 : 0;
+      const col = registry.getColor(id);
+      colorR[id] = col.r;
+      colorG[id] = col.g;
+      colorB[id] = col.b;
+      if (info.name) {
+        if (info.name.includes('water')) isFluid[id] = 1;
+        else if (info.name.includes('lava')) isFluid[id] = 2;
+        else if ((info.name.includes('glass') && !info.name.includes('_pane')) || info.name.includes('ice') || info.name.includes('leaves')) {
+          isGlass[id] = 1;
+        }
+        if (info.name.includes('_slab')) {
+          isSlab[id] = 1;
+        }
+        if (isRotatableBlock(info.name)) {
+          isRotatable[id] = 1;
+        }
+        if (randomRotationRegistry.hasRandomRotation(info.name)) {
+          hasRandomRotation[id] = 1;
+          if (randomRotationRegistry.isTopOnlyRotation(info.name)) {
+            isTopOnlyRotation[id] = 1;
+          }
+          if (randomRotationRegistry.isHalfRotation(info.name)) {
+            isHalfRotation[id] = 1;
+          }
+        }
+        if (info.name.includes('glass') || info.name.includes('ice') || 
+            info.name.includes('leaves') || info.name.includes('slime') ||
+            info.name.includes('honey') || info.name.includes('water') ||
+            info.name.includes('lava') || info.name.includes('barrier') ||
+            info.name.includes('light') || registry.isNonCube(id)) {
+          isAOTransparent[id] = 1;
+        }
+        const overlayPath = getBlockSideOverlay(info.name);
+        if (overlayPath && textureIndexLookup) {
+          needsSideOverlay[id] = 1;
+          sideOverlayTexIdx[id] = textureIndexLookup.getIndexByPath(overlayPath);
+        }
+      }
+    }
+  }
+  
+  cachedLookupTables = {
+    isOpaque,
+    isNonCube,
+    isSlab,
+    colorR,
+    colorG,
+    colorB,
+    isFluid,
+    isGlass,
+    isRotatable,
+    hasRandomRotation,
+    isTopOnlyRotation,
+    isHalfRotation,
+    needsSideOverlay,
+    sideOverlayTexIdx,
+    isAOTransparent,
+    faceTintTypeLookup,
+  };
+  cachedRegistry = registry;
+  cachedTextureIndexLookup = textureIndexLookup;
+  
+  return cachedLookupTables;
+}
+
 /**
  * Sample smooth light at a corner position by averaging neighboring blocks
  * Minecraft's smooth lighting averages light from the 4 blocks touching each vertex corner
@@ -342,89 +446,25 @@ function canMergeBlockLight(baseLight, checkLight, threshold = 0) {
 export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, options = {}) {
   const { textureIndexLookup = null, lightGrid = null } = options;
   
-  
-  // Build lookup tables
-  const isOpaque = new Uint8Array(4096);
-  const isNonCube = new Uint8Array(4096); // Non-cube blocks skip greedy meshing
-  const isSlab = new Uint8Array(4096); // Slab blocks (type determined by block value metadata)
-  const colorR = new Float32Array(4096);
-  const colorG = new Float32Array(4096);
-  const colorB = new Float32Array(4096);
-  const isFluid = new Uint8Array(4096);
-  const isGlass = new Uint8Array(4096); // Glass and transparent blocks
-  const isRotatable = new Uint8Array(4096); // Blocks that support axis rotation
-  const hasRandomRotation = new Uint8Array(4096); // Blocks with position-based random rotation
-  const isTopOnlyRotation = new Uint8Array(4096); // Blocks that only rotate on top face
-  const isHalfRotation = new Uint8Array(4096); // Blocks that only use 0° and 180° (not 90°/270°)
-  const needsSideOverlay = new Uint8Array(4096); // Blocks with tinted side overlay (grass_block)
-  const sideOverlayTexIdx = new Float32Array(4096); // Overlay texture atlas index
-  // AO-transparent blocks: don't block ambient occlusion / smooth lighting
-  // These blocks let light through for AO calculations even if technically solid
-  const isAOTransparent = new Uint8Array(4096);
-  
-  // Build random rotation lookup from registry
-  const randomRotationRegistry = getRandomRotationRegistry();
-  
-  // Build per-face tint type lookup for biome tinting (grass, leaves, etc.)
-  // This respects tintindex from block models - e.g. grass_block only tints top face
-  const faceTintTypeLookup = buildFaceTintTypeLookup(registry);
-  
-  for (let id = 0; id < 4096; id++) {
-    const info = registry.getBlockInfo(id);
-    if (info) {
-      isOpaque[id] = registry.isOpaque(id) ? 1 : 0;
-      isNonCube[id] = registry.isNonCube(id) ? 1 : 0;
-      const col = registry.getColor(id);
-      colorR[id] = col.r;
-      colorG[id] = col.g;
-      colorB[id] = col.b;
-      if (info.name) {
-        if (info.name.includes('water')) isFluid[id] = 1;
-        else if (info.name.includes('lava')) isFluid[id] = 2;
-        // Glass and similar transparent blocks (full glass blocks, ice, leaves)
-        // Note: glass_pane is EXCLUDED - panes are partial/model blocks, not full cubes
-        else if ((info.name.includes('glass') && !info.name.includes('_pane')) || info.name.includes('ice') || info.name.includes('leaves')) {
-          isGlass[id] = 1;
-        }
-        // Check if this block is a slab (slab type determined by block value bits)
-        // Double slabs are full cubes and can be greedy meshed
-        if (info.name.includes('_slab')) {
-          isSlab[id] = 1;
-        }
-        // Check if this block is rotatable (logs, pillars, etc.)
-        if (isRotatableBlock(info.name)) {
-          isRotatable[id] = 1;
-        }
-        // Check if this block has position-based random rotation
-        if (randomRotationRegistry.hasRandomRotation(info.name)) {
-          hasRandomRotation[id] = 1;
-          if (randomRotationRegistry.isTopOnlyRotation(info.name)) {
-            isTopOnlyRotation[id] = 1;
-          }
-          if (randomRotationRegistry.isHalfRotation(info.name)) {
-            isHalfRotation[id] = 1;
-          }
-        }
-        // AO-transparent blocks: don't block smooth lighting
-        // Includes glass, ice, leaves, slime, honey, non-cube blocks (including slabs), fluids
-        // Slabs are partial blocks - they don't fully occupy the block space,
-        // so they shouldn't cause full AO darkening on adjacent solid faces
-        if (info.name.includes('glass') || info.name.includes('ice') || 
-            info.name.includes('leaves') || info.name.includes('slime') ||
-            info.name.includes('honey') || info.name.includes('water') ||
-            info.name.includes('lava') || info.name.includes('barrier') ||
-            info.name.includes('light') || registry.isNonCube(id)) {
-          isAOTransparent[id] = 1;
-        }
-        // Check if this block has a side overlay (grass_block)
-        const overlayPath = getBlockSideOverlay(info.name);
-        if (overlayPath && textureIndexLookup) {
-          needsSideOverlay[id] = 1;
-          sideOverlayTexIdx[id] = textureIndexLookup.getIndexByPath(overlayPath);
-        }
-      }
-    }
-  }
+  // Use cached lookup tables (built once per registry, reused for all chunks)
+  const {
+    isOpaque,
+    isNonCube,
+    isSlab,
+    colorR,
+    colorG,
+    colorB,
+    isFluid,
+    isGlass,
+    isRotatable,
+    hasRandomRotation,
+    isTopOnlyRotation,
+    isHalfRotation,
+    needsSideOverlay,
+    sideOverlayTexIdx,
+    isAOTransparent,
+    faceTintTypeLookup,
+  } = getCachedLookupTables(registry, textureIndexLookup);
   
   /**
    * Check if a block value represents a full cube for greedy meshing purposes.

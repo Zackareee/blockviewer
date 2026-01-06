@@ -42,7 +42,7 @@ const REGION_SIZE = 32; // 32x32 chunks per region
 const SECTOR_SIZE = 4096;
 
 // Loading configuration
-const MAX_CONCURRENT_CHUNKS = 4; // How many chunks to mesh at once
+const MAX_CONCURRENT_CHUNKS = 2; // How many chunks to load per batch (smaller = smoother, larger = faster)
 const LOAD_BATCH_SIZE = 8; // How many chunks to queue per frame
 const UNLOAD_HYSTERESIS = 2; // Extra chunks beyond unload distance before removal
 

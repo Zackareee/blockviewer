@@ -15,6 +15,43 @@ import { buildTintTypeLookup } from '../data/biomeTinting.js';
 import { hasEmitter } from '../particles/ParticleEmitter.js';
 
 // ============================================================================
+// LOOKUP TABLE CACHE
+// Caches block-level lookup tables (colors, opacity) per registry instance
+// ============================================================================
+let cachedModelRegistry = null;
+let cachedModelLookupTables = null;
+
+function getCachedModelLookupTables(registry) {
+  if (cachedModelRegistry === registry && cachedModelLookupTables) {
+    return cachedModelLookupTables;
+  }
+  
+  const colorR = new Float32Array(4096);
+  const colorG = new Float32Array(4096);
+  const colorB = new Float32Array(4096);
+  const isFullOpaqueCube = new Uint8Array(4096);
+  
+  for (let id = 0; id < 4096; id++) {
+    const col = registry.getColor(id);
+    colorR[id] = col.r;
+    colorG[id] = col.g;
+    colorB[id] = col.b;
+    
+    const info = registry.getBlockInfo(id);
+    if (info && info.category === BlockCategory.SOLID && info.isOpaque) {
+      isFullOpaqueCube[id] = 1;
+    }
+  }
+  
+  const tintTypeLookup = buildTintTypeLookup(registry);
+  
+  cachedModelLookupTables = { colorR, colorG, colorB, isFullOpaqueCube, tintTypeLookup };
+  cachedModelRegistry = registry;
+  
+  return cachedModelLookupTables;
+}
+
+// ============================================================================
 // GPU INSTANCING SUPPORT
 // Blocks that should use GPU instancing when they have many instances
 // These are simple cross-pattern blocks with identical geometry
@@ -373,27 +410,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     skipPatterns = LOD1_SKIP_PATTERNS;
   }
   
-  // Build lookup tables for colors and full opaque cube detection
-  const colorR = new Float32Array(4096);
-  const colorG = new Float32Array(4096);
-  const colorB = new Float32Array(4096);
-  const isFullOpaqueCube = new Uint8Array(4096); // Pre-compute for fast neighbor checks
-  
-  for (let id = 0; id < 4096; id++) {
-    const col = registry.getColor(id);
-    colorR[id] = col.r;
-    colorG[id] = col.g;
-    colorB[id] = col.b;
-    
-    // Pre-compute "is full opaque cube" for neighbor culling
-    const info = registry.getBlockInfo(id);
-    if (info && info.category === BlockCategory.SOLID && info.isOpaque) {
-      isFullOpaqueCube[id] = 1;
-    }
-  }
-  
-  // Build tint type lookup for biome tinting
-  const tintTypeLookup = buildTintTypeLookup(registry);
+  // Use cached lookup tables (built once per registry, reused for all chunks)
+  const { colorR, colorG, colorB, isFullOpaqueCube, tintTypeLookup } = getCachedModelLookupTables(registry);
 
   // ========================================================================
   // PRE-CACHE: Collect all unique state IDs and pre-compute their metadata
