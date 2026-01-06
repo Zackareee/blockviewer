@@ -39,112 +39,8 @@ import {
 const SUPER_CHUNK_SIZE = 2;
 const BLOCKS_PER_SUPER_CHUNK = SUPER_CHUNK_SIZE * 16; // 32 blocks
 
-/**
- * Decode blocks from a chunk into the grid
- * Used to include neighbor chunk blocks for fluid boundary calculations
- */
-function decodeBlocksOnly(chunk, grid, registry) {
-  if (!chunk?.data?.sections) return;
-  
-  const chunkX = chunk.x;
-  const chunkZ = chunk.z;
-  
-  for (const section of chunk.data.sections) {
-    if (!section) continue;
-    
-    const sectionY = section.Y ?? section.y;
-    if (sectionY === undefined) continue;
-    
-    // Convert to internal section Y
-    const internalSectionY = sectionY - Math.floor(-64 / 16);
-    
-    const blockStates = section.block_states;
-    if (!blockStates?.palette) continue;
-    
-    const palette = blockStates.palette;
-    if (palette.length === 0) continue;
-    
-    const blockData = blockStates.data;
-    
-    // Build palette to block ID mapping
-    const paletteIds = new Uint16Array(palette.length);
-    const paletteLevels = new Int8Array(palette.length);
-    let hasNonAir = false;
-    
-    for (let i = 0; i < palette.length; i++) {
-      const entry = palette[i];
-      const name = entry.Name || entry.name || 'minecraft:air';
-      const info = registry.getBlockInfo(name);
-      
-      if (info && info.category !== 0) { // Not air
-        paletteIds[i] = info.id;
-        hasNonAir = true;
-        
-        // Handle fluid levels
-        if (info.category === 8 || info.category === 9) { // WATER or LAVA
-          const props = entry.Properties || entry.properties || {};
-          const levelStr = props.level || '0';
-          paletteLevels[i] = parseInt(levelStr, 10) || 0;
-        } else {
-          // Check for waterlogged
-          const props = entry.Properties || entry.properties || {};
-          if (props.waterlogged === 'true') {
-            paletteLevels[i] = 8; // Waterlogged marker
-          } else {
-            paletteLevels[i] = -1;
-          }
-        }
-      } else {
-        paletteIds[i] = 0;
-        paletteLevels[i] = -1;
-      }
-    }
-    
-    if (!hasNonAir) continue;
-    
-    const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
-    
-    // Single block type
-    if (palette.length === 1 || !blockData || blockData.length === 0) {
-      const blockId = paletteIds[0];
-      const level = paletteLevels[0];
-      if (blockId !== 0) {
-        const value = level >= 0 
-          ? (blockId | ((level & 0xF) << 12))
-          : blockId;
-        gridSection.fill(value);
-      }
-      continue;
-    }
-    
-    // Multiple block types - unpack
-    const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
-    const blocksPerLong = Math.floor(64 / bitsPerBlock);
-    const mask = (1 << bitsPerBlock) - 1;
-    
-    // Convert to BigInt64Array for bit manipulation
-    const longArray = new BigInt64Array(blockData.buffer, blockData.byteOffset, blockData.length);
-    
-    for (let i = 0; i < 4096; i++) {
-      const longIndex = Math.floor(i / blocksPerLong);
-      const bitOffset = (i % blocksPerLong) * bitsPerBlock;
-      
-      if (longIndex >= longArray.length) break;
-      
-      const paletteIndex = Number((longArray[longIndex] >> BigInt(bitOffset)) & BigInt(mask));
-      
-      if (paletteIndex < palette.length) {
-        const blockId = paletteIds[paletteIndex];
-        if (blockId !== 0) {
-          const level = paletteLevels[paletteIndex];
-          gridSection[i] = level >= 0 
-            ? (blockId | ((level & 0xF) << 12))
-            : blockId;
-        }
-      }
-    }
-  }
-}
+// Note: For neighbor block data, we use the existing decodeChunk function
+// which correctly handles all Minecraft format versions and unpacking
 
 /**
  * Decode only light data from a chunk (no blocks)
@@ -619,9 +515,9 @@ export class SuperChunkManager {
             z: cz,
             data: chunkInfo.data
           };
-          // Decode both blocks (for fluid boundaries) and light (for lighting)
-          decodeBlocksOnly(adjustedChunk, grid, this.registry);
-          decodeLightOnly(adjustedChunk, lightGrid);
+          // Decode blocks and light from neighbor chunk using the standard decoder
+          // This ensures correct handling of all Minecraft formats
+          decodeChunk(adjustedChunk, grid, this.registry, null, null, lightGrid);
         }
       }
     }
