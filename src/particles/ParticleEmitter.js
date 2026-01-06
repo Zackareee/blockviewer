@@ -1450,6 +1450,7 @@ const QUALITY_MULTIPLIERS = {
   'all': 1.0,       // 100% - full particle rate
   'decreased': 0.67, // 67% - 33% reduction
   'minimal': 0.1,    // 10% - heavily reduced
+  'off': 0,         // 0% - particles completely disabled
 };
 
 /**

@@ -1161,14 +1161,14 @@ function App() {
               background: 'rgba(255,255,255,0.05)',
             }}
             onClick={() => {
-              // Cycle: all -> decreased -> minimal -> all
-              const cycle = { 'all': 'decreased', 'decreased': 'minimal', 'minimal': 'all' };
+              // Cycle: all -> decreased -> minimal -> off -> all
+              const cycle = { 'all': 'decreased', 'decreased': 'minimal', 'minimal': 'off', 'off': 'all' };
               setParticleQuality(cycle[particleQuality]);
             }}
           >
             <span className="toggle-label">
               <span className="toggle-icon">✨</span>
-              Particles: {particleQuality === 'all' ? 'All' : particleQuality === 'decreased' ? 'Decreased' : 'Minimal'}
+              Particles: {particleQuality === 'all' ? 'All' : particleQuality === 'decreased' ? 'Decreased' : particleQuality === 'minimal' ? 'Minimal' : 'Off'}
             </span>
           </button>
           <label className={`toggle-option ${debugMode ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>

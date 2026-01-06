@@ -169,6 +169,7 @@ export class ChunkManager {
     this.particleSystem = null;
     this.particleEmitterManager = new ParticleEmitterManager();
     this.particlesEnabled = options.enableParticles !== false;
+    this.particleQuality = 'all'; // 'all', 'decreased', 'minimal', 'off'
     
     // Beacon beam manager for rendering beacon beams
     this.beaconBeamManager = new BeaconBeamManager();
@@ -488,11 +489,24 @@ export class ChunkManager {
   
   /**
    * Set the particle quality level
-   * Affects spawn rate multiplier: 'all' = 100%, 'decreased' = 67%, 'minimal' = 10%
-   * @param {string} quality - 'all', 'decreased', or 'minimal'
+   * Affects spawn rate multiplier: 'all' = 100%, 'decreased' = 67%, 'minimal' = 10%, 'off' = disabled
+   * @param {string} quality - 'all', 'decreased', 'minimal', or 'off'
    */
   setParticleQuality(quality) {
+    this.particleQuality = quality;
     this.particleEmitterManager.setQuality(quality);
+    
+    // When 'off', hide particle meshes entirely
+    if (this.particleSystem) {
+      const visible = quality !== 'off';
+      if (this.particleSystem.normalMesh) {
+        this.particleSystem.normalMesh.visible = visible;
+      }
+      if (this.particleSystem.additiveMesh) {
+        this.particleSystem.additiveMesh.visible = visible;
+      }
+    }
+    
     console.log(`[ChunkManager] Particle quality set to ${quality}`);
   }
   
@@ -1204,6 +1218,7 @@ export class ChunkManager {
    */
   _registerParticleEmitters(emitters) {
     if (!this.particleEmitterManager || !emitters) return;
+    if (this.particleQuality === 'off') return; // Skip registration when particles are off
     
     for (const emitter of emitters) {
       this.particleEmitterManager.addEmitter(
@@ -1361,6 +1376,7 @@ export class ChunkManager {
    */
   updateParticles(deltaTime, time, camera) {
     if (!this.particlesEnabled || !this.particleSystem) return;
+    if (this.particleQuality === 'off') return; // Skip all updates when particles are off
     
     // Update camera position for emitter distance culling
     if (camera) {
