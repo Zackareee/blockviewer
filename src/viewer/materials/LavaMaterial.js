@@ -257,6 +257,11 @@ export function createLavaMaterial(atlasData = null, useTextures = true, lightma
     depthWrite: false,
     depthTest: true,
     vertexColors: true,
+    // Polygon offset pushes lava slightly behind other geometry at same depth
+    // This prevents z-fighting with blocks inside lava
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
   });
 }
 

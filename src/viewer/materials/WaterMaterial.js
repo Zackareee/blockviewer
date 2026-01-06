@@ -265,6 +265,11 @@ export function createWaterMaterial(atlasData = null, useTextures = true, lightm
     depthWrite: false,
     depthTest: true,
     vertexColors: true,
+    // Polygon offset pushes water slightly behind other geometry at same depth
+    // This prevents z-fighting with underwater objects (leaves, mangrove roots)
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
   });
 }
 
