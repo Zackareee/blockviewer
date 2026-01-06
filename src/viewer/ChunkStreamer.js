@@ -298,9 +298,6 @@ export class ChunkStreamer {
     // Pause flag for manual control
     this.isPaused = false;
     
-    // Auto-pause during fast movement to prevent stuttering
-    this._autoPaused = false;
-    
     // Stats
     this.stats = {
       totalChunksLoaded: 0,
@@ -481,24 +478,6 @@ export class ChunkStreamer {
     this.lastPlayerZ = worldZ;
     this.lastPositionTime = now;
     
-    // Calculate movement speed for throttling
-    const speed = Math.sqrt(this.playerVelocityX ** 2 + this.playerVelocityZ ** 2);
-    const isMovingFast = speed > 30; // ~30 blocks/sec = fast movement (flying/sprinting)
-    
-    // Auto-pause chunk loading during fast movement to prevent stuttering
-    if (isMovingFast && !this._autoPaused) {
-      this._autoPaused = true;
-      if (this.superChunkManager) {
-        this.superChunkManager.cancelIdleRebuild();
-      }
-    } else if (!isMovingFast && this._autoPaused) {
-      this._autoPaused = false;
-      // Resume idle rebuilds when slowing down
-      if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
-        this.superChunkManager.scheduleIdleRebuild(false);
-      }
-    }
-    
     // Update yaw if provided
     if (yaw !== null) {
       this.updatePlayerDirection(yaw);
@@ -523,8 +502,8 @@ export class ChunkStreamer {
     // Unload distant chunks
     this._unloadDistantChunks();
     
-    // Start processing if not already (and not moving fast)
-    if (!this.isProcessing && !this._autoPaused) {
+    // Start processing if not already
+    if (!this.isProcessing) {
       this._processQueue();
     }
   }
@@ -785,13 +764,13 @@ export class ChunkStreamer {
    */
   async _processQueue() {
     if (this.isProcessing) return;
-    if (this.isPaused || this._autoPaused) return;
+    if (this.isPaused) return;
     this.isProcessing = true;
     
     try {
       while (this.loadQueue.size > 0) {
-        // Check if paused (either manually or due to fast movement)
-        if (this.isPaused || this._autoPaused) break;
+        // Check if paused
+        if (this.isPaused) break;
         
         // Process batch of chunks concurrently
         const batch = [];
@@ -826,8 +805,8 @@ export class ChunkStreamer {
       this.isProcessing = false;
       
       // Check if more chunks were queued while we were processing
-      // If so, schedule another processing run (unless paused)
-      if (this.loadQueue.size > 0 && !this.isPaused && !this._autoPaused) {
+      // If so, schedule another processing run
+      if (this.loadQueue.size > 0 && !this.isPaused) {
         setTimeout(() => this._processQueue(), 16);
       }
     }
