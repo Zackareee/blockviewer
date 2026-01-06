@@ -340,6 +340,11 @@ export class ChunkStreamer {
     // Initialize super-chunk manager
     this._initSuperChunkManager();
     
+    // Initialize WASM mesher for high-performance meshing (async, non-blocking)
+    this.initializeWasm().catch(err => {
+      console.warn('[ChunkStreamer] WASM init failed, using JS fallback:', err);
+    });
+    
     // Initialize worker pool for parallel meshing (async, non-blocking)
     // This will speed up meshing once initialized
     this.initializeWorkerPool().catch(err => {
@@ -431,6 +436,30 @@ export class ChunkStreamer {
         this.chunkManager.invalidate?.();
       }
     });
+  }
+
+  /**
+   * Initialize WASM mesher for high-performance meshing
+   * Call this before loading chunks for best performance
+   */
+  async initializeWasm() {
+    if (!this.superChunkManager) {
+      console.warn('[ChunkStreamer] SuperChunkManager not initialized yet');
+      return false;
+    }
+    
+    try {
+      const success = await this.superChunkManager.initializeWasm();
+      if (success) {
+        console.log('[ChunkStreamer] ✅ WASM mesher initialized - using high-performance mode');
+      } else {
+        console.log('[ChunkStreamer] WASM not available - using JavaScript mesher');
+      }
+      return success;
+    } catch (error) {
+      console.error('[ChunkStreamer] Failed to initialize WASM:', error);
+      return false;
+    }
   }
 
   /**

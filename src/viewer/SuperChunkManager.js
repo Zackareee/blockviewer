@@ -436,6 +436,12 @@ export class SuperChunkManager {
     try {
       const startTime = performance.now();
       
+      // Log first use of WASM meshing
+      if (!this._wasmLoggedOnce) {
+        console.log('[SuperChunkManager] 🚀 Using WASM mesher for chunk generation');
+        this._wasmLoggedOnce = true;
+      }
+      
       // Run WASM mesher for solid/fluid/glass
       const meshResult = wasmMeshChunk(grid, lightGrid, stateGrid);
       
