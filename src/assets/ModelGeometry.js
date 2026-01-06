@@ -64,15 +64,15 @@ const FACE_UV_MAPPING = {
   // The 4 vertices in FACE_VERTICES use [0,1] template coords
   // We map these to [u1,v1] -> [u2,v2] from the model's uv spec
   // 
-  // Minecraft's UV mapping accounts for face orientation in how it maps element
-  // corners to UV coordinates. For 'down', Minecraft already swaps the Z-to-UV
-  // mapping compared to 'up' in the model format, so both faces use the same
-  // weight mapping here (the model's UV specification handles the difference).
-  down:  [[0, 0], [1, 0], [1, 1], [0, 1]],  // Y- face: matches 'up' - model UV handles orientation
+  // Minecraft's UV mapping: for faces viewed from outside, the UV coordinates
+  // map to element corners. North and west faces are viewed with X/Z inverted
+  // relative to the texture orientation, so their U mapping is NOT flipped.
+  // The model UV specification already accounts for the face orientation.
+  down:  [[0, 0], [1, 0], [1, 1], [0, 1]],  // Y- face: X→U, Z→V
   up:    [[0, 0], [1, 0], [1, 1], [0, 1]],  // Y+ face: X→U, Z→V 
-  north: [[1, 0], [0, 0], [0, 1], [1, 1]],  // Z- face: X→U (flipped), Y→V
+  north: [[0, 0], [1, 0], [1, 1], [0, 1]],  // Z- face: X→U (model UV already handles flip)
   south: [[0, 0], [1, 0], [1, 1], [0, 1]],  // Z+ face: X→U, Y→V
-  west:  [[1, 0], [0, 0], [0, 1], [1, 1]],  // X- face: Z→U (flipped), Y→V
+  west:  [[0, 0], [1, 0], [1, 1], [0, 1]],  // X- face: Z→U (model UV already handles flip)
   east:  [[0, 0], [1, 0], [1, 1], [0, 1]],  // X+ face: Z→U, Y→V
 };
 
