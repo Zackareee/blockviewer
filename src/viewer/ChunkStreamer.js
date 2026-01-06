@@ -787,21 +787,22 @@ export class ChunkStreamer {
         // Process batch in parallel
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        // Rebuild dirty super-chunks after each batch
-        // This actually creates the meshes (unlike scheduleIdleRebuild which may not fire)
+        // Rebuild ONE dirty super-chunk after each batch to spread work across frames
+        // This prevents stuttering from rebuilding too many at once
         if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
-          await this.superChunkManager.rebuildDirty(2);
+          await this.superChunkManager.rebuildDirty(1);
         }
         
         // Yield to browser between batches to maintain frame rate
-        await new Promise(r => setTimeout(r, 0));
+        // Use longer delay to allow rendering between chunk loads
+        await new Promise(r => setTimeout(r, 16));
       }
       
-      // Rebuild any remaining dirty super-chunks
+      // Rebuild any remaining dirty super-chunks (one at a time with frame yield)
       if (this.superChunkManager) {
         while (this.superChunkManager.dirtySet.size > 0) {
-          await this.superChunkManager.rebuildDirty(2);
-          await new Promise(r => setTimeout(r, 0));
+          await this.superChunkManager.rebuildDirty(1);
+          await new Promise(r => setTimeout(r, 16)); // One frame between rebuilds
         }
       }
     } finally {

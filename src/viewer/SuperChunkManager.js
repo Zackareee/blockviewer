@@ -62,15 +62,23 @@ class SuperChunk {
 
   /**
    * Add a chunk's data to this super-chunk
+   * @returns {boolean} true if chunk was added/changed, false if already present
    */
   addChunk(chunkX, chunkZ, chunkData) {
     const key = this.getLocalKey(chunkX, chunkZ);
+    
+    // Skip if chunk already loaded with same data (avoid unnecessary rebuilds)
+    if (this.loadedChunks.has(key)) {
+      return false; // Already loaded, don't mark dirty
+    }
+    
     this.loadedChunks.set(key, {
       chunkX,
       chunkZ,
       data: chunkData
     });
     this.isDirty = true;
+    return true;
   }
 
   /**
@@ -226,19 +234,24 @@ export class SuperChunkManager {
    * @param {number} chunkX - World chunk X
    * @param {number} chunkZ - World chunk Z
    * @param {Object} chunkData - Parsed chunk data with NBT
+   * @returns {boolean} true if chunk was added (new), false if already present
    */
   addChunk(chunkX, chunkZ, chunkData) {
     if (!chunkData) {
       console.warn(`[SuperChunkManager] No data for chunk ${chunkX},${chunkZ}`);
-      return;
+      return false;
     }
     
     const superChunk = this.getOrCreateSuperChunk(chunkX, chunkZ);
-    superChunk.addChunk(chunkX, chunkZ, chunkData);
+    const wasAdded = superChunk.addChunk(chunkX, chunkZ, chunkData);
     
-    // Mark for rebuild
-    const key = this.getSuperChunkKey(chunkX, chunkZ);
-    this.dirtySet.add(key);
+    // Only mark for rebuild if chunk was actually added (not already present)
+    if (wasAdded) {
+      const key = this.getSuperChunkKey(chunkX, chunkZ);
+      this.dirtySet.add(key);
+    }
+    
+    return wasAdded;
   }
 
   /**
