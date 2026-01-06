@@ -334,3 +334,36 @@ pub enum Plane {
     XY, // North/South faces
 }
 
+/// Get block light value for face (used for merge comparison)
+/// Returns (sky_light, block_light) at the air block adjacent to the face
+#[inline]
+pub fn get_face_light(
+    light_grid: Option<&LightGrid>,
+    face_x: i32,
+    face_y: i32,
+    face_z: i32,
+) -> (u8, u8) {
+    match light_grid {
+        Some(lg) => {
+            let light = lg.get_light(face_x, face_y, face_z);
+            (light.sky_light, light.block_light)
+        }
+        None => (15, 0),
+    }
+}
+
+/// Check if two blocks have compatible light for merging
+/// Returns true if they can be merged (same or similar light)
+#[inline]
+pub fn light_matches(
+    light_grid: Option<&LightGrid>,
+    x1: i32, y1: i32, z1: i32,
+    x2: i32, y2: i32, z2: i32,
+) -> bool {
+    let (sky1, block1) = get_face_light(light_grid, x1, y1, z1);
+    let (sky2, block2) = get_face_light(light_grid, x2, y2, z2);
+    
+    // Must have exact same light values to merge
+    sky1 == sky2 && block1 == block2
+}
+

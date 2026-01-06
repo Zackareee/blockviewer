@@ -216,12 +216,19 @@ fn mesh_face_top(
 
                 // Get AO for starting block
                 let start_ao = ao::get_top_face_ao(grid, lookups, world_x, block_y, world_z);
+                let face_y = block_y + 1;
+                let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, face_y, world_z);
 
                 // Expand width (+X)
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
                     let check_ao = ao::get_top_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
                     if !start_ao.matches(&check_ao) {
+                        break;
+                    }
+                    // Check light compatibility
+                    let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + w as i32, face_y, world_z);
+                    if check_sky != start_sky || check_block != start_block {
                         break;
                     }
                     w += 1;
@@ -237,6 +244,11 @@ fn mesh_face_top(
                         }
                         let check_ao = ao::get_top_face_ao(grid, lookups, world_x + k as i32, block_y, world_z + h as i32);
                         if !start_ao.matches(&check_ao) {
+                            break 'outer;
+                        }
+                        // Check light compatibility
+                        let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + k as i32, face_y, world_z + h as i32);
+                        if check_sky != start_sky || check_block != start_block {
                             break 'outer;
                         }
                     }
@@ -371,11 +383,17 @@ fn mesh_face_bottom(
                 let world_z = base_z + jj as i32;
 
                 let start_ao = ao::get_bottom_face_ao(grid, lookups, world_x, block_y, world_z);
+                let face_y = block_y - 1;
+                let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, face_y, world_z);
 
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
                     let check_ao = ao::get_bottom_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
                     if !start_ao.matches(&check_ao) {
+                        break;
+                    }
+                    let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + w as i32, face_y, world_z);
+                    if check_sky != start_sky || check_block != start_block {
                         break;
                     }
                     w += 1;
@@ -390,6 +408,10 @@ fn mesh_face_bottom(
                         }
                         let check_ao = ao::get_bottom_face_ao(grid, lookups, world_x + k as i32, block_y, world_z + h as i32);
                         if !start_ao.matches(&check_ao) {
+                            break 'outer;
+                        }
+                        let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + k as i32, face_y, world_z + h as i32);
+                        if check_sky != start_sky || check_block != start_block {
                             break 'outer;
                         }
                     }
@@ -523,11 +545,17 @@ fn mesh_face_north(
                 let block_y = base_y + jj as i32;
 
                 let start_ao = ao::get_north_face_ao(grid, lookups, world_x, block_y, world_z);
+                let face_z = world_z - 1;
+                let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, block_y, face_z);
 
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
                     let check_ao = ao::get_north_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
                     if !start_ao.matches(&check_ao) {
+                        break;
+                    }
+                    let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + w as i32, block_y, face_z);
+                    if check_sky != start_sky || check_block != start_block {
                         break;
                     }
                     w += 1;
@@ -542,6 +570,10 @@ fn mesh_face_north(
                         }
                         let check_ao = ao::get_north_face_ao(grid, lookups, world_x + k as i32, block_y + h as i32, world_z);
                         if !start_ao.matches(&check_ao) {
+                            break 'outer;
+                        }
+                        let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + k as i32, block_y + h as i32, face_z);
+                        if check_sky != start_sky || check_block != start_block {
                             break 'outer;
                         }
                     }
@@ -675,11 +707,17 @@ fn mesh_face_south(
                 let block_y = base_y + jj as i32;
 
                 let start_ao = ao::get_south_face_ao(grid, lookups, world_x, block_y, world_z);
+                let face_z = world_z + 1;
+                let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, block_y, face_z);
 
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
                     let check_ao = ao::get_south_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
                     if !start_ao.matches(&check_ao) {
+                        break;
+                    }
+                    let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + w as i32, block_y, face_z);
+                    if check_sky != start_sky || check_block != start_block {
                         break;
                     }
                     w += 1;
@@ -694,6 +732,10 @@ fn mesh_face_south(
                         }
                         let check_ao = ao::get_south_face_ao(grid, lookups, world_x + k as i32, block_y + h as i32, world_z);
                         if !start_ao.matches(&check_ao) {
+                            break 'outer;
+                        }
+                        let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + k as i32, block_y + h as i32, face_z);
+                        if check_sky != start_sky || check_block != start_block {
                             break 'outer;
                         }
                     }
@@ -827,11 +869,17 @@ fn mesh_face_east(
                 let block_y = base_y + jj as i32;
 
                 let start_ao = ao::get_east_face_ao(grid, lookups, world_x, block_y, world_z);
+                let face_x = world_x + 1;
+                let (start_sky, start_block) = ao::get_face_light(light_grid, face_x, block_y, world_z);
 
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
                     let check_ao = ao::get_east_face_ao(grid, lookups, world_x, block_y, world_z + w as i32);
                     if !start_ao.matches(&check_ao) {
+                        break;
+                    }
+                    let (check_sky, check_block) = ao::get_face_light(light_grid, face_x, block_y, world_z + w as i32);
+                    if check_sky != start_sky || check_block != start_block {
                         break;
                     }
                     w += 1;
@@ -846,6 +894,10 @@ fn mesh_face_east(
                         }
                         let check_ao = ao::get_east_face_ao(grid, lookups, world_x, block_y + h as i32, world_z + k as i32);
                         if !start_ao.matches(&check_ao) {
+                            break 'outer;
+                        }
+                        let (check_sky, check_block) = ao::get_face_light(light_grid, face_x, block_y + h as i32, world_z + k as i32);
+                        if check_sky != start_sky || check_block != start_block {
                             break 'outer;
                         }
                     }
@@ -979,11 +1031,17 @@ fn mesh_face_west(
                 let block_y = base_y + jj as i32;
 
                 let start_ao = ao::get_west_face_ao(grid, lookups, world_x, block_y, world_z);
+                let face_x = world_x - 1;
+                let (start_sky, start_block) = ao::get_face_light(light_grid, face_x, block_y, world_z);
 
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == block_id {
                     let check_ao = ao::get_west_face_ao(grid, lookups, world_x, block_y, world_z + w as i32);
                     if !start_ao.matches(&check_ao) {
+                        break;
+                    }
+                    let (check_sky, check_block) = ao::get_face_light(light_grid, face_x, block_y, world_z + w as i32);
+                    if check_sky != start_sky || check_block != start_block {
                         break;
                     }
                     w += 1;
@@ -998,6 +1056,10 @@ fn mesh_face_west(
                         }
                         let check_ao = ao::get_west_face_ao(grid, lookups, world_x, block_y + h as i32, world_z + k as i32);
                         if !start_ao.matches(&check_ao) {
+                            break 'outer;
+                        }
+                        let (check_sky, check_block) = ao::get_face_light(light_grid, face_x, block_y + h as i32, world_z + k as i32);
+                        if check_sky != start_sky || check_block != start_block {
                             break 'outer;
                         }
                     }

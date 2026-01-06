@@ -420,18 +420,9 @@ export class SuperChunkManager {
     // This prevents hard light cutoffs at super-chunk boundaries
     this._includeNeighborLight(superChunk, lightGrid);
     
-    // Handle light propagation
+    // Handle light propagation if no Minecraft light data
     if (lightGrid.sections.size === 0) {
-      // No light data at all - do full propagation
       propagateSkyLight(grid, lightGrid, this.registry);
-      propagateBlockLight(grid, lightGrid, this.registry);
-    } else {
-      // Minecraft light data exists, but may be incomplete for some sections
-      // Ensure all block sections and their neighbors have light sections
-      this._ensureLightCoverage(grid, lightGrid);
-      
-      // Re-propagate block light to fill gaps where Minecraft data was missing
-      // This ensures light sources illuminate nearby sections that weren't in the save
       propagateBlockLight(grid, lightGrid, this.registry);
     }
     
@@ -456,53 +447,6 @@ export class SuperChunkManager {
     // console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
     
     this.onSuperChunkRebuilt?.(superChunk);
-  }
-
-  /**
-   * Ensure all block sections AND adjacent sections have corresponding light sections.
-   * This prevents getLight() from returning blockLight=0 for missing sections,
-   * which causes dark spots when sampling light from adjacent air blocks.
-   */
-  _ensureLightCoverage(grid, lightGrid) {
-    // Collect all section keys that need light data
-    const neededKeys = new Set();
-    
-    // All block sections need light
-    for (const key of grid.sections.keys()) {
-      neededKeys.add(key);
-      
-      // Adjacent sections also need light (for sampling from faces)
-      const parts = key.split(',');
-      const chunkX = parseInt(parts[0], 10);
-      const chunkZ = parseInt(parts[1], 10);
-      const sectionY = parseInt(parts[2], 10);
-      
-      // Add adjacent sections (6 neighbors)
-      neededKeys.add(`${chunkX - 1},${chunkZ},${sectionY}`); // West
-      neededKeys.add(`${chunkX + 1},${chunkZ},${sectionY}`); // East
-      neededKeys.add(`${chunkX},${chunkZ - 1},${sectionY}`); // North
-      neededKeys.add(`${chunkX},${chunkZ + 1},${sectionY}`); // South
-      neededKeys.add(`${chunkX},${chunkZ},${sectionY - 1}`); // Below
-      neededKeys.add(`${chunkX},${chunkZ},${sectionY + 1}`); // Above
-    }
-    
-    // Create missing light sections with default values
-    for (const key of neededKeys) {
-      if (!lightGrid.sections.has(key)) {
-        const parts = key.split(',');
-        const chunkX = parseInt(parts[0], 10);
-        const chunkZ = parseInt(parts[1], 10);
-        const sectionY = parseInt(parts[2], 10);
-        
-        // Only create if section Y is in valid range
-        if (sectionY >= 0 && sectionY < 24) {
-          const section = lightGrid._getOrCreateSection(chunkX, chunkZ, sectionY);
-          if (section) {
-            section.fill(15); // Sky light 15, block light 0 (default for open air)
-          }
-        }
-      }
-    }
   }
 
   /**
