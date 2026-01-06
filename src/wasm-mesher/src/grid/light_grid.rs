@@ -45,12 +45,17 @@ impl LightValue {
 pub struct LightGrid {
     /// Sections stored by packed key
     sections: HashMap<u64, Box<[u8; SECTION_VOLUME]>>,
+    /// True if this grid contains Minecraft's pre-computed light data
+    /// When true, missing sections default to 0 (dark)
+    /// When false (fallback mode), missing sections default to MAX_LIGHT
+    has_minecraft_data: bool,
 }
 
 impl LightGrid {
     pub fn new() -> Self {
         Self {
             sections: HashMap::new(),
+            has_minecraft_data: false,
         }
     }
 
@@ -86,6 +91,10 @@ impl LightGrid {
             grid.sections.insert(key, section);
         }
 
+        // If we loaded any sections, we have Minecraft light data
+        // Missing sections should default to 0 (dark), not MAX_LIGHT
+        grid.has_minecraft_data = !grid.sections.is_empty();
+
         grid
     }
 
@@ -117,8 +126,13 @@ impl LightGrid {
             let idx = block_index_in_section(local_x, local_y, local_z);
             LightValue::unpack(section[idx])
         } else {
-            // Default to full sky light if section doesn't exist (outdoor)
-            LightValue::new(MAX_LIGHT, 0)
+            // If we have Minecraft light data, missing sections are dark (caves, unlit areas)
+            // If we don't have data (fallback mode), assume full sky light (outdoor)
+            if self.has_minecraft_data {
+                LightValue::new(0, 0)
+            } else {
+                LightValue::new(MAX_LIGHT, 0)
+            }
         }
     }
 

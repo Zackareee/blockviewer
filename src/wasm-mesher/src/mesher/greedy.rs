@@ -668,19 +668,22 @@ fn mesh_face_north(
                 let hf = h as f32;
 
                 let positions = [
-                    (x + wf, y, z),      // V0
-                    (x, y, z),           // V1
-                    (x, y + hf, z),      // V2
-                    (x + wf, y + hf, z), // V3
+                    (x + wf, y, z),      // V0: bottom-RIGHT
+                    (x, y, z),           // V1: bottom-LEFT
+                    (x, y + hf, z),      // V2: top-LEFT
+                    (x + wf, y + hf, z), // V3: top-RIGHT
                 ];
 
                 // Sample smooth light with AO at each vertex corner
-                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                // FaceAO: v0=bottom-left, v1=bottom-right, v2=top-right, v3=top-left
+                // Position: V0=bottom-right, V1=bottom-left, V2=top-left, V3=top-right
+                // So: pos[0]→ao.v1, pos[1]→ao.v0, pos[2]→ao.v3, pos[3]→ao.v2
+                let ao_levels = [start_ao.v1, start_ao.v0, start_ao.v3, start_ao.v2];
                 let vertex_coords = [
-                    (world_x + w as i32, block_y),      // V0
-                    (world_x, block_y),                 // V1
-                    (world_x, block_y + h as i32),      // V2
-                    (world_x + w as i32, block_y + h as i32), // V3
+                    (world_x + w as i32, block_y),      // V0: bottom-right
+                    (world_x, block_y),                 // V1: bottom-left
+                    (world_x, block_y + h as i32),      // V2: top-left
+                    (world_x + w as i32, block_y + h as i32), // V3: top-right
                 ];
                 
                 let mut sky = [15.0f32; 4];
@@ -845,19 +848,22 @@ fn mesh_face_south(
                 let hf = h as f32;
 
                 let positions = [
-                    (x, y, z),           // V0
-                    (x + wf, y, z),      // V1
-                    (x + wf, y + hf, z), // V2
-                    (x, y + hf, z),      // V3
+                    (x, y, z),           // V0: bottom-LEFT
+                    (x + wf, y, z),      // V1: bottom-RIGHT
+                    (x + wf, y + hf, z), // V2: top-RIGHT
+                    (x, y + hf, z),      // V3: top-LEFT
                 ];
 
                 // Sample smooth light with AO at each vertex corner
-                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                // FaceAO: v0=bottom-right, v1=bottom-left, v2=top-left, v3=top-right
+                // Position: V0=bottom-left, V1=bottom-right, V2=top-right, V3=top-left
+                // So: pos[0]→ao.v1, pos[1]→ao.v0, pos[2]→ao.v3, pos[3]→ao.v2
+                let ao_levels = [start_ao.v1, start_ao.v0, start_ao.v3, start_ao.v2];
                 let vertex_coords = [
-                    (world_x, block_y),                 // V0
-                    (world_x + w as i32, block_y),      // V1
-                    (world_x + w as i32, block_y + h as i32), // V2
-                    (world_x, block_y + h as i32),      // V3
+                    (world_x, block_y),                 // V0: bottom-left
+                    (world_x + w as i32, block_y),      // V1: bottom-right
+                    (world_x + w as i32, block_y + h as i32), // V2: top-right
+                    (world_x, block_y + h as i32),      // V3: top-left
                 ];
                 
                 let mut sky = [15.0f32; 4];

@@ -66,6 +66,9 @@ function decodeLightOnly(chunk, lightGrid) {
     
     if (!skyLightData && !blockLightData) continue;
     
+    // Mark that this light grid has actual Minecraft light data
+    lightGrid.hasMinecraftLightData = true;
+    
     const lightSection = lightGrid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
     
     // Unpack sky light

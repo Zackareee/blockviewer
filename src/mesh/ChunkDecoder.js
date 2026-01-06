@@ -295,6 +295,10 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
     const blockLightData = section.BlockLight || section.block_light;
     
     if (skyLightData || blockLightData) {
+      // Mark that this light grid has actual Minecraft light data
+      // This affects default behavior for missing sections (dark vs light)
+      lightGrid.hasMinecraftLightData = true;
+      
       const lightSection = lightGrid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
       
       // Unpack and store sky light (lower nibble of light storage)

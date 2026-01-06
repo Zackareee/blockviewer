@@ -40,6 +40,11 @@ export class LightGrid {
     this.maxChunkZ = -Infinity;
     this.minSectionY = Infinity;
     this.maxSectionY = -Infinity;
+    
+    // Flag to track if this grid has pre-loaded Minecraft light data
+    // If true, missing sections should default to 0 (dark underground)
+    // If false, we're using fallback propagation or empty data
+    this.hasMinecraftLightData = false;
   }
   
   /**
@@ -53,6 +58,7 @@ export class LightGrid {
     this.maxChunkZ = -Infinity;
     this.minSectionY = Infinity;
     this.maxSectionY = -Infinity;
+    this.hasMinecraftLightData = false;
   }
   
   /**
@@ -114,7 +120,7 @@ export class LightGrid {
    * @param {number} worldX - World X coordinate
    * @param {number} worldY - World Y coordinate
    * @param {number} worldZ - World Z coordinate
-   * @returns {number} Sky light level (0-15), defaults to MAX_LIGHT if section not set
+   * @returns {number} Sky light level (0-15)
    */
   getSkyLight(worldX, worldY, worldZ) {
     const chunkX = Math.floor(worldX / SECTION_SIZE);
@@ -122,8 +128,12 @@ export class LightGrid {
     const sectionY = worldYToSection(worldY);
     
     const section = this.getSection(chunkX, chunkZ, sectionY);
-    // If section doesn't exist, assume full sky light (outdoor/unloaded area)
-    if (!section) return MAX_LIGHT;
+    // If section doesn't exist:
+    // - If we have Minecraft light data, missing sections are dark (caves, unlit areas)
+    // - If we don't have Minecraft light data (fallback mode), assume full sky light
+    if (!section) {
+      return this.hasMinecraftLightData ? 0 : MAX_LIGHT;
+    }
     
     const localX = ((worldX % SECTION_SIZE) + SECTION_SIZE) % SECTION_SIZE;
     const localY = ((worldY - MIN_Y) % SECTION_SIZE + SECTION_SIZE) % SECTION_SIZE;
@@ -192,8 +202,13 @@ export class LightGrid {
     const sectionY = worldYToSection(worldY);
     
     const section = this.getSection(chunkX, chunkZ, sectionY);
-    // If section doesn't exist, assume full sky light and no block light
-    if (!section) return { skyLight: MAX_LIGHT, blockLight: 0 };
+    // If section doesn't exist:
+    // - If we have Minecraft light data, missing sections are dark
+    // - If we don't have Minecraft light data, assume full sky light
+    if (!section) {
+      const defaultSky = this.hasMinecraftLightData ? 0 : MAX_LIGHT;
+      return { skyLight: defaultSky, blockLight: 0 };
+    }
     
     const localX = ((worldX % SECTION_SIZE) + SECTION_SIZE) % SECTION_SIZE;
     const localY = ((worldY - MIN_Y) % SECTION_SIZE + SECTION_SIZE) % SECTION_SIZE;

@@ -136,6 +136,7 @@ pub fn get_bottom_face_ao(
 }
 
 /// Calculate AO for NORTH face (-Z)
+/// Sample Z = block_z - 1 (one block in front of face, in the air space)
 pub fn get_north_face_ao(
     grid: &BinaryGrid,
     lookups: &Lookups,
@@ -143,6 +144,7 @@ pub fn get_north_face_ao(
     block_y: i32,
     block_z: i32,
 ) -> FaceAO {
+    // Sample in the air space in front of the north face (z - 1)
     let z = block_z - 1;
 
     let up = is_solid_for_ao(grid, lookups, block_x, block_y + 1, z);
@@ -154,6 +156,11 @@ pub fn get_north_face_ao(
     let down_west = is_solid_for_ao(grid, lookups, block_x - 1, block_y - 1, z);
     let down_east = is_solid_for_ao(grid, lookups, block_x + 1, block_y - 1, z);
 
+    // North face vertex order (looking from -Z toward +Z):
+    // V0: bottom-left - neighbors: west, down, down_west
+    // V1: bottom-right - neighbors: east, down, down_east
+    // V2: top-right - neighbors: east, up, up_east
+    // V3: top-left - neighbors: west, up, up_west
     FaceAO {
         v0: vertex_ao(west, down, down_west),
         v1: vertex_ao(east, down, down_east),
@@ -163,6 +170,7 @@ pub fn get_north_face_ao(
 }
 
 /// Calculate AO for SOUTH face (+Z)
+/// Sample Z = block_z + 1 (one block behind face, in the air space)
 pub fn get_south_face_ao(
     grid: &BinaryGrid,
     lookups: &Lookups,
@@ -170,6 +178,7 @@ pub fn get_south_face_ao(
     block_y: i32,
     block_z: i32,
 ) -> FaceAO {
+    // Sample in the air space behind the south face (z + 1)
     let z = block_z + 1;
 
     let up = is_solid_for_ao(grid, lookups, block_x, block_y + 1, z);
@@ -190,6 +199,7 @@ pub fn get_south_face_ao(
 }
 
 /// Calculate AO for EAST face (+X)
+/// Sample X = block_x + 1 (one block to the right of face, in the air space)
 pub fn get_east_face_ao(
     grid: &BinaryGrid,
     lookups: &Lookups,
@@ -197,6 +207,7 @@ pub fn get_east_face_ao(
     block_y: i32,
     block_z: i32,
 ) -> FaceAO {
+    // Sample in the air space to the east of the face (x + 1)
     let x = block_x + 1;
 
     let up = is_solid_for_ao(grid, lookups, x, block_y + 1, block_z);
@@ -217,6 +228,7 @@ pub fn get_east_face_ao(
 }
 
 /// Calculate AO for WEST face (-X)
+/// Sample X = block_x - 1 (one block to the left of face, in the air space)
 pub fn get_west_face_ao(
     grid: &BinaryGrid,
     lookups: &Lookups,
@@ -224,6 +236,7 @@ pub fn get_west_face_ao(
     block_y: i32,
     block_z: i32,
 ) -> FaceAO {
+    // Sample in the air space to the west of the face (x - 1)
     let x = block_x - 1;
 
     let up = is_solid_for_ao(grid, lookups, x, block_y + 1, block_z);
@@ -235,6 +248,11 @@ pub fn get_west_face_ao(
     let down_north = is_solid_for_ao(grid, lookups, x, block_y - 1, block_z - 1);
     let down_south = is_solid_for_ao(grid, lookups, x, block_y - 1, block_z + 1);
 
+    // West face vertices (looking from -X toward +X):
+    // V0: bottom-back (at x, y, z) - check North, Down, DownNorth
+    // V1: bottom-front (at x, y, z+1) - check South, Down, DownSouth
+    // V2: top-front (at x, y+1, z+1) - check South, Up, UpSouth
+    // V3: top-back (at x, y+1, z) - check North, Up, UpNorth
     FaceAO {
         v0: vertex_ao(north, down, down_north),
         v1: vertex_ao(south, down, down_south),
