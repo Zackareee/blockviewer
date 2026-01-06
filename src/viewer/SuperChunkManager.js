@@ -40,6 +40,113 @@ const SUPER_CHUNK_SIZE = 2;
 const BLOCKS_PER_SUPER_CHUNK = SUPER_CHUNK_SIZE * 16; // 32 blocks
 
 /**
+ * Decode blocks from a chunk into the grid
+ * Used to include neighbor chunk blocks for fluid boundary calculations
+ */
+function decodeBlocksOnly(chunk, grid, registry) {
+  if (!chunk?.data?.sections) return;
+  
+  const chunkX = chunk.x;
+  const chunkZ = chunk.z;
+  
+  for (const section of chunk.data.sections) {
+    if (!section) continue;
+    
+    const sectionY = section.Y ?? section.y;
+    if (sectionY === undefined) continue;
+    
+    // Convert to internal section Y
+    const internalSectionY = sectionY - Math.floor(-64 / 16);
+    
+    const blockStates = section.block_states;
+    if (!blockStates?.palette) continue;
+    
+    const palette = blockStates.palette;
+    if (palette.length === 0) continue;
+    
+    const blockData = blockStates.data;
+    
+    // Build palette to block ID mapping
+    const paletteIds = new Uint16Array(palette.length);
+    const paletteLevels = new Int8Array(palette.length);
+    let hasNonAir = false;
+    
+    for (let i = 0; i < palette.length; i++) {
+      const entry = palette[i];
+      const name = entry.Name || entry.name || 'minecraft:air';
+      const info = registry.getBlockInfo(name);
+      
+      if (info && info.category !== 0) { // Not air
+        paletteIds[i] = info.id;
+        hasNonAir = true;
+        
+        // Handle fluid levels
+        if (info.category === 8 || info.category === 9) { // WATER or LAVA
+          const props = entry.Properties || entry.properties || {};
+          const levelStr = props.level || '0';
+          paletteLevels[i] = parseInt(levelStr, 10) || 0;
+        } else {
+          // Check for waterlogged
+          const props = entry.Properties || entry.properties || {};
+          if (props.waterlogged === 'true') {
+            paletteLevels[i] = 8; // Waterlogged marker
+          } else {
+            paletteLevels[i] = -1;
+          }
+        }
+      } else {
+        paletteIds[i] = 0;
+        paletteLevels[i] = -1;
+      }
+    }
+    
+    if (!hasNonAir) continue;
+    
+    const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
+    
+    // Single block type
+    if (palette.length === 1 || !blockData || blockData.length === 0) {
+      const blockId = paletteIds[0];
+      const level = paletteLevels[0];
+      if (blockId !== 0) {
+        const value = level >= 0 
+          ? (blockId | ((level & 0xF) << 12))
+          : blockId;
+        gridSection.fill(value);
+      }
+      continue;
+    }
+    
+    // Multiple block types - unpack
+    const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
+    const blocksPerLong = Math.floor(64 / bitsPerBlock);
+    const mask = (1 << bitsPerBlock) - 1;
+    
+    // Convert to BigInt64Array for bit manipulation
+    const longArray = new BigInt64Array(blockData.buffer, blockData.byteOffset, blockData.length);
+    
+    for (let i = 0; i < 4096; i++) {
+      const longIndex = Math.floor(i / blocksPerLong);
+      const bitOffset = (i % blocksPerLong) * bitsPerBlock;
+      
+      if (longIndex >= longArray.length) break;
+      
+      const paletteIndex = Number((longArray[longIndex] >> BigInt(bitOffset)) & BigInt(mask));
+      
+      if (paletteIndex < palette.length) {
+        const blockId = paletteIds[paletteIndex];
+        if (blockId !== 0) {
+          const level = paletteLevels[paletteIndex];
+          gridSection[i] = level >= 0 
+            ? (blockId | ((level & 0xF) << 12))
+            : blockId;
+        }
+      }
+    }
+  }
+}
+
+/**
  * Decode only light data from a chunk (no blocks)
  * Used to include neighbor chunk light for smooth boundary lighting
  */
@@ -359,6 +466,10 @@ export class SuperChunkManager {
     if (wasAdded) {
       const key = this.getSuperChunkKey(chunkX, chunkZ);
       this.dirtySet.add(key);
+      
+      // Also mark adjacent super-chunks dirty so they can update their
+      // boundary rendering (fluid walls, lighting, etc.)
+      this._markAdjacentDirty(chunkX, chunkZ);
     }
     
     return wasAdded;
@@ -416,9 +527,9 @@ export class SuperChunkManager {
       decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
     }
     
-    // Include light data from adjacent chunks (from neighboring super-chunks)
-    // This prevents hard light cutoffs at super-chunk boundaries
-    this._includeNeighborLight(superChunk, lightGrid);
+    // Include data from adjacent chunks (from neighboring super-chunks)
+    // This prevents hard light cutoffs and enables correct fluid rendering at boundaries
+    this._includeNeighborData(superChunk, grid, lightGrid);
     
     // Handle light propagation if no Minecraft light data
     if (lightGrid.sections.size === 0) {
@@ -450,10 +561,12 @@ export class SuperChunkManager {
   }
 
   /**
-   * Include light data from adjacent chunks to prevent hard cutoffs at boundaries.
-   * This decodes light (not blocks) from chunks that border this super-chunk.
+   * Include data from adjacent chunks to prevent issues at boundaries.
+   * This decodes light AND blocks from chunks that border this super-chunk.
+   * - Light: prevents hard lighting cutoffs
+   * - Blocks: enables correct fluid height calculation and face culling
    */
-  _includeNeighborLight(superChunk, lightGrid) {
+  _includeNeighborData(superChunk, grid, lightGrid) {
     const sx = superChunk.superX;
     const sz = superChunk.superZ;
     
@@ -506,9 +619,64 @@ export class SuperChunkManager {
             z: cz,
             data: chunkInfo.data
           };
+          // Decode both blocks (for fluid boundaries) and light (for lighting)
+          decodeBlocksOnly(adjustedChunk, grid, this.registry);
           decodeLightOnly(adjustedChunk, lightGrid);
         }
       }
+    }
+  }
+  
+  /**
+   * Mark adjacent super-chunks as dirty so they rebuild with new boundary data.
+   * Called when a chunk is added that affects neighbors' fluid/lighting.
+   */
+  _markAdjacentDirty(chunkX, chunkZ) {
+    const sx = Math.floor(chunkX / SUPER_CHUNK_SIZE);
+    const sz = Math.floor(chunkZ / SUPER_CHUNK_SIZE);
+    
+    // Check if this chunk is on the edge of its super-chunk
+    const localX = ((chunkX % SUPER_CHUNK_SIZE) + SUPER_CHUNK_SIZE) % SUPER_CHUNK_SIZE;
+    const localZ = ((chunkZ % SUPER_CHUNK_SIZE) + SUPER_CHUNK_SIZE) % SUPER_CHUNK_SIZE;
+    
+    const isWestEdge = localX === 0;
+    const isEastEdge = localX === SUPER_CHUNK_SIZE - 1;
+    const isNorthEdge = localZ === 0;
+    const isSouthEdge = localZ === SUPER_CHUNK_SIZE - 1;
+    
+    // Mark adjacent super-chunks dirty if this chunk is on their border
+    if (isWestEdge) {
+      const key = `${sx - 1},${sz}`;
+      if (this.superChunks.has(key)) this.dirtySet.add(key);
+    }
+    if (isEastEdge) {
+      const key = `${sx + 1},${sz}`;
+      if (this.superChunks.has(key)) this.dirtySet.add(key);
+    }
+    if (isNorthEdge) {
+      const key = `${sx},${sz - 1}`;
+      if (this.superChunks.has(key)) this.dirtySet.add(key);
+    }
+    if (isSouthEdge) {
+      const key = `${sx},${sz + 1}`;
+      if (this.superChunks.has(key)) this.dirtySet.add(key);
+    }
+    // Corners
+    if (isWestEdge && isNorthEdge) {
+      const key = `${sx - 1},${sz - 1}`;
+      if (this.superChunks.has(key)) this.dirtySet.add(key);
+    }
+    if (isEastEdge && isNorthEdge) {
+      const key = `${sx + 1},${sz - 1}`;
+      if (this.superChunks.has(key)) this.dirtySet.add(key);
+    }
+    if (isWestEdge && isSouthEdge) {
+      const key = `${sx - 1},${sz + 1}`;
+      if (this.superChunks.has(key)) this.dirtySet.add(key);
+    }
+    if (isEastEdge && isSouthEdge) {
+      const key = `${sx + 1},${sz + 1}`;
+      if (this.superChunks.has(key)) this.dirtySet.add(key);
     }
   }
 
