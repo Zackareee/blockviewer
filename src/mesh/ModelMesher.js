@@ -2258,6 +2258,11 @@ const EXACT_MATCH_NON_CUBES = new Set([
   // Complex state-dependent blocks that can't be bit-encoded
   'chiseled_bookshelf',                   // Has 6 boolean slot_X_occupied properties
   'respawn_anchor',                       // Has 5 charge states (0-4), needs different textures
+  // 6-directional blocks that need model rotation (up/down/north/south/east/west)
+  'piston', 'sticky_piston',              // Pistons with 6-directional facing
+  'dropper', 'dispenser',                 // Dispensers with 6-directional facing
+  'observer',                              // Observer with 6-directional facing
+  'command_block', 'chain_command_block', 'repeating_command_block',  // Command blocks
 ]);
 
 /**
