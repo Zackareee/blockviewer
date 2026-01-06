@@ -277,6 +277,10 @@ pub fn init_lookups(
     color_b: &[f32],
     face_tint_types: &[u8],
     texture_indices: &[f32],
+    water_still_idx: f32,
+    water_flow_idx: f32,
+    lava_still_idx: f32,
+    lava_flow_idx: f32,
 ) -> *const u8 {
     lookup::init_lookups(
         is_opaque,
@@ -290,6 +294,10 @@ pub fn init_lookups(
         color_b,
         face_tint_types,
         texture_indices,
+        water_still_idx,
+        water_flow_idx,
+        lava_still_idx,
+        lava_flow_idx,
     )
 }
 

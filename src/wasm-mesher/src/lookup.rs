@@ -21,6 +21,13 @@ pub struct Lookups {
     pub color_b: &'static [f32],
     pub face_tint_types: &'static [u8],
     pub texture_indices: &'static [f32],
+    // Fluid-specific data
+    pub water_still_idx: f32,
+    pub water_flow_idx: f32,
+    pub lava_still_idx: f32,
+    pub lava_flow_idx: f32,
+    pub water_color: (f32, f32, f32),
+    pub lava_color: (f32, f32, f32),
 }
 
 /// Static storage for lookup tables
@@ -38,6 +45,13 @@ struct LookupStorage {
     color_b: Vec<f32>,
     face_tint_types: Vec<u8>,
     texture_indices: Vec<f32>,
+    // Fluid-specific data
+    water_still_idx: f32,
+    water_flow_idx: f32,
+    lava_still_idx: f32,
+    lava_flow_idx: f32,
+    water_color: (f32, f32, f32),
+    lava_color: (f32, f32, f32),
 }
 
 impl Lookups {
@@ -55,6 +69,12 @@ impl Lookups {
             color_b: &storage.color_b,
             face_tint_types: &storage.face_tint_types,
             texture_indices: &storage.texture_indices,
+            water_still_idx: storage.water_still_idx,
+            water_flow_idx: storage.water_flow_idx,
+            lava_still_idx: storage.lava_still_idx,
+            lava_flow_idx: storage.lava_flow_idx,
+            water_color: storage.water_color,
+            lava_color: storage.lava_color,
         })
     }
 
@@ -123,6 +143,30 @@ impl Lookups {
         let idx = block_id as usize * 6 + face as usize;
         self.texture_indices.get(idx).copied().unwrap_or(0.0)
     }
+
+    /// Get water texture index (still or flow)
+    #[inline]
+    pub fn water_texture(&self, flowing: bool) -> f32 {
+        if flowing { self.water_flow_idx } else { self.water_still_idx }
+    }
+
+    /// Get lava texture index (still or flow)
+    #[inline]
+    pub fn lava_texture(&self, flowing: bool) -> f32 {
+        if flowing { self.lava_flow_idx } else { self.lava_still_idx }
+    }
+
+    /// Get water color (Minecraft default: #3F76E4)
+    #[inline]
+    pub fn get_water_color(&self) -> (f32, f32, f32) {
+        self.water_color
+    }
+
+    /// Get lava color (Minecraft: #FF6600)
+    #[inline]
+    pub fn get_lava_color(&self) -> (f32, f32, f32) {
+        self.lava_color
+    }
 }
 
 /// Initialize lookup tables from JavaScript
@@ -139,6 +183,10 @@ pub fn init_lookups(
     color_b: &[f32],
     face_tint_types: &[u8],
     texture_indices: &[f32],
+    water_still_idx: f32,
+    water_flow_idx: f32,
+    lava_still_idx: f32,
+    lava_flow_idx: f32,
 ) -> *const u8 {
     let storage = LookupStorage {
         is_opaque: is_opaque.to_vec(),
@@ -152,6 +200,14 @@ pub fn init_lookups(
         color_b: color_b.to_vec(),
         face_tint_types: face_tint_types.to_vec(),
         texture_indices: texture_indices.to_vec(),
+        water_still_idx,
+        water_flow_idx,
+        lava_still_idx,
+        lava_flow_idx,
+        // Minecraft default water color: #3F76E4
+        water_color: (0.247, 0.463, 0.894),
+        // Minecraft lava color: #FF6600
+        lava_color: (1.0, 0.4, 0.0),
     };
 
     let _ = LOOKUP_STORAGE.set(storage);

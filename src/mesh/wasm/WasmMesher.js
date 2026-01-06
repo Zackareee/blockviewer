@@ -83,7 +83,11 @@ export function initLookups(lookups) {
     lookups.colorG,
     lookups.colorB,
     lookups.faceTintTypes,
-    lookups.textureIndices
+    lookups.textureIndices,
+    lookups.waterStillIdx,
+    lookups.waterFlowIdx,
+    lookups.lavaStillIdx,
+    lookups.lavaFlowIdx
   );
 
   console.log('[WasmMesher] Lookup tables initialized');
@@ -374,6 +378,19 @@ export function buildLookupTables(registry, textureIndexLookup) {
     }
   }
   
+  // Get fluid texture indices
+  let waterStillIdx = 0;
+  let waterFlowIdx = 0;
+  let lavaStillIdx = 0;
+  let lavaFlowIdx = 0;
+  
+  if (textureIndexLookup) {
+    waterStillIdx = textureIndexLookup.getIndexByPath('block/water_still') || 0;
+    waterFlowIdx = textureIndexLookup.getIndexByPath('block/water_flow') || waterStillIdx;
+    lavaStillIdx = textureIndexLookup.getIndexByPath('block/lava_still') || 0;
+    lavaFlowIdx = textureIndexLookup.getIndexByPath('block/lava_flow') || lavaStillIdx;
+  }
+  
   return {
     isOpaque,
     isNonCube,
@@ -386,6 +403,10 @@ export function buildLookupTables(registry, textureIndexLookup) {
     colorB,
     faceTintTypes,
     textureIndices,
+    waterStillIdx,
+    waterFlowIdx,
+    lavaStillIdx,
+    lavaFlowIdx,
   };
 }
 
