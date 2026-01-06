@@ -293,6 +293,9 @@ export function meshChunk(grid, lightGrid, stateGrid) {
   };
 }
 
+// Import tint type lookup builder
+import { buildFaceTintTypeLookup } from '../../data/biomeTinting.js';
+
 /**
  * Build lookup tables from a BlockRegistry
  * 
@@ -312,8 +315,10 @@ export function buildLookupTables(registry, textureIndexLookup) {
   const colorR = new Float32Array(MAX_BLOCKS);
   const colorG = new Float32Array(MAX_BLOCKS);
   const colorB = new Float32Array(MAX_BLOCKS);
-  const faceTintTypes = new Uint8Array(MAX_BLOCKS * 6);
   const textureIndices = new Float32Array(MAX_BLOCKS * 6);
+  
+  // Get proper face tint types from biomeTinting.js
+  const faceTintTypes = buildFaceTintTypeLookup(registry);
   
   // Fill with default colors
   colorR.fill(1.0);
@@ -363,8 +368,6 @@ export function buildLookupTables(registry, textureIndexLookup) {
       for (let face = 0; face < 6; face++) {
         const idx = id * 6 + face;
         textureIndices[idx] = textureIndexLookup.getIndex(id, face);
-        // faceTintTypes would come from biomeTinting.js - simplified for now
-        faceTintTypes[idx] = 0;
       }
     }
   }

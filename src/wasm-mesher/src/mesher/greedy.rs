@@ -1081,13 +1081,14 @@ fn mesh_glass_face_top(
                 let color = lookups.color(block_id);
                 let tex_idx = lookups.texture_index(block_id, Face::Up as u8);
 
+                let tint_type = lookups.face_tint_type(block_id, Face::Up as u8) as f32;
                 mesh.add_quad(
                     positions,
                     Face::Up.normal(),
                     color,
                     tex_idx,
                     0.0,
-                    0.0,
+                    tint_type,
                     sky,
                     block_light,
                     false,
@@ -1097,76 +1098,400 @@ fn mesh_glass_face_top(
     }
 }
 
-// Stub implementations for other glass faces
+// Glass face implementations (no greedy merging for proper transparency)
 fn mesh_glass_face_bottom(
-    _section: &[u16; S3],
-    _neighbor: Option<&[u16; S3]>,
-    _base_x: i32,
-    _base_y: i32,
-    _base_z: i32,
+    section: &[u16; S3],
+    neighbor: Option<&[u16; S3]>,
+    base_x: i32,
+    base_y: i32,
+    base_z: i32,
     _grid: &BinaryGrid,
-    _light_grid: Option<&LightGrid>,
-    _lookups: &Lookups,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
     _mask: &mut [u16],
     _visited: &mut [bool],
-    _mesh: &mut MeshData,
+    mesh: &mut MeshData,
 ) {
-    // Similar to top but for -Y
+    for ly in 0..S {
+        let slice_base = ly * S2;
+        for lz in 0..S {
+            for lx in 0..S {
+                let j = lz * S + lx;
+                let value = section[slice_base + j];
+                if !is_glass_block(value, lookups) {
+                    continue;
+                }
+
+                let n_value = if ly > 0 {
+                    section[slice_base - S2 + j]
+                } else if let Some(n) = neighbor {
+                    n[(S - 1) * S2 + j]
+                } else {
+                    0
+                };
+
+                let block_id = value & BLOCK_ID_MASK;
+                let n_block_id = n_value & BLOCK_ID_MASK;
+                if n_block_id == block_id {
+                    continue;
+                }
+
+                let world_x = base_x + lx as i32;
+                let block_y = base_y + ly as i32;
+                let world_z = base_z + lz as i32;
+
+                let x = world_x as f32;
+                let y = block_y as f32;
+                let z = world_z as f32;
+
+                let positions = [
+                    (x, y, z),
+                    (x + 1.0, y, z),
+                    (x + 1.0, y, z + 1.0),
+                    (x, y, z + 1.0),
+                ];
+
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                if let Some(lg) = light_grid {
+                    let light = lg.get_light(world_x, block_y - 1, world_z);
+                    sky.fill(light.sky_light as f32);
+                    block_light.fill(light.block_light as f32);
+                }
+
+                let color = lookups.color(block_id);
+                let tex_idx = lookups.texture_index(block_id, Face::Down as u8);
+                let tint_type = lookups.face_tint_type(block_id, Face::Down as u8) as f32;
+
+                mesh.add_quad(
+                    positions,
+                    Face::Down.normal(),
+                    color,
+                    tex_idx,
+                    0.0,
+                    tint_type,
+                    sky,
+                    block_light,
+                    false,
+                );
+            }
+        }
+    }
 }
 
 fn mesh_glass_face_north(
-    _section: &[u16; S3],
-    _neighbor: Option<&[u16; S3]>,
-    _base_x: i32,
-    _base_y: i32,
-    _base_z: i32,
+    section: &[u16; S3],
+    neighbor: Option<&[u16; S3]>,
+    base_x: i32,
+    base_y: i32,
+    base_z: i32,
     _grid: &BinaryGrid,
-    _light_grid: Option<&LightGrid>,
-    _lookups: &Lookups,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
     _mask: &mut [u16],
     _visited: &mut [bool],
-    _mesh: &mut MeshData,
-) {}
+    mesh: &mut MeshData,
+) {
+    for lz in 0..S {
+        for ly in 0..S {
+            for lx in 0..S {
+                let idx = ly * S2 + lz * S + lx;
+                let value = section[idx];
+                if !is_glass_block(value, lookups) {
+                    continue;
+                }
+
+                let n_value = if lz > 0 {
+                    section[idx - S]
+                } else if let Some(n) = neighbor {
+                    n[ly * S2 + (S - 1) * S + lx]
+                } else {
+                    0
+                };
+
+                let block_id = value & BLOCK_ID_MASK;
+                let n_block_id = n_value & BLOCK_ID_MASK;
+                if n_block_id == block_id {
+                    continue;
+                }
+
+                let world_x = base_x + lx as i32;
+                let block_y = base_y + ly as i32;
+                let world_z = base_z + lz as i32;
+
+                let x = world_x as f32;
+                let y = block_y as f32;
+                let z = world_z as f32;
+
+                let positions = [
+                    (x + 1.0, y, z),
+                    (x, y, z),
+                    (x, y + 1.0, z),
+                    (x + 1.0, y + 1.0, z),
+                ];
+
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                if let Some(lg) = light_grid {
+                    let light = lg.get_light(world_x, block_y, world_z - 1);
+                    sky.fill(light.sky_light as f32);
+                    block_light.fill(light.block_light as f32);
+                }
+
+                let color = lookups.color(block_id);
+                let tex_idx = lookups.texture_index(block_id, Face::North as u8);
+                let tint_type = lookups.face_tint_type(block_id, Face::North as u8) as f32;
+
+                mesh.add_quad(
+                    positions,
+                    Face::North.normal(),
+                    color,
+                    tex_idx,
+                    0.0,
+                    tint_type,
+                    sky,
+                    block_light,
+                    false,
+                );
+            }
+        }
+    }
+}
 
 fn mesh_glass_face_south(
-    _section: &[u16; S3],
-    _neighbor: Option<&[u16; S3]>,
-    _base_x: i32,
-    _base_y: i32,
-    _base_z: i32,
+    section: &[u16; S3],
+    neighbor: Option<&[u16; S3]>,
+    base_x: i32,
+    base_y: i32,
+    base_z: i32,
     _grid: &BinaryGrid,
-    _light_grid: Option<&LightGrid>,
-    _lookups: &Lookups,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
     _mask: &mut [u16],
     _visited: &mut [bool],
-    _mesh: &mut MeshData,
-) {}
+    mesh: &mut MeshData,
+) {
+    for lz in 0..S {
+        for ly in 0..S {
+            for lx in 0..S {
+                let idx = ly * S2 + lz * S + lx;
+                let value = section[idx];
+                if !is_glass_block(value, lookups) {
+                    continue;
+                }
+
+                let n_value = if lz < S - 1 {
+                    section[idx + S]
+                } else if let Some(n) = neighbor {
+                    n[ly * S2 + lx]
+                } else {
+                    0
+                };
+
+                let block_id = value & BLOCK_ID_MASK;
+                let n_block_id = n_value & BLOCK_ID_MASK;
+                if n_block_id == block_id {
+                    continue;
+                }
+
+                let world_x = base_x + lx as i32;
+                let block_y = base_y + ly as i32;
+                let world_z = base_z + lz as i32;
+
+                let x = world_x as f32;
+                let y = block_y as f32;
+                let z = (world_z + 1) as f32;
+
+                let positions = [
+                    (x, y, z),
+                    (x + 1.0, y, z),
+                    (x + 1.0, y + 1.0, z),
+                    (x, y + 1.0, z),
+                ];
+
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                if let Some(lg) = light_grid {
+                    let light = lg.get_light(world_x, block_y, world_z + 1);
+                    sky.fill(light.sky_light as f32);
+                    block_light.fill(light.block_light as f32);
+                }
+
+                let color = lookups.color(block_id);
+                let tex_idx = lookups.texture_index(block_id, Face::South as u8);
+                let tint_type = lookups.face_tint_type(block_id, Face::South as u8) as f32;
+
+                mesh.add_quad(
+                    positions,
+                    Face::South.normal(),
+                    color,
+                    tex_idx,
+                    0.0,
+                    tint_type,
+                    sky,
+                    block_light,
+                    false,
+                );
+            }
+        }
+    }
+}
 
 fn mesh_glass_face_east(
-    _section: &[u16; S3],
-    _neighbor: Option<&[u16; S3]>,
-    _base_x: i32,
-    _base_y: i32,
-    _base_z: i32,
+    section: &[u16; S3],
+    neighbor: Option<&[u16; S3]>,
+    base_x: i32,
+    base_y: i32,
+    base_z: i32,
     _grid: &BinaryGrid,
-    _light_grid: Option<&LightGrid>,
-    _lookups: &Lookups,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
     _mask: &mut [u16],
     _visited: &mut [bool],
-    _mesh: &mut MeshData,
-) {}
+    mesh: &mut MeshData,
+) {
+    for lx in 0..S {
+        for ly in 0..S {
+            for lz in 0..S {
+                let idx = ly * S2 + lz * S + lx;
+                let value = section[idx];
+                if !is_glass_block(value, lookups) {
+                    continue;
+                }
+
+                let n_value = if lx < S - 1 {
+                    section[idx + 1]
+                } else if let Some(n) = neighbor {
+                    n[ly * S2 + lz * S]
+                } else {
+                    0
+                };
+
+                let block_id = value & BLOCK_ID_MASK;
+                let n_block_id = n_value & BLOCK_ID_MASK;
+                if n_block_id == block_id {
+                    continue;
+                }
+
+                let world_x = base_x + lx as i32;
+                let block_y = base_y + ly as i32;
+                let world_z = base_z + lz as i32;
+
+                let x = (world_x + 1) as f32;
+                let y = block_y as f32;
+                let z = world_z as f32;
+
+                let positions = [
+                    (x, y, z + 1.0),
+                    (x, y, z),
+                    (x, y + 1.0, z),
+                    (x, y + 1.0, z + 1.0),
+                ];
+
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                if let Some(lg) = light_grid {
+                    let light = lg.get_light(world_x + 1, block_y, world_z);
+                    sky.fill(light.sky_light as f32);
+                    block_light.fill(light.block_light as f32);
+                }
+
+                let color = lookups.color(block_id);
+                let tex_idx = lookups.texture_index(block_id, Face::East as u8);
+                let tint_type = lookups.face_tint_type(block_id, Face::East as u8) as f32;
+
+                mesh.add_quad(
+                    positions,
+                    Face::East.normal(),
+                    color,
+                    tex_idx,
+                    0.0,
+                    tint_type,
+                    sky,
+                    block_light,
+                    false,
+                );
+            }
+        }
+    }
+}
 
 fn mesh_glass_face_west(
-    _section: &[u16; S3],
-    _neighbor: Option<&[u16; S3]>,
-    _base_x: i32,
-    _base_y: i32,
-    _base_z: i32,
+    section: &[u16; S3],
+    neighbor: Option<&[u16; S3]>,
+    base_x: i32,
+    base_y: i32,
+    base_z: i32,
     _grid: &BinaryGrid,
-    _light_grid: Option<&LightGrid>,
-    _lookups: &Lookups,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
     _mask: &mut [u16],
     _visited: &mut [bool],
-    _mesh: &mut MeshData,
-) {}
+    mesh: &mut MeshData,
+) {
+    for lx in 0..S {
+        for ly in 0..S {
+            for lz in 0..S {
+                let idx = ly * S2 + lz * S + lx;
+                let value = section[idx];
+                if !is_glass_block(value, lookups) {
+                    continue;
+                }
+
+                let n_value = if lx > 0 {
+                    section[idx - 1]
+                } else if let Some(n) = neighbor {
+                    n[ly * S2 + lz * S + (S - 1)]
+                } else {
+                    0
+                };
+
+                let block_id = value & BLOCK_ID_MASK;
+                let n_block_id = n_value & BLOCK_ID_MASK;
+                if n_block_id == block_id {
+                    continue;
+                }
+
+                let world_x = base_x + lx as i32;
+                let block_y = base_y + ly as i32;
+                let world_z = base_z + lz as i32;
+
+                let x = world_x as f32;
+                let y = block_y as f32;
+                let z = world_z as f32;
+
+                let positions = [
+                    (x, y, z),
+                    (x, y, z + 1.0),
+                    (x, y + 1.0, z + 1.0),
+                    (x, y + 1.0, z),
+                ];
+
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                if let Some(lg) = light_grid {
+                    let light = lg.get_light(world_x - 1, block_y, world_z);
+                    sky.fill(light.sky_light as f32);
+                    block_light.fill(light.block_light as f32);
+                }
+
+                let color = lookups.color(block_id);
+                let tex_idx = lookups.texture_index(block_id, Face::West as u8);
+                let tint_type = lookups.face_tint_type(block_id, Face::West as u8) as f32;
+
+                mesh.add_quad(
+                    positions,
+                    Face::West.normal(),
+                    color,
+                    tex_idx,
+                    0.0,
+                    tint_type,
+                    sky,
+                    block_light,
+                    false,
+                );
+            }
+        }
+    }
+}
 
