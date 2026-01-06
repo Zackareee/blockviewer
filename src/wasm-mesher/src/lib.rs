@@ -29,6 +29,7 @@ pub fn init() {
 /// Main entry point for meshing a chunk
 /// 
 /// Takes serialized grid data and returns mesh buffers
+/// Optional bounds limit which blocks generate geometry (neighbors used for lookups only)
 #[wasm_bindgen]
 pub fn mesh_chunk(
     grid_data: &[u8],
@@ -37,6 +38,40 @@ pub fn mesh_chunk(
     lookup_ptr: *const u8,
     lookup_len: usize,
 ) -> MeshResult {
+    mesh_chunk_with_bounds(grid_data, light_data, state_data, lookup_ptr, lookup_len, None)
+}
+
+/// Mesh chunk with explicit bounds
+/// Bounds format: [min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z]
+#[wasm_bindgen]
+pub fn mesh_chunk_bounded(
+    grid_data: &[u8],
+    light_data: &[u8],
+    state_data: &[u8],
+    lookup_ptr: *const u8,
+    lookup_len: usize,
+    min_chunk_x: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_z: i32,
+) -> MeshResult {
+    let bounds = Some(mesher::MeshBounds {
+        min_chunk_x,
+        min_chunk_z,
+        max_chunk_x,
+        max_chunk_z,
+    });
+    mesh_chunk_with_bounds(grid_data, light_data, state_data, lookup_ptr, lookup_len, bounds)
+}
+
+fn mesh_chunk_with_bounds(
+    grid_data: &[u8],
+    light_data: &[u8],
+    state_data: &[u8],
+    _lookup_ptr: *const u8,
+    _lookup_len: usize,
+    bounds: Option<mesher::MeshBounds>,
+) -> MeshResult {
     // Import grids from serialized data
     let grid = grid::BinaryGrid::from_bytes(grid_data);
     let light_grid = if !light_data.is_empty() {
@@ -44,19 +79,30 @@ pub fn mesh_chunk(
     } else {
         None
     };
-    let state_grid = if !state_data.is_empty() {
+    let _state_grid = if !state_data.is_empty() {
         Some(grid::BlockStateGrid::from_bytes(state_data))
     } else {
         None
     };
 
     // Get lookup tables from static memory
-    let lookups = unsafe { lookup::Lookups::from_ptr(lookup_ptr, lookup_len) };
+    let lookups = match lookup::Lookups::get() {
+        Some(l) => l,
+        None => {
+            // Return empty meshes if lookups not initialized
+            return MeshResult {
+                solid: mesher::MeshData::new(),
+                water: mesher::MeshData::new(),
+                lava: mesher::MeshData::new(),
+                glass: mesher::MeshData::new(),
+            };
+        }
+    };
 
-    // Run meshers
-    let solid_result = mesher::greedy::mesh_solid(&grid, light_grid.as_ref(), &lookups);
-    let fluid_result = mesher::fluid::mesh_fluids(&grid, light_grid.as_ref(), &lookups);
-    let glass_result = mesher::greedy::mesh_glass(&grid, light_grid.as_ref(), &lookups);
+    // Run meshers with optional bounds
+    let solid_result = mesher::greedy::mesh_solid_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
+    let fluid_result = mesher::fluid::mesh_fluids_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
+    let glass_result = mesher::greedy::mesh_glass_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
 
     MeshResult {
         solid: solid_result,

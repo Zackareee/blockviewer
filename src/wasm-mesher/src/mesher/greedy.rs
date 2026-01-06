@@ -80,6 +80,16 @@ pub fn mesh_solid(
     light_grid: Option<&LightGrid>,
     lookups: &Lookups,
 ) -> MeshData {
+    mesh_solid_bounded(grid, light_grid, lookups, None)
+}
+
+/// Mesh solid blocks with optional bounds
+pub fn mesh_solid_bounded(
+    grid: &BinaryGrid,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
+    bounds: Option<&super::MeshBounds>,
+) -> MeshData {
     let mut mesh = MeshData::with_capacity(INITIAL_CAPACITY, INITIAL_CAPACITY * 6 / 4);
     
     // Reusable mask for greedy merging
@@ -88,6 +98,13 @@ pub fn mesh_solid(
 
     // Process each section
     for (key, section) in grid.iter_sections() {
+        // Skip sections outside bounds (they're only for neighbor lookups)
+        if let Some(b) = bounds {
+            if !b.contains_chunk(key.chunk_x, key.chunk_z) {
+                continue;
+            }
+        }
+        
         let base_x = key.chunk_x * S as i32;
         let base_y = section_to_world_y(key.section_y);
         let base_z = key.chunk_z * S as i32;
@@ -124,12 +141,29 @@ pub fn mesh_glass(
     light_grid: Option<&LightGrid>,
     lookups: &Lookups,
 ) -> MeshData {
+    mesh_glass_bounded(grid, light_grid, lookups, None)
+}
+
+/// Mesh glass blocks with optional bounds
+pub fn mesh_glass_bounded(
+    grid: &BinaryGrid,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
+    bounds: Option<&super::MeshBounds>,
+) -> MeshData {
     let mut mesh = MeshData::with_capacity(INITIAL_CAPACITY / 4, INITIAL_CAPACITY / 4 * 6 / 4);
     
     let mut mask = vec![0u16; S2];
     let mut visited = vec![false; S2];
 
     for (key, section) in grid.iter_sections() {
+        // Skip sections outside bounds (they're only for neighbor lookups)
+        if let Some(b) = bounds {
+            if !b.contains_chunk(key.chunk_x, key.chunk_z) {
+                continue;
+            }
+        }
+        
         let base_x = key.chunk_x * S as i32;
         let base_y = section_to_world_y(key.section_y);
         let base_z = key.chunk_z * S as i32;

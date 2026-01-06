@@ -360,8 +360,8 @@ export class SuperChunkManager {
     
     // Only mark for rebuild if chunk was actually added (not already present)
     if (wasAdded) {
-      const key = this.getSuperChunkKey(chunkX, chunkZ);
-      this.dirtySet.add(key);
+    const key = this.getSuperChunkKey(chunkX, chunkZ);
+    this.dirtySet.add(key);
       
       // Also mark adjacent super-chunks dirty so they can update their
       // boundary rendering (fluid walls, lighting, etc.)
@@ -625,8 +625,17 @@ export class SuperChunkManager {
         this._wasmLoggedOnce = true;
       }
       
-      // Run WASM mesher for solid/fluid/glass
-      const meshResult = wasmMeshChunk(grid, lightGrid, stateGrid);
+      // Calculate bounds for this super-chunk (only render blocks within these chunks)
+      // Neighbor chunk data is included for boundary lookups but won't generate geometry
+      const bounds = {
+        minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
+        minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
+        maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+        maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+      };
+      
+      // Run WASM mesher for solid/fluid/glass with bounds
+      const meshResult = wasmMeshChunk(grid, lightGrid, stateGrid, bounds);
       
       const wasmTime = performance.now() - startTime;
       
@@ -809,12 +818,12 @@ export class SuperChunkManager {
             for (const emitter of modelResult.particleEmitters) {
               emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
             }
+            }
           }
         }
       }
     }
-  }
-
+    
   /**
    * Create Three.js meshes from worker result data
    */

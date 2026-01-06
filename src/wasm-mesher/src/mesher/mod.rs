@@ -126,3 +126,31 @@ pub struct FluidMeshResult {
     pub lava: MeshData,
 }
 
+/// Bounds for mesh generation (only blocks within these chunk coords generate geometry)
+/// Blocks outside bounds are still used for neighbor lookups (lighting, fluid height, face culling)
+#[derive(Debug, Clone, Copy)]
+pub struct MeshBounds {
+    pub min_chunk_x: i32,
+    pub min_chunk_z: i32,
+    pub max_chunk_x: i32,
+    pub max_chunk_z: i32,
+}
+
+impl MeshBounds {
+    /// Check if a world position is within bounds
+    #[inline]
+    pub fn contains(&self, world_x: i32, world_z: i32) -> bool {
+        let chunk_x = world_x.div_euclid(16);
+        let chunk_z = world_z.div_euclid(16);
+        chunk_x >= self.min_chunk_x && chunk_x <= self.max_chunk_x &&
+        chunk_z >= self.min_chunk_z && chunk_z <= self.max_chunk_z
+    }
+    
+    /// Check if a chunk is within bounds
+    #[inline]
+    pub fn contains_chunk(&self, chunk_x: i32, chunk_z: i32) -> bool {
+        chunk_x >= self.min_chunk_x && chunk_x <= self.max_chunk_x &&
+        chunk_z >= self.min_chunk_z && chunk_z <= self.max_chunk_z
+    }
+}
+

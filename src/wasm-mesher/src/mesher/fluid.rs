@@ -275,6 +275,16 @@ pub fn mesh_fluids(
     light_grid: Option<&LightGrid>,
     lookups: &Lookups,
 ) -> FluidMeshResult {
+    mesh_fluids_bounded(grid, light_grid, lookups, None)
+}
+
+/// Mesh fluids with optional bounds (only generate geometry for blocks within bounds)
+pub fn mesh_fluids_bounded(
+    grid: &BinaryGrid,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
+    bounds: Option<&super::MeshBounds>,
+) -> FluidMeshResult {
     let mut water = MeshData::with_capacity(INITIAL_CAPACITY, INITIAL_CAPACITY * 6 / 4);
     let mut lava = MeshData::with_capacity(INITIAL_CAPACITY / 4, INITIAL_CAPACITY / 4 * 6 / 4);
 
@@ -283,6 +293,13 @@ pub fn mesh_fluids(
     let lava_color = lookups.get_lava_color();
 
     for (key, section) in grid.iter_sections() {
+        // Skip sections outside bounds (they're only for neighbor lookups)
+        if let Some(b) = bounds {
+            if !b.contains_chunk(key.chunk_x, key.chunk_z) {
+                continue;
+            }
+        }
+        
         let base_x = key.chunk_x * S as i32;
         let base_y = section_to_world_y(key.section_y);
         let base_z = key.chunk_z * S as i32;

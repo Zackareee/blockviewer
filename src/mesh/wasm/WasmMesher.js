@@ -235,9 +235,10 @@ export function serializeStateGrid(stateGrid) {
  * @param {BinaryGrid} grid - Block grid
  * @param {LightGrid} lightGrid - Light grid (optional)
  * @param {BlockStateGrid} stateGrid - State grid for model blocks (optional)
+ * @param {Object} bounds - Optional bounds {minChunkX, minChunkZ, maxChunkX, maxChunkZ}
  * @returns {Object} Mesh result with solid, water, lava, glass buffers
  */
-export function meshChunk(grid, lightGrid, stateGrid) {
+export function meshChunk(grid, lightGrid, stateGrid, bounds = null) {
   if (!isWasmAvailable()) {
     throw new Error('WASM mesher not available');
   }
@@ -247,8 +248,16 @@ export function meshChunk(grid, lightGrid, stateGrid) {
   const lightData = lightGrid ? serializeLightGrid(lightGrid) : new Uint8Array(0);
   const stateData = stateGrid ? serializeStateGrid(stateGrid) : new Uint8Array(0);
 
-  // Call WASM mesher
-  const result = wasmModule.mesh_chunk(gridData, lightData, stateData, null, 0);
+  // Call WASM mesher (with or without bounds)
+  let result;
+  if (bounds) {
+    result = wasmModule.mesh_chunk_bounded(
+      gridData, lightData, stateData, null, 0,
+      bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ
+    );
+  } else {
+    result = wasmModule.mesh_chunk(gridData, lightData, stateData, null, 0);
+  }
 
   // Extract mesh data from result
   return {
