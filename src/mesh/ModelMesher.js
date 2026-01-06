@@ -2255,6 +2255,12 @@ const EXACT_MATCH_NON_CUBES = new Set([
   // Small corals (not coral_block variants)
   'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
   'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral', 'dead_fire_coral', 'dead_horn_coral',
+  // Directional blocks that need proper facing from block state
+  'furnace', 'blast_furnace', 'smoker',  // Facing + lit state
+  'loom',                                 // Facing property
+  'chiseled_bookshelf',                   // Facing + 6 slot_X_occupied properties
+  'carved_pumpkin', 'jack_o_lantern',     // Facing property
+  'respawn_anchor',                       // charges property (0-4), different top textures
 ]);
 
 /**
