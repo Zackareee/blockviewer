@@ -1453,6 +1453,7 @@ export class ChunkManager {
       const result = await meshBuilder.buildRegion(chunks, { 
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
+        collectEmitters: this.particleQuality !== 'off',
       });
       const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, entities, offset, stats, _grid } = result;
       
@@ -1601,6 +1602,7 @@ export class ChunkManager {
           generateLOD: shouldGenerateLOD,
           enableModelMeshes,
           returnGrid: !!this.debugGrid,
+          collectEmitters: this.particleQuality !== 'off',
         });
         const meshTime = performance.now() - meshStart;
         
@@ -1907,6 +1909,7 @@ export class ChunkManager {
           generateLOD: shouldGenerateLOD,
           enableModelMeshes,
           returnGrid: !!this.debugGrid,
+          collectEmitters: this.particleQuality !== 'off',
         });
         const meshTime = performance.now() - meshStart;
         

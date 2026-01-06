@@ -56,6 +56,7 @@ export class RegionMeshBuilder {
       generateLOD = false,
       enableModelMeshes = false, // Disabled by default until fully tested
       returnGrid = false,
+      collectEmitters = true, // Set to false to skip particle emitter collection
     } = options;
     const startTime = performance.now();
     const stats = {
@@ -221,6 +222,7 @@ export class RegionMeshBuilder {
         const modelOptions = {
           textureIndexLookup: this.textureIndexLookup,
           lightGrid,
+          collectEmitters, // Skip particle emitter collection when particles are off
         };
         const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
         

@@ -358,7 +358,9 @@ export class SuperChunkManager {
    */
   async _buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset) {
     const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
-    const mesherOptions = { textureIndexLookup, lightGrid };
+    // Skip particle emitter collection when particles are off
+    const collectEmitters = this.chunkManager.particleQuality !== 'off';
+    const mesherOptions = { textureIndexLookup, lightGrid, collectEmitters };
     
     // Build solid/fluid/glass meshes
     const { solid, water, lava, glass } = buildGridMeshes(grid, this.registry, offset, mesherOptions);

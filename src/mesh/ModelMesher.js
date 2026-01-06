@@ -351,6 +351,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     lodLevel = 0, 
     lightGrid = null, 
     skipStateIds = null,
+    collectEmitters = true, // Set to false to skip particle emitter collection for performance
     // CPU-side distance culling - skip generating geometry for blocks beyond this distance
     // Set to 0 to disable (default behavior for LOD0)
     cpuCullDistance = 0,
@@ -678,7 +679,8 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       // Collect particle emitter positions BEFORE geometry check
       // This ensures we capture particles for ALL blocks (including full cubes like leaves)
       // Apply same offset as mesh vertices so camera distance checks work correctly
-      if (stateHasParticleEmitter[stateId]) {
+      // Skip entirely when collectEmitters is false for performance
+      if (collectEmitters && stateHasParticleEmitter[stateId]) {
         const state = stateRegistry.getState(stateId);
         const blockName = state ? state.blockName : 'torch';
         
