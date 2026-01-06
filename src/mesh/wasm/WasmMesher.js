@@ -355,9 +355,11 @@ export function buildLookupTables(registry, textureIndexLookup) {
     colorB[id] = col.b;
     
     if (info.name) {
-      if (info.name.includes('water')) {
+      // Fluid detection (but exclude cauldrons which contain fluid internally)
+      const isCauldron = info.name.includes('cauldron');
+      if (info.name.includes('water') && !isCauldron) {
         isFluid[id] = 1;
-      } else if (info.name.includes('lava')) {
+      } else if (info.name.includes('lava') && !isCauldron) {
         isFluid[id] = 2;
       }
       

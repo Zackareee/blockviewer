@@ -55,6 +55,13 @@ const UNDERWATER_BLOCKS = new Set([
   'minecraft:kelp_plant', 'minecraft:bubble_column'
 ]);
 
+// Blocks that contain fluid in their name but aren't actual fluid blocks
+// These have internal fluid as part of their model, not as a separate water block
+const FLUID_CONTAINER_BLOCKS = new Set([
+  'water_cauldron', 'lava_cauldron', 'powder_snow_cauldron',
+  'minecraft:water_cauldron', 'minecraft:lava_cauldron', 'minecraft:powder_snow_cauldron'
+]);
+
 /**
  * Unpack block indices from packed long array (Minecraft 1.16+ format)
  * 
@@ -185,8 +192,8 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
     blockIds[i] = registry.getBlockId(name);
     isAir[i] = isAirBlock(name) ? 1 : 0;
     
-    // Extract fluid level for water/lava
-    if (name.includes('water') || name.includes('lava')) {
+    // Extract fluid level for water/lava (but not cauldrons which contain fluid internally)
+    if ((name.includes('water') || name.includes('lava')) && !FLUID_CONTAINER_BLOCKS.has(name)) {
       levels[i] = extractFluidLevel(entry);
     } else {
       // Check for waterlogged property on non-fluid blocks
