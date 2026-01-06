@@ -297,7 +297,24 @@ class BlockstateResolver {
 
     // Implicit AND condition - all keys must match
     for (const [key, value] of Object.entries(when)) {
-      const propValue = properties[key];
+      let propValue = properties[key];
+      
+      // Handle undefined properties - use defaults for common property types
+      // Minecraft doesn't always store properties with their default values in NBT
+      if (propValue === undefined || propValue === null) {
+        // Boolean properties typically default to false
+        if (value === 'true' || value === 'false') {
+          propValue = 'false';
+        }
+        // Numeric properties typically default to 0
+        else if (!isNaN(value)) {
+          propValue = '0';
+        }
+        // For other properties, the condition fails if property is missing
+        else {
+          return false;
+        }
+      }
       
       // Value can be "true|false" for OR within a single property
       if (typeof value === 'string' && value.includes('|')) {

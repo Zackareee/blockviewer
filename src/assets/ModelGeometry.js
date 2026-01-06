@@ -151,8 +151,10 @@ class ModelGeometry {
 
     // Small offset to prevent z-fighting on thin blocks (in block units)
     // These values need to be large enough to prevent z-fighting but small enough
-    // to not be visually noticeable (at 16 pixels per block, 0.005 = ~0.08 pixels)
-    const THIN_FACE_OFFSET = 0.005;
+    // to not be visually noticeable (at 16 pixels per block, 0.01 = ~0.16 pixels)
+    // Increased from 0.005 to 0.01 to better handle overlapping elements like
+    // chiseled bookshelf slots which share edges
+    const THIN_FACE_OFFSET = 0.01;
     const THIN_THRESHOLD = 0.02; // Elements thinner than this get offset
     
     // For cross-pattern blocks with multiple thin elements, we also need to offset
