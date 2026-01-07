@@ -104,9 +104,22 @@ uniform float uContinuousGlass;  // 0.0 = normal glass with borders, 1.0 = borde
 const vec3 SPRUCE_TINT = vec3(0.380, 0.600, 0.380);   // #619961
 const vec3 BIRCH_TINT = vec3(0.502, 0.655, 0.333);    // #80a755
 const vec3 WATER_TINT = vec3(0.247, 0.463, 0.894);    // #3F76E4
-const vec3 REDSTONE_TINT = vec3(0.918, 0.000, 0.000); // #EA0000 (powered redstone red)
 const vec3 DRY_FOLIAGE_TINT = vec3(0.667, 0.580, 0.439); // #AB9470
 const vec3 STEM_TINT = vec3(0.455, 0.698, 0.196);    // #74b232 (mature stem green)
+
+// Minecraft redstone wire color calculation based on power level (0-15)
+// Formula extracted from RedStoneWireBlock.class bytecode constants
+// power 0 = dark red (0.3, 0, 0), power 15 = bright red-orange (1.0, 0.2, 0)
+vec3 getRedstoneColor(float power) {
+  float f = power / 15.0;
+  // Red: f * 0.6 + (0.4 if power > 0, else 0.3)
+  float r = f * 0.6 + (power > 0.0 ? 0.4 : 0.3);
+  // Green: max(0, f^2 * 0.7 - 0.5)
+  float g = max(0.0, f * f * 0.7 - 0.5);
+  // Blue: max(0, f^2 * 0.6 - 0.7)
+  float b = max(0.0, f * f * 0.6 - 0.7);
+  return vec3(r, g, b);
+}
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -302,7 +315,8 @@ vec3 sampleColormap(int tintType) {
 }
 
 // Get the biome tint color for the current fragment
-vec3 getBiomeTint(int tintType) {
+// For redstone, power level is encoded in fractional part: tintType = 6.0 + power/16.0
+vec3 getBiomeTint(int tintType, float tintTypeFull) {
   if (tintType == TINT_NONE) {
     return vec3(1.0); // No tinting
   } else if (tintType == TINT_GRASS || tintType == TINT_FOLIAGE) {
@@ -314,7 +328,9 @@ vec3 getBiomeTint(int tintType) {
   } else if (tintType == TINT_WATER) {
     return WATER_TINT;
   } else if (tintType == TINT_REDSTONE) {
-    return REDSTONE_TINT;
+    // Extract power level from fractional part (0-15)
+    float power = fract(tintTypeFull) * 16.0;
+    return getRedstoneColor(power);
   } else if (tintType == TINT_DRY_FOLIAGE) {
     return DRY_FOLIAGE_TINT;
   } else if (tintType == TINT_STEM) {
@@ -516,11 +532,11 @@ void main() {
     if (texColor.a < 0.1) discard;
     
     // Apply biome tinting if enabled
-    int tintType = int(vTintType + 0.5); // Round to nearest int
+    int tintType = int(floor(vTintType)); // Get base tint type
     vec3 tintColor = vec3(1.0);
     
     if (uUseTinting > 0.5 && tintType > 0) {
-      tintColor = getBiomeTint(tintType);
+      tintColor = getBiomeTint(tintType, vTintType);
     }
     
     // Continuous glass mode: replace internal border patterns with glass interior
@@ -768,7 +784,8 @@ export function createTexturedGlassMaterial(atlasData = null, useTextures = fals
     side: THREE.FrontSide,
     vertexColors: true,
     transparent: true,
-    depthWrite: true, // Enable depth writing - alpha-tested pixels (discarded) won't write anyway
+    depthWrite: true, // Write to depth buffer for correct ordering of leaves and other transparent blocks
+    depthTest: true,
   });
   
   return material;
@@ -957,9 +974,18 @@ uniform float uFogEnabled;       // 0.0 = no fog, 1.0 = fog enabled
 const vec3 SPRUCE_TINT = vec3(0.380, 0.600, 0.380);
 const vec3 BIRCH_TINT = vec3(0.502, 0.655, 0.333);
 const vec3 WATER_TINT = vec3(0.247, 0.463, 0.894);
-const vec3 REDSTONE_TINT = vec3(0.918, 0.000, 0.000);
 const vec3 DRY_FOLIAGE_TINT = vec3(0.667, 0.580, 0.439);
 const vec3 STEM_TINT = vec3(0.455, 0.698, 0.196);
+
+// Minecraft redstone wire color calculation based on power level (0-15)
+// Formula extracted from RedStoneWireBlock.class bytecode constants
+vec3 getRedstoneColor(float power) {
+  float f = power / 15.0;
+  float r = f * 0.6 + (power > 0.0 ? 0.4 : 0.3);
+  float g = max(0.0, f * f * 0.7 - 0.5);
+  float b = max(0.0, f * f * 0.6 - 0.7);
+  return vec3(r, g, b);
+}
 
 varying vec3 vColor;
 varying vec3 vNormal;
@@ -1127,7 +1153,8 @@ vec3 sampleColormap(int tintType) {
 }
 
 // Get biome tint color
-vec3 getBiomeTint(int tintType) {
+// For redstone, power level is encoded in fractional part: tintType = 6.0 + power/16.0
+vec3 getBiomeTint(int tintType, float tintTypeFull) {
   if (tintType == TINT_NONE) {
     return vec3(1.0);
   } else if (tintType == TINT_GRASS || tintType == TINT_FOLIAGE) {
@@ -1139,7 +1166,9 @@ vec3 getBiomeTint(int tintType) {
   } else if (tintType == TINT_WATER) {
     return WATER_TINT;
   } else if (tintType == TINT_REDSTONE) {
-    return REDSTONE_TINT;
+    // Extract power level from fractional part (0-15)
+    float power = fract(tintTypeFull) * 16.0;
+    return getRedstoneColor(power);
   } else if (tintType == TINT_DRY_FOLIAGE) {
     return DRY_FOLIAGE_TINT;
   } else if (tintType == TINT_STEM) {
@@ -1222,11 +1251,11 @@ void main() {
     }
     
     // Apply biome tinting
-    int tintType = int(vTintType + 0.5);
+    int tintType = int(floor(vTintType));
     vec3 tintColor = vec3(1.0);
     
     if (uUseTinting > 0.5 && tintType > 0) {
-      tintColor = getBiomeTint(tintType);
+      tintColor = getBiomeTint(tintType, vTintType);
     }
     
     finalColor = texColor.rgb * tintColor;

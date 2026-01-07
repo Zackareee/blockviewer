@@ -221,9 +221,10 @@ const BLOCK_COLORS = getBlockColorsNumeric();
 const COLOR_PATTERNS = COLOR_PATTERNS_NUMERIC;
 
 // Air block names (for fast lookup)
+// bubble_column is included because it has no visible geometry - it's just water with particle effects
 const AIR_BLOCKS = new Set([
-  'air', 'cave_air', 'void_air',
-  'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air',
+  'air', 'cave_air', 'void_air', 'bubble_column',
+  'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:bubble_column',
 ]);
 
 // Fluid block names

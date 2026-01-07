@@ -257,11 +257,9 @@ export class BeaconBeamManager {
       },
       vertexShader: `
         varying vec2 vUv;
-        varying float vY;
         
         void main() {
           vUv = uv;
-          vY = position.y;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
@@ -271,7 +269,6 @@ export class BeaconBeamManager {
         uniform float uTime;
         
         varying vec2 vUv;
-        varying float vY;
         
         void main() {
           // Scroll texture vertically
@@ -299,11 +296,9 @@ export class BeaconBeamManager {
       },
       vertexShader: `
         varying vec2 vUv;
-        varying float vY;
         
         void main() {
           vUv = uv;
-          vY = position.y;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
@@ -314,7 +309,6 @@ export class BeaconBeamManager {
         uniform float uTime;
         
         varying vec2 vUv;
-        varying float vY;
         
         void main() {
           // Scroll texture vertically (same speed as inner beam)

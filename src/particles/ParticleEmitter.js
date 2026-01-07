@@ -112,12 +112,13 @@ const BLOCK_EMITTERS = {
   },
   
   // Wall torch (facing directions handled by offset adjustments)
+  // Model: template_torch_wall.json - top at y=13.5/16=0.84, with -22.5° tilt -> ~0.8
   'wall_torch': {
     particles: [
       {
         type: 'flame',
         rate: 5.0, // Same as standing torch
-        offset: [0.5, 0.7, 0.28], // Default facing south
+        offset: [0.5, 0.85, 0.28], // Default facing south, y from model top
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.12, 0],
         velocityVariance: [0.03, 0.03, 0.03],
@@ -134,7 +135,7 @@ const BLOCK_EMITTERS = {
       {
         type: 'smoke',
         rate: 4.0,
-        offset: [0.5, 0.75, 0.28],
+        offset: [0.5, 0.9, 0.28], // Slightly above flame
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.2, 0],
         velocityVariance: [0.04, 0.04, 0.04],
@@ -191,13 +192,13 @@ const BLOCK_EMITTERS = {
     ],
   },
   
-  // Soul wall torch
+  // Soul wall torch - same geometry as regular wall torch
   'soul_wall_torch': {
     particles: [
       {
         type: 'soul_fire_flame',
         rate: 5.0,
-        offset: [0.5, 0.7, 0.28],
+        offset: [0.5, 0.85, 0.28], // Match wall_torch Y offset
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.12, 0],
         velocityVariance: [0.03, 0.03, 0.03],
@@ -214,7 +215,7 @@ const BLOCK_EMITTERS = {
       {
         type: 'smoke',
         rate: 4.0,
-        offset: [0.5, 0.75, 0.28],
+        offset: [0.5, 0.9, 0.28], // Slightly above flame
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.2, 0],
         velocityVariance: [0.04, 0.04, 0.04],
@@ -254,13 +255,13 @@ const BLOCK_EMITTERS = {
     ],
   },
   
-  // Redstone wall torch
+  // Redstone wall torch - same geometry as regular wall torch
   'redstone_wall_torch': {
     particles: [
       {
         type: 'flame',
         rate: 1.0, // Subtle redstone glow
-        offset: [0.5, 0.65, 0.28],
+        offset: [0.5, 0.8, 0.28], // Match wall_torch Y offset
         offsetVariance: [0.0, 0.0, 0.0],
         velocity: [0, 0.08, 0],
         velocityVariance: [0.02, 0.02, 0.02],
@@ -1250,6 +1251,62 @@ const BLOCK_EMITTERS = {
       },
     ],
   },
+  
+  // ============================================================================
+  // BUBBLE COLUMN PARTICLES
+  // From BubbleColumnBlock.class:
+  // - DRAG property: true = magma (downward), false = soul sand (upward)
+  // - Particle types: BUBBLE_COLUMN_UP (rising), CURRENT_DOWN (sinking)
+  // - Each bubble_column block spawns short-lived bubbles that travel ~1 block
+  // - Combined effect of all blocks in column creates continuous bubble stream
+  // ============================================================================
+  
+  'bubble_column': {
+    // Special flag for bubble column handling - direction based on drag property
+    bubbleColumn: true,
+    particles: [
+      {
+        // Rising/falling bubbles - direction controlled by drag property
+        type: 'bubble_column_up',
+        rate: 6.0, // Higher rate since each bubble travels short distance
+        offset: [0.5, 0.5, 0.5], // Center of block
+        offsetVariance: [0.35, 0.4, 0.35], // Spread throughout block
+        velocity: [0, 0.8, 0], // Moderate speed (reversed for drag=true)
+        velocityVariance: [0.1, 0.15, 0.1],
+        size: 0.10,
+        sizeVariance: 0.03,
+        lifetime: 0.8, // Short lifetime - travel ~0.6 blocks before fading
+        lifetimeVariance: 0.2,
+        color: [0.85, 0.92, 1.0], // Slightly blue-white
+        alpha: 0.65,
+        fadeIn: 0.05,
+        fadeOut: 0.4, // Longer fade-out for smooth transition
+        friction: 0.98,
+        gravity: 0, // No gravity - bubbles are buoyant in water
+        hasPhysics: false, // Don't collide with blocks (stay in water column)
+      },
+      {
+        // Ambient bubble particles (smaller, slower, more random)
+        type: 'bubble',
+        rate: 3.0,
+        offset: [0.5, 0.5, 0.5],
+        offsetVariance: [0.4, 0.4, 0.4],
+        velocity: [0, 0.25, 0], // Slow ambient drift
+        velocityVariance: [0.12, 0.08, 0.12],
+        size: 0.05,
+        sizeVariance: 0.02,
+        lifetime: 0.6,
+        lifetimeVariance: 0.2,
+        color: [0.9, 0.95, 1.0],
+        alpha: 0.45,
+        fadeIn: 0.05,
+        fadeOut: 0.5,
+        friction: 0.97,
+        gravity: 0,
+        hasPhysics: false,
+      },
+    ],
+  },
 };
 
 // ============================================================================
@@ -1396,11 +1453,24 @@ class EmitterInstance {
     }
     
     // Calculate velocity with variance
-    const velocity = [
+    let velocity = [
       config.velocity[0] + (Math.random() - 0.5) * 2 * config.velocityVariance[0],
       config.velocity[1] + (Math.random() - 0.5) * 2 * config.velocityVariance[1],
       config.velocity[2] + (Math.random() - 0.5) * 2 * config.velocityVariance[2],
     ];
+    
+    // Bubble column: flip velocity direction when drag=true (magma block below)
+    // drag=true means downward current, drag=false means upward bubbles
+    if (this.config.bubbleColumn) {
+      const drag = this.properties.drag === true || this.properties.drag === 'true';
+      if (drag) {
+        // Magma block - particles sink downward
+        velocity[1] = -Math.abs(velocity[1]);
+      } else {
+        // Soul sand - particles rise upward
+        velocity[1] = Math.abs(velocity[1]);
+      }
+    }
     
     // Size with variance
     const size = config.size + (Math.random() - 0.5) * 2 * config.sizeVariance;

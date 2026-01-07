@@ -67,7 +67,7 @@ const HORIZONTAL_ACCELERATION_PER_SEC = BASE_TERMINAL_VELOCITY * HORIZONTAL_DECA
 // Speed multiplier levels (controlled by scroll wheel)
 // These match Minecraft's spectator mode speed levels
 const SPEED_LEVELS = [0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
-const DEFAULT_SPEED_LEVEL_INDEX = 4;  // Start at 1.0x
+const DEFAULT_SPEED_LEVEL_INDEX = 5;  // Start at 2.0x
 
 // Sprint multiplier (Ctrl key)
 const SPRINT_MULTIPLIER = 2.0;

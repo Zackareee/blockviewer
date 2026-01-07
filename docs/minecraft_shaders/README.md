@@ -100,3 +100,4 @@ docs/minecraft_shaders/
 4. **Quick formulas**: Use this README's quick reference section
 
 
+

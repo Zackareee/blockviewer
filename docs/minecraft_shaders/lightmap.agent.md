@@ -445,3 +445,4 @@ Some blocks reduce light more:
 The resulting values (0-15 for each) are stored per-block and passed as UV2 to shaders.
 
 
+

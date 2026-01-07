@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { BinaryGrid } from '../mesh/BinaryGrid.js';
 import { BlockStateGrid } from '../mesh/BlockStateGrid.js';
 import { LightGrid } from '../mesh/LightGrid.js';
-import { decodeChunk } from '../mesh/ChunkDecoder.js';
+import { decodeChunk, extractActiveBeacons } from '../mesh/ChunkDecoder.js';
 import { buildGridMeshes } from '../mesh/FastMesher.js';
 import { buildModelMeshesWithInstancing } from '../mesh/ModelMesher.js';
 import { propagateSkyLight } from '../mesh/LightPropagator.js';
@@ -415,6 +415,9 @@ export class SuperChunkManager {
     const stateGrid = this.enableModelMeshes ? new BlockStateGrid() : null;
     const lightGrid = new LightGrid();
     
+    // Build chunks array for extractActiveBeacons (needs raw chunk data)
+    const chunks = [];
+    
     // Decode all chunks into the shared grid
     for (const [key, chunkInfo] of superChunk.loadedChunks) {
       if (!chunkInfo.data) continue;
@@ -423,8 +426,12 @@ export class SuperChunkManager {
         z: chunkInfo.chunkZ,
         data: chunkInfo.data
       };
+      chunks.push(adjustedChunk);
       decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
     }
+    
+    // Extract active beacons from block entities (beacons with Levels > 0)
+    const beaconResult = extractActiveBeacons(chunks);
     
     // Include data from adjacent chunks (from neighboring super-chunks)
     // This prevents hard light cutoffs and enables correct fluid rendering at boundaries
@@ -436,18 +443,23 @@ export class SuperChunkManager {
       propagateBlockLight(grid, lightGrid, this.registry);
     }
     
+    // Merge grid into debugGrid for block lookups (beacon color tinting, particle collision)
+    if (this.chunkManager?.debugGrid) {
+      this.chunkManager._mergeDebugGrid(grid);
+    }
+    
     const offset = { x: 0, y: 0, z: 0 };
     
     // Try WASM mesher first (fastest)
     if (this.useWasm && this.wasmInitialized && isWasmAvailable()) {
-      await this._buildSuperChunkWithWasm(superChunk, grid, stateGrid, lightGrid, offset);
+      await this._buildSuperChunkWithWasm(superChunk, grid, stateGrid, lightGrid, offset, beaconResult);
     }
     // Try worker pool for meshing (if WASM unavailable)
     else if (this.useWorkers && this.workerPoolInitialized && this.workerPool) {
       await this._buildSuperChunkWithWorker(superChunk, grid, stateGrid, lightGrid, offset);
     } else {
       // Fall back to main thread JavaScript meshing
-      await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset);
+      await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset, beaconResult);
     }
     
     superChunk.isDirty = false;
@@ -618,7 +630,7 @@ export class SuperChunkManager {
   /**
    * Build super-chunk meshes using WASM mesher (fastest)
    */
-  async _buildSuperChunkWithWasm(superChunk, grid, stateGrid, lightGrid, offset) {
+  async _buildSuperChunkWithWasm(superChunk, grid, stateGrid, lightGrid, offset, beaconResult = null) {
     try {
       const startTime = performance.now();
       
@@ -720,6 +732,29 @@ export class SuperChunkManager {
           if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
             this.chunkManager._registerParticleEmitters?.(modelResult.particleEmitters);
           }
+          
+          // Register beacon positions for beam rendering (filtered by block entity data)
+          if (modelResult.beaconPositions && modelResult.beaconPositions.length > 0) {
+            // Filter beacons:
+            // - Show if in active set (Levels > 0)
+            // - Hide if in inactive set (Levels = 0) 
+            // - Show if no block entity data (fallback for old worlds)
+            const beaconsToRegister = modelResult.beaconPositions.filter(pos => {
+              const key = `${pos.x},${pos.y},${pos.z}`;
+              
+              // If explicitly marked as inactive (Levels = 0), don't show
+              if (beaconResult?.inactive?.has(key)) {
+                return false;
+              }
+              
+              // Show if active OR if no block entity data exists for this beacon
+              return true;
+            });
+            
+            if (beaconsToRegister.length > 0) {
+              this.chunkManager._registerBeacons?.(beaconsToRegister);
+            }
+          }
         }
       }
       
@@ -729,14 +764,14 @@ export class SuperChunkManager {
     } catch (error) {
       console.error('[SuperChunkManager] WASM meshing failed, falling back to JS:', error);
       // Fall back to JavaScript meshing on error
-      await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset);
+      await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset, beaconResult);
     }
   }
 
   /**
    * Build super-chunk meshes on main thread (fallback)
    */
-  async _buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset) {
+  async _buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset, beaconResult = null) {
     const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
     // Skip particle emitter collection when particles are off
     const collectEmitters = this.chunkManager.particleQuality !== 'off';
@@ -821,11 +856,34 @@ export class SuperChunkManager {
             for (const emitter of modelResult.particleEmitters) {
               emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
             }
+          }
+        }
+        
+        // Register beacon positions for beam rendering (filtered by block entity data)
+        if (modelResult.beaconPositions && modelResult.beaconPositions.length > 0) {
+          // Filter beacons:
+          // - Show if in active set (Levels > 0)
+          // - Hide if in inactive set (Levels = 0) 
+          // - Show if no block entity data (fallback for old worlds)
+          const beaconsToRegister = modelResult.beaconPositions.filter(pos => {
+            const key = `${pos.x},${pos.y},${pos.z}`;
+            
+            // If explicitly marked as inactive (Levels = 0), don't show
+            if (beaconResult?.inactive?.has(key)) {
+              return false;
             }
+            
+            // Show if active OR if no block entity data exists for this beacon
+            return true;
+          });
+          
+          if (beaconsToRegister.length > 0) {
+            this.chunkManager._registerBeacons?.(beaconsToRegister);
           }
         }
       }
     }
+  }
     
   /**
    * Create Three.js meshes from worker result data

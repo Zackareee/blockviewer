@@ -417,6 +417,18 @@ class ModelGeometry {
           const elementSign = rotAngle >= 0 ? 1 : -1;
           // Offset in Y separates the intersection line into two non-intersecting lines
           normalOffsetY = ELEMENT_OFFSET * elementSign;
+          
+          // ALSO offset the opposing faces apart from each other within the same element
+          // Cross models define both north+south OR west+east on a zero-thickness plane
+          // These faces occupy the same position and z-fight without this offset
+          if (sizeZ < THIN_THRESHOLD) {
+            if (faceName === 'north') normalOffsetZ = -THIN_FACE_OFFSET;
+            else if (faceName === 'south') normalOffsetZ = THIN_FACE_OFFSET;
+          }
+          if (sizeX < THIN_THRESHOLD) {
+            if (faceName === 'west') normalOffsetX = -THIN_FACE_OFFSET;
+            else if (faceName === 'east') normalOffsetX = THIN_FACE_OFFSET;
+          }
         }
         // For any OTHER thin element (rotated or not), offset faces along their normals
         // This handles: diagonal rails, sunflower face, lily pads, flat rails, carpets, etc.

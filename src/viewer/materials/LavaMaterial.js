@@ -32,6 +32,7 @@ varying float vTexIndex;
 varying vec2 vLightUV;
 varying float vVisible;
 varying vec3 vNormal;
+varying float vVertexDistance; // Horizontal distance from camera for fog
 
 // Lava face shading - subtle like water
 // Lava is emissive so shading is very subtle
@@ -61,6 +62,10 @@ void main() {
   // This makes lava glow even in dark areas
   vLightUV = vec2(15.5 / 16.0, (skyLight + 0.5) / 16.0);
   
+  // Calculate horizontal distance from camera for fog (like Minecraft's cylindrical fog)
+  vec2 horizDiff = cameraPosition.xz - position.xz;
+  vVertexDistance = length(horizDiff);
+  
   // Check if vertex is within Y range
   if (position.y < uMinY - 0.01 || position.y > uMaxY + 1.01) {
     gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
@@ -88,12 +93,32 @@ uniform vec2 uBorderUV;            // Border size in UV
 uniform float uUseTextures;        // 1.0 = use textures, 0.0 = solid color
 uniform float uUseLightmap;        // 1.0 = use lightmap, 0.0 = fixed lighting
 
+// Fog uniforms (like Minecraft)
+uniform vec3 uFogColor;          // Fog/sky color
+uniform float uFogStart;         // Distance where fog starts (in blocks)
+uniform float uFogEnd;           // Distance where fog is fully opaque (in blocks)
+uniform float uFogEnabled;       // 0.0 = no fog, 1.0 = fog enabled
+
 varying vec3 vColor;
 varying vec2 vModelUV;
 varying float vTexIndex;
 varying vec2 vLightUV;
 varying float vVisible;
 varying vec3 vNormal;
+varying float vVertexDistance; // Horizontal distance from camera for fog
+
+// Minecraft-style linear fog calculation
+float linearFog(float distance, float fogStart, float fogEnd) {
+  if (distance <= fogStart) return 0.0;
+  if (distance >= fogEnd) return 1.0;
+  return (distance - fogStart) / (fogEnd - fogStart);
+}
+
+// Apply fog to a color (like Minecraft's apply_fog)
+vec3 applyFog(vec3 color, float distance, vec3 fogColor, float fogStart, float fogEnd) {
+  float fogValue = linearFog(distance, fogStart, fogEnd);
+  return mix(color, fogColor, fogValue);
+}
 
 // Animation result structure (matches TexturedMaterial)
 struct AnimResult {
@@ -198,6 +223,11 @@ void main() {
     color *= lightColor;
   }
   
+  // Apply distance fog (like Minecraft's render distance haze)
+  if (uFogEnabled > 0.5) {
+    color = applyFog(color, vVertexDistance, uFogColor, uFogStart, uFogEnd);
+  }
+  
   if (alpha < 0.01) discard;
   
   gl_FragColor = vec4(color, alpha);
@@ -249,6 +279,11 @@ export function createLavaMaterial(atlasData = null, useTextures = true, lightma
       uBorderUV: { value: new THREE.Vector2(borderUV.x, borderUV.y) },
       uUseTextures: { value: useTextures ? 1.0 : 0.0 },
       uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
+      // Fog uniforms (Minecraft-style distance haze)
+      uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
+      uFogStart: { value: 100.0 },
+      uFogEnd: { value: 128.0 },
+      uFogEnabled: { value: 0.0 },
     },
     vertexShader,
     fragmentShader,

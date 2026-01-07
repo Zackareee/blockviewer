@@ -85,14 +85,18 @@ export class ChunkManager {
     // 0.5: Transparent model blocks (glass panes, iron bars - write to depth)
     // 1: Full glass blocks, leaves, grass overlays (transparent, write to depth)
     //    These must render BEFORE water so underwater objects get properly tinted
-    // 2: Water (transparent, no depth write)
-    // 3: Lava (transparent, no depth write)
+    // Render order for transparent objects (all use depthWrite: false):
+    // 0.5: Transparent partial blocks (glass panes, iron bars) - render before fluids for proper depth
+    // 1: Water (transparent, no depth write)
+    // 2: Lava (transparent, no depth write)
+    // 3: Glass blocks (transparent, no depth write) - render AFTER fluids so fluids show through
     // 4: Overlay effects (no depth write)
+    // Particles render at order 10 (set in ParticleSystem)
     this.modelGroup.renderOrder = 0; // Same as solid - opaque partial blocks
     this.transparentModelGroup.renderOrder = 0.5; // Render BEFORE water so depth is correct
-    this.glassGroup.renderOrder = 1; // Glass/leaves render BEFORE water (underwater objects visible through water)
-    this.waterGroup.renderOrder = 2;
-    this.lavaGroup.renderOrder = 3;
+    this.waterGroup.renderOrder = 1;
+    this.lavaGroup.renderOrder = 2;
+    this.glassGroup.renderOrder = 3; // Glass renders AFTER fluids so water/lava behind glass is visible
     this.overlayModelGroup.renderOrder = 4; // Overlay renders last (but doesn't write to depth)
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
@@ -1229,8 +1233,6 @@ export class ChunkManager {
         emitter.properties
       );
     }
-    
-    console.log(`[ChunkManager] Registered ${emitters.length} particle emitters`);
   }
 
   /**

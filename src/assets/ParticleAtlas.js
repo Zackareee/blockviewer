@@ -72,6 +72,31 @@ const PARTICLE_DEFINITIONS = {
     animated: false,
     blendMode: 'normal',
   },
+  // Bubble column particles (rising bubbles from soul sand)
+  bubble_column_up: {
+    textures: ['textures/particle/bubble.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  // Current down particles (downward flow from magma)
+  current_down: {
+    textures: ['textures/particle/bubble.png'],
+    animated: false,
+    blendMode: 'normal',
+  },
+  // Bubble pop animation (when bubbles reach surface)
+  bubble_pop: {
+    textures: [
+      'textures/particle/bubble_pop_0.png',
+      'textures/particle/bubble_pop_1.png',
+      'textures/particle/bubble_pop_2.png',
+      'textures/particle/bubble_pop_3.png',
+      'textures/particle/bubble_pop_4.png',
+    ],
+    animated: true,
+    frametime: 2,
+    blendMode: 'normal',
+  },
   // Large smoke (furnace, smoker, blast furnace)
   large_smoke: {
     textures: [

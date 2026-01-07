@@ -81,7 +81,7 @@ export function createGlassMaterial() {
     fragmentShader,
     side: THREE.FrontSide,
     transparent: true,
-    depthWrite: true,  // Enable depth writing for proper occlusion
+    depthWrite: false,  // Don't write to depth - allows fluids and particles to show through
     depthTest: true,
     vertexColors: true,
   });

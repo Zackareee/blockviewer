@@ -462,6 +462,11 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   // Transparent model detection: glass panes, iron bars, etc.
   const stateIsTransparent = new Uint8Array(maxStateId);
   
+  // State-level tint type with power encoding for redstone
+  // For redstone_wire: tintType = 6.0 + power/16.0 (power 0-15 encoded in fractional part)
+  // For other blocks: just the base tint type from tintTypeLookup
+  const stateTintType = new Float32Array(maxStateId);
+  
   // Collect unique state IDs from the grid
   for (const [, stateSection] of stateGrid.sections) {
     for (let i = 0; i < 4096; i++) {
@@ -598,6 +603,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         const isPackedOrBlueIce = blockName.includes('packed_ice') || blockName.includes('blue_ice');
         if (!isPackedOrBlueIce && TRANSPARENT_MODEL_PATTERNS.some(pattern => blockName.includes(pattern))) {
           stateIsTransparent[stateId] = 1;
+        }
+        
+        // For redstone_wire, encode power level in the tint type
+        // tintType = 6.0 + power/16.0 (power 0-15 maps to 0.0-0.9375 fractional part)
+        if (blockName === 'redstone_wire' && state.properties) {
+          const power = parseInt(state.properties.power || '0', 10);
+          // TINT_REDSTONE = 6
+          stateTintType[stateId] = 6.0 + (power / 16.0);
         }
       }
     }
@@ -1270,8 +1283,12 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
           const srcVertexStart = geom.indices[cullInfo.indexStart];
           
           // Compute tint type once per face
+          // For redstone_wire, use state-level tint with power encoded in fractional part
           let tintType = 0;
-          if (cullInfo.tintindex !== undefined) {
+          if (stateTintType[stateId] > 0) {
+            // State-level tint (redstone with power encoding)
+            tintType = stateTintType[stateId];
+          } else if (cullInfo.tintindex !== undefined) {
             tintType = cullInfo.tintindex >= 0 ? tintTypeLookup[blockId] : 0;
           } else {
             tintType = tintTypeLookup[blockId];

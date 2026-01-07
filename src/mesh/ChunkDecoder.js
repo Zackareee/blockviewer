@@ -548,13 +548,21 @@ export function decodeRegion(chunks, registry = null, onProgress = null, stateGr
 }
 
 /**
- * Extract active beacon positions from chunks
- * Beacons are only active when their pyramid level (Levels) is > 0
+ * Extract beacon block entity data from chunks
+ * Returns both active beacons (Levels > 0) and inactive beacons (Levels = 0)
+ * This allows us to distinguish between:
+ * - Beacons with valid pyramids (show beam)
+ * - Beacons without pyramids (don't show beam)
+ * - Beacons with no block entity data (show beam as fallback)
+ * 
  * @param {Array} chunks - Array of parsed chunks
- * @returns {Map<string, {x: number, y: number, z: number, levels: number}>} Map of "x,y,z" -> beacon data
+ * @returns {{active: Map<string, object>, inactive: Set<string>}} 
+ *   - active: Map of "x,y,z" -> beacon data for beacons with Levels > 0
+ *   - inactive: Set of "x,y,z" keys for beacons with Levels = 0
  */
 export function extractActiveBeacons(chunks) {
-  const beacons = new Map();
+  const active = new Map();
+  const inactive = new Set();
   
   for (const chunk of chunks) {
     const { data } = chunk;
@@ -576,20 +584,21 @@ export function extractActiveBeacons(chunks) {
       const x = entity.x ?? entity.X ?? 0;
       const y = entity.y ?? entity.Y ?? 0;
       const z = entity.z ?? entity.Z ?? 0;
+      const key = `${x},${y},${z}`;
       
       // Get pyramid level (Levels property)
       // In Minecraft: 0 = no valid pyramid, 1-4 = valid pyramid levels
       const levels = entity.Levels ?? entity.levels ?? 0;
       
-      // Only include beacons with a valid pyramid (Levels > 0)
       if (levels > 0) {
-        const key = `${x},${y},${z}`;
-        beacons.set(key, { x, y, z, levels });
+        active.set(key, { x, y, z, levels });
+      } else {
+        inactive.add(key);
       }
     }
   }
   
-  return beacons;
+  return { active, inactive };
 }
 
 /**

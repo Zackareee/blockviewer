@@ -234,25 +234,21 @@ export class RegionMeshBuilder {
           instanceGroups = modelResult.instances; // GPU instancing data
           particleEmitters = modelResult.particleEmitters; // Torch positions for particles
           
-          // Filter beacon positions to only include active beacons (with valid pyramid)
-          // Active beacons have Levels > 0 in their block entity data
+          // Filter beacon positions based on block entity data
+          // - Show if Levels > 0 (active pyramid)
+          // - Hide if Levels = 0 (no pyramid)
+          // - Show if no block entity data (fallback for old worlds)
           if (modelResult.beaconPositions && modelResult.beaconPositions.length > 0) {
-            const activeBeacons = extractActiveBeacons(chunks);
+            const beaconResult = extractActiveBeacons(chunks);
             const allBeacons = modelResult.beaconPositions;
             
-            if (activeBeacons.size > 0) {
-              // Filter to only include beacons that are active
-              beaconPositions = allBeacons.filter(pos => {
-                const key = `${pos.x},${pos.y},${pos.z}`;
-                return activeBeacons.has(key);
-              });
-              console.log(`[RegionMeshBuilder] Filtered beacons: ${beaconPositions.length} active out of ${allBeacons.length} total`);
-            } else {
-              // No active beacons found in block entities - might be older world format
-              // Fall back to showing all beacons (they might still work in-game)
-              beaconPositions = allBeacons;
-              console.log(`[RegionMeshBuilder] No beacon block entities found, using all ${allBeacons.length} beacon blocks`);
-            }
+            beaconPositions = allBeacons.filter(pos => {
+              const key = `${pos.x},${pos.y},${pos.z}`;
+              // Only hide if explicitly marked as inactive (Levels = 0)
+              return !beaconResult.inactive.has(key);
+            });
+            
+            console.log(`[RegionMeshBuilder] Beacons: ${beaconPositions.length} visible out of ${allBeacons.length} total (${beaconResult.inactive.size} inactive)`);
           }
         }
         
