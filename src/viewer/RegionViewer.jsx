@@ -513,6 +513,7 @@ function RegionScene({
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
   chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest but may lag)
   dimension = 'overworld', // Current dimension ('overworld', 'the_nether', 'the_end')
+  biome = 'plains', // Current biome for sky/fog coloring ('plains', 'desert', 'dark_forest', etc.)
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -1320,6 +1321,7 @@ function RegionScene({
         cloudOpacity={cloudsEnabled ? 0.8 : 0}
         onColorsChange={handleColorsChange}
         dimension={dimension}
+        biome={biome}
       />
       
       {/* Dynamic fog - uses colors from MinecraftSky */}
@@ -1414,6 +1416,7 @@ export function RegionViewer({
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
   chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest)
   dimension = 'overworld', // Current dimension ('overworld', 'the_nether', 'the_end')
+  biome = 'plains', // Current biome for sky/fog coloring ('plains', 'desert', 'dark_forest', etc.)
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -1526,6 +1529,7 @@ export function RegionViewer({
         chunkStreamDistance={chunkStreamDistance}
         chunkLoadingSpeed={chunkLoadingSpeed}
         dimension={dimension}
+        biome={biome}
       />
     </Canvas>
   );

@@ -17,6 +17,7 @@
 import { useRef, useMemo, useEffect, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { getBiomeColors, hexToRgb } from '../data/biomeColors.js';
 
 // Paths to Minecraft textures in public folder
 // Using original Minecraft textures for accurate rendering
@@ -329,18 +330,42 @@ function getStarBrightness(ticks) {
 }
 
 /**
- * Calculate sky colors based on time of day
+ * Calculate sky colors based on time of day and biome
  * Returns { skyColor, horizonColor, fogColor, cloudColor } as THREE.Color objects
+ * 
+ * @param {number} timeOfDay - 0-1 time of day
+ * @param {Object} biomeColors - Optional biome color configuration from getBiomeColors()
  */
-function calculateSkyColors(timeOfDay) {
+function calculateSkyColors(timeOfDay, biomeColors = null) {
   const ticks = timeOfDayToTicks(timeOfDay);
   const brightness = getSkyBrightness(ticks);
   const fogMult = getFogMultiplier(ticks);
   const cloudMult = getCloudColorMultiplier(ticks);
   
-  // Apply brightness to base colors
-  const skyColor = BASE_SKY_COLOR.clone().multiplyScalar(brightness);
-  const horizonColor = BASE_HORIZON_COLOR.clone().multiplyScalar(brightness);
+  // Use biome-specific colors if provided, otherwise use defaults
+  let baseSkyColor, baseHorizonColor, baseFogColor;
+  
+  if (biomeColors && biomeColors.skyColor) {
+    // Biome-specific sky color
+    baseSkyColor = new THREE.Color(biomeColors.skyColor.r, biomeColors.skyColor.g, biomeColors.skyColor.b);
+    // Horizon is typically a lighter/warmer version of sky color
+    // We blend the sky color with a light blue-white for horizon
+    baseHorizonColor = baseSkyColor.clone().lerp(new THREE.Color(0.78, 0.85, 1.0), 0.5);
+    // Use biome fog color if specified, otherwise derive from sky color
+    if (biomeColors.fogColor) {
+      baseFogColor = new THREE.Color(biomeColors.fogColor.r, biomeColors.fogColor.g, biomeColors.fogColor.b);
+    } else {
+      baseFogColor = baseHorizonColor.clone();
+    }
+  } else {
+    baseSkyColor = BASE_SKY_COLOR.clone();
+    baseHorizonColor = BASE_HORIZON_COLOR.clone();
+    baseFogColor = baseHorizonColor.clone();
+  }
+  
+  // Apply brightness to colors (time of day multiplier)
+  const skyColor = baseSkyColor.clone().multiplyScalar(brightness);
+  const horizonColor = baseHorizonColor.clone().multiplyScalar(brightness);
   
   // Night sky has a slight blue tint rather than pure black
   if (brightness < 0.1) {
@@ -356,11 +381,17 @@ function calculateSkyColors(timeOfDay) {
     );
   }
   
-  // Fog color based on horizon (for seamless blending)
+  // Fog color based on biome fog color with time-of-day multiplier
   const fogColor = new THREE.Color(
-    horizonColor.r * fogMult.r,
-    horizonColor.g * fogMult.g,
-    horizonColor.b * fogMult.b
+    baseFogColor.r * fogMult.r * brightness,
+    baseFogColor.g * fogMult.g * brightness,
+    baseFogColor.b * fogMult.b * brightness
+  );
+  // Ensure fog isn't too dark at night
+  fogColor.setRGB(
+    Math.max(fogColor.r, 0.01),
+    Math.max(fogColor.g, 0.01),
+    Math.max(fogColor.b, 0.02)
   );
   
   // Cloud color - tinted based on time of day (darker at night)
@@ -1436,6 +1467,7 @@ function createFallbackSunTexture() {
  * - cloudOpacity: Cloud opacity 0-1 (default: 0.8)
  * - onColorsChange: Callback when sky colors change (for fog sync)
  * - dimension: Current dimension ID ('overworld', 'the_nether', 'the_end')
+ * - biome: Current biome ID (e.g., 'plains', 'desert', 'dark_forest')
  */
 export function MinecraftSky({
   enabled = true,
@@ -1443,27 +1475,34 @@ export function MinecraftSky({
   cloudOpacity = 0.8,
   onColorsChange = null,
   dimension = 'overworld',
+  biome = 'plains', // Default biome for sky coloring
 }) {
   const { scene } = useThree();
   
   // Get dimension-specific configuration
   const dimConfig = useMemo(() => getDimensionConfig(dimension), [dimension]);
   
-  // Calculate dynamic sky colors based on time of day and dimension
+  // Get biome-specific colors
+  const biomeColors = useMemo(() => getBiomeColors(biome, dimension), [biome, dimension]);
+  
+  // Calculate dynamic sky colors based on time of day, dimension, and biome
   const colors = useMemo(() => {
-    // For dimensions with fixed time (Nether, End), use static colors
+    // For dimensions with fixed time (Nether, End), use biome/dimension colors
     if (!dimConfig.hasTimeOfDay) {
+      // Nether uses biome-specific fog colors
+      const fogColorHex = biomeColors.fogColorHex || dimConfig.fogColor;
+      const skyColorHex = biomeColors.skyColorHex || dimConfig.skyColor;
       return {
-        skyColor: new THREE.Color(dimConfig.skyColor),
-        horizonColor: new THREE.Color(dimConfig.horizonColor),
-        fogColor: new THREE.Color(dimConfig.fogColor),
-        cloudColor: new THREE.Color(dimConfig.fogColor), // Use fog color for cloud tinting
+        skyColor: new THREE.Color(skyColorHex),
+        horizonColor: new THREE.Color(skyColorHex), // Same as sky for Nether/End
+        fogColor: new THREE.Color(fogColorHex),
+        cloudColor: new THREE.Color(fogColorHex), // Use fog color for cloud tinting
         brightness: dimConfig.ambientLight,
       };
     }
-    // Overworld uses time-based colors
-    return calculateSkyColors(timeOfDay);
-  }, [timeOfDay, dimConfig]);
+    // Overworld uses time-based colors with biome tinting
+    return calculateSkyColors(timeOfDay, biomeColors);
+  }, [timeOfDay, dimConfig, biomeColors]);
   
   // Calculate sunrise/sunset glow parameters
   const glowParams = useMemo(() => {
@@ -1516,6 +1555,9 @@ export function MinecraftSky({
         horizonColor: horizonColorHex,
         fogColor: fogColorHex,
         brightness: colors.brightness,
+        // Biome info for fog/effects
+        biome,
+        biomeColors,
         // Cloud color multiplier - used for particle ambient brightness
         cloudColor: {
           r: colors.cloudColor.r,
@@ -1531,7 +1573,7 @@ export function MinecraftSky({
         },
       });
     }
-  }, [onColorsChange, skyColorHex, horizonColorHex, fogColorHex, colors.brightness, colors.cloudColor, dimension, dimConfig]);
+  }, [onColorsChange, skyColorHex, horizonColorHex, fogColorHex, colors.brightness, colors.cloudColor, dimension, dimConfig, biome, biomeColors]);
 
   // Set scene background to null so our sky dome is visible
   useEffect(() => {
