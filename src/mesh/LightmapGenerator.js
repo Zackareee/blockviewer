@@ -132,9 +132,10 @@ export const END_PARAMS = {
   darkenWorldFactor: 0.0,
   brightnessFactor: 0.75,      // Higher brightness for better visibility
   skyLightColor: { r: 1.0, g: 1.0, b: 1.0 },  // Unused
-  // Bright purplish ambient - at 50% mix gives ~50% base brightness
+  // Warm neutral ambient - at 50% mix gives ~50% base brightness
   // After face shading (0.5-1.0), still gives 25-50% final brightness
-  ambientColor: { r: 1.0, g: 1.0, b: 1.1 },
+  // Slight yellow/warm tint to match Minecraft's End lighting
+  ambientColor: { r: 1.0, g: 0.97, b: 0.88 },
 };
 
 /**
@@ -185,10 +186,11 @@ export function generateLightmap(params = DAYTIME_PARAMS) {
       g += skyLightColor.g * skyBrightness;
       b += skyLightColor.b * skyBrightness;
       
-      // Mix with slight gray to prevent pure black (from shader: mix(color, vec3(0.75), 0.04))
-      r = r * 0.96 + 0.75 * 0.04;
+      // Mix with slight warm gray to prevent pure black and add subtle yellow tinge
+      // (from shader: mix(color, vec3(0.75), 0.04) but with warm bias)
+      r = r * 0.96 + 0.77 * 0.04;  // slightly warmer
       g = g * 0.96 + 0.75 * 0.04;
-      b = b * 0.96 + 0.75 * 0.04;
+      b = b * 0.96 + 0.72 * 0.04;  // slightly cooler
       
       // Apply world darkening (rain, etc.) - only in overworld
       if (ambientLightFactor === 0.0 && darkenWorldFactor > 0) {
@@ -230,10 +232,10 @@ export function generateLightmap(params = DAYTIME_PARAMS) {
         b = b * (1 - brightnessFactor) + gamma.b * brightnessFactor;
       }
       
-      // Final mix with slight gray (from shader)
-      r = r * 0.96 + 0.75 * 0.04;
+      // Final mix with slight warm gray (from shader, with warm bias for yellow tinge)
+      r = r * 0.96 + 0.77 * 0.04;  // slightly warmer
       g = g * 0.96 + 0.75 * 0.04;
-      b = b * 0.96 + 0.75 * 0.04;
+      b = b * 0.96 + 0.72 * 0.04;  // slightly cooler
       
       // Clamp final values
       r = Math.max(0, Math.min(1, r));
