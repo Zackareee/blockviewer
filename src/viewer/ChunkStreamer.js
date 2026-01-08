@@ -1320,7 +1320,9 @@ export class ChunkStreamer {
     
     // Build meshes
     const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
-    const mesherOptions = { textureIndexLookup, lightGrid };
+    // When smooth lighting is disabled, skip per-vertex light calculation
+    const effectiveLightGrid = this.chunkManager.smoothLightingEnabled ? lightGrid : null;
+    const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid };
     
     // Offset is { x: 0, y: 0, z: 0 } since chunks are already at world coordinates
     const offset = { x: 0, y: 0, z: 0 };

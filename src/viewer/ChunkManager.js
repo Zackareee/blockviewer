@@ -175,6 +175,9 @@ export class ChunkManager {
     this.particlesEnabled = options.enableParticles !== false;
     this.particleQuality = 'all'; // 'all', 'decreased', 'minimal', 'off'
     
+    // Smooth lighting (AO) - when disabled, skip expensive per-vertex light sampling
+    this.smoothLightingEnabled = options.enableLighting !== false;
+    
     // Beacon beam manager for rendering beacon beams
     this.beaconBeamManager = new BeaconBeamManager();
     this.beaconBeamsEnabled = options.enableBeaconBeams !== false;
@@ -230,9 +233,11 @@ export class ChunkManager {
   
   /**
    * Enable or disable lightmap-based lighting on all materials
+   * Also controls whether smooth lighting is calculated during meshing
    * @param {boolean} enabled - true = use lightmap, false = use fixed face shading
    */
   setLightingEnabled(enabled) {
+    this.smoothLightingEnabled = enabled;
     setMaterialLightingEnabled(this.solidMaterial, enabled);
     setMaterialLightingEnabled(this.glassMaterial, enabled);
     setMaterialLightingEnabled(this.modelMaterial, enabled);
@@ -1456,6 +1461,7 @@ export class ChunkManager {
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
         collectEmitters: this.particleQuality !== 'off',
+        smoothLighting: this.smoothLightingEnabled,
       });
       const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, entities, offset, stats, _grid } = result;
       
@@ -1605,6 +1611,7 @@ export class ChunkManager {
           enableModelMeshes,
           returnGrid: !!this.debugGrid,
           collectEmitters: this.particleQuality !== 'off',
+          smoothLighting: this.smoothLightingEnabled,
         });
         const meshTime = performance.now() - meshStart;
         
@@ -1912,6 +1919,7 @@ export class ChunkManager {
           enableModelMeshes,
           returnGrid: !!this.debugGrid,
           collectEmitters: this.particleQuality !== 'off',
+          smoothLighting: this.smoothLightingEnabled,
         });
         const meshTime = performance.now() - meshStart;
         

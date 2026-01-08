@@ -665,7 +665,9 @@ export class SuperChunkManager {
       
       const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
       const collectEmitters = this.chunkManager.particleQuality !== 'off';
-      const mesherOptions = { textureIndexLookup, lightGrid, collectEmitters };
+      // When smooth lighting is disabled, pass null to skip per-vertex light calculation
+      const effectiveLightGrid = this.chunkManager.smoothLightingEnabled ? lightGrid : null;
+      const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid, collectEmitters };
       
       const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
       
@@ -1023,7 +1025,9 @@ export class SuperChunkManager {
       };
       
       // Run WASM mesher for solid/fluid/glass with bounds
-      const meshResult = wasmMeshChunk(grid, lightGrid, stateGrid, bounds);
+      // When smooth lighting is disabled, pass null to skip per-vertex light calculation
+      const effectiveLightGrid = this.chunkManager.smoothLightingEnabled ? lightGrid : null;
+      const meshResult = wasmMeshChunk(grid, effectiveLightGrid, stateGrid, bounds);
       
       const wasmTime = performance.now() - startTime;
       
@@ -1070,7 +1074,8 @@ export class SuperChunkManager {
         
         const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
         const collectEmitters = this.chunkManager.particleQuality !== 'off';
-        const mesherOptions = { textureIndexLookup, lightGrid, collectEmitters };
+        // Use effectiveLightGrid to skip smooth lighting when disabled
+        const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid, collectEmitters };
         
         const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
         
@@ -1148,7 +1153,9 @@ export class SuperChunkManager {
     const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
     // Skip particle emitter collection when particles are off
     const collectEmitters = this.chunkManager.particleQuality !== 'off';
-    const mesherOptions = { textureIndexLookup, lightGrid, collectEmitters };
+    // When smooth lighting is disabled, pass null to skip per-vertex light calculation
+    const effectiveLightGrid = this.chunkManager.smoothLightingEnabled ? lightGrid : null;
+    const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid, collectEmitters };
     
     // Build solid/fluid/glass meshes
     const { solid, water, lava, glass } = buildGridMeshes(grid, this.registry, offset, mesherOptions);

@@ -57,6 +57,7 @@ export class RegionMeshBuilder {
       enableModelMeshes = false, // Disabled by default until fully tested
       returnGrid = false,
       collectEmitters = true, // Set to false to skip particle emitter collection
+      smoothLighting = true, // Set to false to skip per-vertex smooth lighting calculation
     } = options;
     const startTime = performance.now();
     const stats = {
@@ -142,9 +143,11 @@ export class RegionMeshBuilder {
     let solidMesh, waterMesh, lavaMesh, glassMesh;
     
     // Mesher options (including texture index lookup for textured rendering and light grid)
+    // When smoothLighting is disabled, pass null to skip per-vertex light calculation
+    const effectiveLightGrid = smoothLighting ? lightGrid : null;
     const mesherOptions = {
       textureIndexLookup: this.textureIndexLookup,
-      lightGrid,
+      lightGrid: effectiveLightGrid,
     };
     
     if (this.textureIndexLookup) {
@@ -221,7 +224,7 @@ export class RegionMeshBuilder {
         // Build model meshes using pre-computed geometry with GPU instancing
         const modelOptions = {
           textureIndexLookup: this.textureIndexLookup,
-          lightGrid,
+          lightGrid: effectiveLightGrid,
           collectEmitters, // Skip particle emitter collection when particles are off
         };
         const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, stateRegistry, offset, modelOptions);
@@ -258,7 +261,7 @@ export class RegionMeshBuilder {
           modelLodMeshes = {};
           
           // LOD1: Skip flowers and small plants
-          const lod1Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 1, lightGrid });
+          const lod1Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 1, lightGrid: effectiveLightGrid });
           if (lod1Result) {
             modelLodMeshes.lod1 = lod1Result.opaque;
             modelLodMeshes.lod1Transparent = lod1Result.transparent;
@@ -266,7 +269,7 @@ export class RegionMeshBuilder {
           }
           
           // LOD2: Skip more decorative blocks (vines, saplings, crops)
-          const lod2Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 2, lightGrid });
+          const lod2Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 2, lightGrid: effectiveLightGrid });
           if (lod2Result) {
             modelLodMeshes.lod2 = lod2Result.opaque;
             modelLodMeshes.lod2Transparent = lod2Result.transparent;
@@ -274,7 +277,7 @@ export class RegionMeshBuilder {
           }
           
           // LOD3: Only structural blocks (slabs, stairs, walls)
-          const lod3Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 3, lightGrid });
+          const lod3Result = buildModelMeshes(grid, stateGrid, this.registry, stateRegistry, offset, { ...modelOptions, lodLevel: 3, lightGrid: effectiveLightGrid });
           if (lod3Result) {
             modelLodMeshes.lod3 = lod3Result.opaque;
             modelLodMeshes.lod3Transparent = lod3Result.transparent;

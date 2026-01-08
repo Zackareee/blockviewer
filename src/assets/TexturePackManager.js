@@ -97,7 +97,7 @@ class TexturePackManager {
       }
       
       const blob = await response.blob();
-      await this.loadFromZip(blob, 'Minecraft Default');
+      await this.loadFromZip(blob, 'Vanilla 1.21.11');
       this.mode = TEXTURE_MODE.DEFAULT_PACK;
       
       console.log(`[TexturePackManager] Default pack loaded: ${this.textures.size} textures`);

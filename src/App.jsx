@@ -86,7 +86,7 @@ function App() {
   const [fogEnabled, setFogEnabled] = useState(true);
   
   // Time of day (0-1: 0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
-  const [timeOfDay, setTimeOfDay] = useState(0.35); // Default to mid-morning
+  const [timeOfDay, setTimeOfDay] = useState(0.5); // Default to midday (noon)
   
   // Brightness setting (0-100: 0=Moody, 100=Bright) - matches Minecraft's brightness slider
   const [brightness, setBrightness] = useState(50); // Default to 50% like typical Minecraft settings
@@ -102,11 +102,11 @@ function App() {
   
   // Chunk streaming mode - loads chunks around player position instead of entire regions
   const [chunkStreamingEnabled, setChunkStreamingEnabled] = useState(true);
-  const [chunkStreamDistance, setChunkStreamDistance] = useState(8);
+  // Stream distance is automatically derived from render distance (render + 2 buffer)
   
   // Chunk loading speed (concurrency) - higher = faster loading but may cause frame drops
   // 1 = smoothest (1 chunk at a time), 8 = fastest (8 chunks simultaneously)
-  const [chunkLoadingSpeed, setChunkLoadingSpeed] = useState(1);
+  const [chunkLoadingSpeed, setChunkLoadingSpeed] = useState(3);
   
   // Target resolution (controls rendering DPR)
   // 'native' = full resolution, or a vertical pixel count like 720, 1080, 1440, 2160
@@ -135,6 +135,7 @@ function App() {
   const [particleAtlas, setParticleAtlas] = useState(null);
   const [packManager, setPackManager] = useState(null); // Texture pack manager for beacon beams etc.
   const [atlasDebugUrl, setAtlasDebugUrl] = useState(null); // Debug: atlas preview
+  const [particleAtlasDebugUrl, setParticleAtlasDebugUrl] = useState(null); // Debug: particle atlas preview
   
   // Load default texture pack when mode changes to default
   useEffect(() => {
@@ -211,8 +212,9 @@ function App() {
       setTextureAtlas(atlas.getMaterialData());
       setTexturePackInfo(pm.getPackInfo());
       
-      // Debug: generate atlas preview URL
+      // Debug: generate atlas preview URLs
       setAtlasDebugUrl(atlas.toDataURL());
+      setParticleAtlasDebugUrl(pAtlas.toDataURL());
       
       console.log('[App] Default texture pack loaded');
     } catch (err) {
@@ -779,40 +781,43 @@ function App() {
         <section className="panel-section">
           <h3>Region Files</h3>
           <div className="file-upload-group">
-            <label className="file-upload">
-              <input 
-                type="file" 
-                accept=".mca,.mcr,.zip"
-                onChange={handleFileUpload}
-                disabled={loading}
-                multiple
-              />
-              <span className="upload-button">
-                {loading ? (
-                  <>
-                    <span className="spinner"></span>
-                    Loading...
-                  </>
-                ) : (
-                  <>📁 Load Region(s)</>
-                )}
-              </span>
-            </label>
-            {hasContent && (
-              <label className="file-upload file-upload-add">
+            {/* Main region loading row */}
+            <div className="file-upload-row">
+              <label className="file-upload">
                 <input 
                   type="file" 
                   accept=".mca,.mcr,.zip"
-                  onChange={handleAddRegionFiles}
+                  onChange={handleFileUpload}
                   disabled={loading}
                   multiple
                 />
-                <span className="upload-button upload-button-secondary">
-                  {loading ? '...' : '➕ Add More'}
+                <span className="upload-button">
+                  {loading ? (
+                    <>
+                      <span className="spinner"></span>
+                      Loading...
+                    </>
+                  ) : (
+                    <>📁 Load Region(s)</>
+                  )}
                 </span>
               </label>
-            )}
-            {/* Entity region file upload */}
+              {hasContent && (
+                <label className="file-upload file-upload-add">
+                  <input 
+                    type="file" 
+                    accept=".mca,.mcr,.zip"
+                    onChange={handleAddRegionFiles}
+                    disabled={loading}
+                    multiple
+                  />
+                  <span className="upload-button upload-button-secondary">
+                    {loading ? '...' : '➕ Add'}
+                  </span>
+                </label>
+              )}
+            </div>
+            {/* Entity region file upload - separate row */}
             <label className="file-upload file-upload-entity">
               <input 
                 type="file" 
@@ -822,7 +827,7 @@ function App() {
                 multiple
               />
               <span className="upload-button upload-button-entity" title="Load entity region files from world/entities/ folder (item frames, paintings, armor stands)">
-                {loading ? '...' : '🖼️ Entities'}
+                {loading ? '...' : '🖼️ Load Entities'}
               </span>
             </label>
           </div>
@@ -862,7 +867,7 @@ function App() {
               />
               <span className="texture-mode-label">
                 <span className="texture-mode-icon">📦</span>
-                Default Pack
+                Vanilla Resource Pack
               </span>
             </label>
             <label className={`texture-mode-option ${textureMode === TEXTURE_MODE.SOLID_COLOR ? 'active' : ''}`}>
@@ -896,7 +901,7 @@ function App() {
                     Loading...
                   </>
                 ) : (
-                  <>📥 Import Pack</>
+                  <>📥 Load Resource Pack</>
                 )}
               </span>
             </label>
@@ -904,28 +909,66 @@ function App() {
           
           {texturePackInfo && textureMode !== TEXTURE_MODE.SOLID_COLOR && (
             <div className="texture-pack-info">
-              <span className="texture-pack-name">{texturePackInfo.name}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span className="texture-pack-name">{texturePackInfo.name}</span>
+                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                  {atlasDebugUrl && (
+                    <button
+                      onClick={() => window.open(atlasDebugUrl, '_blank')}
+                      title="View block texture atlas"
+                      style={{
+                        padding: '0.2rem 0.4rem',
+                        background: 'var(--bg-hover)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--text-muted)',
+                        fontSize: '0.7rem',
+                        cursor: 'pointer',
+                        transition: 'all var(--transition-fast)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.borderColor = 'var(--accent-primary)';
+                        e.target.style.color = 'var(--text-primary)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.borderColor = 'var(--border-subtle)';
+                        e.target.style.color = 'var(--text-muted)';
+                      }}
+                    >
+                      Blocks
+                    </button>
+                  )}
+                  {particleAtlasDebugUrl && (
+                    <button
+                      onClick={() => window.open(particleAtlasDebugUrl, '_blank')}
+                      title="View particle texture atlas"
+                      style={{
+                        padding: '0.2rem 0.4rem',
+                        background: 'var(--bg-hover)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--text-muted)',
+                        fontSize: '0.7rem',
+                        cursor: 'pointer',
+                        transition: 'all var(--transition-fast)',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.borderColor = 'var(--accent-primary)';
+                        e.target.style.color = 'var(--text-primary)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.borderColor = 'var(--border-subtle)';
+                        e.target.style.color = 'var(--text-muted)';
+                      }}
+                    >
+                      Particles
+                    </button>
+                  )}
+                </div>
+              </div>
               <span className="texture-pack-stats">
                 {texturePackInfo.textureCount} textures
               </span>
-            </div>
-          )}
-          
-          {/* Debug: Atlas Preview */}
-          {atlasDebugUrl && textureMode !== TEXTURE_MODE.SOLID_COLOR && (
-            <div className="atlas-debug-preview">
-              <div className="atlas-debug-label">Atlas Preview (debug)</div>
-              <img 
-                src={atlasDebugUrl} 
-                alt="Texture Atlas" 
-                style={{ 
-                  width: '100%', 
-                  maxWidth: '200px',
-                  imageRendering: 'pixelated',
-                  border: '1px solid #444',
-                  borderRadius: '4px'
-                }}
-              />
             </div>
           )}
         </section>
@@ -938,7 +981,6 @@ function App() {
           <div className="fov-control" style={{ marginTop: '0.75rem' }}>
             <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="toggle-label">
-                <span className="toggle-icon">📷</span>
                 FOV
               </span>
               <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{fov}°</span>
@@ -953,42 +995,10 @@ function App() {
             />
           </div>
           
-          {/* Resolution Control */}
-          <div className="fov-control" style={{ marginTop: '0.75rem' }}>
-            <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="toggle-label">
-                <span className="toggle-icon">🖥️</span>
-                Resolution
-              </span>
-            </div>
-            <select
-              value={targetResolution}
-              onChange={(e) => setTargetResolution(e.target.value)}
-              style={{ 
-                width: '100%', 
-                marginTop: '0.25rem',
-                padding: '0.4rem 0.5rem',
-                background: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                borderRadius: '4px',
-                color: '#e0e0e0',
-                fontSize: '0.9rem',
-                cursor: 'pointer',
-              }}
-            >
-              <option value="native">Native</option>
-              <option value="2160">4K (2160p)</option>
-              <option value="1440">1440p</option>
-              <option value="1080">1080p</option>
-              <option value="720">720p</option>
-            </select>
-          </div>
-          
           {/* Render Distance Control */}
           <div className="fov-control" style={{ marginTop: '0.75rem' }}>
             <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="toggle-label">
-                <span className="toggle-icon">🗺️</span>
                 Render Distance
               </span>
               <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
@@ -1010,80 +1020,10 @@ function App() {
             />
           </div>
           
-          {/* Chunk Streaming Mode */}
-          <div className="toggle-item" style={{ marginTop: '0.75rem' }}>
-            <label className="toggle-label">
-              <span className="toggle-icon">⚡</span>
-              Chunk Streaming
-              <span className="toggle-beta" style={{ 
-                fontSize: '0.65rem', 
-                background: '#4a3f7a', 
-                padding: '0.1rem 0.3rem', 
-                borderRadius: '3px',
-                marginLeft: '0.3rem',
-                verticalAlign: 'middle'
-              }}>BETA</span>
-            </label>
-            <input 
-              type="checkbox"
-              checked={chunkStreamingEnabled}
-              onChange={(e) => setChunkStreamingEnabled(e.target.checked)}
-            />
-          </div>
-          {chunkStreamingEnabled && (
-            <div className="fov-control" style={{ marginTop: '0.5rem', marginLeft: '1.5rem' }}>
-              <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="toggle-label" style={{ fontSize: '0.85rem' }}>
-                  Stream Distance
-                </span>
-                <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                  {chunkStreamDistance} chunks
-                </span>
-              </div>
-              <input 
-                type="range"
-                min="4"
-                max="16"
-                step="1"
-                value={chunkStreamDistance}
-                onChange={(e) => setChunkStreamDistance(parseInt(e.target.value, 10))}
-                style={{ width: '100%', marginTop: '0.25rem' }}
-              />
-              <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '0.25rem' }}>
-                Loads chunks around player. Fast initial load, seamless streaming.
-              </div>
-              
-              {/* Chunk Loading Speed (Advanced) */}
-              <div className="fov-control" style={{ marginTop: '0.75rem' }}>
-                <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="toggle-label" style={{ fontSize: '0.85rem' }}>
-                    Loading Speed
-                  </span>
-                  <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                    {chunkLoadingSpeed === 1 ? 'Smooth' : chunkLoadingSpeed <= 2 ? 'Balanced' : chunkLoadingSpeed <= 4 ? 'Fast' : 'Fastest'}
-                  </span>
-                </div>
-                <input 
-                  type="range"
-                  min="1"
-                  max="8"
-                  step="1"
-                  value={chunkLoadingSpeed}
-                  onChange={(e) => setChunkLoadingSpeed(parseInt(e.target.value, 10))}
-                  style={{ width: '100%', marginTop: '0.25rem' }}
-                />
-                <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '0.25rem' }}>
-                  Higher = faster loading/meshing (may cause frame drops)
-                </div>
-              </div>
-            </div>
-          )}
-          
           {/* Particle Distance Control */}
           <div className="fov-control" style={{ marginTop: '0.75rem' }}>
             <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="toggle-label">
-                <span className="toggle-icon">✨</span>
                 Particle Distance
               </span>
               <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
@@ -1105,18 +1045,25 @@ function App() {
           <div className="fov-control" style={{ marginTop: '0.75rem' }}>
             <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="toggle-label">
-                <span className="toggle-icon">☀️</span>
                 Time of Day
               </span>
-              <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+              <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem', textAlign: 'right' }}>
                 {(() => {
-                  // Convert 0-1 to Minecraft time (0=midnight, 6000=noon, 12000=sunset, 18000=midnight)
-                  // Our timeOfDay: 0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset
-                  const hours = Math.floor(timeOfDay * 24);
-                  const mins = Math.floor((timeOfDay * 24 - hours) * 60);
-                  // Map to 6am = sunrise (0.25), noon = 0.5, 6pm = 0.75, midnight = 0
-                  const displayHour = (hours + 6) % 24;
-                  return `${displayHour.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                  // timeOfDay: 0=midnight (00:00), 0.5=noon (12:00), 1=midnight (24:00)
+                  const totalMins = Math.round(timeOfDay * 24 * 60);
+                  const hours = Math.floor(totalMins / 60) % 24;
+                  const mins = totalMins % 60;
+                  // Minecraft ticks: 0=6am, 6000=noon, 12000=6pm, 18000=midnight
+                  // Convert from our timeOfDay (0=midnight) to MC ticks (0=6am)
+                  const mcTicks = Math.round(((timeOfDay - 0.25 + 1) % 1) * 24000);
+                  return (
+                    <>
+                      {hours.toString().padStart(2, '0')}:{mins.toString().padStart(2, '0')}
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>
+                        ({mcTicks.toLocaleString()}t)
+                      </span>
+                    </>
+                  );
                 })()}
               </span>
             </div>
@@ -1135,8 +1082,7 @@ function App() {
           <div className="toggle-item" style={{ marginTop: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="toggle-label">
-                <span className="toggle-icon">☀️</span>
-                Gamma
+                Brightness
               </span>
               <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
                 {brightness === 0 ? 'Moody' : brightness === 100 ? 'Bright' : `${brightness}%`}
@@ -1153,18 +1099,47 @@ function App() {
             />
           </div>
           
+          {/* Resolution Control */}
+          <div className="fov-control" style={{ marginTop: '0.75rem' }}>
+            <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="toggle-label">
+                Resolution
+              </span>
+            </div>
+            <select
+              value={targetResolution}
+              onChange={(e) => setTargetResolution(e.target.value)}
+              style={{ marginTop: '0.35rem' }}
+            >
+              <option value="native">Native</option>
+              <option value="2160">4K (2160p)</option>
+              <option value="1440">1440p</option>
+              <option value="1080">1080p</option>
+              <option value="720">720p</option>
+            </select>
+          </div>
+          
           {/* Checkbox toggles */}
-          <label className={`toggle-option ${enableModelMeshes ? 'enabled' : ''}`} style={{ marginTop: '0.75rem' }}>
-            <input 
-              type="checkbox"
-              checked={enableModelMeshes}
-              onChange={(e) => setEnableModelMeshes(e.target.checked)}
-            />
+          
+          <button 
+            className={`toggle-option ${particleQuality !== 'off' ? 'enabled' : ''}`}
+            style={{ 
+              marginTop: '0.75rem', 
+              width: '100%', 
+              textAlign: 'left',
+              cursor: 'pointer',
+            }}
+            onClick={() => {
+              // Cycle: all -> decreased -> minimal -> off -> all
+              const cycle = { 'all': 'decreased', 'decreased': 'minimal', 'minimal': 'off', 'off': 'all' };
+              setParticleQuality(cycle[particleQuality]);
+            }}
+          >
             <span className="toggle-label">
-              <span className="toggle-icon">🧱</span>
-              Block Models
+              Particles: {particleQuality === 'all' ? 'All' : particleQuality === 'decreased' ? 'Decreased' : particleQuality === 'minimal' ? 'Minimal' : 'Off'}
             </span>
-          </label>
+          </button>
+          
           <label className={`toggle-option ${enableLighting ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
             <input 
               type="checkbox"
@@ -1172,19 +1147,7 @@ function App() {
               onChange={(e) => setEnableLighting(e.target.checked)}
             />
             <span className="toggle-label">
-              <span className="toggle-icon">💡</span>
               Smooth Lighting
-            </span>
-          </label>
-          <label className={`toggle-option ${enableRGSS ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
-            <input 
-              type="checkbox"
-              checked={enableRGSS}
-              onChange={(e) => setEnableRGSS(e.target.checked)}
-            />
-            <span className="toggle-label">
-              <span className="toggle-icon">✨</span>
-              Anti-Aliasing
             </span>
           </label>
           <label className={`toggle-option ${fogEnabled ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
@@ -1194,7 +1157,6 @@ function App() {
               onChange={(e) => setFogEnabled(e.target.checked)}
             />
             <span className="toggle-label">
-              <span className="toggle-icon">🌫️</span>
               Fog
             </span>
           </label>
@@ -1205,8 +1167,17 @@ function App() {
               onChange={(e) => setCloudsEnabled(e.target.checked)}
             />
             <span className="toggle-label">
-              <span className="toggle-icon">☁️</span>
               Clouds
+            </span>
+          </label>
+          <label className={`toggle-option ${enableRGSS ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
+            <input 
+              type="checkbox"
+              checked={enableRGSS}
+              onChange={(e) => setEnableRGSS(e.target.checked)}
+            />
+            <span className="toggle-label">
+              Anti-Aliasing
             </span>
           </label>
           <label className={`toggle-option ${continuousGlass ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
@@ -1216,31 +1187,18 @@ function App() {
               onChange={(e) => setContinuousGlass(e.target.checked)}
             />
             <span className="toggle-label">
-              <span className="toggle-icon">🪟</span>
               Continuous Glass
+              <span style={{ 
+                fontSize: '0.6rem', 
+                background: 'rgba(99, 102, 241, 0.4)', 
+                padding: '0.1rem 0.35rem', 
+                borderRadius: '3px',
+                marginLeft: '0.3rem',
+                fontWeight: '600',
+                letterSpacing: '0.5px',
+              }}>BETA</span>
             </span>
           </label>
-          <button 
-            className="toggle-option enabled"
-            style={{ 
-              marginTop: '0.5rem', 
-              width: '100%', 
-              textAlign: 'left',
-              cursor: 'pointer',
-              border: 'none',
-              background: 'rgba(255,255,255,0.05)',
-            }}
-            onClick={() => {
-              // Cycle: all -> decreased -> minimal -> off -> all
-              const cycle = { 'all': 'decreased', 'decreased': 'minimal', 'minimal': 'off', 'off': 'all' };
-              setParticleQuality(cycle[particleQuality]);
-            }}
-          >
-            <span className="toggle-label">
-              <span className="toggle-icon">✨</span>
-              Particles: {particleQuality === 'all' ? 'All' : particleQuality === 'decreased' ? 'Decreased' : particleQuality === 'minimal' ? 'Minimal' : 'Off'}
-            </span>
-          </button>
           <label className={`toggle-option ${debugMode ? 'enabled' : ''}`} style={{ marginTop: '0.5rem' }}>
             <input 
               type="checkbox"
@@ -1248,10 +1206,75 @@ function App() {
               onChange={(e) => setDebugMode(e.target.checked)}
             />
             <span className="toggle-label">
-              <span className="toggle-icon">🔍</span>
               Block Inspector
+              <span style={{ 
+                fontSize: '0.6rem', 
+                background: 'rgba(99, 102, 241, 0.4)', 
+                padding: '0.1rem 0.35rem', 
+                borderRadius: '3px',
+                marginLeft: '0.3rem',
+                fontWeight: '600',
+                letterSpacing: '0.5px',
+              }}>BETA</span>
             </span>
           </label>
+          
+          {/* Chunk Streaming Mode */}
+          <div 
+            className={`toggle-option ${chunkStreamingEnabled ? 'enabled' : ''}`} 
+            style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'stretch' }}
+          >
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer', width: '100%' }}>
+              <input 
+                type="checkbox"
+                checked={chunkStreamingEnabled}
+                onChange={(e) => setChunkStreamingEnabled(e.target.checked)}
+              />
+              <span className="toggle-label">
+                Chunk Streaming
+                <span style={{ 
+                  fontSize: '0.6rem', 
+                  background: 'rgba(99, 102, 241, 0.4)', 
+                  padding: '0.1rem 0.35rem', 
+                  borderRadius: '3px',
+                  marginLeft: '0.3rem',
+                  fontWeight: '600',
+                  letterSpacing: '0.5px',
+                }}>BETA</span>
+              </span>
+            </label>
+            
+            {/* Expanded content when enabled */}
+            {chunkStreamingEnabled && (
+              <div style={{ 
+                marginTop: '0.75rem', 
+                paddingTop: '0.75rem', 
+                borderTop: '1px solid rgba(255,255,255,0.1)',
+                width: '100%',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                    Loading Speed
+                  </span>
+                  <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                    {chunkLoadingSpeed === 1 ? 'Smooth' : chunkLoadingSpeed <= 2 ? 'Balanced' : chunkLoadingSpeed <= 4 ? 'Fast' : 'Fastest'}
+                  </span>
+                </div>
+                <input 
+                  type="range"
+                  min="1"
+                  max="8"
+                  step="1"
+                  value={chunkLoadingSpeed}
+                  onChange={(e) => setChunkLoadingSpeed(parseInt(e.target.value, 10))}
+                  style={{ width: '100%', marginTop: '0.35rem' }}
+                />
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', opacity: 0.7 }}>
+                  How many chunks to process at once
+                </div>
+              </div>
+            )}
+          </div>
           
           {/* Debug Page Link */}
           <a 
