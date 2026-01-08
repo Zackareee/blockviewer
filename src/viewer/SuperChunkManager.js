@@ -231,6 +231,18 @@ export class SuperChunkManager {
     
     // Use workers for meshing (disabled - WASM is preferred)
     this.useWorkers = false;
+    
+    // Meshing speed: how many super-chunks to mesh per idle callback
+    // 1 = smoothest camera, higher = faster chunk appearance but may cause frame drops
+    this.meshingSpeed = options.meshingSpeed ?? 1;
+  }
+  
+  /**
+   * Set the meshing speed (super-chunks per idle callback)
+   * @param {number} speed - 1-4, higher = faster but may cause frame drops
+   */
+  setMeshingSpeed(speed) {
+    this.meshingSpeed = Math.max(1, Math.min(4, speed));
   }
 
   /**
@@ -1517,10 +1529,11 @@ export class SuperChunkManager {
       
       if (this.dirtySet.size === 0) return;
       
-      // Always do at least one rebuild per callback to make progress
-      // But limit time spent based on remaining deadline
+      // Mesh multiple super-chunks based on meshingSpeed setting
+      // Higher = faster chunk appearance, but may cause frame drops
       const budgetMs = lowPriority ? 8 : 12;
-      await this.rebuildDirty(1, budgetMs);
+      const chunksToMesh = lowPriority ? 1 : this.meshingSpeed;
+      await this.rebuildDirty(chunksToMesh, budgetMs);
       
       // Schedule another callback if more rebuilds needed
       if (this.dirtySet.size > 0) {

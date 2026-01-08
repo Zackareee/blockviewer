@@ -1155,12 +1155,16 @@ function RegionScene({
     streamer.setLoadDistance(chunkStreamDistance);
   }, [chunkStreamDistance, enableChunkStreaming]);
   
-  // Update chunk loading speed (concurrency) when it changes
+  // Update chunk loading speed (concurrency and meshing) when it changes
   useEffect(() => {
     const streamer = streamerRef.current;
     if (!streamer || !enableChunkStreaming) return;
     
+    // Set chunk loading concurrency (decoding)
     streamer.setConcurrentChunks(chunkLoadingSpeed);
+    // Set meshing speed (how many chunks are meshed per idle callback)
+    // Cap at 4 since meshing is more expensive than loading
+    streamer.setMeshingSpeed(Math.min(chunkLoadingSpeed, 4));
   }, [chunkLoadingSpeed, enableChunkStreaming]);
   
   // Update chunk streamer with camera position

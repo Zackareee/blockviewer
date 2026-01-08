@@ -1073,7 +1073,7 @@ function App() {
                   style={{ width: '100%', marginTop: '0.25rem' }}
                 />
                 <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '0.25rem' }}>
-                  Lower = smoother camera, higher = faster loading
+                  Higher = faster loading/meshing (may cause frame drops)
                 </div>
               </div>
             </div>

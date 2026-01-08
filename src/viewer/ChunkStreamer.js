@@ -266,7 +266,8 @@ export class ChunkStreamer {
     this.enableModelMeshes = options.enableModelMeshes !== false;
     
     // Loading performance settings - tune for smooth vs fast loading
-    // concurrentChunks: 1 = smoothest, 4+ = faster but may cause frame drops
+    // concurrentChunks: higher = faster loading, may cause minor frame drops during load
+    // Note: Chunk loading happens in parallel, but meshing is still throttled to avoid frame drops
     this.concurrentChunks = options.concurrentChunks ?? DEFAULT_CONCURRENT_CHUNKS;
     this.loadBatchSize = options.loadBatchSize ?? DEFAULT_LOAD_BATCH_SIZE;
     
@@ -421,6 +422,17 @@ export class ChunkStreamer {
    */
   getConcurrentChunks() {
     return this.concurrentChunks;
+  }
+  
+  /**
+   * Set the meshing speed (super-chunks per idle callback)
+   * Higher = faster chunk appearance, may cause frame drops
+   * @param {number} speed - 1-4
+   */
+  setMeshingSpeed(speed) {
+    if (this.superChunkManager) {
+      this.superChunkManager.setMeshingSpeed(speed);
+    }
   }
 
   /**
@@ -922,6 +934,7 @@ export class ChunkStreamer {
         if (this.isPaused) break;
         
         // Process batch of chunks concurrently (use configured concurrency)
+        // Higher concurrency = faster loading but may cause frame drops
         const batch = [];
         for (let i = 0; i < this.concurrentChunks && this.loadQueue.size > 0; i++) {
           const item = this.loadQueue.pop();
@@ -933,7 +946,8 @@ export class ChunkStreamer {
         
         if (batch.length === 0) break;
         
-        // Process batch in parallel
+        // Process batch in parallel (decode/cache)
+        // Note: Meshing is still throttled separately to avoid frame drops
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
         // Schedule super-chunk rebuilds for idle time instead of blocking
