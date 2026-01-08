@@ -538,7 +538,7 @@ export class ChunkManager {
   
   /**
    * Format block entity NBT data for display
-   * Returns all NBT fields with formatted values (except position x/y/z)
+   * Returns all NBT fields with formatted values
    */
   _formatBlockEntity(entity) {
     const result = {};
