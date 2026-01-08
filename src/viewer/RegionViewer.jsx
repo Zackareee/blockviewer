@@ -505,7 +505,7 @@ function RegionScene({
   particleQuality = 'all', // Particle quality: 'all', 'decreased', 'minimal'
   fogEnabled = true, // Distance fog (Minecraft-style haze)
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
-  brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
+  brightness = 75, // Brightness setting 0-100 (0=Moody, 100=Bright) - 75 for saturated colors
   enableRGSS = true, // RGSS anti-aliasing for textures
   cloudsEnabled = true, // Show clouds
   continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
@@ -1406,7 +1406,7 @@ export function RegionViewer({
   particleQuality = 'all', // Particle quality: 'all', 'decreased', 'minimal'
   fogEnabled = true, // Distance fog (Minecraft-style haze)
   timeOfDay = 0.35, // Time of day 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
-  brightness = 50, // Brightness setting 0-100 (0=Moody, 100=Bright)
+  brightness = 75, // Brightness setting 0-100 (0=Moody, 100=Bright) - 75 for saturated colors
   enableRGSS = true, // RGSS anti-aliasing for textures
   cloudsEnabled = true, // Show clouds
   continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)

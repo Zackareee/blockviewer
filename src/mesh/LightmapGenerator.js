@@ -57,7 +57,7 @@ export const DAYTIME_PARAMS = {
   nightVisionFactor: 0.0,      // Night vision effect (0-1)
   darknessScale: 0.0,          // Darkness effect
   darkenWorldFactor: 0.0,      // World darkening (rain, etc.)
-  brightnessFactor: 0.5,       // Brightness gamma setting (0-1) - 0.5 matches typical player settings
+  brightnessFactor: 0.75,      // Brightness gamma setting (0-1) - 0.75 matches most players' preferred settings
   skyLightColor: { r: 1.0, g: 1.0, b: 1.0 },  // Daylight color
   ambientColor: { r: 0.0, g: 0.0, b: 0.0 },   // Ambient color (0 for overworld)
 };
@@ -100,7 +100,7 @@ export const NETHER_PARAMS = {
   nightVisionFactor: 0.0,
   darknessScale: 0.0,
   darkenWorldFactor: 0.0,
-  brightnessFactor: 0.5,       // Default brightness
+  brightnessFactor: 0.75,      // Higher brightness for better visibility
   skyLightColor: { r: 1.0, g: 1.0, b: 1.0 },  // Unused (skyFactor = 0)
   // Bright reddish ambient - at 10% mix, gives ~10% brightness with warm tint
   // This ensures areas without light sources aren't pitch black
@@ -115,18 +115,26 @@ export const NETHER_PARAMS = {
  * 
  * The End has higher ambient light (0.25) giving it a more visible base brightness.
  * Color is purplish to match the End's aesthetic.
+ * 
+ * The End should be brighter than the Nether - obsidian pillars and blocks
+ * should be clearly visible even without light sources.
+ * 
+ * Note: Face shading (0.5-1.0) is applied AFTER the lightmap, so we need
+ * higher ambient values to ensure side/bottom faces are still visible.
+ * A side face at 0.6 shading with 0.5 ambient = 30% brightness after shading.
  */
 export const END_PARAMS = {
-  ambientLightFactor: 0.25,    // End has higher ambient (25% mix)
+  ambientLightFactor: 0.5,     // Higher ambient factor for better visibility (50% mix)
   skyFactor: 0.0,              // No effective sky light
   blockFactor: 1.0,            // Block light normal
   nightVisionFactor: 0.0,
   darknessScale: 0.0,
   darkenWorldFactor: 0.0,
-  brightnessFactor: 0.5,       // Default brightness
+  brightnessFactor: 0.75,      // Higher brightness for better visibility
   skyLightColor: { r: 1.0, g: 1.0, b: 1.0 },  // Unused
-  // Purplish ambient - at 25% mix, gives good visibility with End aesthetic
-  ambientColor: { r: 0.6, g: 0.6, b: 0.8 },
+  // Bright purplish ambient - at 50% mix gives ~50% base brightness
+  // After face shading (0.5-1.0), still gives 25-50% final brightness
+  ambientColor: { r: 1.0, g: 1.0, b: 1.1 },
 };
 
 /**
@@ -246,6 +254,8 @@ export function generateLightmap(params = DAYTIME_PARAMS) {
   texture.minFilter = THREE.LinearFilter;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
+  // Use NoColorSpace for consistency with atlas (gamma-incorrect rendering like Minecraft)
+  texture.colorSpace = THREE.NoColorSpace;
   texture.needsUpdate = true;
   
   return texture;
@@ -325,7 +335,7 @@ export function lightLevelToUV(lightLevel) {
  * @param {string} dimension - Dimension ID ('overworld', 'the_nether', 'the_end'), default 'overworld'
  * @returns {Object} Lightmap parameters for generateLightmap()
  */
-export function getLightmapParamsForTime(timeOfDay, brightness = 50, dimension = 'overworld') {
+export function getLightmapParamsForTime(timeOfDay, brightness = 75, dimension = 'overworld') {
   // Convert 0-100 brightness slider to 0-1 brightnessFactor
   const brightnessFactor = brightness / 100;
   

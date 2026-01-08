@@ -302,7 +302,7 @@ export class ChunkManager {
    * @param {number} brightness - 0-100 brightness slider (0=Moody, 100=Bright)
    * @param {string} dimension - Dimension ID ('overworld', 'the_nether', 'the_end')
    */
-  updateLightmapForTime(timeOfDay, brightness = 50, dimension = 'overworld') {
+  updateLightmapForTime(timeOfDay, brightness = 75, dimension = 'overworld') {
     const params = getLightmapParamsForTime(timeOfDay, brightness, dimension);
     
     // Dispose old lightmap texture

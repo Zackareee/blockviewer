@@ -38,6 +38,12 @@ const CLOUD_HEIGHT = 192; // Y level for clouds (Minecraft default)
 const CLOUD_CELL_SIZE = 12; // Each cloud "pixel" = 12 blocks in world
 const CLOUD_SPEED = 0.4; // Blocks per second cloud drift (east direction)
 
+// Void (dark disc) constants from SkyRenderer.class
+const VOID_DISC_RADIUS = 512; // Size of void darkness disc
+const VOID_DISC_DISTANCE = 100; // Distance below camera to render disc
+const VOID_MIN_Y_OVERWORLD = -64; // Overworld min_y
+const VOID_MIN_Y_OTHER = 0; // Nether/End min_y
+
 // Cloud face colors from Minecraft shader (rendertype_clouds.vsh faceColors array)
 const CLOUD_FACE_COLORS = {
   bottom: [0.7, 0.7, 0.7],   // Darker underside
@@ -79,6 +85,8 @@ export const DIMENSION_CONFIG = {
     horizonColor: '#c8d8ff',
     ambientLight: 0.0,
     hasTimeOfDay: true,
+    minY: -64,  // From dimension_type/overworld.json
+    height: 384,
   },
   the_nether: {
     skybox: 'none',
@@ -90,6 +98,8 @@ export const DIMENSION_CONFIG = {
     horizonColor: '#330808',
     ambientLight: 0.1,
     hasTimeOfDay: false,  // Fixed time (always "dark")
+    minY: 0,  // From dimension_type/the_nether.json
+    height: 256,
     // Biome-specific fog colors for future use
     biomeFogColors: {
       'nether_wastes': '#330808',
@@ -109,6 +119,8 @@ export const DIMENSION_CONFIG = {
     horizonColor: '#181318',
     ambientLight: 0.25,
     hasTimeOfDay: false,  // Fixed time
+    minY: 0,  // From dimension_type/the_end.json
+    height: 256,
   },
 };
 
@@ -800,6 +812,242 @@ function Stars({ timeOfDay = 0.5 }) {
 }
 
 /**
+ * VoidDarkness - Renders the black void disc below the world
+ * 
+ * Based on Minecraft's SkyRenderer.renderDarkDisc:
+ * - Renders a black disc at Y = camera.y - 100 when player is below min_y
+ * - Disc radius is 512 blocks
+ * - Creates the "falling into the void" darkness effect
+ * - Only rendered when shouldRenderDarkDisc returns true (player below world floor)
+ * 
+ * @param {number} minY - The minimum Y level for the current dimension (-64 for overworld, 0 for nether/end)
+ */
+function VoidDarkness({ minY = -64 }) {
+  const meshRef = useRef();
+  const { camera } = useThree();
+  const [opacity, setOpacity] = useState(0);
+  
+  // Material for the void disc - pure black with variable opacity
+  const material = useMemo(() => {
+    return new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: true,
+      fog: false, // Not affected by scene fog
+    });
+  }, []);
+  
+  // Update position and opacity based on camera height
+  useFrame(() => {
+    if (!meshRef.current) return;
+    
+    // Position the disc below the camera
+    meshRef.current.position.set(
+      camera.position.x,
+      camera.position.y - VOID_DISC_DISTANCE,
+      camera.position.z
+    );
+    
+    // Calculate opacity based on how far below minY the camera is
+    // Start fading in when camera enters the "void zone" (below minY)
+    // Full opacity when camera is 32+ blocks below minY
+    const distanceBelowWorld = minY - camera.position.y;
+    let newOpacity = 0;
+    
+    if (distanceBelowWorld > 0) {
+      // Player is below the world floor
+      // Fade in from 0 to 1 as player descends from minY to minY-32
+      newOpacity = Math.min(1, distanceBelowWorld / 32);
+    }
+    
+    // Only update if opacity changed significantly (avoid per-frame updates)
+    if (Math.abs(newOpacity - opacity) > 0.01) {
+      setOpacity(newOpacity);
+    }
+    
+    material.opacity = newOpacity;
+  });
+  
+  // Don't render if we're not below the world
+  if (opacity < 0.01) return null;
+  
+  return (
+    <mesh 
+      ref={meshRef} 
+      material={material} 
+      rotation={[-Math.PI / 2, 0, 0]} // Rotate to be horizontal (facing up)
+      renderOrder={-997} // Render after sky elements but before terrain
+    >
+      <circleGeometry args={[VOID_DISC_RADIUS, 64]} />
+    </mesh>
+  );
+}
+
+// Path to End sky texture
+const END_SKY_TEXTURE_PATH = '/textures/1.21.11+Template/assets/minecraft/textures/environment/end_sky.png';
+
+/**
+ * EndSkyCube - Renders the End dimension's cube skybox
+ * 
+ * Based on Minecraft's SkyRenderer.renderEndSky:
+ * - Uses end_sky.png texture on all 6 faces of a cube
+ * - The texture is a purple/magenta starfield pattern
+ * - Cube follows the camera (appears infinite)
+ * - No sun, moon, or stars - just the textured cube
+ */
+function EndSkyCube() {
+  const meshRef = useRef();
+  const { camera } = useThree();
+  const [texture, setTexture] = useState(null);
+
+  // Load the End sky texture
+  useEffect(() => {
+    const loader = new THREE.TextureLoader();
+    loader.load(END_SKY_TEXTURE_PATH, (tex) => {
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      setTexture(tex);
+    }, undefined, (err) => {
+      console.warn('[MinecraftSky] Failed to load End sky texture:', err);
+      // Create fallback purple texture
+      setTexture(createFallbackEndSkyTexture());
+    });
+  }, []);
+
+  // Create material for the skybox cube
+  // The End sky is very dark - Minecraft renders it with low brightness
+  // Based on End portal shader colors which are all in 0.01-0.2 range
+  const material = useMemo(() => {
+    if (!texture) return null;
+    
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uTexture: { value: texture },
+        // Dark multiplier - End sky should be dark with visible purple starfield
+        uBrightness: { value: 0.28 },
+      },
+      vertexShader: `
+        varying vec3 vLocalPosition;
+        void main() {
+          vLocalPosition = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uTexture;
+        uniform float uBrightness;
+        varying vec3 vLocalPosition;
+        
+        void main() {
+          // Get direction to this point on the cube
+          vec3 dir = normalize(vLocalPosition);
+          
+          // Calculate UV based on dominant axis (cube mapping)
+          vec3 absDir = abs(dir);
+          vec2 uv;
+          
+          if (absDir.x >= absDir.y && absDir.x >= absDir.z) {
+            // X dominant (left/right faces)
+            uv = vec2(dir.z / absDir.x, dir.y / absDir.x) * 0.5 + 0.5;
+          } else if (absDir.y >= absDir.x && absDir.y >= absDir.z) {
+            // Y dominant (top/bottom faces)
+            uv = vec2(dir.x / absDir.y, dir.z / absDir.y) * 0.5 + 0.5;
+          } else {
+            // Z dominant (front/back faces)
+            uv = vec2(dir.x / absDir.z, dir.y / absDir.z) * 0.5 + 0.5;
+          }
+          
+          // Scale UV to tile the texture (End sky appears tiled)
+          uv *= 2.0;
+          
+          vec4 texColor = texture2D(uTexture, uv);
+          
+          // Apply dark brightness multiplier - End sky is very dark
+          // with a subtle purple tint
+          vec3 darkColor = texColor.rgb * uBrightness;
+          
+          gl_FragColor = vec4(darkColor, 1.0);
+        }
+      `,
+      side: THREE.BackSide,
+      depthWrite: false,
+      depthTest: false,
+    });
+  }, [texture]);
+
+  // Follow camera position
+  useFrame(() => {
+    if (meshRef.current) {
+      meshRef.current.position.copy(camera.position);
+    }
+  });
+
+  if (!material) return null;
+
+  return (
+    <mesh ref={meshRef} material={material} renderOrder={-1000}>
+      <boxGeometry args={[SKY_RADIUS * 2, SKY_RADIUS * 2, SKY_RADIUS * 2]} />
+    </mesh>
+  );
+}
+
+/**
+ * Create a fallback End sky texture (very dark purple starfield)
+ * The End sky is almost black with subtle purple/magenta noise
+ */
+function createFallbackEndSkyTexture() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Very dark purple-black background
+  ctx.fillStyle = '#050008';
+  ctx.fillRect(0, 0, size, size);
+
+  // Add subtle noise/stars with purple tint
+  const imageData = ctx.getImageData(0, 0, size, size);
+  const data = imageData.data;
+  
+  // Simple seeded random for consistent pattern
+  let seed = 42;
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  
+  for (let i = 0; i < size * size; i++) {
+    const idx = i * 4;
+    const noise = random();
+    
+    // More subtle, darker stars
+    if (noise > 0.6) {
+      // Very dim purple/magenta pixels - the brightness shader will darken further
+      const intensity = 0.2 + noise * 0.5;
+      data[idx] = Math.floor(100 * intensity);     // R - purple tint
+      data[idx + 1] = Math.floor(30 * intensity);  // G - low green
+      data[idx + 2] = Math.floor(130 * intensity); // B - more blue/purple
+    }
+  }
+  
+  ctx.putImageData(imageData, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+/**
  * Clouds - Minecraft-accurate 3D volumetric cloud rendering
  * 
  * Based on Minecraft's rendertype_clouds shader:
@@ -1309,22 +1557,20 @@ export function MinecraftSky({
           glowColor={null}
           glowIntensity={0}
         />
+        {/* Void darkness when falling below the world */}
+        <VoidDarkness minY={dimConfig.minY} />
       </group>
     );
   }
 
-  // End: TODO - implement end sky with purple cube skybox
+  // End: purple cube skybox with starfield texture
   if (dimConfig.skybox === 'end') {
     return (
       <group name="minecraft-sky-end">
-        {/* For now, just show a dark dome - End cube skybox to be implemented */}
-        <SkyDome 
-          skyColor={skyColorHex} 
-          horizonColor={horizonColorHex}
-          sunDirection={null}
-          glowColor={null}
-          glowIntensity={0}
-        />
+        {/* End dimension uses a textured cube skybox */}
+        <EndSkyCube />
+        {/* Void darkness when falling below the world */}
+        <VoidDarkness minY={dimConfig.minY} />
       </group>
     );
   }
@@ -1352,6 +1598,9 @@ export function MinecraftSky({
 
       {/* Clouds - loads actual Minecraft texture, tinted by time of day */}
       {cloudOpacity > 0 && <Clouds opacity={cloudOpacity} skyColor={colors.horizonColor} cloudColor={colors.cloudColor} />}
+
+      {/* Void darkness when falling below the world (Y < -64 in overworld) */}
+      <VoidDarkness minY={dimConfig.minY} />
     </group>
   );
 }
