@@ -1890,6 +1890,7 @@ export class ChunkManager {
           generateLOD: shouldGenerateLOD,
           enableModelMeshes,
           returnGrid: !!this.debugGrid,
+          returnBlockEntities: !!this.debugGrid,
           collectEmitters: this.particleQuality !== 'off',
           smoothLighting: this.smoothLightingEnabled,
         });
@@ -1898,6 +1899,17 @@ export class ChunkManager {
         // Merge grid for debug lookups
         if (result._grid && this.debugGrid) {
           this._mergeDebugGrid(result._grid);
+        }
+        
+        // Store additional debug data for block inspector
+        if (result._stateGrid) {
+          this.debugStateGrid = result._stateGrid;
+        }
+        if (result._stateRegistry) {
+          this.debugStateRegistry = result._stateRegistry;
+        }
+        if (result._blockEntities) {
+          this._mergeBlockEntities(result._blockEntities);
         }
         
         // Stage 4: Adding to scene
@@ -2198,6 +2210,7 @@ export class ChunkManager {
           generateLOD: shouldGenerateLOD,
           enableModelMeshes,
           returnGrid: !!this.debugGrid,
+          returnBlockEntities: !!this.debugGrid,
           collectEmitters: this.particleQuality !== 'off',
           smoothLighting: this.smoothLightingEnabled,
         });
@@ -2206,6 +2219,17 @@ export class ChunkManager {
         // Merge grid for debug lookups
         if (result._grid && this.debugGrid) {
           this._mergeDebugGrid(result._grid);
+        }
+        
+        // Store additional debug data for block inspector
+        if (result._stateGrid) {
+          this.debugStateGrid = result._stateGrid;
+        }
+        if (result._stateRegistry) {
+          this.debugStateRegistry = result._stateRegistry;
+        }
+        if (result._blockEntities) {
+          this._mergeBlockEntities(result._blockEntities);
         }
         
         // Stage 4: Adding to scene
