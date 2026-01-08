@@ -201,4 +201,41 @@ export function parseNBTRaw(buffer) {
   return reader.parse();
 }
 
+/**
+ * Parse level.dat and extract world spawn coordinates
+ * @param {ArrayBuffer} buffer - The level.dat file contents
+ * @returns {{ x: number, y: number, z: number } | null} - Spawn coordinates or null if not found
+ */
+export function extractSpawnFromLevelDat(buffer) {
+  try {
+    const nbt = parseNBT(buffer);
+    const data = nbt.value?.Data;
+    
+    if (!data) {
+      console.warn('[extractSpawnFromLevelDat] No Data compound found in level.dat');
+      return null;
+    }
+    
+    // Spawn coordinates are stored directly in the Data compound
+    const spawnX = data.SpawnX;
+    const spawnY = data.SpawnY;
+    const spawnZ = data.SpawnZ;
+    
+    if (spawnX === undefined || spawnZ === undefined) {
+      console.warn('[extractSpawnFromLevelDat] SpawnX/SpawnZ not found in level.dat');
+      return null;
+    }
+    
+    console.log(`[extractSpawnFromLevelDat] Found world spawn: (${spawnX}, ${spawnY ?? 'unknown'}, ${spawnZ})`);
+    
+    return {
+      x: spawnX,
+      y: spawnY ?? 64, // Default Y if not present
+      z: spawnZ,
+    };
+  } catch (e) {
+    console.error('[extractSpawnFromLevelDat] Failed to parse level.dat:', e);
+    return null;
+  }
+}
 

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { RegionViewer } from './viewer';
 import { parseMCAFile, parseEntityRegionFile } from './utils/mcaParser';
+import { extractSpawnFromLevelDat } from './utils/nbtParser';
 import { 
   getDefaultPackManager, 
   getCustomPackManager,
@@ -51,6 +52,17 @@ function App() {
   
   // Entity region files (separate from chunk region files in MC 1.17+)
   const [entityRegionFiles, setEntityRegionFiles] = useState([]);
+  
+  // World spawn coordinates from level.dat (if available)
+  const [worldSpawn, setWorldSpawn] = useState(null);
+  
+  // Dimension picker state (for world zips with multiple dimensions)
+  const [dimensionPicker, setDimensionPicker] = useState({
+    show: false,
+    dimensions: [],  // Array of { id, name, regionCount, path }
+    pendingZip: null, // JSZip instance
+    isAddMode: false, // Whether we're adding to existing or replacing
+  });
   
   // Rerender key - increment to force RegionViewer remount (useful after React hot-reload)
   const [rerenderKey, setRerenderKey] = useState(0);
@@ -391,81 +403,132 @@ function App() {
     return { x: 0, z: 0 }; // Default if pattern doesn't match
   }, []);
 
-  // Scan a world zip file and return lazy-loading region file objects
-  // Returns array of lazy File-like objects, or null if not a valid world zip
-  // The actual extraction happens on-demand when arrayBuffer() is called
-  const scanRegionsFromZip = useCallback(async (zipFile) => {
+  // Scan a world zip file for all available dimensions
+  // Returns { zip, dimensions } where dimensions is array of { id, name, regionCount, path }
+  const scanDimensionsFromZip = useCallback(async (zipFile) => {
     try {
       const zip = await JSZip.loadAsync(zipFile);
       
-      // Look for a 'region' folder (could be at root or inside a world folder)
-      // Common patterns:
-      // - region/r.0.0.mca (direct in zip)
-      // - worldname/region/r.0.0.mca (world folder at root)
-      let regionPrefix = '';
+      // Find all region folders in the zip
+      // Minecraft dimension paths:
+      // - Overworld: region/ or worldname/region/
+      // - Nether: DIM-1/region/ or worldname/DIM-1/region/
+      // - The End: DIM1/region/ or worldname/DIM1/region/
+      // - Custom dimensions: dimensions/namespace/name/region/
       
-      for (const path of Object.keys(zip.files)) {
-        // Look for .mca files in a 'region' folder
-        if (path.includes('region/') && path.endsWith('.mca')) {
-          const idx = path.indexOf('region/');
-          regionPrefix = path.substring(0, idx + 'region/'.length);
-          break;
+      const dimensionMap = new Map(); // path -> { id, name, files }
+      
+      for (const [path, file] of Object.entries(zip.files)) {
+        if (!path.endsWith('.mca') || file.dir) continue;
+        
+        // Extract the region folder path
+        const regionIdx = path.lastIndexOf('region/');
+        if (regionIdx === -1) continue;
+        
+        const regionPath = path.substring(0, regionIdx + 'region/'.length);
+        const filename = path.substring(regionPath.length);
+        
+        // Skip files in subdirectories of region/
+        if (filename.includes('/')) continue;
+        
+        // Get or create dimension entry
+        if (!dimensionMap.has(regionPath)) {
+          // Determine dimension name from path
+          let dimensionId = 'overworld';
+          let dimensionName = 'Overworld';
+          
+          if (regionPath.includes('DIM-1/')) {
+            dimensionId = 'the_nether';
+            dimensionName = 'The Nether';
+          } else if (regionPath.includes('DIM1/')) {
+            dimensionId = 'the_end';
+            dimensionName = 'The End';
+          } else if (regionPath.includes('dimensions/')) {
+            // Custom dimension: dimensions/namespace/name/region/
+            const match = regionPath.match(/dimensions\/([^/]+)\/([^/]+)\/region\//);
+            if (match) {
+              dimensionId = `${match[1]}:${match[2]}`;
+              dimensionName = match[2].replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            }
+          }
+          
+          dimensionMap.set(regionPath, {
+            id: dimensionId,
+            name: dimensionName,
+            path: regionPath,
+            files: [],
+          });
         }
+        
+        dimensionMap.get(regionPath).files.push({ path, filename, zipFile: file });
       }
       
-      if (!regionPrefix) {
-        console.log('[App] No region folder found in zip');
+      if (dimensionMap.size === 0) {
+        console.log('[App] No region folders found in zip');
         return null;
       }
       
-      console.log(`[App] Found region folder at: ${regionPrefix}`);
+      // Convert to array and add region count
+      const dimensions = Array.from(dimensionMap.values()).map(dim => ({
+        id: dim.id,
+        name: dim.name,
+        path: dim.path,
+        regionCount: dim.files.length,
+        files: dim.files,
+      }));
       
-      // Collect region file info WITHOUT extracting data
-      const regionInfos = [];
+      // Sort: Overworld first, then Nether, then End, then custom
+      const order = { 'overworld': 0, 'the_nether': 1, 'the_end': 2 };
+      dimensions.sort((a, b) => {
+        const orderA = order[a.id] ?? 3;
+        const orderB = order[b.id] ?? 3;
+        return orderA - orderB || a.name.localeCompare(b.name);
+      });
+      
+      console.log(`[App] Found ${dimensions.length} dimension(s) in zip:`, dimensions.map(d => `${d.name} (${d.regionCount} regions)`));
+      
+      // Try to find and parse level.dat for world spawn coordinates
+      let spawn = null;
       for (const [path, file] of Object.entries(zip.files)) {
-        if (path.startsWith(regionPrefix) && path.endsWith('.mca') && !file.dir) {
-          // Extract just the filename (e.g., "r.0.0.mca")
-          const filename = path.substring(regionPrefix.length);
-          // Skip files in subdirectories
-          if (!filename.includes('/')) {
-            regionInfos.push({ path, filename, zipFile: file });
+        if (path.endsWith('level.dat') && !file.dir) {
+          try {
+            const levelDatBuffer = await file.async('arraybuffer');
+            spawn = extractSpawnFromLevelDat(levelDatBuffer);
+            if (spawn) {
+              console.log(`[App] Extracted world spawn from ${path}: (${spawn.x}, ${spawn.y}, ${spawn.z})`);
+            }
+            break; // Only use the first level.dat found
+          } catch (e) {
+            console.warn('[App] Failed to parse level.dat:', e);
           }
         }
       }
       
-      if (regionInfos.length === 0) {
-        console.log('[App] No .mca files found in region folder');
-        return null;
-      }
-      
-      console.log(`[App] Found ${regionInfos.length} region files in zip (lazy loading enabled)`);
-      
-      // Create lazy-loading File-like objects
-      // These have the same interface as File but extract data on-demand
-      const lazyFiles = regionInfos.map(({ filename, zipFile }) => {
-        // Cache for extracted data
-        let cachedBuffer = null;
-        
-        return {
-          name: filename,
-          // Lazy arrayBuffer() - only extracts when called
-          arrayBuffer: async () => {
-            if (cachedBuffer) {
-              console.log(`[App] Using cached data for ${filename}`);
-              return cachedBuffer;
-            }
-            console.log(`[App] Extracting ${filename} from zip on-demand...`);
-            cachedBuffer = await zipFile.async('arraybuffer');
-            return cachedBuffer;
-          },
-        };
-      });
-      
-      return lazyFiles;
+      return { zip, dimensions, spawn };
     } catch (err) {
-      console.error('[App] Failed to scan regions from zip:', err);
+      console.error('[App] Failed to scan dimensions from zip:', err);
       return null;
     }
+  }, []);
+
+  // Create lazy-loading File objects from a dimension's region files
+  const createLazyRegionFiles = useCallback((dimensionFiles) => {
+    return dimensionFiles.map(({ filename, zipFile }) => {
+      let cachedBuffer = null;
+      
+      return {
+        name: filename,
+        arrayBuffer: async () => {
+          if (cachedBuffer) {
+            console.log(`[App] Using cached data for ${filename}`);
+            return cachedBuffer;
+          }
+          console.log(`[App] Extracting ${filename} from zip on-demand...`);
+          cachedBuffer = await zipFile.async('arraybuffer');
+          return cachedBuffer;
+        },
+      };
+    });
   }, []);
 
   // Core file processing logic (shared between load and add)
@@ -520,6 +583,32 @@ function App() {
     }
   }, [parseRegionCoords, regionFiles]);
 
+  // Handle dimension selection from picker
+  const handleDimensionSelect = useCallback(async (dimension) => {
+    const { isAddMode, spawn } = dimensionPicker;
+    
+    // Close picker
+    setDimensionPicker(prev => ({ ...prev, show: false }));
+    
+    // Set world spawn if found (only when replacing or if we don't have one)
+    if (spawn && (!isAddMode || !worldSpawn)) {
+      setWorldSpawn(spawn);
+    }
+    
+    // Create lazy region files for selected dimension
+    const lazyFiles = createLazyRegionFiles(dimension.files);
+    
+    console.log(`[App] Loading dimension: ${dimension.name} (${lazyFiles.length} regions)`);
+    
+    // Process the region files
+    await processRegionFiles(lazyFiles, isAddMode);
+  }, [dimensionPicker, createLazyRegionFiles, processRegionFiles, worldSpawn]);
+
+  // Cancel dimension picker
+  const handleDimensionCancel = useCallback(() => {
+    setDimensionPicker({ show: false, dimensions: [], pendingZip: null, isAddMode: false });
+  }, []);
+
   // Handle file upload (replace existing)
   const handleFileUpload = useCallback(async (event) => {
     const files = Array.from(event.target.files);
@@ -528,18 +617,46 @@ function App() {
     let filesToProcess = [];
     for (const file of files) {
       if (file.name.toLowerCase().endsWith('.zip')) {
-        // Scan zip for region files (lazy loading - doesn't extract yet)
+        // Scan zip for dimensions
         setLoading(true);
-        const lazyRegions = await scanRegionsFromZip(file);
+        const result = await scanDimensionsFromZip(file);
         setLoading(false);
         
-        if (lazyRegions && lazyRegions.length > 0) {
-          filesToProcess.push(...lazyRegions);
-        } else {
+        if (!result) {
           setError('No region files found in zip. Expected a world save with a region/ folder.');
+          continue;
+        }
+        
+        const { dimensions, spawn } = result;
+        
+        // Set world spawn if found in level.dat
+        if (spawn) {
+          setWorldSpawn(spawn);
+        } else {
+          setWorldSpawn(null); // Clear old spawn when loading new world
+        }
+        
+        if (dimensions.length === 1) {
+          // Only one dimension - load it directly
+          const lazyFiles = createLazyRegionFiles(dimensions[0].files);
+          filesToProcess.push(...lazyFiles);
+        } else if (dimensions.length > 1) {
+          // Multiple dimensions - show picker (spawn stored in result for later)
+          setDimensionPicker({
+            show: true,
+            dimensions,
+            pendingZip: result.zip,
+            spawn, // Store spawn for use when dimension is selected
+            isAddMode: false,
+          });
+          // Don't process other files - user needs to pick dimension first
+          event.target.value = '';
+          return;
         }
       } else {
         filesToProcess.push(file);
+        // Clear spawn when loading standalone region files (no level.dat)
+        setWorldSpawn(null);
       }
     }
     
@@ -549,7 +666,7 @@ function App() {
     
     // Reset file input so same file can be selected again
     event.target.value = '';
-  }, [processRegionFiles, scanRegionsFromZip]);
+  }, [processRegionFiles, scanDimensionsFromZip, createLazyRegionFiles]);
 
   // Handle adding region files (append to existing)
   const handleAddRegionFiles = useCallback(async (event) => {
@@ -559,15 +676,39 @@ function App() {
     let filesToProcess = [];
     for (const file of files) {
       if (file.name.toLowerCase().endsWith('.zip')) {
-        // Scan zip for region files (lazy loading - doesn't extract yet)
+        // Scan zip for dimensions
         setLoading(true);
-        const lazyRegions = await scanRegionsFromZip(file);
+        const result = await scanDimensionsFromZip(file);
         setLoading(false);
         
-        if (lazyRegions && lazyRegions.length > 0) {
-          filesToProcess.push(...lazyRegions);
-        } else {
+        if (!result) {
           setError('No region files found in zip. Expected a world save with a region/ folder.');
+          continue;
+        }
+        
+        const { dimensions, spawn } = result;
+        
+        // When adding regions, only update spawn if we don't have one yet
+        if (spawn && !worldSpawn) {
+          setWorldSpawn(spawn);
+        }
+        
+        if (dimensions.length === 1) {
+          // Only one dimension - load it directly
+          const lazyFiles = createLazyRegionFiles(dimensions[0].files);
+          filesToProcess.push(...lazyFiles);
+        } else if (dimensions.length > 1) {
+          // Multiple dimensions - show picker
+          setDimensionPicker({
+            show: true,
+            dimensions,
+            pendingZip: result.zip,
+            spawn, // Store spawn for use when dimension is selected
+            isAddMode: true,
+          });
+          // Don't process other files - user needs to pick dimension first
+          event.target.value = '';
+          return;
         }
       } else {
         filesToProcess.push(file);
@@ -580,7 +721,7 @@ function App() {
     
     // Reset file input so same file can be selected again
     event.target.value = '';
-  }, [processRegionFiles, scanRegionsFromZip]);
+  }, [processRegionFiles, scanDimensionsFromZip, createLazyRegionFiles, worldSpawn]);
 
   // Handle entity region file upload
   const handleEntityRegionUpload = useCallback(async (event) => {
@@ -624,6 +765,39 @@ function App() {
             <p>Processing regions...</p>
           </div>
         )}
+        
+        {/* Dimension Picker Modal */}
+        {dimensionPicker.show && (
+          <div className="dimension-picker-overlay">
+            <div className="dimension-picker-modal">
+              <h2>Select Dimension</h2>
+              <p className="dimension-picker-subtitle">This world contains multiple dimensions</p>
+              <div className="dimension-list">
+                {dimensionPicker.dimensions.map((dim) => (
+                  <button
+                    key={dim.id}
+                    className="dimension-option"
+                    onClick={() => handleDimensionSelect(dim)}
+                  >
+                    <span className="dimension-icon">
+                      {dim.id === 'overworld' ? '🌍' : 
+                       dim.id === 'the_nether' ? '🔥' : 
+                       dim.id === 'the_end' ? '🌌' : '✨'}
+                    </span>
+                    <span className="dimension-info">
+                      <span className="dimension-name">{dim.name}</span>
+                      <span className="dimension-regions">{dim.regionCount} region{dim.regionCount !== 1 ? 's' : ''}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <button className="dimension-cancel" onClick={handleDimensionCancel}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        
         {(buildProgress.isBuilding || buildProgress.stage === 'complete') && (
           <div className="build-overlay">
             <div className="build-progress-container">
@@ -712,6 +886,7 @@ function App() {
             textureAtlas={textureAtlas}
             particleAtlas={particleAtlas}
             packManager={packManager}
+            worldSpawn={worldSpawn}
             fov={fov}
             targetResolution={targetResolution}
             partialBlockDistance={renderDistance === 0 ? 0 : renderDistance * 16}

@@ -489,6 +489,7 @@ function RegionScene({
   particleAtlas,
   packManager, // Texture pack manager for beacon beams etc.
   initialCameraPosition,
+  worldSpawn = null, // World spawn coordinates { x, z } - camera centers here (clamped to loaded regions)
   partialBlockDistance = 48, // Render distance for partial blocks (grass, flowers, slabs, etc.)
   renderDistance = 0, // Chunk render distance (0 = unlimited)
   particleDistance = 3, // Particle render distance in chunks (default 3)
@@ -1080,18 +1081,20 @@ function RegionScene({
       console.log('[RegionViewer] Created ChunkStreamer with distance:', chunkStreamDistance);
     }
     
-    // Calculate center position and register data
-    let centerX, centerZ;
+    // Calculate spawn position and register data
+    let spawnX, spawnZ;
     
     // Helper async function to setup and start loading
     const startStreaming = async () => {
+      // Calculate region bounds first
+      let minX = Infinity, maxX = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+      
       if (hasRegions) {
         // Multi-region mode: register region files with streamer
         await streamer.setRegions(regions);
         
-        // Calculate initial camera position from regions center
-        let minX = Infinity, maxX = -Infinity;
-        let minZ = Infinity, maxZ = -Infinity;
+        // Calculate bounds from regions
         for (const { regionX, regionZ } of regions) {
           const rx = regionX * 512;
           const rz = regionZ * 512;
@@ -1100,15 +1103,11 @@ function RegionScene({
           minZ = Math.min(minZ, rz);
           maxZ = Math.max(maxZ, rz + 512);
         }
-        centerX = (minX + maxX) / 2;
-        centerZ = (minZ + maxZ) / 2;
       } else {
         // Single-region mode: use pre-parsed chunks
         await streamer.setParsedChunks(chunks);
         
-        // Calculate center from chunk coordinates
-        let minX = Infinity, maxX = -Infinity;
-        let minZ = Infinity, maxZ = -Infinity;
+        // Calculate bounds from chunk coordinates
         for (const chunk of chunks) {
           const cx = chunk.x * 16;
           const cz = chunk.z * 16;
@@ -1117,17 +1116,55 @@ function RegionScene({
           minZ = Math.min(minZ, cz);
           maxZ = Math.max(maxZ, cz + 16);
         }
-        centerX = (minX + maxX) / 2;
-        centerZ = (minZ + maxZ) / 2;
       }
       
-      // Start loading around center position
+      // Determine spawn position: use worldSpawn if provided, otherwise default to (0, 0)
+      // Then clamp to loaded region bounds if spawn is outside
+      const targetX = worldSpawn?.x ?? 0;
+      const targetZ = worldSpawn?.z ?? 0;
+      
+      // Clamp spawn to loaded region bounds
+      spawnX = Math.max(minX, Math.min(maxX, targetX));
+      spawnZ = Math.max(minZ, Math.min(maxZ, targetZ));
+      
+      if (worldSpawn) {
+        if (spawnX !== targetX || spawnZ !== targetZ) {
+          console.log(`[RegionViewer] World spawn (${targetX}, ${targetZ}) clamped to loaded region bounds: (${spawnX}, ${spawnZ})`);
+        } else {
+          console.log(`[RegionViewer] Using world spawn: (${spawnX}, ${spawnZ})`);
+        }
+      } else {
+        if (spawnX !== 0 || spawnZ !== 0) {
+          console.log(`[RegionViewer] Default spawn (0, 0) clamped to loaded region bounds: (${spawnX}, ${spawnZ})`);
+        } else {
+          console.log(`[RegionViewer] Using default spawn: (${spawnX}, ${spawnZ})`);
+        }
+      }
+      
+      // Start loading around spawn position
       manager.clear(); // Clear any existing meshes
-      const result = await streamer.loadAroundPosition(centerX, centerZ);
+      const result = await streamer.loadAroundPosition(spawnX, spawnZ);
       console.log(`[RegionViewer] ChunkStreamer initial load: ${result.chunksLoaded} chunks`);
       
-      // Position camera at center BEFORE marking ready
-      positionCameraAt(centerX, 64, centerZ, result.chunksLoaded);
+      // Calculate spawn height using Minecraft's surface detection algorithm
+      // If worldSpawn.y is provided (from level.dat), use it as a hint
+      // Otherwise scan from surface to find the highest solid block
+      let spawnY;
+      if (worldSpawn?.y !== undefined && spawnX === targetX && spawnZ === targetZ) {
+        // Use level.dat spawn Y directly (player feet position)
+        // Add 1.62 blocks for eye level (Minecraft player eye height)
+        spawnY = worldSpawn.y + 1.62;
+        console.log(`[RegionViewer] Using level.dat spawn height: feet=${worldSpawn.y}, camera=${spawnY.toFixed(1)}`);
+      } else {
+        // Scan terrain for surface height
+        // getSurfaceHeight returns Y of standing position (top of block + 1)
+        const surfaceY = streamer.getSurfaceHeight(Math.floor(spawnX), Math.floor(spawnZ));
+        spawnY = surfaceY + 1.62; // Eye level
+        console.log(`[RegionViewer] Calculated spawn height: surface=${surfaceY}, camera=${spawnY.toFixed(1)}`);
+      }
+      
+      // Position camera at spawn BEFORE marking ready
+      positionCameraAt(spawnX, spawnY, spawnZ, result.chunksLoaded);
       
       // Now mark streaming as ready - SpectatorControls can render
       setStreamingReady(true);
@@ -1144,7 +1181,7 @@ function RegionScene({
     return () => {
       // Don't dispose on cleanup - keep for HMR
     };
-  }, [enableChunkStreaming, regions, chunks, textureAtlas, chunkStreamDistance, enableModelMeshes, invalidate]);
+  }, [enableChunkStreaming, regions, chunks, textureAtlas, chunkStreamDistance, enableModelMeshes, worldSpawn, invalidate]);
   
   // Update streamer distances when chunkStreamDistance changes
   useEffect(() => {
@@ -1338,6 +1375,7 @@ export function RegionViewer({
   textureAtlas = null,
   particleAtlas = null, // Particle texture atlas for flames, smoke, etc.
   packManager = null, // Texture pack manager for beacon beams etc.
+  worldSpawn = null, // World spawn coordinates { x, z } - camera starts here (clamped to loaded regions)
   fov = 60,  // Vertical FOV in degrees (Minecraft also uses vertical FOV internally)
   targetResolution = 'native', // Target resolution: 'native', '2160', '1440', '1080', '720'
   partialBlockDistance = 48, // Render distance for partial blocks (0 = unlimited)
@@ -1450,6 +1488,7 @@ export function RegionViewer({
         textureAtlas={textureAtlas}
         particleAtlas={particleAtlas}
         packManager={packManager}
+        worldSpawn={worldSpawn}
         partialBlockDistance={partialBlockDistance}
         renderDistance={renderDistance}
         particleDistance={particleDistance}

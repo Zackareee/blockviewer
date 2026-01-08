@@ -699,6 +699,171 @@ export class ChunkStreamer {
   }
 
   /**
+   * Get the surface height at world coordinates (highest non-air block + 1)
+   * Uses Minecraft's MOTION_BLOCKING logic: finds highest solid/fluid block
+   * @param {number} worldX - World X coordinate
+   * @param {number} worldZ - World Z coordinate
+   * @returns {number} Surface Y coordinate (player spawn height), or 64 if not found
+   */
+  getSurfaceHeight(worldX, worldZ) {
+    if (!this.superChunkManager) {
+      console.warn('[ChunkStreamer] getSurfaceHeight: SuperChunkManager not ready');
+      return 64;
+    }
+    
+    const chunkX = Math.floor(worldX / CHUNK_SIZE);
+    const chunkZ = Math.floor(worldZ / CHUNK_SIZE);
+    const localX = ((worldX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const localZ = ((worldZ % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    
+    // Get the super-chunk containing this chunk
+    const superChunkKey = this.superChunkManager.getSuperChunkKey(chunkX, chunkZ);
+    const superChunk = this.superChunkManager.superChunks.get(superChunkKey);
+    
+    if (!superChunk) {
+      console.warn(`[ChunkStreamer] getSurfaceHeight: No super-chunk at ${chunkX}, ${chunkZ}`);
+      return 64;
+    }
+    
+    // Get chunk data from super-chunk
+    const localKey = superChunk.getLocalKey(chunkX, chunkZ);
+    const chunkEntry = superChunk.loadedChunks.get(localKey);
+    
+    if (!chunkEntry || !chunkEntry.data) {
+      console.warn(`[ChunkStreamer] getSurfaceHeight: No chunk data at ${chunkX}, ${chunkZ}`);
+      return 64;
+    }
+    
+    // Parse chunk data to find surface height
+    try {
+      let chunkData = chunkEntry.data;
+      
+      // Decompress if needed
+      if (chunkEntry.isRawCompressed) {
+        const compressed = new Uint8Array(chunkData);
+        const decompressed = pako.inflate(compressed);
+        chunkData = parseNBTRaw(decompressed.buffer).value;
+      }
+      
+      // Get sections from chunk data
+      const sections = chunkData.sections || chunkData.Level?.Sections || [];
+      if (!sections || sections.length === 0) {
+        return 64;
+      }
+      
+      // Sort sections by Y (highest first) to scan from top down
+      const sortedSections = [...sections].sort((a, b) => (b.Y ?? b.y ?? 0) - (a.Y ?? a.y ?? 0));
+      
+      // Scan from top to bottom for first non-air block
+      for (const section of sortedSections) {
+        const sectionY = section.Y ?? section.y ?? 0;
+        const baseY = sectionY * 16;
+        
+        // Get block palette and data
+        const blockStates = section.block_states || section;
+        const palette = blockStates.palette || blockStates.Palette;
+        const data = blockStates.data || blockStates.BlockStates;
+        
+        if (!palette || palette.length === 0) continue;
+        
+        // Check if section is all air (single-entry palette with air)
+        if (palette.length === 1) {
+          const blockName = palette[0].Name || palette[0];
+          if (this._isAirBlock(blockName)) continue;
+        }
+        
+        // Calculate bits per block
+        const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
+        
+        // Scan this section from top to bottom at our column
+        for (let localY = 15; localY >= 0; localY--) {
+          const worldY = baseY + localY;
+          
+          // Get block index
+          const blockIndex = localY * 256 + localZ * 16 + localX;
+          let paletteIndex = 0;
+          
+          if (data && data.length > 0) {
+            // Unpack from long array
+            const blocksPerLong = Math.floor(64 / bitsPerBlock);
+            const longIndex = Math.floor(blockIndex / blocksPerLong);
+            const bitOffset = (blockIndex % blocksPerLong) * bitsPerBlock;
+            
+            if (longIndex < data.length) {
+              const longValue = data[longIndex];
+              // Handle both BigInt and number
+              if (typeof longValue === 'bigint') {
+                paletteIndex = Number((longValue >> BigInt(bitOffset)) & BigInt((1 << bitsPerBlock) - 1));
+              } else {
+                // For regular numbers, need to handle 64-bit unpacking carefully
+                paletteIndex = (longValue >>> bitOffset) & ((1 << bitsPerBlock) - 1);
+              }
+            }
+          }
+          
+          // Check if this is a solid block
+          if (paletteIndex < palette.length) {
+            const entry = palette[paletteIndex];
+            const blockName = entry.Name || entry;
+            
+            if (!this._isAirBlock(blockName) && !this._isTransparentNonSolid(blockName)) {
+              // Found surface! Return Y + 1 (standing on top of block)
+              console.log(`[ChunkStreamer] Surface height at (${worldX}, ${worldZ}): ${worldY + 1} (${blockName})`);
+              return worldY + 1;
+            }
+          }
+        }
+      }
+      
+      // No surface found, return sea level
+      return 64;
+    } catch (e) {
+      console.error('[ChunkStreamer] getSurfaceHeight error:', e);
+      return 64;
+    }
+  }
+  
+  /**
+   * Check if a block name represents air
+   */
+  _isAirBlock(name) {
+    if (!name) return true;
+    const n = name.replace('minecraft:', '');
+    return n === 'air' || n === 'cave_air' || n === 'void_air';
+  }
+  
+  /**
+   * Check if a block is transparent but not solid (shouldn't count as surface)
+   * These are blocks you'd fall through
+   */
+  _isTransparentNonSolid(name) {
+    if (!name) return true;
+    const n = name.replace('minecraft:', '');
+    // Blocks that don't count as surface for spawning
+    const nonSolid = new Set([
+      // Plants
+      'grass', 'tall_grass', 'fern', 'large_fern',
+      'dead_bush', 'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant',
+      // Flowers
+      'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet',
+      'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 
+      'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+      'sunflower', 'lilac', 'rose_bush', 'peony',
+      // Other non-solid
+      'torch', 'wall_torch', 'soul_torch', 'soul_wall_torch',
+      'redstone_torch', 'redstone_wall_torch',
+      'sign', 'wall_sign', 'hanging_sign', 'wall_hanging_sign',
+      'rail', 'powered_rail', 'detector_rail', 'activator_rail',
+      'lever', 'button', 'pressure_plate',
+      'redstone_wire', 'tripwire', 'tripwire_hook',
+      'flower_pot', 'potted_', // All potted plants
+      'fire', 'soul_fire',
+      'cobweb', 'string',
+    ]);
+    return nonSolid.has(n) || n.startsWith('potted_') || n.endsWith('_sign') || n.endsWith('_button');
+  }
+
+  /**
    * Calculate priority adjustment based on chunk direction relative to player view
    * Minecraft-style predictive loading: chunks in front get priority
    * @param {number} dx - Chunk offset X from player
