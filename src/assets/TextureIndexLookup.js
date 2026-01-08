@@ -8,9 +8,14 @@
  * - 'up' / 'down' - Y-axis faces
  * - 'north' / 'south' - Z-axis faces  
  * - 'east' / 'west' - X-axis faces
+ * 
+ * Texture Resolution Strategy:
+ * 1. Try ModelTextureMapper (data-driven from model JSON files)
+ * 2. Fall back to BlockTextureRegistry (hardcoded mappings for edge cases)
  */
 
 import { getBlockTexture } from './BlockTextureRegistry.js';
+import { getModelTextureMapper } from './ModelTextureMapper.js';
 
 // Face direction constants for array indexing
 export const FACE_UP = 0;
@@ -89,7 +94,12 @@ export class TextureIndexLookup {
   }
   
   /**
-   * Register a block's textures using BlockTextureRegistry
+   * Register a block's textures
+   * 
+   * Uses a two-tier resolution strategy:
+   * 1. ModelTextureMapper - data-driven from model JSON (preferred)
+   * 2. BlockTextureRegistry - hardcoded fallback for edge cases
+   * 
    * @param {number} blockId - The numeric block ID
    * @param {string} blockName - The block name (e.g., "stone" or "minecraft:stone")
    * @param {boolean} debug - Whether to log debug info for this block
@@ -105,11 +115,37 @@ export class TextureIndexLookup {
     
     let foundAny = false;
     let missingFaces = [];
-    const debugInfo = debug ? { blockId, blockName: name, faces: {} } : null;
+    let usedModelMapper = false;
+    const debugInfo = debug ? { blockId, blockName: name, faces: {}, source: 'unknown' } : null;
+    
+    // Try ModelTextureMapper first (data-driven from model JSON)
+    const modelTextureMapper = getModelTextureMapper();
+    let modelFaceTextures = null;
+    
+    if (modelTextureMapper.initialized) {
+      modelFaceTextures = modelTextureMapper.getBlockFaceTextures(name);
+      if (modelFaceTextures) {
+        usedModelMapper = true;
+        if (debug) {
+          debugInfo.source = 'model';
+        }
+      }
+    }
     
     for (let i = 0; i < faces.length; i++) {
       const face = faces[i];
-      const texturePath = getBlockTexture(name, face);
+      let texturePath;
+      
+      // Try model-based texture first
+      if (modelFaceTextures && modelFaceTextures[face]) {
+        texturePath = modelFaceTextures[face];
+      } else {
+        // Fall back to BlockTextureRegistry (hardcoded mappings)
+        texturePath = getBlockTexture(name, face);
+        if (debug && !usedModelMapper) {
+          debugInfo.source = 'registry';
+        }
+      }
       
       // Try multiple path formats to find the texture in the atlas
       const pathsToTry = [
@@ -144,6 +180,7 @@ export class TextureIndexLookup {
           matchedPath,
           atlasIndex,
           usedDefault: matchedPath === null,
+          fromModel: usedModelMapper && modelFaceTextures && modelFaceTextures[face],
         };
       }
       

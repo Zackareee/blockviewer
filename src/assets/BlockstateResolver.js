@@ -45,8 +45,11 @@ class BlockstateResolver {
    */
   setPackManager(packManager) {
     this.packManager = packManager;
-    // Clear compiled cache when pack changes
+    // Clear ALL caches when pack changes - critical for texture pack hot-swapping
+    this.blockstates.clear();
     this.compiled.clear();
+    this.loaded = false;
+    console.log('[BlockstateResolver] Pack changed, all caches cleared');
   }
 
   /**

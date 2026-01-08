@@ -117,6 +117,40 @@ impl BlockStateGrid {
     pub fn is_empty(&self) -> bool {
         self.has_states.is_empty()
     }
+
+    /// Get or create a section for writing
+    /// Returns a mutable reference to the section data
+    pub fn get_or_create_section(&mut self, chunk_x: i32, chunk_z: i32, section_y: i32) -> &mut [u16; SECTION_VOLUME] {
+        let key = SectionKey::new(chunk_x, chunk_z, section_y);
+        let packed = key.to_packed();
+        
+        self.sections.entry(packed)
+            .or_insert_with(|| Box::new([0u16; SECTION_VOLUME]))
+            .as_mut()
+    }
+
+    /// Set state at a specific position in the section
+    /// Also marks the section as having states if value is non-zero
+    #[inline]
+    pub fn set_state(&mut self, chunk_x: i32, chunk_z: i32, section_y: i32, index: usize, state_id: u16) {
+        let key = SectionKey::new(chunk_x, chunk_z, section_y);
+        let packed = key.to_packed();
+        
+        let section = self.sections.entry(packed)
+            .or_insert_with(|| Box::new([0u16; SECTION_VOLUME]));
+        section[index] = state_id;
+        
+        if state_id != 0 {
+            self.has_states.insert(packed);
+        }
+    }
+
+    /// Iterate over all sections (not just those with states)
+    pub fn iter_sections(&self) -> impl Iterator<Item = (SectionKey, &[u16; SECTION_VOLUME])> {
+        self.sections.iter().map(|(packed, section)| {
+            (SectionKey::from_packed(*packed), section.as_ref())
+        })
+    }
 }
 
 impl Default for BlockStateGrid {

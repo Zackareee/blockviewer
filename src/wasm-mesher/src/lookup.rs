@@ -185,6 +185,29 @@ impl Lookups {
     pub fn get_lava_color(&self) -> (f32, f32, f32) {
         self.lava_color
     }
+
+    /// Check if block is a particle emitter
+    /// For now, this checks against known particle-emitting blocks
+    #[inline]
+    pub fn is_particle_emitter(&self, block_id: u16) -> bool {
+        // Get block name from registry
+        if let Some(name) = crate::registry::get_block_name(block_id) {
+            // Check for known particle emitters
+            name.contains("torch") ||
+            name.contains("campfire") ||
+            name.contains("candle") ||
+            name.contains("fire") ||
+            name == "minecraft:lava" ||
+            name.contains("redstone_ore") ||
+            name.contains("spawner") ||
+            name.contains("enchanting_table") ||
+            name.contains("end_portal") ||
+            name.contains("brewing_stand") ||
+            name.contains("dragon_egg")
+        } else {
+            false
+        }
+    }
 }
 
 /// Initialize lookup tables from JavaScript

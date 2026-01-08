@@ -1043,8 +1043,17 @@ function RegionScene({
       return;
     }
     
-    // Create or reuse streamer
+    // Check if texture atlas changed (for hot-swapping texture packs)
+    // If so, clear the streamer to force re-meshing with new texture indices
     let streamer = streamerRef.current;
+    if (streamer && textureAtlas !== lastTextureAtlasRef.current) {
+      console.log('[RegionViewer] Texture atlas changed, clearing ChunkStreamer for re-mesh...');
+      // Pass invalidateWorkers: true to force worker pool to re-initialize with new texture indices
+      streamer.clear({ invalidateWorkers: true });
+    }
+    lastTextureAtlasRef.current = textureAtlas;
+    
+    // Create or reuse streamer
     if (!streamer) {
       streamer = new ChunkStreamer(manager, {
         loadDistance: chunkStreamDistance,

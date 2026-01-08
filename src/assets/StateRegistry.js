@@ -288,6 +288,37 @@ class StateRegistry {
   }
 
   /**
+   * Pre-register all non-cube blocks from a BlockRegistry with default states
+   * This populates the registry BEFORE chunk decoding so WASM can use it.
+   * 
+   * @param {BlockRegistry} blockRegistry - The block registry with all known blocks
+   * @returns {Promise<number>} Number of states registered
+   */
+  async preregisterNonCubeBlocks(blockRegistry) {
+    let registered = 0;
+    
+    for (let id = 0; id < 4096; id++) {
+      const info = blockRegistry.getBlockInfo(id);
+      if (!info || !info.name) continue;
+      
+      // Only pre-register non-cube blocks (model blocks)
+      if (!blockRegistry.isNonCube(id)) continue;
+      
+      const blockName = info.name.replace('minecraft:', '');
+      
+      // Register with empty properties (default state)
+      this.register(blockName, {});
+      registered++;
+    }
+    
+    // Precompute geometry for all registered states
+    await this.precomputeAll();
+    
+    console.log(`[StateRegistry] Pre-registered ${registered} non-cube block states`);
+    return registered;
+  }
+
+  /**
    * Build sorted properties key
    */
   _buildPropsKey(properties) {

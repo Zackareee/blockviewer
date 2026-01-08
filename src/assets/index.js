@@ -24,6 +24,10 @@ export {
   getRandomRotationRegistry,
   getPositionRotation,
 } from './RandomRotationRegistry.js';
+export {
+  ModelTextureMapper,
+  getModelTextureMapper,
+} from './ModelTextureMapper.js';
 
 /**
  * Initialize all asset systems

@@ -35,6 +35,10 @@ import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder.js';
 import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
 import { SuperChunkManager } from './SuperChunkManager.js';
+import { 
+  isUnifiedPipelineReady, 
+  initBlockRegistry,
+} from '../mesh/wasm/WasmMesher.js';
 
 // Chunk size in blocks (Minecraft standard)
 const CHUNK_SIZE = 16;
@@ -341,7 +345,8 @@ export class ChunkStreamer {
     this._initSuperChunkManager();
     
     // Initialize WASM mesher for high-performance meshing (async, non-blocking)
-    this.initializeWasm().catch(err => {
+    // Store the promise so region parsing can optionally wait for it
+    this._wasmInitPromise = this.initializeWasm().catch(err => {
       console.warn('[ChunkStreamer] WASM init failed, using JS fallback:', err);
     });
     
@@ -452,6 +457,23 @@ export class ChunkStreamer {
       const success = await this.superChunkManager.initializeWasm();
       if (success) {
         console.log('[ChunkStreamer] ✅ WASM mesher initialized - using high-performance mode');
+        
+        // Initialize block registry for unified pipeline (NBT parsing in WASM)
+        if (this.registry && initBlockRegistry(this.registry)) {
+          console.log('[ChunkStreamer] ✅ Block registry initialized - unified pipeline ready');
+          
+          // Model meshing uses JS StateRegistry for full state resolution
+          // WASM handles greedy meshing (solid/fluid/glass), JS handles models
+          console.log('[ChunkStreamer] ✅ Unified pipeline ready - WASM greedy + JS model meshing');
+          
+          // Clear region cache so next loads use the unified pipeline
+          // This ensures chunks are parsed with raw compressed data
+          if (this.regionCache) {
+            const cacheSize = this.regionCache.cache?.size || 0;
+            this.regionCache.clear();
+            console.log(`[ChunkStreamer] Cleared ${cacheSize} cached regions to enable unified pipeline`);
+          }
+        }
       } else {
         console.log('[ChunkStreamer] WASM not available - using JavaScript mesher');
       }
@@ -519,11 +541,31 @@ export class ChunkStreamer {
       return;
     }
     
+    // Calculate movement delta for optimization
+    const lastChunkX = this.playerChunkX;
+    const lastChunkZ = this.playerChunkZ;
+    
     this.playerChunkX = chunkX;
     this.playerChunkZ = chunkZ;
     
     // Update visibility for loaded chunks
     this._updateChunkVisibility();
+    
+    // OPTIMIZATION: Skip expensive queue/unload operations if all chunks are already loaded
+    // When initial load is complete and we're just moving around in already-loaded area,
+    // we can skip the O(loadDistance²) iteration since nothing will change
+    const movedX = Math.abs(chunkX - lastChunkX);
+    const movedZ = Math.abs(chunkZ - lastChunkZ);
+    const movedOneChunk = movedX <= 1 && movedZ <= 1;
+    
+    if (this.initialLoadComplete && movedOneChunk && this.loadQueue.size === 0 && !this.isProcessing) {
+      // Quick boundary check: only need to look at chunks on the new edge
+      // This is O(loadDistance) instead of O(loadDistance²)
+      if (!this._hasNewChunksOnBoundary(chunkX, chunkZ, lastChunkX, lastChunkZ)) {
+        // No new chunks to load, skip the expensive operations
+        return;
+      }
+    }
     
     // Queue chunks for loading
     this._queueChunksAroundPlayer();
@@ -731,6 +773,56 @@ export class ChunkStreamer {
   }
 
   /**
+   * Quick check if there are any new chunks to load on the boundary we moved towards
+   * O(loadDistance) instead of O(loadDistance²)
+   * @param {number} newX - New chunk X
+   * @param {number} newZ - New chunk Z
+   * @param {number} oldX - Previous chunk X
+   * @param {number} oldZ - Previous chunk Z
+   * @returns {boolean} True if there are chunks to load
+   */
+  _hasNewChunksOnBoundary(newX, newZ, oldX, oldZ) {
+    const { loadDistance, usePreParsedChunks } = this;
+    const dxDir = newX - oldX;
+    const dzDir = newZ - oldZ;
+    
+    // Check the new edge chunks based on movement direction
+    for (let i = -loadDistance; i <= loadDistance; i++) {
+      // Check X edge if moved in X direction
+      if (dxDir !== 0) {
+        const edgeX = newX + (dxDir > 0 ? loadDistance : -loadDistance);
+        const key = `${edgeX},${newZ + i}`;
+        if (!this.loadedChunks.has(key) && !this.loadingChunks.has(key)) {
+          if (usePreParsedChunks) {
+            if (this.parsedChunks.has(key)) return true;
+          } else {
+            const regionX = Math.floor(edgeX / 32);
+            const regionZ = Math.floor((newZ + i) / 32);
+            if (this.regionFiles.has(`${regionX},${regionZ}`)) return true;
+          }
+        }
+      }
+      
+      // Check Z edge if moved in Z direction
+      if (dzDir !== 0) {
+        const edgeZ = newZ + (dzDir > 0 ? loadDistance : -loadDistance);
+        const key = `${newX + i},${edgeZ}`;
+        if (!this.loadedChunks.has(key) && !this.loadingChunks.has(key)) {
+          if (usePreParsedChunks) {
+            if (this.parsedChunks.has(key)) return true;
+          } else {
+            const regionX = Math.floor((newX + i) / 32);
+            const regionZ = Math.floor(edgeZ / 32);
+            if (this.regionFiles.has(`${regionX},${regionZ}`)) return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  }
+
+    /**
    * Unload chunks beyond unload distance
    */
   _unloadDistantChunks() {
@@ -950,14 +1042,29 @@ export class ChunkStreamer {
           }
           
           // Parse region file
+          // Wait for WASM init if it's in progress (max 500ms)
+          // This ensures we use the unified pipeline when possible
+          if (!isUnifiedPipelineReady() && this._wasmInitPromise) {
+            await Promise.race([
+              this._wasmInitPromise,
+              new Promise(r => setTimeout(r, 500))
+            ]);
+          }
+          
+          // Use unified WASM pipeline if available for better performance
           const buffer = await regionInfo.file.arrayBuffer();
-          const chunks = await this._parseRegionBuffer(buffer, regionX, regionZ);
+          const useUnified = isUnifiedPipelineReady();
+          console.log(`[ChunkStreamer] Parsing region ${regionX},${regionZ} - unified pipeline: ${useUnified}`);
+          const chunks = await this._parseRegionBuffer(buffer, regionX, regionZ, useUnified);
           
           // Cache for future use
           this.regionCache.set(regionX, regionZ, buffer, chunks);
           regionData = { buffer, chunks };
         } else {
           this.stats.cacheHits++;
+          // Check if cached data has raw compressed chunks
+          const hasRawCompressed = regionData.chunks.some(c => c.isRawCompressed);
+          console.log(`[ChunkStreamer] Cache hit for region ${regionX},${regionZ} - hasRawCompressed: ${hasRawCompressed}`);
         }
         
         // Find the specific chunk
@@ -976,7 +1083,10 @@ export class ChunkStreamer {
       // Add chunk to super-chunk manager (batched meshing)
       // The actual meshing is deferred until rebuildDirty() is called
       if (this.superChunkManager) {
-        this.superChunkManager.addChunk(chunkX, chunkZ, chunkData.data);
+        // For unified pipeline, pass the raw chunk data object (with compressedData)
+        // For legacy, pass the parsed NBT data
+        const dataToAdd = chunkData.isRawCompressed ? chunkData : chunkData.data;
+        this.superChunkManager.addChunk(chunkX, chunkZ, dataToAdd, chunkData.isRawCompressed);
       }
       
       // Store loaded chunk (data only, meshes are in super-chunks)
@@ -999,8 +1109,16 @@ export class ChunkStreamer {
 
   /**
    * Parse a region buffer into chunks
+   * 
+   * When useUnifiedPipeline is true, returns raw compressed data for WASM processing.
+   * Otherwise, decompresses and parses NBT in JavaScript (legacy path).
+   * 
+   * @param {ArrayBuffer} buffer - Raw region file buffer
+   * @param {number} regionX - Region X coordinate
+   * @param {number} regionZ - Region Z coordinate
+   * @param {boolean} useUnifiedPipeline - If true, return raw compressed bytes
    */
-  async _parseRegionBuffer(buffer, regionX, regionZ) {
+  async _parseRegionBuffer(buffer, regionX, regionZ, useUnifiedPipeline = false) {
     const view = new DataView(buffer);
     const chunks = [];
     
@@ -1019,27 +1137,43 @@ export class ChunkStreamer {
           
           if (length <= 1 || offset + 5 + length - 1 > buffer.byteLength) continue;
           
+          // Extract raw compressed bytes (don't decompress in JS if using unified pipeline)
           const compressedData = new Uint8Array(buffer, offset + 5, length - 1);
           
-          let decompressedData;
-          if (compressionType === 1) {
-            decompressedData = pako.ungzip(compressedData);
-          } else if (compressionType === 2) {
-            decompressedData = pako.inflate(compressedData);
+          if (useUnifiedPipeline) {
+            // Unified WASM pipeline: pass raw compressed data
+            // Copy the data since the buffer may be transferred
+            chunks.push({
+              x,
+              z,
+              compressedData: new Uint8Array(compressedData), // Copy for safety
+              compressionType,
+              worldX: regionX * REGION_SIZE + x,
+              worldZ: regionZ * REGION_SIZE + z,
+              isRawCompressed: true, // Flag for SuperChunkManager
+            });
           } else {
-            continue;
+            // Legacy JS path: decompress and parse NBT here
+            let decompressedData;
+            if (compressionType === 1) {
+              decompressedData = pako.ungzip(compressedData);
+            } else if (compressionType === 2) {
+              decompressedData = pako.inflate(compressedData);
+            } else {
+              continue;
+            }
+            
+            // Use the same NBT parser as mcaParser for consistent chunk data format
+            const nbt = parseNBTRaw(decompressedData.buffer);
+            
+            chunks.push({
+              x,
+              z,
+              data: nbt.value,
+              worldX: regionX * REGION_SIZE + x,
+              worldZ: regionZ * REGION_SIZE + z,
+            });
           }
-          
-          // Use the same NBT parser as mcaParser for consistent chunk data format
-          const nbt = parseNBTRaw(decompressedData.buffer);
-          
-          chunks.push({
-            x,
-            z,
-            data: nbt.value,
-            worldX: regionX * REGION_SIZE + x,
-            worldZ: regionZ * REGION_SIZE + z,
-          });
           
         } catch (e) {
           // Skip failed chunks

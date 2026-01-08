@@ -49,6 +49,8 @@ pub struct LightGrid {
     /// When true, missing sections default to 0 (dark)
     /// When false (fallback mode), missing sections default to MAX_LIGHT
     has_minecraft_data: bool,
+    /// Public flag for decode module to set
+    pub has_minecraft_light_data: bool,
 }
 
 impl LightGrid {
@@ -56,6 +58,7 @@ impl LightGrid {
         Self {
             sections: HashMap::new(),
             has_minecraft_data: false,
+            has_minecraft_light_data: false,
         }
     }
 
@@ -175,6 +178,17 @@ impl LightGrid {
     /// Check if grid has any sections
     pub fn is_empty(&self) -> bool {
         self.sections.is_empty()
+    }
+
+    /// Get or create a section for writing
+    /// Returns a mutable reference to the section data
+    pub fn get_or_create_section(&mut self, chunk_x: i32, chunk_z: i32, section_y: i32) -> &mut [u8; SECTION_VOLUME] {
+        let key = SectionKey::new(chunk_x, chunk_z, section_y);
+        let packed = key.to_packed();
+        
+        self.sections.entry(packed)
+            .or_insert_with(|| Box::new([0u8; SECTION_VOLUME]))
+            .as_mut()
     }
 }
 

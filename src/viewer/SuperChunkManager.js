@@ -23,16 +23,19 @@ import { buildGridMeshes } from '../mesh/FastMesher.js';
 import { buildModelMeshesWithInstancing } from '../mesh/ModelMesher.js';
 import { propagateSkyLight } from '../mesh/LightPropagator.js';
 import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
-import { getMeshWorkerPool } from '../mesh/workers/MeshWorkerPool.js';
+import { getMeshWorkerPool, resetMeshWorkerPool } from '../mesh/workers/MeshWorkerPool.js';
 import { 
   initWasmMesher, 
   isWasmAvailable, 
+  isUnifiedPipelineReady,
   initLookups as initWasmLookups,
   buildLookupTables,
   meshChunk as wasmMeshChunk,
   serializeGrid,
   serializeLightGrid,
 } from '../mesh/wasm/WasmMesher.js';
+import { parseNBTRaw } from '../utils/nbtParser.js';
+import pako from 'pako';
 
 // Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
 // Smaller size = faster rebuilds, less jank, more responsive loading
@@ -129,9 +132,13 @@ class SuperChunk {
 
   /**
    * Add a chunk's data to this super-chunk
+   * @param {number} chunkX - Chunk X coordinate
+   * @param {number} chunkZ - Chunk Z coordinate
+   * @param {Object} chunkData - Chunk data (either parsed NBT or raw compressed)
+   * @param {boolean} isRawCompressed - If true, chunkData contains raw compressed bytes
    * @returns {boolean} true if chunk was added/changed, false if already present
    */
-  addChunk(chunkX, chunkZ, chunkData) {
+  addChunk(chunkX, chunkZ, chunkData, isRawCompressed = false) {
     const key = this.getLocalKey(chunkX, chunkZ);
     
     // Skip if chunk already loaded with same data (avoid unnecessary rebuilds)
@@ -142,7 +149,8 @@ class SuperChunk {
     this.loadedChunks.set(key, {
       chunkX,
       chunkZ,
-      data: chunkData
+      data: chunkData,
+      isRawCompressed, // Flag for unified WASM pipeline
     });
     this.isDirty = true;
     return true;
@@ -349,17 +357,18 @@ export class SuperChunkManager {
    * Add a chunk's data to the appropriate super-chunk
    * @param {number} chunkX - World chunk X
    * @param {number} chunkZ - World chunk Z
-   * @param {Object} chunkData - Parsed chunk data with NBT
+   * @param {Object} chunkData - Chunk data (either parsed NBT or raw compressed)
+   * @param {boolean} isRawCompressed - If true, chunkData contains raw compressed bytes for unified WASM pipeline
    * @returns {boolean} true if chunk was added (new), false if already present
    */
-  addChunk(chunkX, chunkZ, chunkData) {
+  addChunk(chunkX, chunkZ, chunkData, isRawCompressed = false) {
     if (!chunkData) {
       console.warn(`[SuperChunkManager] No data for chunk ${chunkX},${chunkZ}`);
       return false;
     }
     
     const superChunk = this.getOrCreateSuperChunk(chunkX, chunkZ);
-    const wasAdded = superChunk.addChunk(chunkX, chunkZ, chunkData);
+    const wasAdded = superChunk.addChunk(chunkX, chunkZ, chunkData, isRawCompressed);
     
     // Only mark for rebuild if chunk was actually added (not already present)
     if (wasAdded) {
@@ -407,6 +416,20 @@ export class SuperChunkManager {
     
     if (superChunk.isEmpty()) {
       superChunk.isDirty = false;
+      return;
+    }
+    
+    // Check if we should use unified WASM pipeline for individual chunk processing
+    // This is beneficial when all chunks have raw compressed data
+    const pipelineReady = isUnifiedPipelineReady();
+    const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
+    const useUnifiedPipeline = pipelineReady && hasRawCompressed;
+    
+    console.log(`[SuperChunkManager] Pipeline check: ready=${pipelineReady}, hasRawCompressed=${hasRawCompressed}, chunks=${superChunk.loadedChunks.size}`);
+    
+    if (useUnifiedPipeline) {
+      console.log(`[SuperChunkManager] 🚀 Using unified WASM pipeline for super-chunk ${superChunk.superX},${superChunk.superZ}`);
+      await this._buildSuperChunkUnified(superChunk);
       return;
     }
     
@@ -472,6 +495,299 @@ export class SuperChunkManager {
   }
 
   /**
+   * Build super-chunk using unified WASM pipeline
+   * 
+   * Optimized approach:
+   * - Decompress and decode all chunks to a SHARED grid first (WASM for decompression + JS for decode)
+   * - Include neighbor super-chunk data for proper boundary handling
+   * - Then mesh the combined grid with WASM (proper cross-chunk boundary handling)
+   * - JS handles model meshes (requires full state resolution with blockstate JSONs)
+   * 
+   * This ensures proper:
+   * - Water face culling at chunk boundaries
+   * - Smooth lighting across chunk boundaries
+   * - AO across chunk boundaries
+   */
+  async _buildSuperChunkUnified(superChunk) {
+    // Create shared grids for all chunks - enables proper boundary handling
+    const chunks = [];
+    const grid = new BinaryGrid();
+    const stateGrid = this.enableModelMeshes ? new BlockStateGrid() : null;
+    const lightGrid = new LightGrid();
+    
+    // Step 1: Decode ALL chunks to shared grids first
+    for (const [key, chunkInfo] of superChunk.loadedChunks) {
+      if (chunkInfo.isRawCompressed && chunkInfo.data) {
+        const chunkData = chunkInfo.data;
+        
+        // Decompress and decode to shared grid
+        try {
+          const decompressed = chunkData.compressionType === 1 
+            ? pako.ungzip(chunkData.compressedData)
+            : pako.inflate(chunkData.compressedData);
+          const nbt = parseNBTRaw(decompressed.buffer);
+          
+          const adjustedChunk = {
+            x: chunkInfo.chunkX,
+            z: chunkInfo.chunkZ,
+            data: nbt.value
+          };
+          chunks.push(adjustedChunk);
+          
+          // Decode to shared grids (enables proper boundary handling)
+          decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
+        } catch (e) {
+          console.warn(`[SuperChunkManager] ⚠️ Decode failed for chunk ${chunkInfo.chunkX},${chunkInfo.chunkZ}:`, e.message);
+        }
+      } else if (chunkInfo.data) {
+        // Pre-parsed chunk
+        const adjustedChunk = {
+          x: chunkInfo.chunkX,
+          z: chunkInfo.chunkZ,
+          data: chunkInfo.data
+        };
+        chunks.push(adjustedChunk);
+        decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
+      }
+    }
+    
+    // Extract active beacons from block entities
+    const beaconResult = extractActiveBeacons(chunks);
+    
+    // Step 2: Include data from adjacent super-chunks for proper boundary handling
+    // This is CRITICAL for water face culling and smooth lighting at boundaries
+    this._includeNeighborData(superChunk, grid, lightGrid);
+    
+    // Handle light propagation if no Minecraft light data
+    if (lightGrid.sections.size === 0) {
+      propagateSkyLight(grid, lightGrid, this.registry);
+      propagateBlockLight(grid, lightGrid, this.registry);
+    }
+    
+    // Merge grid into debugGrid for block lookups (beacon color tinting, particle collision)
+    if (this.chunkManager?.debugGrid) {
+      this.chunkManager._mergeDebugGrid(grid);
+    }
+    
+    // Step 3: Use WASM to mesh the combined grid (with proper boundary handling)
+    const offset = { x: 0, y: 0, z: 0 };
+    const bounds = {
+      minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
+      minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
+      maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+      maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+    };
+    
+    // Mesh solid/fluid/glass using WASM on the combined grid
+    const meshResult = wasmMeshChunk(grid, lightGrid, stateGrid, bounds);
+    
+    // Create Three.js meshes
+    if (meshResult.solid && meshResult.solid.positions.length > 0) {
+      const mesh = this._createMesh(meshResult.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.solidMeshes.push(mesh);
+      }
+    }
+    
+    if (meshResult.water && meshResult.water.positions.length > 0) {
+      const mesh = this._createMesh(meshResult.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
+      if (mesh) {
+        mesh.renderOrder = 2;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.waterMeshes.push(mesh);
+      }
+    }
+    
+    if (meshResult.lava && meshResult.lava.positions.length > 0) {
+      const mesh = this._createMesh(meshResult.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
+      if (mesh) {
+        mesh.renderOrder = 3;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.lavaMeshes.push(mesh);
+      }
+    }
+    
+    if (meshResult.glass && meshResult.glass.positions.length > 0) {
+      const mesh = this._createMesh(meshResult.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
+      if (mesh) {
+        mesh.renderOrder = 1;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.glassMeshes.push(mesh);
+      }
+    }
+    
+    // Build model meshes using JS (requires full state resolution)
+    if (this.enableModelMeshes && stateGrid && this.stateRegistry) {
+      await this.stateRegistry.precomputeAll();
+      
+      const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
+      const collectEmitters = this.chunkManager.particleQuality !== 'off';
+      const mesherOptions = { textureIndexLookup, lightGrid, collectEmitters };
+      
+      const modelResult = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
+      
+      if (modelResult) {
+        if (modelResult.opaque && modelResult.opaque.positions.length > 0) {
+          const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+          if (mesh) {
+            superChunk.meshes.push(mesh);
+            this.chunkManager.modelMeshes.push(mesh);
+          }
+        }
+        
+        if (modelResult.transparent && modelResult.transparent.positions.length > 0) {
+          const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.5;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.transparentModelMeshes.push(mesh);
+          }
+        }
+        
+        if (modelResult.overlay && modelResult.overlay.positions.length > 0) {
+          const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayModelMaterial, this.chunkManager.overlayModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 4;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.overlayModelMeshes.push(mesh);
+          }
+        }
+        
+        // Register beacon positions
+        if (modelResult.beaconPositions && modelResult.beaconPositions.length > 0) {
+          const beaconsToRegister = modelResult.beaconPositions.filter(pos => {
+            const key = `${pos.x},${pos.y},${pos.z}`;
+            if (beaconResult?.inactive?.has(key)) return false;
+            return true;
+          });
+          
+          const beaconBeamManager = this.chunkManager.beaconBeamManager;
+          if (beaconBeamManager && beaconsToRegister.length > 0) {
+            for (const pos of beaconsToRegister) {
+              beaconBeamManager.addBeacon(pos.x, pos.y, pos.z);
+            }
+          }
+        }
+        
+        // Register particle emitters from JS ModelMesher (includes full properties)
+        // This is more complete than WASM emitters as it has facing, lit, candles, etc.
+        if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
+          const emitterManager = this.chunkManager.particleEmitterManager;
+          if (emitterManager) {
+            for (const emitter of modelResult.particleEmitters) {
+              emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
+            }
+          }
+        }
+      }
+    }
+    
+    superChunk.isDirty = false;
+    superChunk.hasBeenBuilt = true;
+    this.onSuperChunkRebuilt?.(superChunk);
+  }
+
+  /**
+   * Merge mesh data arrays, adjusting indices for the vertex offset
+   */
+  _mergeMeshData(target, source) {
+    if (!source || source.vertexCount === 0) return;
+    
+    const vertexOffset = target.vertexCount;
+    
+    // Append position/normal/color data
+    target.positions.push(...source.positions);
+    target.normals.push(...source.normals);
+    target.colors.push(...source.colors);
+    
+    // Optional arrays (may not exist on all mesh types)
+    if (source.texIndices) target.texIndices.push(...source.texIndices);
+    if (source.texRotations) target.texRotations.push(...source.texRotations);
+    if (source.tintTypes) target.tintTypes.push(...source.tintTypes);
+    if (source.uvs) target.uvs.push(...source.uvs);
+    if (source.skyLight) target.skyLight.push(...source.skyLight);
+    if (source.blockLight) target.blockLight.push(...source.blockLight);
+    
+    // Adjust and append indices
+    for (let i = 0; i < source.indices.length; i++) {
+      target.indices.push(source.indices[i] + vertexOffset);
+    }
+    
+    target.vertexCount += source.vertexCount;
+  }
+
+  /**
+   * Create Three.js meshes from mesh data produced by unified WASM pipeline
+   */
+  _createMeshesFromData(superChunk, meshData, offset, beaconResult) {
+    // Solid mesh
+    if (meshData.solid && meshData.solid.positions.length > 0) {
+      const data = this._convertArraysToTypedArrays(meshData.solid);
+      const mesh = this._createMesh(data, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.solidMeshes.push(mesh);
+      }
+    }
+    
+    // Water mesh
+    if (meshData.water && meshData.water.positions.length > 0) {
+      const data = this._convertArraysToTypedArrays(meshData.water);
+      const mesh = this._createMesh(data, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
+      if (mesh) {
+        mesh.renderOrder = 2;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.waterMeshes.push(mesh);
+      }
+    }
+    
+    // Lava mesh
+    if (meshData.lava && meshData.lava.positions.length > 0) {
+      const data = this._convertArraysToTypedArrays(meshData.lava);
+      const mesh = this._createMesh(data, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
+      if (mesh) {
+        mesh.renderOrder = 3;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.lavaMeshes.push(mesh);
+      }
+    }
+    
+    // Glass mesh
+    if (meshData.glass && meshData.glass.positions.length > 0) {
+      const data = this._convertArraysToTypedArrays(meshData.glass);
+      const mesh = this._createMesh(data, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
+      if (mesh) {
+        mesh.renderOrder = 1;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.glassMeshes.push(mesh);
+      }
+    }
+    
+    // Note: Model meshes are not yet supported in unified pipeline
+    // They require block state data which isn't decoded by WASM yet
+  }
+
+  /**
+   * Convert regular arrays to typed arrays for Three.js
+   */
+  _convertArraysToTypedArrays(data) {
+    return {
+      positions: data.positions instanceof Float32Array ? data.positions : new Float32Array(data.positions),
+      normals: data.normals instanceof Float32Array ? data.normals : new Float32Array(data.normals),
+      colors: data.colors instanceof Float32Array ? data.colors : new Float32Array(data.colors),
+      texIndices: data.texIndices ? (data.texIndices instanceof Float32Array ? data.texIndices : new Float32Array(data.texIndices)) : null,
+      texRotations: data.texRotations ? (data.texRotations instanceof Float32Array ? data.texRotations : new Float32Array(data.texRotations)) : null,
+      tintTypes: data.tintTypes ? (data.tintTypes instanceof Float32Array ? data.tintTypes : new Float32Array(data.tintTypes)) : null,
+      uvs: data.uvs ? (data.uvs instanceof Float32Array ? data.uvs : new Float32Array(data.uvs)) : null,
+      skyLight: data.skyLight ? (data.skyLight instanceof Float32Array ? data.skyLight : new Float32Array(data.skyLight)) : null,
+      blockLight: data.blockLight ? (data.blockLight instanceof Float32Array ? data.blockLight : new Float32Array(data.blockLight)) : null,
+      indices: data.indices instanceof Uint32Array ? data.indices : new Uint32Array(data.indices),
+      vertexCount: data.vertexCount,
+    };
+  }
+
+  /**
    * Include data from adjacent chunks to prevent issues at boundaries.
    * This decodes light AND blocks from chunks that border this super-chunk.
    * - Light: prevents hard lighting cutoffs
@@ -525,10 +841,27 @@ export class SuperChunkManager {
         const shouldInclude = (isAdjacentX && isInRangeZ) || (isAdjacentZ && isInRangeX);
         
         if (shouldInclude) {
+          // Handle both pre-parsed NBT and raw compressed data
+          let chunkData = chunkInfo.data;
+          
+          // Check if this is raw compressed data (from unified pipeline)
+          if (chunkInfo.isRawCompressed && chunkData.compressedData) {
+            try {
+              const decompressed = chunkData.compressionType === 1 
+                ? pako.ungzip(chunkData.compressedData)
+                : pako.inflate(chunkData.compressedData);
+              const nbt = parseNBTRaw(decompressed.buffer);
+              chunkData = nbt.value;
+            } catch (e) {
+              // Skip this neighbor chunk if decompression fails
+              continue;
+            }
+          }
+          
           const adjustedChunk = {
             x: cx,
             z: cz,
-            data: chunkInfo.data
+            data: chunkData
           };
           // Decode blocks and light from neighbor chunk using the standard decoder
           // This ensures correct handling of all Minecraft formats
@@ -1320,6 +1653,30 @@ export class SuperChunkManager {
     }
     this.superChunks.clear();
     this.dirtySet.clear();
+  }
+
+  /**
+   * Invalidate worker pool so it re-initializes with new texture data
+   * Call this when the texture pack changes to ensure workers use new indices
+   */
+  invalidateWorkerPool() {
+    console.log('[SuperChunkManager] Invalidating worker pool for texture pack change...');
+    
+    // Terminate existing worker pool AND reset the singleton
+    // This is critical - just calling terminate() leaves a dead pool in the singleton
+    if (this.workerPool) {
+      this.workerPool.terminate();
+      this.workerPool = null;
+    }
+    resetMeshWorkerPool(); // Clear the singleton so getMeshWorkerPool() creates a fresh pool
+    
+    // Reset initialization state so next mesh operation will re-initialize
+    this.workerPoolInitialized = false;
+    this.workerPoolInitPromise = null;
+    
+    // Also reset WASM state if used
+    this.wasmInitialized = false;
+    this.wasmInitPromise = null;
   }
 
   /**

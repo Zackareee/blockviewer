@@ -120,6 +120,23 @@ impl BinaryGrid {
         })
     }
 
+    /// Get or create a section for writing
+    /// Returns a mutable reference to the section data
+    pub fn get_or_create_section(&mut self, chunk_x: i32, chunk_z: i32, section_y: i32) -> &mut [u16; SECTION_VOLUME] {
+        let key = SectionKey::new(chunk_x, chunk_z, section_y);
+        let packed = key.to_packed();
+        
+        self.sections.entry(packed)
+            .or_insert_with(|| Box::new([0u16; SECTION_VOLUME]))
+            .as_mut()
+    }
+
+    /// Get a mutable section by key (for internal use)
+    #[inline]
+    pub fn get_section_mut(&mut self, key: &SectionKey) -> Option<&mut [u16; SECTION_VOLUME]> {
+        self.sections.get_mut(&key.to_packed()).map(|s| s.as_mut())
+    }
+
     /// Get neighbor section for a given section key and direction
     #[inline]
     pub fn get_neighbor_section(

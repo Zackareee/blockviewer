@@ -12,6 +12,9 @@ import { getParticleAtlas } from './assets/ParticleAtlas';
 import { getBlockColorsNumeric, BLOCK_COLORS } from './data/blockColors';
 import { getBlockRegistry } from './mesh/BlockRegistry';
 import { getRandomRotationRegistry } from './assets/RandomRotationRegistry';
+import { getModelResolver } from './assets/ModelResolver';
+import { getBlockstateResolver } from './assets/BlockstateResolver';
+import { getModelTextureMapper } from './assets/ModelTextureMapper';
 import './App.css';
 
 function App() {
@@ -147,6 +150,20 @@ function App() {
       // Debug: Validate textures are loaded correctly
       pm.debugValidateTextures();
       
+      // Preload all block models from the texture pack for data-driven texture mapping
+      // This enables synchronous model lookup via resolveSync() in TextureIndexLookup
+      const modelResolver = getModelResolver();
+      await modelResolver.preloadAllModels(pm);
+      
+      // Initialize blockstate resolver with pack manager for variant lookup
+      const blockstateResolver = getBlockstateResolver();
+      blockstateResolver.setPackManager(pm);
+      
+      // Initialize ModelTextureMapper with preloaded resolvers
+      const modelTextureMapper = getModelTextureMapper();
+      modelTextureMapper.init(modelResolver, blockstateResolver);
+      console.log('[App] ModelTextureMapper initialized for data-driven texture mapping');
+      
       const atlas = getTextureAtlas();
       await atlas.build(pm);
       
@@ -173,7 +190,12 @@ function App() {
       }
       
       // Build the TextureIndexLookup which maps (blockId, face) -> atlas index
+      // This now uses ModelTextureMapper (data-driven) with BlockTextureRegistry as fallback
       atlas.buildTextureIndexLookup(blockRegistry);
+      
+      // Log ModelTextureMapper stats
+      const mapperStats = modelTextureMapper.getStats();
+      console.log(`[App] ModelTextureMapper stats: ${mapperStats.hitCount} blocks from models, ${mapperStats.missCount} using fallback`);
       
       // Build particle atlas for torch flames, smoke, etc.
       const pAtlas = getParticleAtlas();
@@ -222,6 +244,21 @@ function App() {
         rotationRegistry.addPackOverrides(packRotationBlocks);
       }
       
+      // Preload models from custom pack for data-driven texture mapping
+      const modelResolver = getModelResolver();
+      await modelResolver.preloadAllModels(customPack);
+      
+      // Initialize blockstate resolver with custom pack
+      const blockstateResolver = getBlockstateResolver();
+      blockstateResolver.setPackManager(customPack);
+      
+      // Re-initialize ModelTextureMapper with updated resolvers
+      // Clear cache since we're loading a new pack
+      const modelTextureMapper = getModelTextureMapper();
+      modelTextureMapper.clearCache();
+      modelTextureMapper.init(modelResolver, blockstateResolver);
+      console.log('[App] ModelTextureMapper re-initialized for custom pack');
+      
       const atlas = getTextureAtlas();
       await atlas.build(customPack);
       
@@ -238,6 +275,10 @@ function App() {
       
       // Build the TextureIndexLookup which maps (blockId, face) -> atlas index
       atlas.buildTextureIndexLookup(blockRegistry);
+      
+      // Log ModelTextureMapper stats
+      const mapperStats = modelTextureMapper.getStats();
+      console.log(`[App] ModelTextureMapper stats: ${mapperStats.hitCount} blocks from models, ${mapperStats.missCount} using fallback`);
       
       setTextureAtlas(atlas.getMaterialData());
       setTexturePackInfo(customPack.getPackInfo());

@@ -32,6 +32,9 @@ class ModelResolver {
     // Resolved models cache: modelName → ResolvedModel
     this.resolvedModels = new Map();
     
+    // Failed models cache: modelName → true (to avoid repeated fetch attempts)
+    this.failedModels = new Set();
+    
     // Loading state
     this.loaded = false;
     this.loading = null;
@@ -46,8 +49,12 @@ class ModelResolver {
    */
   setPackManager(packManager) {
     this.packManager = packManager;
-    // Clear resolved cache when pack changes (raw models can stay)
+    // Clear ALL caches when pack changes - critical for texture pack hot-swapping
+    this.rawModels.clear();
     this.resolvedModels.clear();
+    this.failedModels.clear();
+    this.loaded = false; // Force re-preloading if requested
+    console.log('[ModelResolver] Pack changed, all caches cleared');
   }
 
   /**
@@ -85,8 +92,14 @@ class ModelResolver {
       normalized = LEGACY_MODEL_RENAMES[normalized];
     }
     
+    // Check cache first
     if (this.rawModels.has(normalized)) {
       return this.rawModels.get(normalized);
+    }
+    
+    // Check failed cache to avoid repeated attempts
+    if (this.failedModels.has(normalized)) {
+      return null;
     }
     
     // Try texture pack first if available
@@ -103,14 +116,22 @@ class ModelResolver {
       const url = `${ASSETS_BASE}/models/${normalized}.json`;
       const response = await fetch(url);
       if (!response.ok) {
-        console.warn(`[ModelResolver] Failed to load model: ${normalized}`);
+        // Mark as failed to avoid repeated attempts
+        this.failedModels.add(normalized);
+        return null;
+      }
+      // Verify response is JSON before parsing
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        this.failedModels.add(normalized);
         return null;
       }
       const json = await response.json();
       this.rawModels.set(normalized, json);
       return json;
     } catch (e) {
-      console.warn(`[ModelResolver] Error loading model ${normalized}:`, e.message);
+      // Only log once per model, then cache failure
+      this.failedModels.add(normalized);
       return null;
     }
   }
@@ -237,6 +258,78 @@ class ModelResolver {
       rawCount: this.rawModels.size,
       resolvedCount: this.resolvedModels.size,
     };
+  }
+
+  /**
+   * Preload and resolve all block models from a TexturePackManager
+   * 
+   * This enables synchronous model lookup via resolveSync() after preloading.
+   * Call this at startup after loading the texture pack, before building the atlas.
+   * 
+   * @param {TexturePackManager} packManager - The loaded texture pack
+   * @returns {Promise<number>} Number of models successfully resolved
+   */
+  async preloadAllModels(packManager) {
+    if (!packManager || !packManager.isLoaded) {
+      console.warn('[ModelResolver] Cannot preload - packManager not loaded');
+      return 0;
+    }
+
+    // Set the pack manager for model loading
+    this.setPackManager(packManager);
+
+    // Get all block model names from the pack
+    // TexturePackManager stores models as: "block/stone" -> JSON
+    const modelNames = [];
+    if (packManager.models) {
+      for (const name of packManager.models.keys()) {
+        if (name.startsWith('block/')) {
+          modelNames.push(name);
+        }
+      }
+    }
+
+    console.log(`[ModelResolver] Preloading ${modelNames.length} block models...`);
+
+    // First, populate rawModels from the pack (synchronous, already in memory)
+    for (const name of modelNames) {
+      const model = packManager.getModel(name);
+      if (model) {
+        this.rawModels.set(name, model);
+      }
+    }
+
+    // Resolve all models (handles parent inheritance)
+    let successCount = 0;
+    const batchSize = 100; // Process in batches to avoid blocking
+
+    for (let i = 0; i < modelNames.length; i += batchSize) {
+      const batch = modelNames.slice(i, i + batchSize);
+      
+      await Promise.all(batch.map(async (modelName) => {
+        try {
+          const resolved = await this.resolve(modelName);
+          if (resolved) {
+            successCount++;
+          }
+        } catch (e) {
+          // Skip failed models silently
+        }
+      }));
+    }
+
+    this.loaded = true;
+    console.log(`[ModelResolver] Preloaded ${successCount}/${modelNames.length} models (${this.resolvedModels.size} total resolved)`);
+    
+    return successCount;
+  }
+
+  /**
+   * Check if models have been preloaded
+   * @returns {boolean}
+   */
+  isPreloaded() {
+    return this.loaded && this.resolvedModels.size > 0;
   }
 }
 
