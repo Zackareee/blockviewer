@@ -1514,12 +1514,12 @@ export class SuperChunkManager {
         
         // NOW remove old meshes from manager arrays and scene
         for (const mesh of oldMeshes) {
-          removeFromArray(this.chunkManager.solidMeshes, mesh);
-          removeFromArray(this.chunkManager.waterMeshes, mesh);
-          removeFromArray(this.chunkManager.lavaMeshes, mesh);
-          removeFromArray(this.chunkManager.glassMeshes, mesh);
-          removeFromArray(this.chunkManager.modelMeshes, mesh);
-          removeFromArray(this.chunkManager.beaconMeshes, mesh);
+          if (this.chunkManager.solidMeshes) removeFromArray(this.chunkManager.solidMeshes, mesh);
+          if (this.chunkManager.waterMeshes) removeFromArray(this.chunkManager.waterMeshes, mesh);
+          if (this.chunkManager.lavaMeshes) removeFromArray(this.chunkManager.lavaMeshes, mesh);
+          if (this.chunkManager.glassMeshes) removeFromArray(this.chunkManager.glassMeshes, mesh);
+          if (this.chunkManager.modelMeshes) removeFromArray(this.chunkManager.modelMeshes, mesh);
+          if (this.chunkManager.beaconMeshes) removeFromArray(this.chunkManager.beaconMeshes, mesh);
           if (mesh.geometry) mesh.geometry.dispose();
           if (mesh.parent) mesh.parent.remove(mesh);
         }
