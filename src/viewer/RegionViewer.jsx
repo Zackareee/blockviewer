@@ -308,8 +308,12 @@ function BlockHighlight({ position }) {
 /**
  * Debug mode hook - handles raycasting and block detection
  * Uses aggressive throttling to prevent lag from expensive raycasting
+ * 
+ * Click behavior:
+ * - When a block is clicked, calls onBlockClick with the block info
+ * - Releases pointer lock so the user can interact with UI
  */
-function useBlockHover(debugMode, onBlockHover) {
+function useBlockHover(debugMode, onBlockHover, onBlockClick = null) {
   const { scene, camera, gl, invalidate } = useThree();
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const hoveredBlockRef = useRef(null);
@@ -458,18 +462,39 @@ function useBlockHover(debugMode, onBlockHover) {
       }
     };
     
+    // Handle click to lock a block
+    const handleClick = (event) => {
+      // Only handle left click
+      if (event.button !== 0) return;
+      
+      // Get the currently hovered block
+      const blockInfo = hoveredBlockRef.current;
+      
+      if (blockInfo && onBlockClick) {
+        // Call the click callback with the block info
+        onBlockClick(blockInfo);
+        
+        // Release pointer lock so the user can interact with UI
+        if (document.pointerLockElement) {
+          document.exitPointerLock();
+        }
+      }
+    };
+    
     gl.domElement.addEventListener('mousemove', handleMouseMove);
     gl.domElement.addEventListener('mouseleave', handleMouseLeave);
+    gl.domElement.addEventListener('click', handleClick);
     
     return () => {
       gl.domElement.removeEventListener('mousemove', handleMouseMove);
       gl.domElement.removeEventListener('mouseleave', handleMouseLeave);
+      gl.domElement.removeEventListener('click', handleClick);
       if (throttleRef.current) {
         clearTimeout(throttleRef.current);
         throttleRef.current = null;
       }
     };
-  }, [debugMode, scene, camera, gl, raycaster, onBlockHover, invalidate]);
+  }, [debugMode, scene, camera, gl, raycaster, onBlockHover, onBlockClick, invalidate]);
   
   return hoveredBlockRef.current;
 }
@@ -488,6 +513,7 @@ function RegionScene({
   enableLighting,
   debugMode,
   onBlockHover,
+  onBlockClick, // Callback when a block is clicked (locks block inspector)
   onProgress, 
   onComplete,
   onStats,
@@ -1309,7 +1335,8 @@ function RegionScene({
   }, [positionCameraAt]);
   
   // Debug mode block hover detection (uses color-based lookup)
-  const hoveredBlock = useBlockHover(debugMode, onBlockHover);
+  // Pass onBlockClick to handle click-to-lock functionality
+  const hoveredBlock = useBlockHover(debugMode, onBlockHover, onBlockClick);
   
   return (
     <>
@@ -1393,6 +1420,7 @@ export function RegionViewer({
   enablePerformanceMonitor = true,
   debugMode = false,
   onBlockHover = null,
+  onBlockClick = null, // Callback when a block is clicked (for locking block inspector)
   onCameraUpdate = null,
   spectatorRef = null,
   textureMode = 'solid',
@@ -1505,6 +1533,7 @@ export function RegionViewer({
         enableLighting={enableLighting}
         debugMode={debugMode}
         onBlockHover={onBlockHover}
+        onBlockClick={onBlockClick}
         onCameraUpdate={onCameraUpdate}
         spectatorRef={spectatorRef}
         onProgress={onBuildProgress}

@@ -79,6 +79,7 @@ function App() {
   // Debug mode - shows block info on hover
   const [debugMode, setDebugMode] = useState(false);
   const [hoveredBlock, setHoveredBlock] = useState(null);
+  const [lockedBlock, setLockedBlock] = useState(null); // Block locked by clicking
   
   // Camera FOV (vertical degrees) - Minecraft uses vertical FOV internally
   // Default 60, but can be adjusted to match specific Minecraft screenshots
@@ -891,7 +892,11 @@ function App() {
             enableModelMeshes={enableModelMeshes}
             enableLighting={enableLighting}
             debugMode={debugMode}
-            onBlockHover={debugMode ? setHoveredBlock : null}
+            onBlockHover={debugMode && !lockedBlock ? setHoveredBlock : null}
+            onBlockClick={debugMode ? (block) => {
+              setLockedBlock(block);
+              setHoveredBlock(block); // Also set hovered so it shows in the UI
+            } : null}
             onCameraUpdate={handleCameraUpdate}
             spectatorRef={spectatorRef}
             textureMode={textureMode}
@@ -1487,7 +1492,46 @@ function App() {
         {/* Debug Info Panel */}
         {debugMode && (
           <section className="panel-section debug-panel">
-            <h3>Block Inspector</h3>
+            <h3>
+              Block Inspector
+              {lockedBlock && (
+                <button
+                  onClick={() => {
+                    setLockedBlock(null);
+                    setHoveredBlock(null);
+                  }}
+                  style={{
+                    marginLeft: '0.5rem',
+                    padding: '0.15rem 0.5rem',
+                    fontSize: '0.7rem',
+                    background: 'rgba(239, 68, 68, 0.3)',
+                    border: '1px solid rgba(239, 68, 68, 0.5)',
+                    borderRadius: '4px',
+                    color: '#fca5a5',
+                    cursor: 'pointer',
+                    fontWeight: '500',
+                  }}
+                >
+                  Unlock
+                </button>
+              )}
+            </h3>
+            {lockedBlock && (
+              <div className="debug-locked-indicator" style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+                marginBottom: '0.5rem',
+                padding: '0.3rem 0.5rem',
+                background: 'rgba(34, 197, 94, 0.2)',
+                border: '1px solid rgba(34, 197, 94, 0.4)',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+                color: '#86efac',
+              }}>
+                <span>🔒</span> Locked - click canvas to resume
+              </div>
+            )}
             {hoveredBlock ? (
               <div className="debug-block-info">
                 {hoveredBlock.blockType && (
@@ -1530,7 +1574,7 @@ function App() {
             ) : (
               <div className="debug-empty">
                 <span className="debug-empty-icon">🎯</span>
-                <p>Hover over a block to inspect</p>
+                <p>{lockedBlock ? 'Block locked' : 'Click on a block to lock it'}</p>
               </div>
             )}
           </section>
