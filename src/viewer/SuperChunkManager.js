@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { BinaryGrid } from '../mesh/BinaryGrid.js';
 import { BlockStateGrid } from '../mesh/BlockStateGrid.js';
 import { LightGrid } from '../mesh/LightGrid.js';
-import { decodeChunk, extractActiveBeacons } from '../mesh/ChunkDecoder.js';
+import { decodeChunk, extractActiveBeacons, extractAllBlockEntities } from '../mesh/ChunkDecoder.js';
 import { buildGridMeshes } from '../mesh/FastMesher.js';
 import { buildModelMeshesWithInstancing } from '../mesh/ModelMesher.js';
 import { propagateSkyLight } from '../mesh/LightPropagator.js';
@@ -470,6 +470,9 @@ export class SuperChunkManager {
     // Extract active beacons from block entities (beacons with Levels > 0)
     const beaconResult = extractActiveBeacons(chunks);
     
+    // Extract all block entities for debug inspector (furnaces, chests, signs, etc.)
+    const blockEntities = extractAllBlockEntities(chunks);
+    
     // Include data from adjacent chunks (from neighboring super-chunks)
     // This prevents hard light cutoffs and enables correct fluid rendering at boundaries
     this._includeNeighborData(superChunk, grid, lightGrid);
@@ -483,6 +486,17 @@ export class SuperChunkManager {
     // Merge grid into debugGrid for block lookups (beacon color tinting, particle collision)
     if (this.chunkManager?.debugGrid) {
       this.chunkManager._mergeDebugGrid(grid);
+    }
+    
+    // Merge block entities into ChunkManager for block inspector
+    if (this.chunkManager && blockEntities.size > 0) {
+      this.chunkManager._mergeBlockEntities(blockEntities);
+    }
+    
+    // Store stateGrid and stateRegistry for block state lookups
+    if (this.chunkManager && stateGrid) {
+      this.chunkManager.debugStateGrid = stateGrid;
+      this.chunkManager.debugStateRegistry = this.stateRegistry;
     }
     
     const offset = { x: 0, y: 0, z: 0 };
@@ -572,6 +586,9 @@ export class SuperChunkManager {
     // Extract active beacons from block entities
     const beaconResult = extractActiveBeacons(chunks);
     
+    // Extract all block entities for debug inspector (furnaces, chests, signs, etc.)
+    const blockEntities = extractAllBlockEntities(chunks);
+    
     // Step 2: Include data from adjacent super-chunks for proper boundary handling
     // This is CRITICAL for water face culling and smooth lighting at boundaries
     this._includeNeighborData(superChunk, grid, lightGrid);
@@ -588,6 +605,17 @@ export class SuperChunkManager {
     // Merge grid into debugGrid for block lookups (beacon color tinting, particle collision)
     if (this.chunkManager?.debugGrid) {
       this.chunkManager._mergeDebugGrid(grid);
+    }
+    
+    // Merge block entities into ChunkManager for block inspector
+    if (this.chunkManager && blockEntities.size > 0) {
+      this.chunkManager._mergeBlockEntities(blockEntities);
+    }
+    
+    // Store stateGrid and stateRegistry for block state lookups
+    if (this.chunkManager && stateGrid) {
+      this.chunkManager.debugStateGrid = stateGrid;
+      this.chunkManager.debugStateRegistry = this.stateRegistry;
     }
     
     // Yield before meshing

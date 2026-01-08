@@ -558,6 +558,7 @@ export function decodeRegion(chunks, registry = null, onProgress = null, stateGr
  */
 export function extractAllBlockEntities(chunks) {
   const blockEntityMap = new Map();
+  let totalFound = 0;
   
   for (const chunk of chunks) {
     const { data } = chunk;
@@ -566,6 +567,7 @@ export function extractAllBlockEntities(chunks) {
     // Modern (1.17+): data.block_entities
     // Legacy: data.Level.TileEntities
     const blockEntities = data.block_entities || (data.Level && data.Level.TileEntities) || [];
+    totalFound += blockEntities.length;
     
     for (const entity of blockEntities) {
       // Get position
@@ -577,6 +579,10 @@ export function extractAllBlockEntities(chunks) {
       // Store the full entity data
       blockEntityMap.set(key, entity);
     }
+  }
+  
+  if (totalFound > 0) {
+    console.log(`[ChunkDecoder] Extracted ${blockEntityMap.size} block entities from ${chunks.length} chunks`);
   }
   
   return blockEntityMap;

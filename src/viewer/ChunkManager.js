@@ -448,7 +448,10 @@ export class ChunkManager {
       if (entity) {
         // Clean up the entity data for display (remove internal fields, format values)
         blockEntityData = this._formatBlockEntity(entity);
+        console.log(`[ChunkManager] Found block entity at ${key}:`, entity);
       }
+    } else {
+      console.log(`[ChunkManager] No debugBlockEntities map available`);
     }
     
     // Build comprehensive details object
@@ -677,6 +680,8 @@ export class ChunkManager {
     for (const [key, entity] of sourceBlockEntities) {
       this.debugBlockEntities.set(key, entity);
     }
+    
+    console.log(`[ChunkManager] Merged ${sourceBlockEntities.size} block entities, total: ${this.debugBlockEntities.size}`);
   }
 
   /**
