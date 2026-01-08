@@ -1079,6 +1079,23 @@ kbd {
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
+.debug-section-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+  padding-left: 0.25rem;
+  border-left: 2px solid var(--border-accent);
+}
+
+.debug-id {
+  font-size: 0.7rem;
+  word-break: break-all;
+}
+
 .debug-block-name {
   color: var(--diamond);
   font-weight: 500;

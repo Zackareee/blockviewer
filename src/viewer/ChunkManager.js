@@ -382,6 +382,130 @@ export class ChunkManager {
   }
   
   /**
+   * Get comprehensive block details at world coordinates (for block inspector)
+   * This is more expensive than getBlockAt - only call when needed (e.g., on click)
+   * @returns {Object|null} Comprehensive block info or null
+   */
+  getBlockDetails(worldX, worldY, worldZ) {
+    if (!this.debugGrid) return null;
+    
+    const blockData = this.debugGrid.getBlock(worldX, worldY, worldZ);
+    if (!blockData || blockData.blockId === 0) return null;
+    
+    const info = this.blockRegistry.getBlockInfo(blockData.blockId);
+    if (!info) return null;
+    
+    // Extract axis from stored metadata (bits 12-13)
+    const axisValue = blockData.level; // Level field stores axis for non-fluids
+    const axisNames = ['Y (vertical)', 'X (east-west)', 'Z (north-south)'];
+    
+    // Determine if this is a rotatable block (logs, pillars, etc.)
+    const isRotatable = info.name.includes('log') || 
+                        info.name.includes('wood') || 
+                        info.name.includes('pillar') ||
+                        info.name.includes('basalt') ||
+                        info.name.includes('bone_block') ||
+                        info.name.includes('hay_block') ||
+                        info.name.includes('purpur_pillar') ||
+                        info.name.includes('quartz_pillar') ||
+                        info.name.includes('chain') ||
+                        info.name.includes('deepslate') && !info.name.includes('brick') && !info.name.includes('tile');
+    
+    // Determine if this is a fluid
+    const isFluid = info.name.includes('water') || info.name.includes('lava');
+    const fluidLevel = isFluid ? blockData.level : null;
+    
+    // Check for waterlogged (level 8 is our marker for waterlogged)
+    const isWaterlogged = !isFluid && blockData.level === 8;
+    
+    // Build comprehensive details object
+    const details = {
+      // Basic info
+      id: blockData.blockId,
+      name: info.name,
+      displayName: this._formatBlockName(info.name),
+      category: info.category,
+      categoryName: this._getCategoryName(info.category),
+      
+      // Position (included for convenience)
+      position: { x: worldX, y: worldY, z: worldZ },
+      chunk: { 
+        x: Math.floor(worldX / 16), 
+        z: Math.floor(worldZ / 16) 
+      },
+      localPosition: {
+        x: ((worldX % 16) + 16) % 16,
+        y: worldY,
+        z: ((worldZ % 16) + 16) % 16,
+      },
+      
+      // Block properties
+      isOpaque: info.isOpaque,
+      isTransparent: !info.isOpaque,
+      isSolid: info.category !== 0 && info.category !== 1, // Not AIR or FLUID
+      isFluid,
+      fluidLevel,
+      isWaterlogged,
+      
+      // Rotation/axis (for logs, pillars, etc.)
+      isRotatable,
+      axis: isRotatable ? axisValue : null,
+      axisName: isRotatable ? axisNames[axisValue] || 'Unknown' : null,
+      
+      // Rendering info
+      renderType: this._getRenderType(info),
+      
+      // Raw data for debugging
+      rawBlockId: blockData.blockId,
+      rawLevel: blockData.level,
+    };
+    
+    return details;
+  }
+  
+  /**
+   * Format block name for display (minecraft:stone_bricks -> Stone Bricks)
+   */
+  _formatBlockName(name) {
+    // Remove namespace
+    const shortName = name.replace('minecraft:', '');
+    // Convert underscores to spaces and capitalize each word
+    return shortName
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+  
+  /**
+   * Get human-readable category name
+   */
+  _getCategoryName(category) {
+    const categories = {
+      0: 'Air',
+      1: 'Fluid',
+      2: 'Solid (Opaque)',
+      3: 'Solid (Transparent)',
+      4: 'Non-Cube',
+      5: 'Leaves',
+      6: 'Glass',
+    };
+    return categories[category] || `Unknown (${category})`;
+  }
+  
+  /**
+   * Get render type description
+   */
+  _getRenderType(info) {
+    if (info.category === 0) return 'Not rendered (air)';
+    if (info.category === 1) return 'Fluid mesh';
+    if (info.category === 4) return 'Model mesh (non-cube)';
+    if (info.category === 5) return 'Transparent mesh (leaves)';
+    if (info.category === 6) return 'Transparent mesh (glass)';
+    if (info.isOpaque) return 'Greedy mesh (solid)';
+    return 'Greedy mesh (transparent)';
+  }
+  
+  /**
    * Merge a source grid into the debug grid
    * @param {BinaryGrid} sourceGrid - Grid to merge from
    */

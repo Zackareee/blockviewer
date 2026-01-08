@@ -514,6 +514,7 @@ function RegionScene({
   debugMode,
   onBlockHover,
   onBlockClick, // Callback when a block is clicked (locks block inspector)
+  chunkManagerRef, // Ref to expose ChunkManager for advanced operations
   onProgress, 
   onComplete,
   onStats,
@@ -621,6 +622,11 @@ function RegionScene({
     
     managerRef.current = manager;
     
+    // Expose manager via external ref if provided (for block inspector details)
+    if (chunkManagerRef) {
+      chunkManagerRef.current = manager;
+    }
+    
     // Note: Particle system is initialized in a separate useEffect when particleAtlas is available
     
     // DEBUG: Expose manager to window for console debugging
@@ -645,8 +651,11 @@ function RegionScene({
       // The manager will be reused on next mount
       // Only clear the local ref, not the persistent one
       managerRef.current = null;
+      if (chunkManagerRef) {
+        chunkManagerRef.current = null;
+      }
     };
-  }, [scene, invalidate]);
+  }, [scene, invalidate, chunkManagerRef]);
   
   // Initialize particle system when particle atlas becomes available
   useEffect(() => {
@@ -1421,6 +1430,7 @@ export function RegionViewer({
   debugMode = false,
   onBlockHover = null,
   onBlockClick = null, // Callback when a block is clicked (for locking block inspector)
+  chunkManagerRef = null, // Ref to expose ChunkManager for advanced operations
   onCameraUpdate = null,
   spectatorRef = null,
   textureMode = 'solid',
@@ -1534,6 +1544,7 @@ export function RegionViewer({
         debugMode={debugMode}
         onBlockHover={onBlockHover}
         onBlockClick={onBlockClick}
+        chunkManagerRef={chunkManagerRef}
         onCameraUpdate={onCameraUpdate}
         spectatorRef={spectatorRef}
         onProgress={onBuildProgress}

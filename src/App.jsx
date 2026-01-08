@@ -80,6 +80,8 @@ function App() {
   const [debugMode, setDebugMode] = useState(false);
   const [hoveredBlock, setHoveredBlock] = useState(null);
   const [lockedBlock, setLockedBlock] = useState(null); // Block locked by clicking
+  const [blockDetails, setBlockDetails] = useState(null); // Comprehensive block details (fetched on click)
+  const chunkManagerRef = useRef(null); // Ref to ChunkManager for block details lookup
   
   // Camera FOV (vertical degrees) - Minecraft uses vertical FOV internally
   // Default 60, but can be adjusted to match specific Minecraft screenshots
@@ -896,7 +898,13 @@ function App() {
             onBlockClick={debugMode ? (block) => {
               setLockedBlock(block);
               setHoveredBlock(block); // Also set hovered so it shows in the UI
+              // Fetch comprehensive block details from ChunkManager
+              if (chunkManagerRef.current) {
+                const details = chunkManagerRef.current.getBlockDetails(block.x, block.y, block.z);
+                setBlockDetails(details);
+              }
             } : null}
+            chunkManagerRef={chunkManagerRef}
             onCameraUpdate={handleCameraUpdate}
             spectatorRef={spectatorRef}
             textureMode={textureMode}
@@ -1499,6 +1507,7 @@ function App() {
                   onClick={() => {
                     setLockedBlock(null);
                     setHoveredBlock(null);
+                    setBlockDetails(null);
                   }}
                   style={{
                     marginLeft: '0.5rem',
@@ -1516,65 +1525,116 @@ function App() {
                 </button>
               )}
             </h3>
-            {lockedBlock && (
-              <div className="debug-locked-indicator" style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.3rem',
-                marginBottom: '0.5rem',
-                padding: '0.3rem 0.5rem',
-                background: 'rgba(34, 197, 94, 0.2)',
-                border: '1px solid rgba(34, 197, 94, 0.4)',
-                borderRadius: '4px',
-                fontSize: '0.75rem',
-                color: '#86efac',
-              }}>
-                <span>🔒</span> Locked - click canvas to resume
-              </div>
-            )}
-            {hoveredBlock ? (
+            {lockedBlock && blockDetails ? (
               <div className="debug-block-info">
-                {hoveredBlock.blockType && (
-                  <div className="debug-row debug-row-highlight">
-                    <span className="debug-label">Block</span>
-                    <span className="debug-value debug-block-name">
-                      {hoveredBlock.blockType.replace('minecraft:', '')}
-                    </span>
-                  </div>
-                )}
+                {/* Block Name - Prominent */}
+                <div className="debug-row debug-row-highlight">
+                  <span className="debug-label">Block</span>
+                  <span className="debug-value debug-block-name">
+                    {blockDetails.displayName}
+                  </span>
+                </div>
+                
+                {/* Position */}
+                <div className="debug-section-header">Position</div>
                 <div className="debug-row">
-                  <span className="debug-label">Position</span>
+                  <span className="debug-label">World</span>
                   <span className="debug-value">
-                    {hoveredBlock.x}, {hoveredBlock.y}, {hoveredBlock.z}
+                    {blockDetails.position.x}, {blockDetails.position.y}, {blockDetails.position.z}
                   </span>
                 </div>
                 <div className="debug-row">
                   <span className="debug-label">Chunk</span>
                   <span className="debug-value">
-                    {Math.floor(hoveredBlock.x / 16)}, {Math.floor(hoveredBlock.z / 16)}
+                    {blockDetails.chunk.x}, {blockDetails.chunk.z}
                   </span>
                 </div>
                 <div className="debug-row">
-                  <span className="debug-label">Face</span>
-                  <span className="debug-value">{hoveredBlock.face || 'N/A'}</span>
+                  <span className="debug-label">Local</span>
+                  <span className="debug-value">
+                    {blockDetails.localPosition.x}, {blockDetails.localPosition.y}, {blockDetails.localPosition.z}
+                  </span>
                 </div>
-                {hoveredBlock.color && (
+                {lockedBlock.face && (
+                  <div className="debug-row">
+                    <span className="debug-label">Face</span>
+                    <span className="debug-value">{lockedBlock.face}</span>
+                  </div>
+                )}
+                
+                {/* Properties */}
+                <div className="debug-section-header">Properties</div>
+                <div className="debug-row">
+                  <span className="debug-label">Category</span>
+                  <span className="debug-value">{blockDetails.categoryName}</span>
+                </div>
+                <div className="debug-row">
+                  <span className="debug-label">Render</span>
+                  <span className="debug-value">{blockDetails.renderType}</span>
+                </div>
+                {blockDetails.isRotatable && (
+                  <div className="debug-row">
+                    <span className="debug-label">Axis</span>
+                    <span className="debug-value">{blockDetails.axisName}</span>
+                  </div>
+                )}
+                {blockDetails.isFluid && (
+                  <div className="debug-row">
+                    <span className="debug-label">Fluid Level</span>
+                    <span className="debug-value">{blockDetails.fluidLevel}</span>
+                  </div>
+                )}
+                {blockDetails.isWaterlogged && (
+                  <div className="debug-row">
+                    <span className="debug-label">Waterlogged</span>
+                    <span className="debug-value">Yes</span>
+                  </div>
+                )}
+                
+                {/* Technical */}
+                <div className="debug-section-header">Technical</div>
+                <div className="debug-row">
+                  <span className="debug-label">ID</span>
+                  <span className="debug-value debug-id">{blockDetails.name}</span>
+                </div>
+                <div className="debug-row">
+                  <span className="debug-label">Block ID</span>
+                  <span className="debug-value">{blockDetails.rawBlockId}</span>
+                </div>
+                
+                {lockedBlock.color && (
                   <div className="debug-row">
                     <span className="debug-label">Color</span>
                     <span className="debug-value debug-color-value">
                       <span 
                         className="debug-color-swatch" 
-                        style={{ backgroundColor: `rgb(${Math.round(hoveredBlock.color.r * 255)}, ${Math.round(hoveredBlock.color.g * 255)}, ${Math.round(hoveredBlock.color.b * 255)})` }}
+                        style={{ backgroundColor: `rgb(${Math.round(lockedBlock.color.r * 255)}, ${Math.round(lockedBlock.color.g * 255)}, ${Math.round(lockedBlock.color.b * 255)})` }}
                       />
-                      RGB({Math.round(hoveredBlock.color.r * 255)}, {Math.round(hoveredBlock.color.g * 255)}, {Math.round(hoveredBlock.color.b * 255)})
+                      RGB({Math.round(lockedBlock.color.r * 255)}, {Math.round(lockedBlock.color.g * 255)}, {Math.round(lockedBlock.color.b * 255)})
                     </span>
                   </div>
                 )}
+                
+                {/* Locked indicator */}
+                <div className="debug-locked-indicator" style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  marginTop: '0.75rem',
+                  padding: '0.3rem 0.5rem',
+                  background: 'rgba(34, 197, 94, 0.2)',
+                  border: '1px solid rgba(34, 197, 94, 0.4)',
+                  borderRadius: '4px',
+                  fontSize: '0.75rem',
+                  color: '#86efac',
+                }}>
+                  <span>🔒</span> Locked - click canvas to resume
+                </div>
               </div>
             ) : (
               <div className="debug-empty">
                 <span className="debug-empty-icon">🎯</span>
-                <p>{lockedBlock ? 'Block locked' : 'Click on a block to lock it'}</p>
+                <p>Click on a block to inspect it</p>
               </div>
             )}
           </section>
