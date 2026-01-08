@@ -54,13 +54,14 @@ const UNLOAD_HYSTERESIS = 2; // Extra chunks beyond unload distance before remov
 
 // Priority weights (lower = higher priority)
 const PRIORITY_IMMEDIATE = 0; // Within view distance
-const PRIORITY_LAZY = 100; // Beyond view but pre-loading
+const PRIORITY_LAZY = 10000; // Beyond view but pre-loading (scaled for distSq)
 
-// Predictive loading configuration
-// These values are tuned to match Minecraft's chunk loading behavior
-const FORWARD_PRIORITY_BONUS = -3; // Bonus for chunks directly in front of player
-const SIDE_PRIORITY_PENALTY = 1; // Penalty for chunks to the side
-const BEHIND_PRIORITY_PENALTY = 2; // Penalty for chunks behind player
+// Predictive loading configuration (Minecraft-style)
+// Priority uses Euclidean distance squared, so at distance 8 chunks, distSq = 64
+// These bonuses create front-to-back loading order based on view direction
+const FORWARD_PRIORITY_BONUS = -20; // Bonus for chunks directly in front of player
+const SIDE_PRIORITY_PENALTY = 5; // Penalty for chunks to the side  
+const BEHIND_PRIORITY_PENALTY = 15; // Penalty for chunks behind player
 
 // Load distance buffer (chunks beyond render distance to pre-load)
 // Minecraft typically loads ~2-3 chunks beyond render distance
@@ -701,23 +702,23 @@ export class ChunkStreamer {
   _getDirectionalPriorityBonus(dx, dz) {
     // Normalize the chunk direction
     const chunkDist = Math.sqrt(dx * dx + dz * dz);
-    if (chunkDist < 0.5) return FORWARD_PRIORITY_BONUS; // Player's chunk
+    if (chunkDist < 0.5) return FORWARD_PRIORITY_BONUS; // Player's chunk gets max bonus
     
     const chunkDirX = dx / chunkDist;
     const chunkDirZ = dz / chunkDist;
     
     // Combine view direction with movement velocity for prediction
-    // Weight view direction more than velocity
-    let predictDirX = this.playerViewDirX * 0.7;
-    let predictDirZ = this.playerViewDirZ * 0.7;
+    // Weight view direction more than velocity (like Minecraft's camera-based loading)
+    let predictDirX = this.playerViewDirX * 0.8;
+    let predictDirZ = this.playerViewDirZ * 0.8;
     
-    // Add velocity component if moving
+    // Add velocity component if moving significantly
     const velMag = Math.sqrt(this.playerVelocityX ** 2 + this.playerVelocityZ ** 2);
-    if (velMag > 1) { // Moving at least 1 block/sec
+    if (velMag > 2) { // Moving at least 2 blocks/sec
       const velNormX = this.playerVelocityX / velMag;
       const velNormZ = this.playerVelocityZ / velMag;
-      predictDirX += velNormX * 0.3;
-      predictDirZ += velNormZ * 0.3;
+      predictDirX += velNormX * 0.2;
+      predictDirZ += velNormZ * 0.2;
     }
     
     // Normalize prediction direction
@@ -732,16 +733,21 @@ export class ChunkStreamer {
     // Dot product: 1 = directly in front, 0 = perpendicular, -1 = behind
     const dot = chunkDirX * predictDirX + chunkDirZ * predictDirZ;
     
-    // Map dot product to priority bonus
-    // In front (dot > 0.7): bonus
-    // To the side (dot 0 to 0.7): small penalty
-    // Behind (dot < 0): larger penalty
-    if (dot > 0.7) {
-      return FORWARD_PRIORITY_BONUS * dot; // Max bonus for directly ahead
-    } else if (dot > 0) {
-      return SIDE_PRIORITY_PENALTY * (1 - dot); // Small penalty for side
+    // Map dot product to priority adjustment (Minecraft-style front-to-back)
+    // Scale bonus by distance - closer chunks get smaller absolute adjustment
+    // This ensures the closest chunk in front always loads before a farther chunk in front
+    const distanceFactor = Math.min(chunkDist / 8, 1); // Normalize to 0-1 for distance up to 8
+    
+    if (dot > 0.5) {
+      // In front: significant bonus (negative = higher priority)
+      // Directly ahead (dot=1) gets full bonus, dot=0.5 gets half
+      return FORWARD_PRIORITY_BONUS * dot * distanceFactor;
+    } else if (dot > -0.3) {
+      // Side: small penalty
+      return SIDE_PRIORITY_PENALTY * (1 - dot) * distanceFactor;
     } else {
-      return BEHIND_PRIORITY_PENALTY * (1 - dot); // Larger penalty for behind
+      // Behind: larger penalty (positive = lower priority)
+      return BEHIND_PRIORITY_PENALTY * (1 - dot) * distanceFactor;
     }
   }
 
@@ -787,8 +793,10 @@ export class ChunkStreamer {
             if (!this.regionFiles.has(regionKey)) continue;
           }
           
-          // Base priority is distance (Chebyshev)
-          let priority = r;
+          // Base priority is Euclidean distance squared (like Minecraft's distToCenterSqr)
+          // This prioritizes chunks directly in front over diagonals
+          const distSq = dx * dx + dz * dz;
+          let priority = distSq;
           
           // Chunks within render distance get immediate priority
           // Chunks beyond render distance (pre-load buffer) get lazy priority
@@ -796,9 +804,9 @@ export class ChunkStreamer {
             priority += PRIORITY_LAZY;
           }
           
-          // Apply directional bonus for predictive loading
-          // Only apply to non-immediate chunks and when not in initial load
-          if (!immediate && this.initialLoadComplete) {
+          // Apply directional bonus for predictive loading (Minecraft-style)
+          // Always apply when we have velocity data
+          if (!immediate) {
             priority += this._getDirectionalPriorityBonus(dx, dz);
           }
           
