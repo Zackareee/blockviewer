@@ -448,10 +448,7 @@ export class ChunkManager {
       if (entity) {
         // Clean up the entity data for display (remove internal fields, format values)
         blockEntityData = this._formatBlockEntity(entity);
-        console.log(`[ChunkManager] Found block entity at ${key}:`, entity);
       }
-    } else {
-      console.log(`[ChunkManager] No debugBlockEntities map available`);
     }
     
     // Build comprehensive details object
@@ -541,19 +538,31 @@ export class ChunkManager {
   
   /**
    * Format block entity NBT data for display
-   * Removes internal fields and formats special values
+   * Returns all NBT fields with formatted values
    */
   _formatBlockEntity(entity) {
     const result = {};
     
-    // Fields to skip (internal Minecraft data or position which we already show)
+    // Fields to skip (position which we already show separately)
     const skipFields = new Set(['x', 'y', 'z', 'X', 'Y', 'Z', 'keepPacked']);
     
-    for (const [key, value] of Object.entries(entity)) {
-      if (skipFields.has(key)) continue;
-      
-      // Format the value for display
-      result[key] = this._formatNbtValue(value);
+    // Priority fields to show first
+    const priorityFields = ['id', 'Items', 'Levels', 'Primary', 'Secondary', 'Text1', 'Text2', 'Text3', 'Text4'];
+    
+    // First add priority fields in order
+    for (const key of priorityFields) {
+      if (entity.hasOwnProperty(key) && !skipFields.has(key)) {
+        result[key] = this._formatNbtValue(entity[key], key);
+      }
+    }
+    
+    // Then add remaining fields alphabetically
+    const remainingKeys = Object.keys(entity)
+      .filter(k => !skipFields.has(k) && !priorityFields.includes(k))
+      .sort();
+    
+    for (const key of remainingKeys) {
+      result[key] = this._formatNbtValue(entity[key], key);
     }
     
     return result;
@@ -561,28 +570,53 @@ export class ChunkManager {
   
   /**
    * Format an NBT value for display
+   * @param {*} value - The NBT value
+   * @param {string} key - The field name (for context-aware formatting)
    */
-  _formatNbtValue(value) {
+  _formatNbtValue(value, key = '') {
     if (value === null || value === undefined) {
       return null;
     }
     
     // Handle arrays
     if (Array.isArray(value)) {
-      if (value.length === 0) return '[]';
+      if (value.length === 0) {
+        // Show "Empty" for known container fields
+        if (key === 'Items' || key === 'ArmorItems' || key === 'HandItems') {
+          return '(empty)';
+        }
+        return '[]';
+      }
+      
+      // Format item arrays specially
+      if (key === 'Items' || key === 'ArmorItems' || key === 'HandItems') {
+        return value.map(item => this._formatItem(item));
+      }
+      
       if (value.length > 10) {
-        return `[${value.slice(0, 10).map(v => this._formatNbtValue(v)).join(', ')}, ... (${value.length} items)]`;
+        return `[${value.slice(0, 10).map(v => this._formatNbtValue(v)).join(', ')}, ... (${value.length} total)]`;
       }
       return value.map(v => this._formatNbtValue(v));
     }
     
     // Handle objects (nested NBT)
     if (typeof value === 'object') {
-      const result = {};
-      for (const [k, v] of Object.entries(value)) {
-        result[k] = this._formatNbtValue(v);
+      const keys = Object.keys(value);
+      if (keys.length === 0) {
+        return '{}';
       }
-      return result;
+      
+      // For small objects, format inline
+      if (keys.length <= 3) {
+        const formatted = {};
+        for (const [k, v] of Object.entries(value)) {
+          formatted[k] = this._formatNbtValue(v, k);
+        }
+        return formatted;
+      }
+      
+      // For larger objects, just show key count
+      return `{${keys.length} fields}`;
     }
     
     // Handle BigInt (NBT longs)
@@ -590,7 +624,31 @@ export class ChunkManager {
       return value.toString();
     }
     
+    // Format block entity ID nicely
+    if (key === 'id' && typeof value === 'string') {
+      return value.replace('minecraft:', '');
+    }
+    
     return value;
+  }
+  
+  /**
+   * Format an item from Items array
+   */
+  _formatItem(item) {
+    if (!item) return null;
+    
+    const id = (item.id || item.Id || '').replace('minecraft:', '');
+    const count = item.count ?? item.Count ?? 1;
+    const slot = item.Slot ?? item.slot;
+    
+    if (!id) return null;
+    
+    let result = id;
+    if (count > 1) result += ` x${count}`;
+    if (slot !== undefined) result = `[${slot}] ${result}`;
+    
+    return result;
   }
   
   /**
@@ -680,8 +738,6 @@ export class ChunkManager {
     for (const [key, entity] of sourceBlockEntities) {
       this.debugBlockEntities.set(key, entity);
     }
-    
-    console.log(`[ChunkManager] Merged ${sourceBlockEntities.size} block entities, total: ${this.debugBlockEntities.size}`);
   }
 
   /**
