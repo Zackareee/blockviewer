@@ -286,6 +286,7 @@ export class ChunkStreamer {
     this.loadQueue = new ChunkPriorityQueue();
     this.loadedChunks = new Map(); // chunkKey -> { meshes, data, visible }
     this.loadingChunks = new Set(); // Currently processing
+    this.queueGeneration = 0; // Incremented when queue is re-prioritized
     this.regionFiles = new Map(); // regionKey -> File
     this.parsedChunks = new Map(); // chunkKey -> parsed chunk data (for single-region mode)
     this.usePreParsedChunks = false; // Whether to use pre-parsed chunks instead of region files
@@ -596,6 +597,7 @@ export class ChunkStreamer {
     const movedX = Math.abs(chunkX - lastChunkX);
     const movedZ = Math.abs(chunkZ - lastChunkZ);
     const movedOneChunk = movedX <= 1 && movedZ <= 1;
+    const movedSignificantly = movedX >= 2 || movedZ >= 2;
     
     if (this.initialLoadComplete && movedOneChunk && this.loadQueue.size === 0 && !this.isProcessing) {
       // Quick boundary check: only need to look at chunks on the new edge
@@ -606,8 +608,14 @@ export class ChunkStreamer {
       }
     }
     
-    // Queue chunks for loading
-    this._queueChunksAroundPlayer();
+    // Always re-prioritize if player moved significantly (priorities are stale)
+    // Or if there are chunks queued that need fresh priorities
+    const needsReprioritize = movedSignificantly || this.loadQueue.size > 0;
+    
+    // Queue chunks for loading (clears and re-adds with fresh priorities)
+    if (needsReprioritize || !this.initialLoadComplete) {
+      this._queueChunksAroundPlayer();
+    }
     
     // Unload distant chunks
     this._unloadDistantChunks();
@@ -750,6 +758,7 @@ export class ChunkStreamer {
     
     // Clear existing queue and re-prioritize
     this.loadQueue.clear();
+    this.queueGeneration++; // Signal that priorities have changed
     
     // Add chunks in spiral order for better visual loading
     for (let r = 0; r <= loadDistance; r++) {
@@ -928,10 +937,18 @@ export class ChunkStreamer {
     if (this.isPaused) return;
     this.isProcessing = true;
     
+    // Track queue generation to detect re-prioritization
+    const startGeneration = this.queueGeneration;
+    
     try {
       while (this.loadQueue.size > 0) {
         // Check if paused
         if (this.isPaused) break;
+        
+        // If queue was re-prioritized, break out and let new priorities take effect
+        if (this.queueGeneration !== startGeneration) {
+          break;
+        }
         
         // Process batch of chunks concurrently (use configured concurrency)
         // Higher concurrency = faster loading but may cause frame drops
