@@ -538,13 +538,13 @@ export class ChunkManager {
   
   /**
    * Format block entity NBT data for display
-   * Returns all NBT fields with formatted values
+   * Returns all NBT fields with formatted values (except position x/y/z)
    */
   _formatBlockEntity(entity) {
     const result = {};
     
-    // Fields to skip (position which we already show separately)
-    const skipFields = new Set(['x', 'y', 'z', 'X', 'Y', 'Z', 'keepPacked']);
+    // Only skip position fields (we already show position separately)
+    const skipFields = new Set(['x', 'y', 'z', 'X', 'Y', 'Z']);
     
     // Priority fields to show first
     const priorityFields = ['id', 'Items', 'Levels', 'Primary', 'Secondary', 'Text1', 'Text2', 'Text3', 'Text4'];
