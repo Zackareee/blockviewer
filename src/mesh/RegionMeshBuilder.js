@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { BinaryGrid } from './BinaryGrid.js';
 import { BlockStateGrid } from './BlockStateGrid.js';
 import { getBlockRegistry } from './BlockRegistry.js';
-import { decodeChunk, extractActiveBeacons, extractEntities } from './ChunkDecoder.js';
+import { decodeChunk, extractActiveBeacons, extractAllBlockEntities, extractEntities } from './ChunkDecoder.js';
 import { buildGridMeshes } from './FastMesher.js';
 import { buildGridMeshesParallel } from './ParallelMesher.js';
 import { buildSimplifiedMesh } from './SimplifiedMesher.js';
@@ -58,6 +58,7 @@ export class RegionMeshBuilder {
       returnGrid = false,
       collectEmitters = true, // Set to false to skip particle emitter collection
       smoothLighting = true, // Set to false to skip per-vertex smooth lighting calculation
+      returnBlockEntities = false, // Return all block entity NBT data for debug inspector
     } = options;
     const startTime = performance.now();
     const stats = {
@@ -353,6 +354,9 @@ export class RegionMeshBuilder {
       (stats.modelTriangles > 0 ? ` (${stats.modelTriangles.toLocaleString()} model)` : '')
     );
     
+    // Extract block entity NBT data for debug inspector (if requested)
+    const blockEntities = returnBlockEntities ? extractAllBlockEntities(chunks) : null;
+    
     return {
       solidMesh,
       waterMesh,
@@ -372,6 +376,10 @@ export class RegionMeshBuilder {
       stats,
       // Keep grid reference for debug lookups or LOD generation
       _grid: returnGrid ? grid : (generateLOD ? null : grid),
+      // Block state data for debug inspector
+      _stateGrid: returnGrid ? stateGrid : null,
+      _stateRegistry: returnGrid ? stateRegistry : null,
+      _blockEntities: blockEntities,
     };
   }
   

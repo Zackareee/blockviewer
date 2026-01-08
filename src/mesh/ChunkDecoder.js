@@ -548,6 +548,41 @@ export function decodeRegion(chunks, registry = null, onProgress = null, stateGr
 }
 
 /**
+ * Extract ALL block entity NBT data from chunks for the block inspector.
+ * Returns a Map keyed by "x,y,z" containing the full NBT data for each block entity.
+ * 
+ * Block entities include: chests, signs, banners, beacons, spawners, etc.
+ * 
+ * @param {Array} chunks - Array of parsed chunks
+ * @returns {Map<string, object>} Map of "x,y,z" -> block entity NBT data
+ */
+export function extractAllBlockEntities(chunks) {
+  const blockEntityMap = new Map();
+  
+  for (const chunk of chunks) {
+    const { data } = chunk;
+    
+    // Block entities are stored differently in different Minecraft versions
+    // Modern (1.17+): data.block_entities
+    // Legacy: data.Level.TileEntities
+    const blockEntities = data.block_entities || (data.Level && data.Level.TileEntities) || [];
+    
+    for (const entity of blockEntities) {
+      // Get position
+      const x = entity.x ?? entity.X ?? 0;
+      const y = entity.y ?? entity.Y ?? 0;
+      const z = entity.z ?? entity.Z ?? 0;
+      const key = `${x},${y},${z}`;
+      
+      // Store the full entity data
+      blockEntityMap.set(key, entity);
+    }
+  }
+  
+  return blockEntityMap;
+}
+
+/**
  * Extract beacon block entity data from chunks
  * Returns both active beacons (Levels > 0) and inactive beacons (Levels = 0)
  * This allows us to distinguish between:

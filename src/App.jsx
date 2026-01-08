@@ -1591,6 +1591,34 @@ function App() {
                   </div>
                 )}
                 
+                {/* Block State Properties (facing, half, powered, etc.) */}
+                {blockDetails.blockState && Object.keys(blockDetails.blockState).length > 0 && (
+                  <>
+                    <div className="debug-section-header">Block State</div>
+                    {Object.entries(blockDetails.blockState).map(([key, value]) => (
+                      <div className="debug-row" key={key}>
+                        <span className="debug-label">{key}</span>
+                        <span className="debug-value">{String(value)}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+                
+                {/* Block Entity NBT Data (chests, signs, beacons, etc.) */}
+                {blockDetails.blockEntity && Object.keys(blockDetails.blockEntity).length > 0 && (
+                  <>
+                    <div className="debug-section-header">Block Entity (NBT)</div>
+                    {Object.entries(blockDetails.blockEntity).map(([key, value]) => (
+                      <div className="debug-row" key={key}>
+                        <span className="debug-label">{key}</span>
+                        <span className="debug-value debug-nbt-value">
+                          {typeof value === 'object' ? JSON.stringify(value, null, 0) : String(value)}
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )}
+                
                 {/* Technical */}
                 <div className="debug-section-header">Technical</div>
                 <div className="debug-row">

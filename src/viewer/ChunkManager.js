@@ -189,6 +189,11 @@ export class ChunkManager {
     // Enable debug grid for particle collision detection (needs block data)
     // This stores block IDs so particles can collide with blocks
     this.debugGrid = this.particlesEnabled ? new BinaryGrid() : null;
+    
+    // Additional debug data for block inspector
+    this.debugStateGrid = null;      // BlockStateGrid for block state properties
+    this.debugStateRegistry = null;  // StateRegistry for looking up state properties
+    this.debugBlockEntities = null;  // Map of "x,y,z" -> block entity NBT data
   }
   
   /**
@@ -359,6 +364,14 @@ export class ChunkManager {
     if (!this.debugGrid) {
       this.debugGrid = new BinaryGrid();
     }
+    // Note: stateGrid, stateRegistry, and blockEntities are set during region loading
+  }
+  
+  /**
+   * Check if comprehensive debug data is available
+   */
+  hasDebugData() {
+    return !!(this.debugGrid && this.debugStateRegistry);
   }
   
   /**
@@ -418,6 +431,26 @@ export class ChunkManager {
     // Check for waterlogged (level 8 is our marker for waterlogged)
     const isWaterlogged = !isFluid && blockData.level === 8;
     
+    // Look up block state properties from stateGrid/stateRegistry
+    let blockStateProperties = null;
+    if (this.debugStateGrid && this.debugStateRegistry) {
+      const stateInfo = this._getBlockState(worldX, worldY, worldZ);
+      if (stateInfo && stateInfo.properties && Object.keys(stateInfo.properties).length > 0) {
+        blockStateProperties = stateInfo.properties;
+      }
+    }
+    
+    // Look up block entity NBT data
+    let blockEntityData = null;
+    if (this.debugBlockEntities) {
+      const key = `${worldX},${worldY},${worldZ}`;
+      const entity = this.debugBlockEntities.get(key);
+      if (entity) {
+        // Clean up the entity data for display (remove internal fields, format values)
+        blockEntityData = this._formatBlockEntity(entity);
+      }
+    }
+    
     // Build comprehensive details object
     const details = {
       // Basic info
@@ -452,6 +485,12 @@ export class ChunkManager {
       axis: isRotatable ? axisValue : null,
       axisName: isRotatable ? axisNames[axisValue] || 'Unknown' : null,
       
+      // Block state properties (facing, half, powered, etc.)
+      blockState: blockStateProperties,
+      
+      // Block entity NBT data (chests, signs, beacons, etc.)
+      blockEntity: blockEntityData,
+      
       // Rendering info
       renderType: this._getRenderType(info),
       
@@ -461,6 +500,94 @@ export class ChunkManager {
     };
     
     return details;
+  }
+  
+  /**
+   * Get block state properties from stateGrid
+   * @returns {{blockName: string, properties: Object}|null}
+   */
+  _getBlockState(worldX, worldY, worldZ) {
+    if (!this.debugStateGrid || !this.debugStateRegistry) return null;
+    
+    const chunkX = Math.floor(worldX / 16);
+    const chunkZ = Math.floor(worldZ / 16);
+    const sectionY = Math.floor((worldY + 64) / 16); // Convert to internal section index
+    
+    // Use imported makeSectionKey from BinaryGrid
+    const sectionKey = `${chunkX},${chunkZ},${sectionY}`;
+    
+    const localX = ((worldX % 16) + 16) % 16;
+    const localY = ((worldY + 64) % 16 + 16) % 16;
+    const localZ = ((worldZ % 16) + 16) % 16;
+    
+    // Block index in YZX order (same as BinaryGrid)
+    const index = localY * 256 + localZ * 16 + localX;
+    
+    const stateId = this.debugStateGrid.getState(sectionKey, index);
+    if (!stateId) return null;
+    
+    // Look up state in registry
+    const state = this.debugStateRegistry.states[stateId];
+    if (!state) return null;
+    
+    return {
+      blockName: state.blockName,
+      properties: state.properties || {},
+    };
+  }
+  
+  /**
+   * Format block entity NBT data for display
+   * Removes internal fields and formats special values
+   */
+  _formatBlockEntity(entity) {
+    const result = {};
+    
+    // Fields to skip (internal Minecraft data or position which we already show)
+    const skipFields = new Set(['x', 'y', 'z', 'X', 'Y', 'Z', 'keepPacked']);
+    
+    for (const [key, value] of Object.entries(entity)) {
+      if (skipFields.has(key)) continue;
+      
+      // Format the value for display
+      result[key] = this._formatNbtValue(value);
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Format an NBT value for display
+   */
+  _formatNbtValue(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    
+    // Handle arrays
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '[]';
+      if (value.length > 10) {
+        return `[${value.slice(0, 10).map(v => this._formatNbtValue(v)).join(', ')}, ... (${value.length} items)]`;
+      }
+      return value.map(v => this._formatNbtValue(v));
+    }
+    
+    // Handle objects (nested NBT)
+    if (typeof value === 'object') {
+      const result = {};
+      for (const [k, v] of Object.entries(value)) {
+        result[k] = this._formatNbtValue(v);
+      }
+      return result;
+    }
+    
+    // Handle BigInt (NBT longs)
+    if (typeof value === 'bigint') {
+      return value.toString();
+    }
+    
+    return value;
   }
   
   /**
@@ -533,6 +660,22 @@ export class ChunkManager {
           this.debugGrid.setBlockLocal(chunkX, chunkZ, localX, worldY, localZ, blockId, level);
         }
       }
+    }
+  }
+  
+  /**
+   * Merge block entity data into the debug block entities map
+   * @param {Map<string, object>} sourceBlockEntities - Block entities to merge
+   */
+  _mergeBlockEntities(sourceBlockEntities) {
+    if (!sourceBlockEntities) return;
+    
+    if (!this.debugBlockEntities) {
+      this.debugBlockEntities = new Map();
+    }
+    
+    for (const [key, entity] of sourceBlockEntities) {
+      this.debugBlockEntities.set(key, entity);
     }
   }
 
@@ -1585,10 +1728,11 @@ export class ChunkManager {
       const result = await meshBuilder.buildRegion(chunks, { 
         enableModelMeshes: true,
         returnGrid: !!this.debugGrid,
+        returnBlockEntities: !!this.debugGrid, // Also collect block entity data for inspector
         collectEmitters: this.particleQuality !== 'off',
         smoothLighting: this.smoothLightingEnabled,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, entities, offset, stats, _grid } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, entities, offset, stats, _grid, _stateGrid, _stateRegistry, _blockEntities } = result;
       
       // Register particle emitters for torches and other light sources
       if (particleEmitters && this.particlesEnabled) {
@@ -1598,6 +1742,17 @@ export class ChunkManager {
       // Merge grid for debug lookups (must be done before beacon registration)
       if (_grid && this.debugGrid) {
         this._mergeDebugGrid(_grid);
+      }
+      
+      // Store additional debug data for block inspector
+      if (_stateGrid) {
+        this.debugStateGrid = _stateGrid;
+      }
+      if (_stateRegistry) {
+        this.debugStateRegistry = _stateRegistry;
+      }
+      if (_blockEntities) {
+        this._mergeBlockEntities(_blockEntities);
       }
       
       // Set world offset for beacon beam manager (beacons use world coords, meshes use render coords)
