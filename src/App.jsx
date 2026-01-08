@@ -104,6 +104,10 @@ function App() {
   const [chunkStreamingEnabled, setChunkStreamingEnabled] = useState(true);
   const [chunkStreamDistance, setChunkStreamDistance] = useState(8);
   
+  // Chunk loading speed (concurrency) - higher = faster loading but may cause frame drops
+  // 1 = smoothest (1 chunk at a time), 8 = fastest (8 chunks simultaneously)
+  const [chunkLoadingSpeed, setChunkLoadingSpeed] = useState(1);
+  
   // Target resolution (controls rendering DPR)
   // 'native' = full resolution, or a vertical pixel count like 720, 1080, 1440, 2160
   const [targetResolution, setTargetResolution] = useState('native');
@@ -720,6 +724,7 @@ function App() {
             continuousGlass={continuousGlass}
             enableChunkStreaming={chunkStreamingEnabled}
             chunkStreamDistance={renderDistance === 0 ? 16 : renderDistance} // Use render distance for streaming
+            chunkLoadingSpeed={chunkLoadingSpeed}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -1046,6 +1051,30 @@ function App() {
               />
               <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '0.25rem' }}>
                 Loads chunks around player. Fast initial load, seamless streaming.
+              </div>
+              
+              {/* Chunk Loading Speed (Advanced) */}
+              <div className="fov-control" style={{ marginTop: '0.75rem' }}>
+                <div className="fov-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="toggle-label" style={{ fontSize: '0.85rem' }}>
+                    Loading Speed
+                  </span>
+                  <span className="fov-value" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                    {chunkLoadingSpeed === 1 ? 'Smooth' : chunkLoadingSpeed <= 2 ? 'Balanced' : chunkLoadingSpeed <= 4 ? 'Fast' : 'Fastest'}
+                  </span>
+                </div>
+                <input 
+                  type="range"
+                  min="1"
+                  max="8"
+                  step="1"
+                  value={chunkLoadingSpeed}
+                  onChange={(e) => setChunkLoadingSpeed(parseInt(e.target.value, 10))}
+                  style={{ width: '100%', marginTop: '0.25rem' }}
+                />
+                <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '0.25rem' }}>
+                  Lower = smoother camera, higher = faster loading
+                </div>
               </div>
             </div>
           )}

@@ -501,6 +501,7 @@ function RegionScene({
   continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
   enableChunkStreaming = true, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
+  chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest but may lag)
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -1060,6 +1061,7 @@ function RegionScene({
         unloadDistance: chunkStreamDistance + 1, // Small hysteresis to prevent thrashing
         preloadDistance: chunkStreamDistance, // Same as load distance (no lazy preloading)
         enableModelMeshes,
+        concurrentChunks: chunkLoadingSpeed, // 1=smoothest, 8=fastest
         onChunkLoaded: (chunkX, chunkZ) => {
           invalidate(); // Render when chunks load
         },
@@ -1152,6 +1154,14 @@ function RegionScene({
     // Update the streamer's load distances
     streamer.setLoadDistance(chunkStreamDistance);
   }, [chunkStreamDistance, enableChunkStreaming]);
+  
+  // Update chunk loading speed (concurrency) when it changes
+  useEffect(() => {
+    const streamer = streamerRef.current;
+    if (!streamer || !enableChunkStreaming) return;
+    
+    streamer.setConcurrentChunks(chunkLoadingSpeed);
+  }, [chunkLoadingSpeed, enableChunkStreaming]);
   
   // Update chunk streamer with camera position
   useEffect(() => {
@@ -1338,6 +1348,7 @@ export function RegionViewer({
   continuousGlass = false, // Connected glass textures (removes borders between adjacent glass)
   enableChunkStreaming = true, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
+  chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest)
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -1447,6 +1458,7 @@ export function RegionViewer({
         continuousGlass={continuousGlass}
         enableChunkStreaming={enableChunkStreaming}
         chunkStreamDistance={chunkStreamDistance}
+        chunkLoadingSpeed={chunkLoadingSpeed}
       />
     </Canvas>
   );

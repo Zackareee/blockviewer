@@ -48,8 +48,8 @@ const SECTOR_SIZE = 4096;
 // Loading configuration - tuned for smooth camera movement
 // Smaller batches = less frame drops, slower loading
 // Larger batches = faster loading, more frame drops
-const MAX_CONCURRENT_CHUNKS = 1; // Process 1 chunk at a time for smoothest experience
-const LOAD_BATCH_SIZE = 4; // How many chunks to queue per frame
+const DEFAULT_CONCURRENT_CHUNKS = 1; // Default: 1 chunk at a time for smoothest experience
+const DEFAULT_LOAD_BATCH_SIZE = 4; // How many chunks to queue per frame
 const UNLOAD_HYSTERESIS = 2; // Extra chunks beyond unload distance before removal
 
 // Priority weights (lower = higher priority)
@@ -265,6 +265,11 @@ export class ChunkStreamer {
     this.unloadDistance = this.loadDistance + 1; // Distance to start unloading
     this.enableModelMeshes = options.enableModelMeshes !== false;
     
+    // Loading performance settings - tune for smooth vs fast loading
+    // concurrentChunks: 1 = smoothest, 4+ = faster but may cause frame drops
+    this.concurrentChunks = options.concurrentChunks ?? DEFAULT_CONCURRENT_CHUNKS;
+    this.loadBatchSize = options.loadBatchSize ?? DEFAULT_LOAD_BATCH_SIZE;
+    
     // Track if distances changed for dynamic updates
     this._pendingDistanceUpdate = false;
     
@@ -396,6 +401,26 @@ export class ChunkStreamer {
   setLoadDistance(loadDistance) {
     // Treat as render distance with default buffer
     this.setRenderDistance(loadDistance, DEFAULT_LOAD_BUFFER);
+  }
+
+  /**
+   * Set chunk loading concurrency (advanced performance tuning)
+   * @param {number} concurrency - Number of chunks to process simultaneously (1-8)
+   *   1 = smoothest camera movement, slowest loading
+   *   4 = balanced
+   *   8 = fastest loading, may cause frame drops
+   */
+  setConcurrentChunks(concurrency) {
+    this.concurrentChunks = Math.max(1, Math.min(8, concurrency));
+    console.log(`[ChunkStreamer] Concurrent chunks set to ${this.concurrentChunks}`);
+  }
+  
+  /**
+   * Get current chunk loading concurrency
+   * @returns {number} Current concurrency setting
+   */
+  getConcurrentChunks() {
+    return this.concurrentChunks;
   }
 
   /**
@@ -896,9 +921,9 @@ export class ChunkStreamer {
         // Check if paused
         if (this.isPaused) break;
         
-        // Process batch of chunks concurrently
+        // Process batch of chunks concurrently (use configured concurrency)
         const batch = [];
-        for (let i = 0; i < MAX_CONCURRENT_CHUNKS && this.loadQueue.size > 0; i++) {
+        for (let i = 0; i < this.concurrentChunks && this.loadQueue.size > 0; i++) {
           const item = this.loadQueue.pop();
           if (item && !this.loadedChunks.has(`${item.chunkX},${item.chunkZ}`)) {
             batch.push(item);
@@ -953,9 +978,9 @@ export class ChunkStreamer {
           break; // Only lazy chunks left, stop waiting
         }
         
-        // Process batch
+        // Process batch (use configured concurrency)
         const batch = [];
-        for (let i = 0; i < MAX_CONCURRENT_CHUNKS && this.loadQueue.size > 0; i++) {
+        for (let i = 0; i < this.concurrentChunks && this.loadQueue.size > 0; i++) {
           const item = this.loadQueue.pop();
           if (!item) break;
           
