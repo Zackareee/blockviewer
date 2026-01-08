@@ -1123,12 +1123,17 @@ function RegionScene({
           invalidate(); // Render when chunks load
         },
         onProgress: (progress) => {
+          // Use stage from streamer if provided (e.g., 'meshing'), otherwise 'streaming'
+          const stage = progress.stage || 'streaming';
+          // Keep showing loading during meshing phase (queued=0 but still building)
+          const isBuilding = progress.queued > 0 || stage === 'meshing';
           onProgress?.({
             current: progress.loaded,
             total: progress.loaded + progress.queued,
-            isBuilding: progress.queued > 0,
+            isBuilding,
             message: progress.message,
-            stage: 'streaming',
+            stage,
+            stageProgress: progress.stageProgress || 0,
           });
         },
       });

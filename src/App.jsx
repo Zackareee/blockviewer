@@ -816,69 +816,47 @@ function App() {
         {(buildProgress.isBuilding || buildProgress.stage === 'complete') && (
           <div className="build-overlay">
             <div className="build-progress-container">
-              {/* Region header */}
-              <div className="streaming-region-header">
-                <span>Region {buildProgress.current + 1} of {buildProgress.total}</span>
-                {buildProgress.regionName && (
-                  <span className="streaming-region-name">{buildProgress.regionName}</span>
-                )}
-              </div>
-              
-              {/* Stage indicators */}
-              <div className="build-stages">
-                {['processing', 'adding', 'particles'].map((stageName, idx) => {
-                  const stageLabels = {
-                    processing: '🧱 Processing',
-                    adding: '🎨 Adding to Scene',
-                    particles: '✨ Particles',
-                  };
-                  const stageOrder = ['processing', 'adding', 'particles'];
-                  // Map internal stages to UI stages
-                  const currentUIStage = ['parsing', 'decoding', 'meshing'].includes(buildProgress.stage) 
-                    ? 'processing' 
-                    : buildProgress.stage;
-                  const currentIdx = stageOrder.indexOf(currentUIStage);
-                  const thisIdx = stageOrder.indexOf(stageName);
-                  const isActive = stageName === currentUIStage;
-                  const isComplete = thisIdx < currentIdx || buildProgress.stage === 'complete';
+              {/* Simple progress bar */}
+              {(() => {
+                // Calculate overall progress (0-100%)
+                // For streaming: 'streaming' phase is 0-50%, 'meshing' phase is 50-100%
+                // For progressive: parsing(0-10%), decoding(10-20%), meshing(20-50%), adding(50-90%), particles(90-100%)
+                const overallProgress = (() => {
+                  const stage = buildProgress.stage;
+                  const stageProgress = buildProgress.stageProgress || 0;
                   
-                  return (
-                    <div 
-                      key={stageName}
-                      className={`build-stage ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}`}
-                    >
-                      <div className="stage-header">
-                        <span className="stage-icon">
-                          {isComplete ? '✓' : isActive ? '◉' : '○'}
-                        </span>
-                        <span className="stage-label">{stageLabels[stageName]}</span>
-                      </div>
-                      {isActive && (
-                        <div className={`stage-progress-bar ${stageName === 'processing' ? 'indeterminate' : ''}`}>
-                          <div 
-                            className="stage-progress-fill"
-                            style={{ width: stageName === 'processing' ? '30%' : `${buildProgress.stageProgress || 0}%` }}
-                          />
-                        </div>
-                      )}
+                  if (stage === 'streaming') {
+                    // Chunk loading: 0-50%
+                    const ratio = buildProgress.total > 0 ? buildProgress.current / buildProgress.total : 0;
+                    return Math.round(ratio * 50);
+                  }
+                  if (stage === 'meshing') {
+                    // Mesh building: 50-100%
+                    return 50 + Math.round(stageProgress * 0.5);
+                  }
+                  if (stage === 'parsing') return 5;
+                  if (stage === 'decoding') return 15;
+                  if (stage === 'adding') return 50 + Math.round(stageProgress * 0.4);
+                  if (stage === 'particles') return 90 + Math.round(stageProgress * 0.1);
+                  if (stage === 'complete') return 100;
+                  return 0;
+                })();
+                
+                return (
+                  <>
+                    <div className="build-progress-header">
+                      <span>{buildProgress.message || 'Loading...'}</span>
+                      <span>{overallProgress}%</span>
                     </div>
-                  );
-                })}
-              </div>
-              
-              {/* Overall progress bar */}
-              <div className="build-progress-header">
-                <span>{buildProgress.message || 'Processing...'}</span>
-                <span>{Math.round((buildProgress.current / buildProgress.total) * 100)}%</span>
-              </div>
-              <div className="build-progress-bar">
-                <div 
-                  className="build-progress-fill"
-                  style={{ 
-                    width: `${((buildProgress.current + (buildProgress.stageProgress || 0) / 100) / buildProgress.total) * 100}%` 
-                  }}
-                />
-              </div>
+                    <div className="build-progress-bar">
+                      <div 
+                        className="build-progress-fill"
+                        style={{ width: `${overallProgress}%` }}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -1018,8 +996,8 @@ function App() {
                 </label>
               )}
             </div>
-            {/* Entity region file upload - separate row */}
-            <label className="file-upload file-upload-entity">
+            {/* Entity region file upload - hidden until fully implemented */}
+            {/* <label className="file-upload file-upload-entity">
               <input 
                 type="file" 
                 accept=".mca"
@@ -1030,14 +1008,13 @@ function App() {
               <span className="upload-button upload-button-entity" title="Load entity region files from world/entities/ folder (item frames, paintings, armor stands)">
                 {loading ? '...' : '🖼️ Load Entities'}
               </span>
-            </label>
+            </label> */}
           </div>
           {fileName && (
             <div className="file-info">
               <span className="file-name">{fileName}</span>
               <span className="chunk-count">
                 {regionFiles.length > 0 ? `${regionFiles.length} regions` : `${chunks.length} chunks`}
-                {entityRegionFiles.length > 0 && ` + ${entityRegionFiles.length} entity`}
               </span>
             </div>
           )}

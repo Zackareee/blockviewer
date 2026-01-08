@@ -1011,7 +1011,8 @@ export class ChunkStreamer {
     
     this.stats.queueSize = this.loadQueue.size;
     const peek = this.loadQueue.peek();
-    console.log(`[ChunkStreamer] Queue result: ${queuedCount} queued, ${skippedAlreadyLoaded} already loaded, ${skippedNoRegion} no region, top priority: ${peek?.priority?.toFixed(1) ?? 'N/A'}`);
+    // Debug: Queue result logging (uncomment if needed)
+    // console.log(`[ChunkStreamer] Queue result: ${queuedCount} queued, ${skippedAlreadyLoaded} already loaded, ${skippedNoRegion} no region, top priority: ${peek?.priority?.toFixed(1) ?? 'N/A'}`);
   }
 
   /**
@@ -1128,15 +1129,12 @@ export class ChunkStreamer {
    */
   async _processQueue() {
     if (this.isProcessing) {
-      console.log(`[ChunkStreamer] _processQueue skipped: already processing`);
       return;
     }
     if (this.isPaused) {
-      console.log(`[ChunkStreamer] _processQueue skipped: paused`);
       return;
     }
     this.isProcessing = true;
-    console.log(`[ChunkStreamer] _processQueue started, queue size: ${this.loadQueue.size}`);
     
     // Track queue generation to detect re-prioritization
     const startGeneration = this.queueGeneration;
@@ -1148,7 +1146,6 @@ export class ChunkStreamer {
         
         // If queue was re-prioritized, break out and let new priorities take effect
         if (this.queueGeneration !== startGeneration) {
-          console.log(`[ChunkStreamer] Queue was re-prioritized, breaking out`);
           break;
         }
         
@@ -1165,16 +1162,9 @@ export class ChunkStreamer {
             skippedLoaded++;
           }
         }
-        if (skippedLoaded > 0) {
-          console.log(`[ChunkStreamer] Skipped ${skippedLoaded} already-loaded chunks`);
-        }
-        
         if (batch.length === 0) {
-          console.log(`[ChunkStreamer] Empty batch, queue size: ${this.loadQueue.size}`);
           break;
         }
-        
-        console.log(`[ChunkStreamer] Processing batch of ${batch.length} chunks`);
         
         // Process batch in parallel (decode/cache)
         // Note: Meshing is still throttled separately to avoid frame drops
@@ -1211,14 +1201,12 @@ export class ChunkStreamer {
    */
   async _processQueueUntilComplete() {
     this.isProcessing = true;
-    console.log(`[ChunkStreamer] Starting initial load, queue size: ${this.loadQueue.size}`);
     
     try {
       while (this.loadQueue.size > 0) {
         // Check if remaining items are all lazy priority
         const next = this.loadQueue.peek();
         if (next && next.priority >= PRIORITY_LAZY) {
-          console.log(`[ChunkStreamer] Stopping at lazy priority, remaining: ${this.loadQueue.size}`);
           break; // Only lazy chunks left, stop waiting
         }
         
@@ -1258,8 +1246,32 @@ export class ChunkStreamer {
       // Rebuild ALL dirty super-chunks after initial load is complete
       // This is more efficient than rebuilding after each batch
       if (this.superChunkManager) {
+        const totalDirty = this.superChunkManager.dirtySet.size;
+        let rebuilt = 0;
+        
+        // Report meshing stage start
+        this.onProgress?.({
+          loaded: this.loadedChunks.size,
+          queued: 0, // No more chunks to load, now meshing
+          message: `Building meshes: 0/${totalDirty}`,
+          stage: 'meshing',
+          stageProgress: 0,
+        });
+        
         while (this.superChunkManager.dirtySet.size > 0) {
+          const beforeSize = this.superChunkManager.dirtySet.size;
           await this.superChunkManager.rebuildDirty(4);
+          rebuilt += beforeSize - this.superChunkManager.dirtySet.size;
+          
+          // Report meshing progress
+          const progress = totalDirty > 0 ? Math.round((rebuilt / totalDirty) * 100) : 100;
+          this.onProgress?.({
+            loaded: this.loadedChunks.size,
+            queued: 0,
+            message: `Building meshes: ${rebuilt}/${totalDirty}`,
+            stage: 'meshing',
+            stageProgress: progress,
+          });
         }
       }
     } finally {
@@ -1326,7 +1338,6 @@ export class ChunkStreamer {
           // Use unified WASM pipeline if available for better performance
           const buffer = await regionInfo.file.arrayBuffer();
           const useUnified = isUnifiedPipelineReady();
-          console.log(`[ChunkStreamer] Parsing region ${regionX},${regionZ} - unified pipeline: ${useUnified}`);
           const chunks = await this._parseRegionBuffer(buffer, regionX, regionZ, useUnified);
           
           // Cache for future use
@@ -1334,9 +1345,6 @@ export class ChunkStreamer {
           regionData = { buffer, chunks };
         } else {
           this.stats.cacheHits++;
-          // Check if cached data has raw compressed chunks
-          const hasRawCompressed = regionData.chunks.some(c => c.isRawCompressed);
-          console.log(`[ChunkStreamer] Cache hit for region ${regionX},${regionZ} - hasRawCompressed: ${hasRawCompressed}`);
         }
         
         // Find the specific chunk
