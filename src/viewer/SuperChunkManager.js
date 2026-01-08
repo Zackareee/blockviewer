@@ -442,10 +442,7 @@ export class SuperChunkManager {
     const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
     const useUnifiedPipeline = pipelineReady && hasRawCompressed;
     
-    console.log(`[SuperChunkManager] Pipeline check: ready=${pipelineReady}, hasRawCompressed=${hasRawCompressed}, chunks=${superChunk.loadedChunks.size}`);
-    
     if (useUnifiedPipeline) {
-      console.log(`[SuperChunkManager] 🚀 Using unified WASM pipeline for super-chunk ${superChunk.superX},${superChunk.superZ}`);
       await this._buildSuperChunkUnified(superChunk);
       return;
     }
