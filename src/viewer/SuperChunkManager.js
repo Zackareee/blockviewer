@@ -422,9 +422,14 @@ export class SuperChunkManager {
    * This decodes all chunks into a shared grid and runs the greedy mesher once.
    * Uses worker pool if available, falls back to main thread meshing.
    */
-  async buildSuperChunk(superChunk) {
-    // Dispose old meshes
-    superChunk.dispose();
+  async buildSuperChunk(superChunk, keepOldMeshes = false) {
+    // Dispose old meshes (unless caller will handle cleanup)
+    if (!keepOldMeshes) {
+      superChunk.dispose();
+    } else {
+      // Clear the meshes array but don't dispose - caller will do it
+      superChunk.meshes = [];
+    }
     
     if (superChunk.isEmpty()) {
       superChunk.isDirty = false;
@@ -1501,10 +1506,24 @@ export class SuperChunkManager {
       
       const superChunk = this.superChunks.get(key);
       if (superChunk && superChunk.isDirty) {
-        // Remove old meshes from ChunkManager arrays before rebuilding
-        this._removeMeshesFromManager(superChunk);
+        // Store old meshes to remove AFTER new ones are ready
+        const oldMeshes = [...superChunk.meshes];
         
-        await this.buildSuperChunk(superChunk);
+        // Build new meshes (this creates new meshes but doesn't dispose old yet)
+        await this.buildSuperChunk(superChunk, true /* keepOldMeshes */);
+        
+        // NOW remove old meshes from manager arrays and scene
+        for (const mesh of oldMeshes) {
+          removeFromArray(this.chunkManager.solidMeshes, mesh);
+          removeFromArray(this.chunkManager.waterMeshes, mesh);
+          removeFromArray(this.chunkManager.lavaMeshes, mesh);
+          removeFromArray(this.chunkManager.glassMeshes, mesh);
+          removeFromArray(this.chunkManager.modelMeshes, mesh);
+          removeFromArray(this.chunkManager.beaconMeshes, mesh);
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.parent) mesh.parent.remove(mesh);
+        }
+        
         rebuiltCount++;
         
         // Yield to browser between super-chunks to maintain responsiveness
