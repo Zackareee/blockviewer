@@ -495,18 +495,14 @@ export class SuperChunkManager {
   }
 
   /**
-   * Build super-chunk using unified WASM pipeline
+   * Build super-chunk using unified WASM pipeline with time-slicing
    * 
-   * Optimized approach:
-   * - Decompress and decode all chunks to a SHARED grid first (WASM for decompression + JS for decode)
-   * - Include neighbor super-chunk data for proper boundary handling
-   * - Then mesh the combined grid with WASM (proper cross-chunk boundary handling)
-   * - JS handles model meshes (requires full state resolution with blockstate JSONs)
+   * Time-sliced approach to avoid frame drops:
+   * - Decompress and decode chunks with yields between each chunk
+   * - Solid meshes are created first for quick visual feedback
+   * - Model meshes are deferred to avoid blocking
    * 
-   * This ensures proper:
-   * - Water face culling at chunk boundaries
-   * - Smooth lighting across chunk boundaries
-   * - AO across chunk boundaries
+   * This ensures smooth camera movement even during chunk loading.
    */
   async _buildSuperChunkUnified(superChunk) {
     // Create shared grids for all chunks - enables proper boundary handling
@@ -515,8 +511,11 @@ export class SuperChunkManager {
     const stateGrid = this.enableModelMeshes ? new BlockStateGrid() : null;
     const lightGrid = new LightGrid();
     
-    // Step 1: Decode ALL chunks to shared grids first
-    for (const [key, chunkInfo] of superChunk.loadedChunks) {
+    // Step 1: Decode ALL chunks to shared grids with yielding
+    const chunkEntries = [...superChunk.loadedChunks.entries()];
+    for (let i = 0; i < chunkEntries.length; i++) {
+      const [key, chunkInfo] = chunkEntries[i];
+      
       if (chunkInfo.isRawCompressed && chunkInfo.data) {
         const chunkData = chunkInfo.data;
         
@@ -549,6 +548,11 @@ export class SuperChunkManager {
         chunks.push(adjustedChunk);
         decodeChunk(adjustedChunk, grid, this.registry, stateGrid, this.stateRegistry, lightGrid);
       }
+      
+      // Yield after each chunk to maintain responsiveness
+      if (i < chunkEntries.length - 1) {
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
     
     // Extract active beacons from block entities
@@ -557,6 +561,9 @@ export class SuperChunkManager {
     // Step 2: Include data from adjacent super-chunks for proper boundary handling
     // This is CRITICAL for water face culling and smooth lighting at boundaries
     this._includeNeighborData(superChunk, grid, lightGrid);
+    
+    // Yield before light propagation (can be expensive)
+    await new Promise(r => setTimeout(r, 0));
     
     // Handle light propagation if no Minecraft light data
     if (lightGrid.sections.size === 0) {
@@ -568,6 +575,9 @@ export class SuperChunkManager {
     if (this.chunkManager?.debugGrid) {
       this.chunkManager._mergeDebugGrid(grid);
     }
+    
+    // Yield before meshing
+    await new Promise(r => setTimeout(r, 0));
     
     // Step 3: Use WASM to mesh the combined grid (with proper boundary handling)
     const offset = { x: 0, y: 0, z: 0 };
@@ -581,7 +591,7 @@ export class SuperChunkManager {
     // Mesh solid/fluid/glass using WASM on the combined grid
     const meshResult = wasmMeshChunk(grid, lightGrid, stateGrid, bounds);
     
-    // Create Three.js meshes
+    // Create Three.js meshes - solid first for quick visual feedback
     if (meshResult.solid && meshResult.solid.positions.length > 0) {
       const mesh = this._createMesh(meshResult.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
       if (mesh) {
@@ -589,6 +599,9 @@ export class SuperChunkManager {
         this.chunkManager.solidMeshes.push(mesh);
       }
     }
+    
+    // Yield after solid mesh to allow rendering
+    await new Promise(r => setTimeout(r, 0));
     
     if (meshResult.water && meshResult.water.positions.length > 0) {
       const mesh = this._createMesh(meshResult.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
@@ -617,9 +630,21 @@ export class SuperChunkManager {
       }
     }
     
+    // Mark as built early so solid geometry is visible immediately
+    // Model meshes will be added below but terrain is already visible
+    superChunk.isDirty = false;
+    superChunk.hasBeenBuilt = true;
+    
+    // Yield to allow solid meshes to render before building model meshes
+    await new Promise(r => setTimeout(r, 0));
+    
     // Build model meshes using JS (requires full state resolution)
+    // This is deferred so solid geometry is visible first
     if (this.enableModelMeshes && stateGrid && this.stateRegistry) {
       await this.stateRegistry.precomputeAll();
+      
+      // Yield after precompute
+      await new Promise(r => setTimeout(r, 0));
       
       const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
       const collectEmitters = this.chunkManager.particleQuality !== 'off';
@@ -683,8 +708,6 @@ export class SuperChunkManager {
       }
     }
     
-    superChunk.isDirty = false;
-    superChunk.hasBeenBuilt = true;
     this.onSuperChunkRebuilt?.(superChunk);
   }
 

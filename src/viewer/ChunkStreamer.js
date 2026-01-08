@@ -45,9 +45,11 @@ const CHUNK_SIZE = 16;
 const REGION_SIZE = 32; // 32x32 chunks per region
 const SECTOR_SIZE = 4096;
 
-// Loading configuration
-const MAX_CONCURRENT_CHUNKS = 2; // How many chunks to load per batch (smaller = smoother, larger = faster)
-const LOAD_BATCH_SIZE = 8; // How many chunks to queue per frame
+// Loading configuration - tuned for smooth camera movement
+// Smaller batches = less frame drops, slower loading
+// Larger batches = faster loading, more frame drops
+const MAX_CONCURRENT_CHUNKS = 1; // Process 1 chunk at a time for smoothest experience
+const LOAD_BATCH_SIZE = 4; // How many chunks to queue per frame
 const UNLOAD_HYSTERESIS = 2; // Extra chunks beyond unload distance before removal
 
 // Priority weights (lower = higher priority)
@@ -915,8 +917,9 @@ export class ChunkStreamer {
           this.superChunkManager.scheduleIdleRebuild(true); // Low priority during streaming
         }
         
-        // Yield to browser between batches
-        await new Promise(r => setTimeout(r, 0));
+        // Yield to browser between batches - use requestAnimationFrame for better timing
+        // This ensures we don't block during active rendering
+        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
       }
       
       // Schedule any remaining dirty super-chunks for idle time rebuilding
