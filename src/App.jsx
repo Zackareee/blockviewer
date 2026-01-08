@@ -56,6 +56,9 @@ function App() {
   // World spawn coordinates from level.dat (if available)
   const [worldSpawn, setWorldSpawn] = useState(null);
   
+  // Current dimension ID ('overworld', 'the_nether', 'the_end', or custom 'namespace:name')
+  const [currentDimension, setCurrentDimension] = useState('overworld');
+  
   // Dimension picker state (for world zips with multiple dimensions)
   const [dimensionPicker, setDimensionPicker] = useState({
     show: false,
@@ -595,6 +598,11 @@ function App() {
       setWorldSpawn(spawn);
     }
     
+    // Track current dimension for sky/fog rendering
+    if (!isAddMode) {
+      setCurrentDimension(dimension.id);
+    }
+    
     // Create lazy region files for selected dimension
     const lazyFiles = createLazyRegionFiles(dimension.files);
     
@@ -640,6 +648,8 @@ function App() {
           // Only one dimension - load it directly
           const lazyFiles = createLazyRegionFiles(dimensions[0].files);
           filesToProcess.push(...lazyFiles);
+          // Track dimension for sky/fog rendering
+          setCurrentDimension(dimensions[0].id);
         } else if (dimensions.length > 1) {
           // Multiple dimensions - show picker (spawn stored in result for later)
           setDimensionPicker({
@@ -657,6 +667,8 @@ function App() {
         filesToProcess.push(file);
         // Clear spawn when loading standalone region files (no level.dat)
         setWorldSpawn(null);
+        // Default to overworld for standalone region files
+        setCurrentDimension('overworld');
       }
     }
     
@@ -902,6 +914,7 @@ function App() {
             enableChunkStreaming={chunkStreamingEnabled}
             chunkStreamDistance={renderDistance === 0 ? 16 : renderDistance} // Use render distance for streaming
             chunkLoadingSpeed={chunkLoadingSpeed}
+            dimension={currentDimension}
           />
         ) : !loading && (
           <div className="empty-state">

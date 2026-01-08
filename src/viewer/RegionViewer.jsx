@@ -76,19 +76,28 @@ function DynamicFOV({ fov }) {
  * The actual sky rendering is handled by MinecraftSky component
  * 
  * Now accepts dynamic fog color from MinecraftSky based on time of day
+ * and dimension-specific fog distances (Nether has very short fog)
  */
-function DynamicFog({ fogEnabled, renderDistance, fogColor = '#c8d8ff' }) {
+function DynamicFog({ fogEnabled, renderDistance, fogColor = '#c8d8ff', dimensionFog = null }) {
   const { scene, invalidate } = useThree();
   
   useEffect(() => {
     // Use dynamic fog color that changes with time of day
     const color = new THREE.Color(fogColor);
     
-    // Calculate fog distances based on render distance
-    // Minecraft fog starts at ~80% of render distance and ends at render distance
-    const renderDistanceBlocks = renderDistance === 0 ? 256 : renderDistance * 16;
-    const fogStart = renderDistanceBlocks * 0.8;
-    const fogEnd = renderDistanceBlocks;
+    // Use dimension-specific fog distances if available (e.g., Nether has very short fog)
+    let fogStart, fogEnd;
+    
+    if (dimensionFog && dimensionFog.fogStart !== null && dimensionFog.fogEnd !== null) {
+      // Dimension has fixed fog distances (Nether: 10-96 blocks)
+      fogStart = dimensionFog.fogStart;
+      fogEnd = dimensionFog.fogEnd;
+    } else {
+      // Standard fog: 80% to 100% of render distance
+      const renderDistanceBlocks = renderDistance === 0 ? 256 : renderDistance * 16;
+      fogStart = renderDistanceBlocks * 0.8;
+      fogEnd = renderDistanceBlocks;
+    }
     
     // Set Three.js scene fog (as backup, but our shader fog is primary)
     if (fogEnabled) {
@@ -98,7 +107,7 @@ function DynamicFog({ fogEnabled, renderDistance, fogColor = '#c8d8ff' }) {
     }
     
     invalidate();
-  }, [scene, fogEnabled, renderDistance, fogColor, invalidate]);
+  }, [scene, fogEnabled, renderDistance, fogColor, dimensionFog, invalidate]);
   
   return null;
 }
@@ -503,6 +512,7 @@ function RegionScene({
   enableChunkStreaming = true, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
   chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest but may lag)
+  dimension = 'overworld', // Current dimension ('overworld', 'the_nether', 'the_end')
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -728,24 +738,34 @@ function RegionScene({
     }
   }, [particleQuality]);
   
-  // Update lightmap when timeOfDay or brightness changes (day/night lighting cycle)
+  // Update lightmap when timeOfDay, brightness, or dimension changes (day/night lighting cycle)
   useEffect(() => {
     const manager = managerRef.current;
     if (manager && manager.updateLightmapForTime) {
-      manager.updateLightmapForTime(timeOfDay, brightness);
+      manager.updateLightmapForTime(timeOfDay, brightness, dimension);
       invalidate();
     }
-  }, [timeOfDay, brightness, invalidate]);
+  }, [timeOfDay, brightness, dimension, invalidate]);
   
   // Update fog when fogEnabled, renderDistance, or skyColors change
   useEffect(() => {
     const manager = managerRef.current;
     if (manager && manager.setFog) {
-      // Calculate fog distances based on render distance
-      // Minecraft fog starts at ~80% of render distance and ends at render distance
-      const renderDistanceBlocks = renderDistance === 0 ? 256 : renderDistance * 16;
-      const fogStart = renderDistanceBlocks * 0.8;
-      const fogEnd = renderDistanceBlocks;
+      // Use dimension-specific fog distances if available (e.g., Nether has very short fog)
+      // Otherwise, calculate from render distance
+      const dimFog = skyColors.dimension;
+      let fogStart, fogEnd;
+      
+      if (dimFog && dimFog.fogStart !== null && dimFog.fogEnd !== null) {
+        // Dimension has fixed fog distances (Nether: 10-96 blocks)
+        fogStart = dimFog.fogStart;
+        fogEnd = dimFog.fogEnd;
+      } else {
+        // Standard fog: 80% to 100% of render distance
+        const renderDistanceBlocks = renderDistance === 0 ? 256 : renderDistance * 16;
+        fogStart = renderDistanceBlocks * 0.8;
+        fogEnd = renderDistanceBlocks;
+      }
       
       // Use dynamic fog color from sky system (changes with time of day)
       // Parse hex color to RGB array
@@ -762,7 +782,7 @@ function RegionScene({
       });
       invalidate();
     }
-  }, [fogEnabled, renderDistance, skyColors.fogColor, invalidate]);
+  }, [fogEnabled, renderDistance, skyColors.fogColor, skyColors.dimension, invalidate]);
   
   // Update particle ambient brightness based on time of day (uses cloud color multiplier)
   useEffect(() => {
@@ -1299,6 +1319,7 @@ function RegionScene({
         timeOfDay={timeOfDay}
         cloudOpacity={cloudsEnabled ? 0.8 : 0}
         onColorsChange={handleColorsChange}
+        dimension={dimension}
       />
       
       {/* Dynamic fog - uses colors from MinecraftSky */}
@@ -1306,6 +1327,7 @@ function RegionScene({
         fogEnabled={fogEnabled} 
         renderDistance={renderDistance} 
         fogColor={skyColors.fogColor}
+        dimensionFog={skyColors.dimension}
       />
       
       {/* Only render SpectatorControls after initial position is known (when streaming) */}
@@ -1391,6 +1413,7 @@ export function RegionViewer({
   enableChunkStreaming = true, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
   chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest)
+  dimension = 'overworld', // Current dimension ('overworld', 'the_nether', 'the_end')
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -1502,6 +1525,7 @@ export function RegionViewer({
         enableChunkStreaming={enableChunkStreaming}
         chunkStreamDistance={chunkStreamDistance}
         chunkLoadingSpeed={chunkLoadingSpeed}
+        dimension={dimension}
       />
     </Canvas>
   );

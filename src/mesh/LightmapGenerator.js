@@ -81,6 +81,55 @@ export const CAVE_PARAMS = {
 };
 
 /**
+ * Lightmap parameters for the Nether dimension
+ * From Minecraft dimension_type/the_nether.json and lightmap.agent.md:
+ * - ambient_light: 0.1 (minimum brightness floor)
+ * - has_skylight: false
+ * 
+ * The ambient_light value means blocks should have ~10% minimum brightness.
+ * AmbientColor is the color that's mixed in at AmbientLightFactor rate.
+ * To achieve 10% brightness with reddish tint, we use bright ambient colors
+ * so that AmbientLightFactor * AmbientColor gives proper brightness.
+ * 
+ * Colors are chosen so that the result is warm/reddish like lava glow.
+ */
+export const NETHER_PARAMS = {
+  ambientLightFactor: 0.1,     // Nether ambient light factor (10% mix)
+  skyFactor: 0.0,              // No sky light in Nether
+  blockFactor: 1.0,            // Block light normal
+  nightVisionFactor: 0.0,
+  darknessScale: 0.0,
+  darkenWorldFactor: 0.0,
+  brightnessFactor: 0.5,       // Default brightness
+  skyLightColor: { r: 1.0, g: 1.0, b: 1.0 },  // Unused (skyFactor = 0)
+  // Bright reddish ambient - at 10% mix, gives ~10% brightness with warm tint
+  // This ensures areas without light sources aren't pitch black
+  ambientColor: { r: 1.0, g: 0.5, b: 0.4 },
+};
+
+/**
+ * Lightmap parameters for the End dimension
+ * From Minecraft dimension_type/the_end.json and lightmap.agent.md:
+ * - ambient_light: 0.25 (higher than Nether - End is brighter)
+ * - has_skylight: true but sky_light_factor: 0.0
+ * 
+ * The End has higher ambient light (0.25) giving it a more visible base brightness.
+ * Color is purplish to match the End's aesthetic.
+ */
+export const END_PARAMS = {
+  ambientLightFactor: 0.25,    // End has higher ambient (25% mix)
+  skyFactor: 0.0,              // No effective sky light
+  blockFactor: 1.0,            // Block light normal
+  nightVisionFactor: 0.0,
+  darknessScale: 0.0,
+  darkenWorldFactor: 0.0,
+  brightnessFactor: 0.5,       // Default brightness
+  skyLightColor: { r: 1.0, g: 1.0, b: 1.0 },  // Unused
+  // Purplish ambient - at 25% mix, gives good visibility with End aesthetic
+  ambientColor: { r: 0.6, g: 0.6, b: 0.8 },
+};
+
+/**
  * Generate a 16x16 lightmap texture matching Minecraft's lightmap.fsh
  * 
  * @param {Object} params - Lightmap parameters (see DAYTIME_PARAMS)
@@ -268,15 +317,36 @@ export function lightLevelToUV(lightLevel) {
 }
 
 /**
- * Get lightmap parameters interpolated for a specific time of day and brightness
+ * Get lightmap parameters interpolated for a specific time of day, brightness, and dimension
  * Matches Minecraft's day/night lighting cycle from day.json
  * 
  * @param {number} timeOfDay - 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
  * @param {number} brightness - 0-100 brightness slider (0=Moody, 100=Bright), default 50
+ * @param {string} dimension - Dimension ID ('overworld', 'the_nether', 'the_end'), default 'overworld'
  * @returns {Object} Lightmap parameters for generateLightmap()
  */
-export function getLightmapParamsForTime(timeOfDay, brightness = 50) {
-  // Calculate sun height (-1 to 1, positive = day)
+export function getLightmapParamsForTime(timeOfDay, brightness = 50, dimension = 'overworld') {
+  // Convert 0-100 brightness slider to 0-1 brightnessFactor
+  const brightnessFactor = brightness / 100;
+  
+  // Handle dimension-specific lighting
+  if (dimension === 'the_nether') {
+    // Nether has fixed lighting (no time of day)
+    return {
+      ...NETHER_PARAMS,
+      brightnessFactor,
+    };
+  }
+  
+  if (dimension === 'the_end') {
+    // End has fixed lighting (no time of day)
+    return {
+      ...END_PARAMS,
+      brightnessFactor,
+    };
+  }
+  
+  // Overworld: Calculate sun height (-1 to 1, positive = day)
   // timeOfDay: 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
   const sunAngle = (timeOfDay - 0.25) * Math.PI * 2;
   const sunHeight = Math.sin(sunAngle);
@@ -296,9 +366,6 @@ export function getLightmapParamsForTime(timeOfDay, brightness = 50) {
     g: 0.478 + 0.522 * dayBlend,  // 0.478 at night, 1.0 at day
     b: 1.0,                       // Always 1.0
   };
-  
-  // Convert 0-100 brightness slider to 0-1 brightnessFactor
-  const brightnessFactor = brightness / 100;
   
   return {
     ...DAYTIME_PARAMS,

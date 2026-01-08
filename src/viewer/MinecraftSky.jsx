@@ -57,6 +57,67 @@ const BASE_SKY_COLOR = new THREE.Color('#78a7ff');
 const BASE_HORIZON_COLOR = new THREE.Color('#c8d8ff');
 
 /**
+ * Dimension configurations for sky and fog rendering
+ * Based on data/minecraft/dimension_type/*.json and worldgen/biome/*.json
+ * 
+ * Each dimension has:
+ * - skybox: 'normal' (sun/moon/stars/clouds), 'end' (cube skybox), or 'none' (no sky)
+ * - hasCeiling: whether the dimension has a ceiling (affects sky visibility)
+ * - fogStart/fogEnd: fog distance in blocks (Nether has very short fog)
+ * - fogColor: default fog color (can be overridden by biome)
+ * - skyColor: base sky color (only used if skybox === 'normal')
+ * - ambientLight: base ambient light level
+ */
+export const DIMENSION_CONFIG = {
+  overworld: {
+    skybox: 'normal',
+    hasCeiling: false,
+    fogStart: null,  // Uses render distance-based fog
+    fogEnd: null,
+    fogColor: '#c0d8ff',
+    skyColor: '#78a7ff',
+    horizonColor: '#c8d8ff',
+    ambientLight: 0.0,
+    hasTimeOfDay: true,
+  },
+  the_nether: {
+    skybox: 'none',
+    hasCeiling: true,
+    fogStart: 10,     // Nether has very short fog
+    fogEnd: 96,
+    fogColor: '#330808',  // Nether Wastes default (dark red)
+    skyColor: '#330808',  // Used for sky dome if visible
+    horizonColor: '#330808',
+    ambientLight: 0.1,
+    hasTimeOfDay: false,  // Fixed time (always "dark")
+    // Biome-specific fog colors for future use
+    biomeFogColors: {
+      'nether_wastes': '#330808',
+      'crimson_forest': '#330303',
+      'warped_forest': '#1a051a',
+      'soul_sand_valley': '#1b4745',
+      'basalt_deltas': '#685f70',
+    },
+  },
+  the_end: {
+    skybox: 'end',
+    hasCeiling: false,
+    fogStart: null,
+    fogEnd: null,
+    fogColor: '#181318',  // Dark purple-black
+    skyColor: '#000000',
+    horizonColor: '#181318',
+    ambientLight: 0.25,
+    hasTimeOfDay: false,  // Fixed time
+  },
+};
+
+// Default to overworld for unknown dimensions
+export function getDimensionConfig(dimensionId) {
+  return DIMENSION_CONFIG[dimensionId] || DIMENSION_CONFIG.overworld;
+}
+
+/**
  * Convert timeOfDay (0-1) to Minecraft ticks (0-24000)
  * timeOfDay: 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
  * Minecraft: tick 0 = sunrise, 6000 = noon, 12000 = sunset, 18000 = midnight
@@ -1126,19 +1187,35 @@ function createFallbackSunTexture() {
  * - timeOfDay: Time of day from 0-1 (0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset)
  * - cloudOpacity: Cloud opacity 0-1 (default: 0.8)
  * - onColorsChange: Callback when sky colors change (for fog sync)
+ * - dimension: Current dimension ID ('overworld', 'the_nether', 'the_end')
  */
 export function MinecraftSky({
   enabled = true,
   timeOfDay = 0.35, // Default to mid-morning (pleasant lighting)
   cloudOpacity = 0.8,
   onColorsChange = null,
+  dimension = 'overworld',
 }) {
   const { scene } = useThree();
   
-  // Calculate dynamic sky colors based on time of day
+  // Get dimension-specific configuration
+  const dimConfig = useMemo(() => getDimensionConfig(dimension), [dimension]);
+  
+  // Calculate dynamic sky colors based on time of day and dimension
   const colors = useMemo(() => {
+    // For dimensions with fixed time (Nether, End), use static colors
+    if (!dimConfig.hasTimeOfDay) {
+      return {
+        skyColor: new THREE.Color(dimConfig.skyColor),
+        horizonColor: new THREE.Color(dimConfig.horizonColor),
+        fogColor: new THREE.Color(dimConfig.fogColor),
+        cloudColor: new THREE.Color(dimConfig.fogColor), // Use fog color for cloud tinting
+        brightness: dimConfig.ambientLight,
+      };
+    }
+    // Overworld uses time-based colors
     return calculateSkyColors(timeOfDay);
-  }, [timeOfDay]);
+  }, [timeOfDay, dimConfig]);
   
   // Calculate sunrise/sunset glow parameters
   const glowParams = useMemo(() => {
@@ -1197,9 +1274,16 @@ export function MinecraftSky({
           g: colors.cloudColor.g,
           b: colors.cloudColor.b,
         },
+        // Dimension-specific fog settings
+        dimension: {
+          id: dimension,
+          skybox: dimConfig.skybox,
+          fogStart: dimConfig.fogStart,
+          fogEnd: dimConfig.fogEnd,
+        },
       });
     }
-  }, [onColorsChange, skyColorHex, horizonColorHex, fogColorHex, colors.brightness, colors.cloudColor]);
+  }, [onColorsChange, skyColorHex, horizonColorHex, fogColorHex, colors.brightness, colors.cloudColor, dimension, dimConfig]);
 
   // Set scene background to null so our sky dome is visible
   useEffect(() => {
@@ -1213,6 +1297,39 @@ export function MinecraftSky({
 
   if (!enabled) return null;
 
+  // Nether: solid colored dome, no celestial objects
+  if (dimConfig.skybox === 'none') {
+    return (
+      <group name="minecraft-sky-nether">
+        {/* Solid colored sky dome for Nether */}
+        <SkyDome 
+          skyColor={skyColorHex} 
+          horizonColor={horizonColorHex}
+          sunDirection={null}
+          glowColor={null}
+          glowIntensity={0}
+        />
+      </group>
+    );
+  }
+
+  // End: TODO - implement end sky with purple cube skybox
+  if (dimConfig.skybox === 'end') {
+    return (
+      <group name="minecraft-sky-end">
+        {/* For now, just show a dark dome - End cube skybox to be implemented */}
+        <SkyDome 
+          skyColor={skyColorHex} 
+          horizonColor={horizonColorHex}
+          sunDirection={null}
+          glowColor={null}
+          glowIntensity={0}
+        />
+      </group>
+    );
+  }
+
+  // Overworld: full sky with sun, moon, stars, clouds
   return (
     <group name="minecraft-sky">
       {/* Sky dome with gradient and sunrise/sunset glow */}

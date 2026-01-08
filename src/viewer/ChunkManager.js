@@ -296,13 +296,14 @@ export class ChunkManager {
   }
   
   /**
-   * Update lightmap based on time of day and brightness setting
+   * Update lightmap based on time of day, brightness, and dimension
    * Regenerates the 16x16 lightmap texture with interpolated day/night parameters
    * @param {number} timeOfDay - 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
    * @param {number} brightness - 0-100 brightness slider (0=Moody, 100=Bright)
+   * @param {string} dimension - Dimension ID ('overworld', 'the_nether', 'the_end')
    */
-  updateLightmapForTime(timeOfDay, brightness = 50) {
-    const params = getLightmapParamsForTime(timeOfDay, brightness);
+  updateLightmapForTime(timeOfDay, brightness = 50, dimension = 'overworld') {
+    const params = getLightmapParamsForTime(timeOfDay, brightness, dimension);
     
     // Dispose old lightmap texture
     if (this.lightmap) {
