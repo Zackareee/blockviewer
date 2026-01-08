@@ -600,6 +600,9 @@ export class ChunkStreamer {
     const movedOneChunk = movedX <= 1 && movedZ <= 1;
     const movedSignificantly = movedX >= 2 || movedZ >= 2;
     
+    // Track if boundary check found new chunks (set by the optimization path below)
+    let hasNewBoundaryChunks = false;
+    
     if (this.initialLoadComplete && movedOneChunk && this.loadQueue.size === 0 && !this.isProcessing) {
       // Quick boundary check: only need to look at chunks on the new edge
       // This is O(loadDistance) instead of O(loadDistance²)
@@ -607,11 +610,14 @@ export class ChunkStreamer {
         // No new chunks to load, skip the expensive operations
         return;
       }
+      // Boundary check found new chunks - flag for queueing
+      hasNewBoundaryChunks = true;
     }
     
     // Always re-prioritize if player moved significantly (priorities are stale)
     // Or if there are chunks queued that need fresh priorities
-    const needsReprioritize = movedSignificantly || this.loadQueue.size > 0;
+    // Or if boundary check found new chunks to load
+    const needsReprioritize = movedSignificantly || this.loadQueue.size > 0 || hasNewBoundaryChunks;
     
     // Queue chunks for loading (clears and re-adds with fresh priorities)
     if (needsReprioritize || !this.initialLoadComplete) {
@@ -766,6 +772,10 @@ export class ChunkStreamer {
     this.loadQueue.clear();
     this.queueGeneration++; // Signal that priorities have changed
     
+    let queuedCount = 0;
+    let skippedAlreadyLoaded = 0;
+    let skippedNoRegion = 0;
+    
     // Add chunks in spiral order for better visual loading
     for (let r = 0; r <= loadDistance; r++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -778,19 +788,28 @@ export class ChunkStreamer {
           const key = `${chunkX},${chunkZ}`;
           
           // Skip if already loaded or loading
-          if (this.loadedChunks.has(key) || this.loadingChunks.has(key)) continue;
+          if (this.loadedChunks.has(key) || this.loadingChunks.has(key)) {
+            skippedAlreadyLoaded++;
+            continue;
+          }
           
           // Check if chunk exists
           if (usePreParsedChunks) {
             // For pre-parsed chunks, check directly in the map
-            if (!this.parsedChunks.has(key)) continue;
+            if (!this.parsedChunks.has(key)) {
+              skippedNoRegion++;
+              continue;
+            }
           } else {
             // For region files, check if the region exists
             const regionX = Math.floor(chunkX / REGION_SIZE);
             const regionZ = Math.floor(chunkZ / REGION_SIZE);
             const regionKey = `${regionX},${regionZ}`;
             
-            if (!this.regionFiles.has(regionKey)) continue;
+            if (!this.regionFiles.has(regionKey)) {
+              skippedNoRegion++;
+              continue;
+            }
           }
           
           // Base priority is Euclidean distance squared (like Minecraft's distToCenterSqr)
@@ -820,12 +839,14 @@ export class ChunkStreamer {
             regionZ,
             priority,
           });
+          queuedCount++;
         }
       }
     }
     
     this.stats.queueSize = this.loadQueue.size;
-    // console.log(`[ChunkStreamer] Queued ${this.loadQueue.size} chunks`);
+    const peek = this.loadQueue.peek();
+    console.log(`[ChunkStreamer] Queue result: ${queuedCount} queued, ${skippedAlreadyLoaded} already loaded, ${skippedNoRegion} no region, top priority: ${peek?.priority?.toFixed(1) ?? 'N/A'}`);
   }
 
   /**
@@ -941,9 +962,16 @@ export class ChunkStreamer {
    * Uses batched processing with yields to maintain responsiveness
    */
   async _processQueue() {
-    if (this.isProcessing) return;
-    if (this.isPaused) return;
+    if (this.isProcessing) {
+      console.log(`[ChunkStreamer] _processQueue skipped: already processing`);
+      return;
+    }
+    if (this.isPaused) {
+      console.log(`[ChunkStreamer] _processQueue skipped: paused`);
+      return;
+    }
     this.isProcessing = true;
+    console.log(`[ChunkStreamer] _processQueue started, queue size: ${this.loadQueue.size}`);
     
     // Track queue generation to detect re-prioritization
     const startGeneration = this.queueGeneration;
@@ -955,21 +983,33 @@ export class ChunkStreamer {
         
         // If queue was re-prioritized, break out and let new priorities take effect
         if (this.queueGeneration !== startGeneration) {
+          console.log(`[ChunkStreamer] Queue was re-prioritized, breaking out`);
           break;
         }
         
         // Process batch of chunks concurrently (use configured concurrency)
         // Higher concurrency = faster loading but may cause frame drops
         const batch = [];
+        let skippedLoaded = 0;
         for (let i = 0; i < this.concurrentChunks && this.loadQueue.size > 0; i++) {
           const item = this.loadQueue.pop();
           if (item && !this.loadedChunks.has(`${item.chunkX},${item.chunkZ}`)) {
             batch.push(item);
             this.loadingChunks.add(`${item.chunkX},${item.chunkZ}`);
+          } else if (item) {
+            skippedLoaded++;
           }
         }
+        if (skippedLoaded > 0) {
+          console.log(`[ChunkStreamer] Skipped ${skippedLoaded} already-loaded chunks`);
+        }
         
-        if (batch.length === 0) break;
+        if (batch.length === 0) {
+          console.log(`[ChunkStreamer] Empty batch, queue size: ${this.loadQueue.size}`);
+          break;
+        }
+        
+        console.log(`[ChunkStreamer] Processing batch of ${batch.length} chunks`);
         
         // Process batch in parallel (decode/cache)
         // Note: Meshing is still throttled separately to avoid frame drops
