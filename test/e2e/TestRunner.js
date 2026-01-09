@@ -461,6 +461,40 @@ export async function setChunkLoadingSpeed(driver, speed) {
 }
 
 /**
+ * Set clouds enabled/disabled
+ */
+export async function setCloudsEnabled(driver, enabled) {
+  await driver.executeScript(`
+    if (window.__appSettings) {
+      window.__appSettings.setCloudsEnabled(arguments[0]);
+    }
+  `, enabled);
+}
+
+/**
+ * Set smooth lighting (ambient occlusion) enabled/disabled
+ */
+export async function setSmoothLighting(driver, enabled) {
+  await driver.executeScript(`
+    if (window.__appSettings) {
+      window.__appSettings.setSmoothLighting(arguments[0]);
+    }
+  `, enabled);
+}
+
+/**
+ * Set day/night cycle enabled/disabled
+ * When disabled, time is frozen at noon
+ */
+export async function setDayNightCycle(driver, enabled) {
+  await driver.executeScript(`
+    if (window.__appSettings) {
+      window.__appSettings.setDayNightCycle(arguments[0]);
+    }
+  `, enabled);
+}
+
+/**
  * Wait for a specific number of chunks to load
  */
 export async function waitForChunksLoaded(driver, minChunks, timeoutMs = 300000) {
@@ -474,7 +508,7 @@ export async function waitForChunksLoaded(driver, minChunks, timeoutMs = 300000)
         return {
           loaded: window.__chunkStreamer.loadedChunks.size,
           loading: window.__chunkStreamer.loadingChunks.size,
-          queued: window.__chunkStreamer.loadQueue?.size() || 0,
+          queued: window.__chunkStreamer.loadQueue?.size || 0,
         };
       }
       return null;

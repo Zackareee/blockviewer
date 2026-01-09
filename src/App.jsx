@@ -162,6 +162,32 @@ function App() {
     }
   }, [textureMode]);
   
+  // Expose settings setters for E2E testing
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__appSettings = {
+        setCloudsEnabled,
+        setSmoothLighting: setEnableLighting,
+        setDayNightCycle: (enabled) => {
+          // When disabled, freeze time at noon (0.5)
+          // The actual animation is controlled elsewhere, but we can set a fixed time
+          if (!enabled) {
+            setTimeOfDay(0.5);
+          }
+        },
+        setTimeOfDay,
+        setFogEnabled,
+        setRenderDistance,
+        setFov,
+      };
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete window.__appSettings;
+      }
+    };
+  }, []);
+  
   // Load the default bundled texture pack
   const loadDefaultTexturePack = useCallback(async () => {
     setTexturePackLoading(true);

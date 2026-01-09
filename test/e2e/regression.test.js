@@ -33,6 +33,9 @@ import {
   setCameraFOV,
   setRenderDistance,
   setChunkLoadingSpeed,
+  setCloudsEnabled,
+  setSmoothLighting,
+  setDayNightCycle,
   waitForChunksLoaded,
   takeScreenshot,
   compareScreenshots,
@@ -70,7 +73,18 @@ async function applyDefaultSettings(driver) {
   await setRenderDistance(driver, settings.renderDistance);
   await setChunkLoadingSpeed(driver, settings.chunkLoadingSpeed);
   
-  console.log(`${colors.dim}  Applied default settings: FOV=${settings.fov}, renderDistance=${settings.renderDistance}${colors.reset}`);
+  // Apply visual settings
+  if (settings.clouds !== undefined) {
+    await setCloudsEnabled(driver, settings.clouds);
+  }
+  if (settings.smoothLighting !== undefined) {
+    await setSmoothLighting(driver, settings.smoothLighting);
+  }
+  if (settings.dayNightCycle !== undefined) {
+    await setDayNightCycle(driver, settings.dayNightCycle);
+  }
+  
+  console.log(`${colors.dim}  Applied default settings: FOV=${settings.fov}, renderDistance=${settings.renderDistance}, clouds=${settings.clouds}, smoothLighting=${settings.smoothLighting}${colors.reset}`);
 }
 
 /**
@@ -87,6 +101,15 @@ async function applyTestSettings(driver, testCase) {
   }
   if (testCase.settings.chunkLoadingSpeed) {
     await setChunkLoadingSpeed(driver, testCase.settings.chunkLoadingSpeed);
+  }
+  if (testCase.settings.clouds !== undefined) {
+    await setCloudsEnabled(driver, testCase.settings.clouds);
+  }
+  if (testCase.settings.smoothLighting !== undefined) {
+    await setSmoothLighting(driver, testCase.settings.smoothLighting);
+  }
+  if (testCase.settings.dayNightCycle !== undefined) {
+    await setDayNightCycle(driver, testCase.settings.dayNightCycle);
   }
 }
 
