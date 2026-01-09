@@ -7,10 +7,10 @@
  * 3. Decode blocks to grid + state grid
  * 4. Include neighbor boundary data
  * 5. Propagate light
- * 6. Build ALL meshes (solid + water + lava + glass + models)
+ * 6. Build ALL meshes using WASM (solid + water + lava + glass + models)
  * 7. Return transferable ArrayBuffers
  * 
- * This keeps the main thread free for rendering (~2ms per super-chunk).
+ * Now uses WASM meshing for maximum performance with full texture/lighting support.
  */
 
 import pako from 'pako';
@@ -44,6 +44,11 @@ let blockRegistry = null;
 let stateRegistry = null;
 let textureIndexLookup = null;
 let tintTypeLookup = null;
+
+// WASM mesher state
+let wasmModule = null;
+let wasmInitialized = false;
+let wasmLookupsInitialized = false;
 
 // ============================================================================
 // Decompression Helpers
@@ -99,6 +104,199 @@ async function decompressChunk(compressedData, compressionType) {
     return pako.inflate(compressedData);
   }
   throw new Error(`Unsupported compression type: ${compressionType}`);
+}
+
+// ============================================================================
+// WASM Mesher Loading
+// ============================================================================
+
+async function initWasmMesher() {
+  if (wasmInitialized) return true;
+  
+  try {
+    // Dynamic import of WASM module - works in workers
+    const wasm = await import('../wasm/pkg/wasm_mesher.js');
+    await wasm.default(); // Initialize WASM
+    wasm.init(); // Call our init function
+    
+    wasmModule = wasm;
+    wasmInitialized = true;
+    console.log('[SuperChunkWorker] WASM module initialized');
+    return true;
+  } catch (error) {
+    console.warn('[SuperChunkWorker] Failed to load WASM:', error.message);
+    return false;
+  }
+}
+
+function initWasmLookups(lookups) {
+  if (!wasmInitialized || !wasmModule) {
+    console.warn('[SuperChunkWorker] Cannot init lookups - WASM not available');
+    return false;
+  }
+  
+  try {
+    wasmModule.init_lookups(
+      lookups.isOpaque,
+      lookups.isNonCube,
+      lookups.isSlab,
+      lookups.isFluid,
+      lookups.isGlass,
+      lookups.isAOTransparent,
+      lookups.isRotatable,
+      lookups.isDirectional,
+      lookups.colorR,
+      lookups.colorG,
+      lookups.colorB,
+      lookups.faceTintTypes,
+      lookups.textureIndices,
+      lookups.waterStillIdx || 0,
+      lookups.waterFlowIdx || 0,
+      lookups.lavaStillIdx || 0,
+      lookups.lavaFlowIdx || 0
+    );
+    wasmLookupsInitialized = true;
+    console.log('[SuperChunkWorker] WASM lookups initialized');
+    return true;
+  } catch (error) {
+    console.error('[SuperChunkWorker] Failed to init WASM lookups:', error);
+    return false;
+  }
+}
+
+function serializeGridForWasm(grid) {
+  const sections = [...grid.sections.entries()];
+  const sectionCount = sections.length;
+  
+  const totalSize = 4 + sectionCount * (8 + 4096 * 2);
+  const buffer = new ArrayBuffer(totalSize);
+  const view = new DataView(buffer);
+  const uint8View = new Uint8Array(buffer);
+  
+  view.setUint32(0, sectionCount, true);
+  
+  let offset = 4;
+  for (const [key, section] of sections) {
+    const parts = key.split(',');
+    const chunkX = parseInt(parts[0], 10);
+    const chunkZ = parseInt(parts[1], 10);
+    const sectionY = parseInt(parts[2], 10);
+    
+    const cx = BigInt(chunkX + 0x800000);
+    const cz = BigInt(chunkZ + 0x800000);
+    const sy = BigInt(sectionY & 0xFFFF);
+    const packed = (cx << 40n) | (cz << 16n) | sy;
+    
+    view.setBigUint64(offset, packed, true);
+    offset += 8;
+    
+    const sectionBytes = new Uint8Array(section.buffer, section.byteOffset, section.byteLength);
+    uint8View.set(sectionBytes, offset);
+    offset += 4096 * 2;
+  }
+  
+  return new Uint8Array(buffer);
+}
+
+function serializeLightGridForWasm(lightGrid) {
+  if (!lightGrid || lightGrid.sections.size === 0) {
+    return new Uint8Array(4);
+  }
+
+  const sections = [...lightGrid.sections.entries()];
+  const sectionCount = sections.length;
+  
+  const totalSize = 4 + sectionCount * (8 + 4096);
+  const buffer = new ArrayBuffer(totalSize);
+  const view = new DataView(buffer);
+  const uint8View = new Uint8Array(buffer);
+  
+  view.setUint32(0, sectionCount, true);
+  
+  let offset = 4;
+  for (const [key, section] of sections) {
+    const parts = key.split(',');
+    const chunkX = parseInt(parts[0], 10);
+    const chunkZ = parseInt(parts[1], 10);
+    const sectionY = parseInt(parts[2], 10);
+    
+    const cx = BigInt(chunkX + 0x800000);
+    const cz = BigInt(chunkZ + 0x800000);
+    const sy = BigInt(sectionY & 0xFFFF);
+    const packed = (cx << 40n) | (cz << 16n) | sy;
+    
+    view.setBigUint64(offset, packed, true);
+    offset += 8;
+    
+    uint8View.set(section, offset);
+    offset += 4096;
+  }
+  
+  return new Uint8Array(buffer);
+}
+
+function wasmMeshChunk(grid, lightGrid, bounds) {
+  if (!wasmInitialized || !wasmLookupsInitialized) {
+    throw new Error('WASM mesher not ready');
+  }
+  
+  const gridData = serializeGridForWasm(grid);
+  const lightData = serializeLightGridForWasm(lightGrid);
+  const stateData = new Uint8Array(4); // Empty state grid for now
+  
+  const result = wasmModule.mesh_chunk_bounded(
+    gridData, lightData, stateData, null, 0,
+    bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ
+  );
+  
+  return {
+    solid: {
+      positions: new Float32Array(result.solid_positions),
+      normals: new Float32Array(result.solid_normals),
+      colors: new Float32Array(result.solid_colors),
+      texIndices: new Float32Array(result.solid_tex_indices),
+      texRotations: new Float32Array(result.solid_tex_rotations),
+      tintTypes: new Float32Array(result.solid_tint_types),
+      skyLight: new Float32Array(result.solid_sky_light),
+      blockLight: new Float32Array(result.solid_block_light),
+      indices: new Uint32Array(result.solid_indices),
+      vertexCount: result.solid_vertex_count,
+    },
+    water: {
+      positions: new Float32Array(result.water_positions),
+      normals: new Float32Array(result.water_normals),
+      colors: new Float32Array(result.water_colors),
+      uvs: new Float32Array(result.water_uvs),
+      texIndices: new Float32Array(result.water_tex_indices),
+      skyLight: new Float32Array(result.water_sky_light),
+      blockLight: new Float32Array(result.water_block_light),
+      indices: new Uint32Array(result.water_indices),
+      vertexCount: result.water_vertex_count,
+    },
+    lava: {
+      positions: new Float32Array(result.lava_positions),
+      normals: new Float32Array(result.lava_normals),
+      colors: new Float32Array(result.lava_colors),
+      uvs: new Float32Array(result.lava_uvs),
+      texIndices: new Float32Array(result.lava_tex_indices),
+      skyLight: new Float32Array(result.lava_sky_light),
+      blockLight: new Float32Array(result.lava_block_light),
+      indices: new Uint32Array(result.lava_indices),
+      vertexCount: result.lava_vertex_count,
+    },
+    glass: {
+      positions: new Float32Array(result.glass_positions),
+      normals: new Float32Array(result.glass_normals),
+      colors: new Float32Array(result.glass_colors),
+      texIndices: new Float32Array(result.glass_tex_indices),
+      texRotations: new Float32Array(result.glass_tex_rotations),
+      tintTypes: new Float32Array(result.glass_tint_types),
+      skyLight: new Float32Array(result.glass_sky_light),
+      blockLight: new Float32Array(result.glass_block_light),
+      indices: new Uint32Array(result.glass_indices),
+      vertexCount: result.glass_vertex_count,
+    },
+  };
 }
 
 // ============================================================================
@@ -477,6 +675,24 @@ class WorkerBinaryGrid {
     const lz = ((z % S) + S) % S;
     return sec[ly * S2 + lz * S + lx];
   }
+  
+  // Serialize for transfer to main thread
+  serialize() {
+    const serialized = [];
+    for (const [key, section] of this.sections) {
+      serialized.push({ key, data: section });
+    }
+    return {
+      sections: serialized,
+      totalBlocks: this.totalBlocks,
+      minChunkX: this.minChunkX,
+      maxChunkX: this.maxChunkX,
+      minChunkZ: this.minChunkZ,
+      maxChunkZ: this.maxChunkZ,
+      minSectionY: this.minSectionY,
+      maxSectionY: this.maxSectionY,
+    };
+  }
 }
 
 // ============================================================================
@@ -500,6 +716,25 @@ class WorkerBlockStateGrid {
   
   getSection(cx, cz, sy) {
     return this.sections.get(makeSectionKey(cx, cz, sy));
+  }
+  
+  // Serialize for transfer to main thread
+  serialize() {
+    const serialized = [];
+    for (const [key, section] of this.sections) {
+      // Only include non-empty sections
+      let hasData = false;
+      for (let i = 0; i < section.length; i++) {
+        if (section[i] !== 0) {
+          hasData = true;
+          break;
+        }
+      }
+      if (hasData) {
+        serialized.push({ key, data: section });
+      }
+    }
+    return serialized;
   }
 }
 
@@ -540,6 +775,18 @@ class WorkerLightGrid {
     const lz = ((z % S) + S) % S;
     const val = sec[ly * S2 + lz * S + lx];
     return { sky: val & 0x0F, block: (val >> 4) & 0x0F };
+  }
+  
+  // Serialize for transfer to main thread
+  serialize() {
+    const serialized = [];
+    for (const [key, section] of this.sections) {
+      serialized.push({ key, data: section });
+    }
+    return {
+      sections: serialized,
+      hasMinecraftLightData: this.hasMinecraftLightData,
+    };
   }
 }
 
@@ -1706,8 +1953,49 @@ async function processSuperChunk(data) {
   // Build meshes
   const meshStart = performance.now();
   const offset = { x: 0, y: 0, z: 0 };
-  const gridMeshes = buildGridMeshes(grid, blockRegistry, offset);
-  const modelMeshes = buildModelMeshes(grid, stateGrid, blockRegistry, stateRegistry, offset);
+  
+  let gridMeshes;
+  
+  // Use WASM meshing if available (includes full texture/lighting attributes)
+  if (wasmInitialized && wasmLookupsInitialized) {
+    try {
+      gridMeshes = wasmMeshChunk(grid, lightGrid, bounds);
+    } catch (e) {
+      console.warn('[SuperChunkWorker] WASM meshing failed, falling back to JS:', e.message);
+      gridMeshes = buildGridMeshes(grid, blockRegistry, offset);
+    }
+  } else {
+    // Fall back to simple JS meshing (missing texture/lighting attributes)
+    gridMeshes = buildGridMeshes(grid, blockRegistry, offset);
+  }
+  
+  // Serialize grids for main thread model meshing
+  // Model meshing requires full ModelGeometry infrastructure not available in worker
+  const serializedGrid = grid.serialize();
+  const serializedStateGrid = stateGrid.serialize();
+  const serializedLightGrid = lightGrid.serialize();
+  
+  // Serialize state registry so main thread can map worker stateIds to its own IDs
+  // Only include states that are actually used in the stateGrid
+  const usedStateIds = new Set();
+  for (const { data } of serializedStateGrid) {
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] !== 0) usedStateIds.add(data[i]);
+    }
+  }
+  
+  const serializedStates = [];
+  for (const stateId of usedStateIds) {
+    const state = stateRegistry.getState(stateId);
+    if (state) {
+      serializedStates.push({
+        workerStateId: stateId,
+        blockName: state.blockName,
+        properties: state.properties,
+      });
+    }
+  }
+  
   const meshTime = performance.now() - meshStart;
   
   // Collect transferables
@@ -1718,119 +2006,133 @@ async function processSuperChunk(data) {
     lava: null,
     glass: null,
     models: null,
+    // Serialized grids for main thread model meshing
+    grids: {
+      grid: serializedGrid,
+      stateGrid: serializedStateGrid,
+      lightGrid: serializedLightGrid,
+      states: serializedStates, // Worker state ID -> blockName + properties mapping
+    },
   };
   
-  // Add grid meshes
-  if (gridMeshes.solid) {
+  // Add grid section buffers to transferables
+  for (const section of serializedGrid.sections) {
+    transferables.push(section.data.buffer);
+  }
+  for (const section of serializedStateGrid) {
+    transferables.push(section.data.buffer);
+  }
+  for (const section of serializedLightGrid.sections) {
+    transferables.push(section.data.buffer);
+  }
+  
+  // Add grid meshes with all attributes (texture indices, rotations, tint types, lighting)
+  if (gridMeshes.solid && gridMeshes.solid.vertexCount > 0) {
     result.solid = {
       positions: gridMeshes.solid.positions,
       normals: gridMeshes.solid.normals,
       colors: gridMeshes.solid.colors,
+      texIndices: gridMeshes.solid.texIndices,
+      texRotations: gridMeshes.solid.texRotations,
+      tintTypes: gridMeshes.solid.tintTypes,
+      skyLight: gridMeshes.solid.skyLight,
+      blockLight: gridMeshes.solid.blockLight,
       indices: gridMeshes.solid.indices,
       vertexCount: gridMeshes.solid.vertexCount,
-      triangleCount: gridMeshes.solid.triangleCount,
+      triangleCount: gridMeshes.solid.indices.length / 3,
     };
     transferables.push(
       gridMeshes.solid.positions.buffer,
       gridMeshes.solid.normals.buffer,
       gridMeshes.solid.colors.buffer,
+      gridMeshes.solid.texIndices.buffer,
+      gridMeshes.solid.texRotations.buffer,
+      gridMeshes.solid.tintTypes.buffer,
+      gridMeshes.solid.skyLight.buffer,
+      gridMeshes.solid.blockLight.buffer,
       gridMeshes.solid.indices.buffer
     );
   }
   
-  if (gridMeshes.water) {
+  if (gridMeshes.water && gridMeshes.water.vertexCount > 0) {
     result.water = {
       positions: gridMeshes.water.positions,
       normals: gridMeshes.water.normals,
       colors: gridMeshes.water.colors,
+      uvs: gridMeshes.water.uvs,
+      texIndices: gridMeshes.water.texIndices,
+      skyLight: gridMeshes.water.skyLight,
+      blockLight: gridMeshes.water.blockLight,
       indices: gridMeshes.water.indices,
       vertexCount: gridMeshes.water.vertexCount,
-      triangleCount: gridMeshes.water.triangleCount,
+      triangleCount: gridMeshes.water.indices.length / 3,
     };
     transferables.push(
       gridMeshes.water.positions.buffer,
       gridMeshes.water.normals.buffer,
       gridMeshes.water.colors.buffer,
+      gridMeshes.water.uvs.buffer,
+      gridMeshes.water.texIndices.buffer,
+      gridMeshes.water.skyLight.buffer,
+      gridMeshes.water.blockLight.buffer,
       gridMeshes.water.indices.buffer
     );
   }
   
-  if (gridMeshes.lava) {
+  if (gridMeshes.lava && gridMeshes.lava.vertexCount > 0) {
     result.lava = {
       positions: gridMeshes.lava.positions,
       normals: gridMeshes.lava.normals,
       colors: gridMeshes.lava.colors,
+      uvs: gridMeshes.lava.uvs,
+      texIndices: gridMeshes.lava.texIndices,
+      skyLight: gridMeshes.lava.skyLight,
+      blockLight: gridMeshes.lava.blockLight,
       indices: gridMeshes.lava.indices,
       vertexCount: gridMeshes.lava.vertexCount,
-      triangleCount: gridMeshes.lava.triangleCount,
+      triangleCount: gridMeshes.lava.indices.length / 3,
     };
     transferables.push(
       gridMeshes.lava.positions.buffer,
       gridMeshes.lava.normals.buffer,
       gridMeshes.lava.colors.buffer,
+      gridMeshes.lava.uvs.buffer,
+      gridMeshes.lava.texIndices.buffer,
+      gridMeshes.lava.skyLight.buffer,
+      gridMeshes.lava.blockLight.buffer,
       gridMeshes.lava.indices.buffer
     );
   }
   
-  if (gridMeshes.glass) {
+  if (gridMeshes.glass && gridMeshes.glass.vertexCount > 0) {
     result.glass = {
       positions: gridMeshes.glass.positions,
       normals: gridMeshes.glass.normals,
       colors: gridMeshes.glass.colors,
+      texIndices: gridMeshes.glass.texIndices,
+      texRotations: gridMeshes.glass.texRotations,
+      tintTypes: gridMeshes.glass.tintTypes,
+      skyLight: gridMeshes.glass.skyLight,
+      blockLight: gridMeshes.glass.blockLight,
       indices: gridMeshes.glass.indices,
       vertexCount: gridMeshes.glass.vertexCount,
-      triangleCount: gridMeshes.glass.triangleCount,
+      triangleCount: gridMeshes.glass.indices.length / 3,
     };
     transferables.push(
       gridMeshes.glass.positions.buffer,
       gridMeshes.glass.normals.buffer,
       gridMeshes.glass.colors.buffer,
+      gridMeshes.glass.texIndices.buffer,
+      gridMeshes.glass.texRotations.buffer,
+      gridMeshes.glass.tintTypes.buffer,
+      gridMeshes.glass.skyLight.buffer,
+      gridMeshes.glass.blockLight.buffer,
       gridMeshes.glass.indices.buffer
     );
   }
   
-  // Add model meshes
-  if (modelMeshes) {
-    result.models = {};
-    
-    if (modelMeshes.opaque) {
-      result.models.opaque = {
-        positions: modelMeshes.opaque.positions,
-        normals: modelMeshes.opaque.normals,
-        colors: modelMeshes.opaque.colors,
-        uvs: modelMeshes.opaque.uvs,
-        indices: modelMeshes.opaque.indices,
-        vertexCount: modelMeshes.opaque.vertexCount,
-        triangleCount: modelMeshes.opaque.triangleCount,
-      };
-      transferables.push(
-        modelMeshes.opaque.positions.buffer,
-        modelMeshes.opaque.normals.buffer,
-        modelMeshes.opaque.colors.buffer,
-        modelMeshes.opaque.uvs.buffer,
-        modelMeshes.opaque.indices.buffer
-      );
-    }
-    
-    if (modelMeshes.transparent) {
-      result.models.transparent = {
-        positions: modelMeshes.transparent.positions,
-        normals: modelMeshes.transparent.normals,
-        colors: modelMeshes.transparent.colors,
-        uvs: modelMeshes.transparent.uvs,
-        indices: modelMeshes.transparent.indices,
-        vertexCount: modelMeshes.transparent.vertexCount,
-        triangleCount: modelMeshes.transparent.triangleCount,
-      };
-      transferables.push(
-        modelMeshes.transparent.positions.buffer,
-        modelMeshes.transparent.normals.buffer,
-        modelMeshes.transparent.colors.buffer,
-        modelMeshes.transparent.uvs.buffer,
-        modelMeshes.transparent.indices.buffer
-      );
-    }
-  }
+  // Note: Model meshes are built on main thread using the serialized grids
+  // because the worker doesn't have access to ModelGeometry for computing geometry
   
   const totalTime = performance.now() - startTime;
   
@@ -1871,9 +2173,17 @@ self.onmessage = async function(e) {
       textureIndexLookup = data.textureIndexLookup || null;
       tintTypeLookup = data.tintTypeLookup || null;
       
+      // Initialize WASM mesher in worker (async)
+      const wasmReady = await initWasmMesher();
+      
+      // Initialize WASM lookups if provided
+      if (wasmReady && data.wasmLookups) {
+        initWasmLookups(data.wasmLookups);
+      }
+      
       workerInitialized = true;
       
-      self.postMessage({ type: 'ready', id });
+      self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized });
       break;
     }
     

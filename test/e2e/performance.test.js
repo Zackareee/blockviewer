@@ -52,7 +52,7 @@ const TARGET_CHUNKS = parseInt(process.env.TARGET_CHUNKS || '100', 10);
 const CONFIG = {
   ...DEFAULT_CONFIG,
   devServerPort: 5177,
-  worldFile: path.join(PROJECT_ROOT, 'test-regions', 'hermitcraft_map', 'hermitcraft_map.zip'),
+  worldFile: path.join(PROJECT_ROOT, 'test', 'world_files', 'hermitcraft10.zip'),
   chunkLoadingSpeed: 8, // Maximum speed
   renderDistance: 8,
   targetChunks: TARGET_CHUNKS,
@@ -61,85 +61,113 @@ const CONFIG = {
 
 /**
  * Monitor chunk loading and collect performance metrics
+ * Waits for the build overlay to disappear (indicates loading is complete)
+ * @param {object} driver - WebDriver instance
+ * @param {number} timeoutMs - Maximum time to wait
+ * @param {number} uploadStartTime - Timestamp when file upload started (for E2E timing)
  */
-async function monitorChunkLoading(driver, targetChunks, timeoutMs) {
-  const startTime = Date.now();
+async function monitorChunkLoading(driver, timeoutMs, uploadStartTime) {
   const samples = [];
   let lastChunkCount = 0;
-  let lastSampleTime = startTime;
+  let lastSampleTime = Date.now();
+  let firstChunkTime = null;
+  let loadingCompleteTime = null;
+  let loadingZeroSince = null; // When loading first became 0
+  const STABLE_MS = 500; // Consider complete after 500ms with loading=0
   
-  console.log(`${colors.dim}  Monitoring chunk loading (target: ${targetChunks} chunks)...${colors.reset}`);
+  console.log(`${colors.dim}  Monitoring chunk loading...${colors.reset}`);
   
-  while (Date.now() - startTime < timeoutMs) {
-    // Get current chunk count
-    const stats = await driver.executeScript(`
+  const monitorStartTime = Date.now();
+  
+  while (Date.now() - monitorStartTime < timeoutMs) {
+    const now = Date.now();
+    const elapsedFromUpload = now - uploadStartTime;
+    
+    // Check if build overlay is visible and get stats
+    const overlayState = await driver.executeScript(`
+      const overlay = document.querySelector('.build-overlay');
+      const isVisible = overlay && overlay.offsetParent !== null;
+      
+      let stats = null;
       if (window.__chunkStreamer) {
-        return {
+        const superChunkCount = window.__chunkStreamer.superChunkManager?.superChunks?.size || 0;
+        stats = {
           loaded: window.__chunkStreamer.loadedChunks.size,
           loading: window.__chunkStreamer.loadingChunks.size,
-          queued: window.__chunkStreamer.loadQueue?.size() || 0,
+          superChunks: superChunkCount,
         };
       }
-      return null;
+      
+      return { isVisible, stats };
     `);
     
-    if (!stats) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      continue;
+    const { isVisible, stats } = overlayState;
+    
+    if (stats) {
+      const sampleInterval = now - lastSampleTime;
+      
+      // Track first chunk time
+      if (stats.loaded > 0 && firstChunkTime === null) {
+        firstChunkTime = elapsedFromUpload;
+        console.log(`${colors.dim}    First chunk loaded at ${(firstChunkTime / 1000).toFixed(2)}s${colors.reset}`);
+      }
+      
+      // Calculate chunks loaded in this interval
+      const chunksLoaded = stats.loaded - lastChunkCount;
+      const chunksPerSecond = sampleInterval > 0 ? chunksLoaded / (sampleInterval / 1000) : 0;
+      
+      samples.push({
+        time: elapsedFromUpload,
+        loaded: stats.loaded,
+        loading: stats.loading,
+        superChunks: stats.superChunks,
+        chunksPerSecond,
+      });
+      
+      // Progress update every 2 seconds
+      if (samples.length % 20 === 0 || (samples.length % 5 === 0 && stats.loaded < 50)) {
+        const avgRate = elapsedFromUpload > 0 ? stats.superChunks / (elapsedFromUpload / 1000) : 0;
+        console.log(`${colors.dim}    ${stats.superChunks} super-chunks (${stats.loaded} chunks) | ${(elapsedFromUpload / 1000).toFixed(1)}s | ${avgRate.toFixed(1)} meshes/sec${colors.reset}`);
+      }
+      
+      lastChunkCount = stats.loaded;
+      lastSampleTime = now;
     }
     
-    const now = Date.now();
-    const elapsed = now - startTime;
-    const sampleInterval = now - lastSampleTime;
-    
-    // Calculate chunks loaded in this interval
-    const chunksLoaded = stats.loaded - lastChunkCount;
-    const chunksPerSecond = chunksLoaded / (sampleInterval / 1000);
-    
-    samples.push({
-      time: elapsed,
-      loaded: stats.loaded,
-      loading: stats.loading,
-      queued: stats.queued,
-      chunksPerSecond,
-    });
-    
-    // Progress update
-    if (samples.length % 10 === 0) {
-      const avgRate = stats.loaded / (elapsed / 1000);
-      console.log(`${colors.dim}    ${stats.loaded}/${targetChunks} chunks | ${avgRate.toFixed(2)} chunks/sec avg | ${stats.loading} loading | ${stats.queued} queued${colors.reset}`);
+    // Loading complete when build overlay disappears
+    if (!isVisible && stats && stats.loaded > 0) {
+      if (loadingZeroSince === null) {
+        loadingZeroSince = now;
+      } else if (now - loadingZeroSince >= STABLE_MS) {
+        loadingCompleteTime = elapsedFromUpload - STABLE_MS;
+        console.log(`${colors.green}  ✓ Loading complete: ${stats.superChunks} super-chunks (${stats.loaded} chunks) in ${(loadingCompleteTime / 1000).toFixed(2)}s${colors.reset}`);
+        break;
+      }
+    } else {
+      loadingZeroSince = null;
     }
     
-    // Check if target reached
-    if (stats.loaded >= targetChunks) {
-      console.log(`${colors.green}  ✓ Target reached: ${stats.loaded} chunks in ${(elapsed / 1000).toFixed(1)}s${colors.reset}`);
-      break;
-    }
-    
-    // Check if loading stalled
-    if (stats.loading === 0 && stats.queued === 0 && stats.loaded > 0) {
-      console.log(`${colors.yellow}  ⚠ Loading complete (no more chunks available): ${stats.loaded} chunks${colors.reset}`);
-      break;
-    }
-    
-    lastChunkCount = stats.loaded;
-    lastSampleTime = now;
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 100)); // Poll every 100ms for accuracy
   }
   
-  const totalTime = Date.now() - startTime;
   const finalStats = await driver.executeScript(`
     if (window.__chunkStreamer) {
-      return window.__chunkStreamer.loadedChunks.size;
+      return {
+        chunks: window.__chunkStreamer.loadedChunks.size,
+        superChunks: window.__chunkStreamer.superChunkManager?.superChunks?.size || 0,
+      };
     }
-    return 0;
+    return { chunks: 0, superChunks: 0 };
   `);
   
+  const totalE2ETime = loadingCompleteTime || (Date.now() - uploadStartTime);
+  
   return {
-    totalChunks: finalStats,
-    totalTimeMs: totalTime,
-    chunksPerSecond: finalStats / (totalTime / 1000),
+    totalChunks: finalStats.chunks,
+    totalSuperChunks: finalStats.superChunks,
+    totalTimeMs: totalE2ETime,
+    meshesPerSecond: totalE2ETime > 0 ? finalStats.superChunks / (totalE2ETime / 1000) : 0,
+    firstChunkTimeMs: firstChunkTime,
     samples,
   };
 }
@@ -151,18 +179,18 @@ function analyzePerformance(loadingStats, chunkStats, profilerStats) {
   const bottlenecks = [];
   
   // Check overall chunk loading rate
-  if (loadingStats.chunksPerSecond < 4) {
+  if (loadingStats.meshesPerSecond < 1) {
     bottlenecks.push({
       category: 'CRITICAL',
-      issue: 'Low chunk throughput',
-      detail: `${loadingStats.chunksPerSecond.toFixed(2)} chunks/sec (target: 4+)`,
+      issue: 'Low mesh throughput',
+      detail: `${loadingStats.meshesPerSecond.toFixed(2)} meshes/sec (target: 1+)`,
       recommendation: 'Check worker pool utilization and meshing pipeline',
     });
-  } else if (loadingStats.chunksPerSecond < 6) {
+  } else if (loadingStats.meshesPerSecond < 1.5) {
     bottlenecks.push({
       category: 'WARNING',
-      issue: 'Below optimal chunk throughput',
-      detail: `${loadingStats.chunksPerSecond.toFixed(2)} chunks/sec (optimal: 6+)`,
+      issue: 'Below optimal mesh throughput',
+      detail: `${loadingStats.meshesPerSecond.toFixed(2)} meshes/sec (optimal: 1.5+)`,
       recommendation: 'Consider increasing worker count or batch size',
     });
   }
@@ -202,10 +230,11 @@ function printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlen
   console.log(`${colors.cyan}${colors.bold}═══════════════════════════════════════════════════════════════${colors.reset}\n`);
   
   // Summary
-  console.log(`${colors.bold}  SUMMARY:${colors.reset}`);
-  console.log(`    Total Chunks Loaded: ${loadingStats.totalChunks}`);
-  console.log(`    Total Time: ${(loadingStats.totalTimeMs / 1000).toFixed(2)}s`);
-  console.log(`    Average Rate: ${colors.bold}${loadingStats.chunksPerSecond.toFixed(2)} chunks/sec${colors.reset}`);
+  console.log(`${colors.bold}  E2E TIMING (from file upload to load complete):${colors.reset}`);
+  console.log(`    Super-chunks Meshed: ${loadingStats.totalSuperChunks} (${loadingStats.totalChunks} chunks)`);
+  console.log(`    Time to First Chunk: ${loadingStats.firstChunkTimeMs ? (loadingStats.firstChunkTimeMs / 1000).toFixed(2) + 's' : 'N/A'}`);
+  console.log(`    Total E2E Time: ${colors.bold}${(loadingStats.totalTimeMs / 1000).toFixed(2)}s${colors.reset}`);
+  console.log(`    Average Rate: ${colors.bold}${loadingStats.meshesPerSecond.toFixed(2)} meshes/sec${colors.reset}`);
   console.log();
   
   // Process timing breakdown
@@ -244,13 +273,14 @@ function printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlen
   
   // Performance grade
   let grade, gradeColor;
-  if (loadingStats.chunksPerSecond >= 6) {
+  // Grade based on meshes per second (super-chunks)
+  if (loadingStats.meshesPerSecond >= 2) {
     grade = 'EXCELLENT';
     gradeColor = colors.green;
-  } else if (loadingStats.chunksPerSecond >= 4) {
+  } else if (loadingStats.meshesPerSecond >= 1.5) {
     grade = 'GOOD';
     gradeColor = colors.green;
-  } else if (loadingStats.chunksPerSecond >= 2) {
+  } else if (loadingStats.meshesPerSecond >= 1) {
     grade = 'ACCEPTABLE';
     gradeColor = colors.yellow;
   } else {
@@ -260,7 +290,7 @@ function printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlen
   
   console.log(`${colors.bold}═══════════════════════════════════════════════════════════════${colors.reset}`);
   console.log(`  Performance Grade: ${gradeColor}${colors.bold}${grade}${colors.reset}`);
-  console.log(`  ${loadingStats.chunksPerSecond.toFixed(2)} chunks/second`);
+  console.log(`  ${loadingStats.meshesPerSecond.toFixed(2)} meshes/second`);
   console.log(`${colors.bold}═══════════════════════════════════════════════════════════════${colors.reset}\n`);
   
   return grade !== 'POOR';
@@ -319,18 +349,21 @@ async function runTests() {
     
     console.log(`${colors.green}  ✓ Settings applied: speed=${CONFIG.chunkLoadingSpeed}, renderDistance=${CONFIG.renderDistance}${colors.reset}`);
     
+    // Start E2E timer before uploading
+    const uploadStartTime = Date.now();
+    console.log(`${colors.dim}  Starting E2E timer...${colors.reset}`);
+    
     // Upload world file
     await uploadFile(driver, CONFIG.worldFile, 'world');
+    
+    // Wait for canvas to appear (indicates world is being processed)
     await waitForCanvasRendered(driver, CONFIG);
     
-    // Wait for initial loading overlay to clear
-    await waitForLoadingComplete(driver, CONFIG);
-    
-    // Monitor chunk loading performance
+    // Monitor chunk loading until build overlay disappears (loading complete)
     const loadingStats = await monitorChunkLoading(
       driver,
-      CONFIG.targetChunks,
-      CONFIG.performanceTimeout
+      CONFIG.performanceTimeout,
+      uploadStartTime
     );
     
     // Get chunk loading stats from browser

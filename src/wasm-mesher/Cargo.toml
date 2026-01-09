@@ -33,7 +33,11 @@ wee_alloc = { version = "0.4.5", optional = true }
 wasm-bindgen-test = "0.3.42"
 
 [profile.release]
-# Tell `rustc` to optimize for small code size.
-opt-level = "s"
+# Optimize for speed over size for meshing performance
+opt-level = 3
 lto = true
+
+# Enable SIMD for WASM target
+[target.'cfg(target_arch = "wasm32")'.rustflags]
+simd128 = true
 

@@ -12,7 +12,6 @@
     "build:js-only": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "benchmark": "node benchmark.js",
     "test": "node test/mesh.test.js",
     "test:update": "node test/mesh.test.js --update",
     "test:mesh": "node test/mesh/meshConsistency.test.js",

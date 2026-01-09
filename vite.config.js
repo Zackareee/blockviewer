@@ -34,6 +34,10 @@ export default defineConfig({
       },
     },
   },
+  // Worker configuration for ES module workers (required for code-splitting)
+  worker: {
+    format: 'es',
+  },
   // Enable SharedArrayBuffer support with COOP/COEP headers
   server: {
     headers: {

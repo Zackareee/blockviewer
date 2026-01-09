@@ -1,6 +1,8 @@
 //! Mesh generation algorithms
 
 pub mod ao;
+pub mod ao_simd;
+pub mod binary_cull;
 pub mod fluid;
 pub mod greedy;
 pub mod model;
@@ -17,6 +19,9 @@ pub struct MeshData {
     pub tint_types: Vec<f32>,
     pub sky_light: Vec<f32>,
     pub block_light: Vec<f32>,
+    /// Packed light data: high nibble = sky (0-15), low nibble = block (0-15)
+    /// This is 8x smaller than the separate f32 arrays
+    pub packed_light: Vec<u8>,
     pub indices: Vec<u32>,
     pub vertex_count: u32,
 }
@@ -37,9 +42,27 @@ impl MeshData {
             tint_types: Vec::with_capacity(vertex_cap),
             sky_light: Vec::with_capacity(vertex_cap),
             block_light: Vec::with_capacity(vertex_cap),
+            packed_light: Vec::with_capacity(vertex_cap),
             indices: Vec::with_capacity(index_cap),
             vertex_count: 0,
         }
+    }
+    
+    /// Pack sky and block light into a single byte
+    /// High nibble = sky (0-15), low nibble = block (0-15)
+    #[inline]
+    pub fn pack_light(sky: f32, block: f32) -> u8 {
+        let sky_u8 = (sky.clamp(0.0, 15.0) as u8) & 0x0F;
+        let block_u8 = (block.clamp(0.0, 15.0) as u8) & 0x0F;
+        (sky_u8 << 4) | block_u8
+    }
+    
+    /// Unpack light byte to (sky, block) f32 values
+    #[inline]
+    pub fn unpack_light(packed: u8) -> (f32, f32) {
+        let sky = (packed >> 4) as f32;
+        let block = (packed & 0x0F) as f32;
+        (sky, block)
     }
 
     /// Add a quad (4 vertices, 6 indices)
@@ -94,6 +117,8 @@ impl MeshData {
             self.tint_types.push(tint);
             self.sky_light.push(sky[i]);
             self.block_light.push(block[i]);
+            // Also add packed light for efficient transfer
+            self.packed_light.push(Self::pack_light(sky[i], block[i]));
         }
 
         // Add indices (two triangles)

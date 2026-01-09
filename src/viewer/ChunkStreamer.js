@@ -773,9 +773,12 @@ export class ChunkStreamer {
       let chunkData = chunkEntry.data;
       
       // Decompress if needed
-      if (chunkEntry.isRawCompressed) {
-        const compressed = new Uint8Array(chunkData);
-        const decompressed = pako.inflate(compressed);
+      if (chunkEntry.isRawCompressed && chunkData.compressedData) {
+        const compressed = new Uint8Array(chunkData.compressedData);
+        // Use gzip for type 1, zlib/inflate for type 2
+        const decompressed = chunkData.compressionType === 1 
+          ? pako.ungzip(compressed)
+          : pako.inflate(compressed);
         chunkData = parseNBTRaw(decompressed.buffer).value;
       }
       

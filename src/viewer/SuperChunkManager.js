@@ -26,6 +26,7 @@ import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
 import { getMeshWorkerPool, resetMeshWorkerPool } from '../mesh/workers/MeshWorkerPool.js';
 import { getSuperChunkWorkerPool, resetSuperChunkWorkerPool } from '../mesh/workers/SuperChunkWorkerPool.js';
 import { supportsWorkerPipeline } from '../utils/CapabilityDetector.js';
+import { getSharedLookupManager } from '../utils/SharedMemoryPool.js';
 import { 
   initWasmMesher, 
   isWasmAvailable, 
@@ -39,6 +40,7 @@ import {
 import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
 import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
+import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
 
 // Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
 // Smaller size = faster rebuilds, less jank, more responsive loading
@@ -235,6 +237,8 @@ export class SuperChunkManager {
     this.superChunkWorkerPool = null;
     this.superChunkWorkerPoolInitialized = false;
     this.superChunkWorkerPoolPromise = null;
+    // Enable SuperChunkWorkerPool for parallel off-thread meshing
+    // Workers now use WASM mesher which includes all required attributes
     this.useSuperChunkWorkerPool = options.useSuperChunkWorkerPool ?? supportsWorkerPipeline();
     
     // WASM mesher state
@@ -412,11 +416,15 @@ export class SuperChunkManager {
         stateRegistryData = exported.data;
       }
       
+      // Build WASM lookup tables for workers
+      const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
+      const wasmLookups = this._buildWasmLookupsForWorker(textureIndexLookup);
+      
       // Get or create the worker pool
       this.superChunkWorkerPool = getSuperChunkWorkerPool();
       
-      // Initialize with registry data
-      await this.superChunkWorkerPool.initialize(blockRegistryData, stateRegistryData);
+      // Initialize with registry data including WASM lookups
+      await this.superChunkWorkerPool.initialize(blockRegistryData, stateRegistryData, wasmLookups);
       
       this.superChunkWorkerPoolInitialized = true;
       console.log('[SuperChunkManager] SuperChunkWorkerPool initialized successfully');
@@ -426,6 +434,146 @@ export class SuperChunkManager {
       this.useSuperChunkWorkerPool = false;
       return false;
     }
+  }
+  
+  /**
+   * Build WASM lookup tables for worker initialization
+   * Uses SharedArrayBuffer when available for zero-copy sharing with workers
+   */
+  _buildWasmLookupsForWorker(textureIndexLookup) {
+    const MAX_BLOCKS = 4096;
+    
+    // Use SharedArrayBuffer if available for zero-copy sharing
+    const sharedManager = getSharedLookupManager();
+    const useShared = typeof SharedArrayBuffer !== 'undefined';
+    
+    // Create buffers - SharedArrayBuffer for larger arrays, regular for small ones
+    const createBuffer = (TypedArray, size) => {
+      if (useShared) {
+        try {
+          const buffer = new SharedArrayBuffer(size * TypedArray.BYTES_PER_ELEMENT);
+          return new TypedArray(buffer);
+        } catch (e) {
+          // Fallback to regular ArrayBuffer
+        }
+      }
+      return new TypedArray(size);
+    };
+    
+    const isOpaque = new Uint8Array(MAX_BLOCKS);
+    const isNonCube = new Uint8Array(MAX_BLOCKS);
+    const isSlab = new Uint8Array(MAX_BLOCKS);
+    const isFluid = new Uint8Array(MAX_BLOCKS);
+    const isGlass = new Uint8Array(MAX_BLOCKS);
+    const isAOTransparent = new Uint8Array(MAX_BLOCKS);
+    const isRotatable = new Uint8Array(MAX_BLOCKS);
+    const isDirectional = new Uint8Array(MAX_BLOCKS);
+    // Larger arrays use SharedArrayBuffer for zero-copy
+    const colorR = createBuffer(Float32Array, MAX_BLOCKS);
+    const colorG = createBuffer(Float32Array, MAX_BLOCKS);
+    const colorB = createBuffer(Float32Array, MAX_BLOCKS);
+    const textureIndices = createBuffer(Float32Array, MAX_BLOCKS * 6);
+    
+    // Build face tint type lookup using the existing function
+    const faceTintTypesSource = buildFaceTintTypeLookup(this.registry);
+    const faceTintTypes = new Uint8Array(faceTintTypesSource);
+    
+    colorR.fill(1.0);
+    colorG.fill(1.0);
+    colorB.fill(1.0);
+    
+    for (let id = 0; id < MAX_BLOCKS; id++) {
+      const info = this.registry.getBlockInfo(id);
+      if (!info) continue;
+      
+      isOpaque[id] = this.registry.isOpaque(id) ? 1 : 0;
+      isNonCube[id] = this.registry.isNonCube?.(id) ? 1 : 0;
+      
+      const col = this.registry.getColor(id);
+      colorR[id] = col.r;
+      colorG[id] = col.g;
+      colorB[id] = col.b;
+      
+      if (info.name) {
+        const name = info.name;
+        const isCauldron = name.includes('cauldron');
+        if (name.includes('water') && !isCauldron) isFluid[id] = 1;
+        else if (name.includes('lava') && !isCauldron) isFluid[id] = 2;
+        
+        if ((name.includes('glass') && !name.includes('_pane')) ||
+            name.includes('ice') || name.includes('leaves')) {
+          isGlass[id] = 1;
+        }
+        
+        if (name.includes('_slab')) isSlab[id] = 1;
+        
+        if (name.includes('glass') || name.includes('ice') ||
+            name.includes('leaves') || name.includes('slime') ||
+            name.includes('honey') || name.includes('water') ||
+            name.includes('lava') || name.includes('barrier') ||
+            name.includes('light') || this.registry.isNonCube?.(id)) {
+          isAOTransparent[id] = 1;
+        }
+        
+        // Rotatable blocks (logs, pillars)
+        if (name.includes('_log') || name.includes('_wood') ||
+            name.includes('_stem') || name.includes('_hyphae') ||
+            name.includes('bone_block') || name.includes('hay_block') ||
+            name.includes('quartz_pillar') || name.includes('purpur_pillar') ||
+            name.includes('basalt') || name.includes('deepslate') && !name.includes('tiles') && !name.includes('bricks')) {
+          isRotatable[id] = 1;
+        }
+        
+        // Directional blocks (furnace, loom, etc.)
+        const DIRECTIONAL = ['furnace', 'blast_furnace', 'smoker', 'loom', 'carved_pumpkin', 'jack_o_lantern'];
+        if (DIRECTIONAL.some(b => name === b || name === `minecraft:${b}`)) {
+          isDirectional[id] = 1;
+        }
+      }
+      
+      // Texture indices
+      if (textureIndexLookup) {
+        for (let face = 0; face < 6; face++) {
+          textureIndices[id * 6 + face] = textureIndexLookup.getIndex(id, face);
+        }
+      }
+    }
+    
+    // Fluid texture indices
+    let waterStillIdx = 0, waterFlowIdx = 0, lavaStillIdx = 0, lavaFlowIdx = 0;
+    if (textureIndexLookup) {
+      waterStillIdx = textureIndexLookup.getIndexByPath?.('block/water_still') || 0;
+      waterFlowIdx = textureIndexLookup.getIndexByPath?.('block/water_flow') || waterStillIdx;
+      lavaStillIdx = textureIndexLookup.getIndexByPath?.('block/lava_still') || 0;
+      lavaFlowIdx = textureIndexLookup.getIndexByPath?.('block/lava_flow') || lavaStillIdx;
+    }
+    
+    const isShared = useShared && colorR.buffer instanceof SharedArrayBuffer;
+    
+    if (isShared) {
+      console.log('[SuperChunkManager] Using SharedArrayBuffer for WASM lookups (zero-copy transfer)');
+    }
+    
+    return {
+      isOpaque,
+      isNonCube,
+      isSlab,
+      isFluid,
+      isGlass,
+      isAOTransparent,
+      isRotatable,
+      isDirectional,
+      colorR,
+      colorG,
+      colorB,
+      faceTintTypes,
+      textureIndices,
+      waterStillIdx,
+      waterFlowIdx,
+      lavaStillIdx,
+      lavaFlowIdx,
+      isShared,  // Indicates if buffers are SharedArrayBuffer (no copy needed)
+    };
   }
 
   /**
@@ -673,15 +821,18 @@ export class SuperChunkManager {
   async _buildSuperChunkWithWorkerPool(superChunk) {
     const key = `${superChunk.superX},${superChunk.superZ}`;
     
-    // Collect raw compressed chunk data
+    // Collect raw compressed chunk data - clone buffers to preserve originals
+    // After transfer to worker, ArrayBuffers become detached, so we must clone
+    // to allow future rebuilds (e.g., boundary repairs) to work
     const chunks = [];
     for (const [, chunkInfo] of superChunk.loadedChunks) {
       if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
       
+      const originalBuffer = chunkInfo.data.compressedData;
       chunks.push({
         chunkX: chunkInfo.chunkX,
         chunkZ: chunkInfo.chunkZ,
-        compressedData: chunkInfo.data.compressedData,
+        compressedData: originalBuffer.slice(0),
         compressionType: chunkInfo.data.compressionType,
       });
     }
@@ -690,8 +841,8 @@ export class SuperChunkManager {
       throw new Error('No raw compressed chunks available');
     }
     
-    // Collect neighbor chunks for boundary handling
-    const neighbors = this._collectNeighborDataForWorker(superChunk);
+    // Collect neighbor chunks for boundary handling - clone buffers too
+    const neighbors = this._collectNeighborDataForWorker(superChunk, true /* cloneBuffers */);
     
     // Calculate bounds
     const bounds = {
@@ -711,7 +862,7 @@ export class SuperChunkManager {
     });
     
     // Create Three.js meshes from worker result (main thread only, ~2ms total)
-    this._createMeshesFromWorkerResult(superChunk, result);
+    await this._createMeshesFromWorkerResult(superChunk, result);
     
     // Track stats
     if (stats) {
@@ -735,8 +886,10 @@ export class SuperChunkManager {
 
   /**
    * Collect neighbor chunk data for worker (raw compressed)
+   * @param {SuperChunk} superChunk - The super-chunk to collect neighbors for
+   * @param {boolean} cloneBuffers - If true, clone ArrayBuffers to allow safe parallel transfer
    */
-  _collectNeighborDataForWorker(superChunk) {
+  _collectNeighborDataForWorker(superChunk, cloneBuffers = false) {
     const neighbors = [];
     const superX = superChunk.superX;
     const superZ = superChunk.superZ;
@@ -763,10 +916,12 @@ export class SuperChunkManager {
         );
         
         if (isAdjacent) {
+          const originalBuffer = chunkInfo.data.compressedData;
           neighbors.push({
             chunkX: chunkInfo.chunkX,
             chunkZ: chunkInfo.chunkZ,
-            compressedData: chunkInfo.data.compressedData,
+            // Clone buffer when needed for parallel dispatch to avoid detached buffer errors
+            compressedData: cloneBuffers ? originalBuffer.slice(0) : originalBuffer,
             compressionType: chunkInfo.data.compressionType,
           });
         }
@@ -796,9 +951,10 @@ export class SuperChunkManager {
 
   /**
    * Create Three.js meshes from worker result
-   * This is the only work done on the main thread (~2ms total)
+   * Solid/water/lava/glass meshes come from worker
+   * Model meshes are built on main thread using serialized grids
    */
-  _createMeshesFromWorkerResult(superChunk, result) {
+  async _createMeshesFromWorkerResult(superChunk, result) {
     // Solid mesh
     if (result.solid && result.solid.positions.length > 0) {
       const mesh = this._createMesh(result.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
@@ -838,25 +994,138 @@ export class SuperChunkManager {
       }
     }
     
-    // Model meshes
-    if (result.models) {
-      if (result.models.opaque && result.models.opaque.positions.length > 0) {
-        const mesh = this._createMesh(result.models.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
-        if (mesh) {
-          superChunk.meshes.push(mesh);
-          this.chunkManager.modelMeshes.push(mesh);
+    // Build model meshes on main thread from serialized grids
+    if (result.grids) {
+      const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
+      if (modelResult) {
+        // Opaque models
+        if (modelResult.opaque && modelResult.opaque.positions?.length > 0) {
+          const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+          if (mesh) {
+            superChunk.meshes.push(mesh);
+            this.chunkManager.modelMeshes.push(mesh);
+          }
         }
-      }
-      
-      if (result.models.transparent && result.models.transparent.positions.length > 0) {
-        const mesh = this._createMesh(result.models.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
-        if (mesh) {
-          mesh.renderOrder = 0.5;
-          superChunk.meshes.push(mesh);
-          this.chunkManager.transparentModelMeshes.push(mesh);
+        
+        // Transparent models
+        if (modelResult.transparent && modelResult.transparent.positions?.length > 0) {
+          const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.5;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.transparentModelMeshes.push(mesh);
+          }
+        }
+        
+        // Overlay models (grass side overlays)
+        if (modelResult.overlay && modelResult.overlay.positions?.length > 0) {
+          const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.1;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.overlayMeshes?.push(mesh);
+          }
+        }
+        
+        // Register particle emitters
+        if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
+          const emitterManager = this.chunkManager.particleEmitterManager;
+          if (emitterManager) {
+            for (const emitter of modelResult.particleEmitters) {
+              emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
+            }
+          }
         }
       }
     }
+  }
+  
+  /**
+   * Deserialize grids from worker and build model meshes on main thread
+   */
+  async _buildModelMeshesFromWorkerGrids(gridsData) {
+    if (!gridsData) return null;
+    
+    // Reconstruct BinaryGrid
+    const grid = new BinaryGrid();
+    if (gridsData.grid && gridsData.grid.sections) {
+      for (const { key, data } of gridsData.grid.sections) {
+        grid.sections.set(key, data);
+      }
+      grid.totalBlocks = gridsData.grid.totalBlocks;
+      grid.minChunkX = gridsData.grid.minChunkX;
+      grid.maxChunkX = gridsData.grid.maxChunkX;
+      grid.minChunkZ = gridsData.grid.minChunkZ;
+      grid.maxChunkZ = gridsData.grid.maxChunkZ;
+      grid.minSectionY = gridsData.grid.minSectionY;
+      grid.maxSectionY = gridsData.grid.maxSectionY;
+    }
+    
+    // Build worker-to-main state ID mapping
+    // Worker registers states during decoding with its own IDs
+    // We need to re-register in main thread's stateRegistry to get correct IDs
+    const workerToMainStateId = new Map();
+    if (gridsData.states) {
+      for (const { workerStateId, blockName, properties } of gridsData.states) {
+        // Re-register in main thread's stateRegistry to get consistent ID
+        const mainStateId = this.stateRegistry.register(blockName, properties);
+        workerToMainStateId.set(workerStateId, mainStateId);
+      }
+    }
+    
+    // Reconstruct BlockStateGrid with remapped state IDs
+    const stateGrid = new BlockStateGrid();
+    if (gridsData.stateGrid) {
+      for (const { key, data } of gridsData.stateGrid) {
+        // Remap worker state IDs to main thread state IDs
+        const remappedData = new Uint16Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+          const workerStateId = data[i];
+          if (workerStateId !== 0) {
+            remappedData[i] = workerToMainStateId.get(workerStateId) || 0;
+          }
+        }
+        stateGrid.sections.set(key, remappedData);
+      }
+    }
+    
+    // Reconstruct LightGrid
+    const lightGrid = new LightGrid();
+    if (gridsData.lightGrid && gridsData.lightGrid.sections) {
+      for (const { key, data } of gridsData.lightGrid.sections) {
+        lightGrid.sections.set(key, data);
+      }
+      lightGrid.hasMinecraftLightData = gridsData.lightGrid.hasMinecraftLightData;
+    }
+    
+    // CRITICAL: Precompute geometry for all registered states before building meshes
+    // This is what the working path (_buildSuperChunkWithWasm) does
+    if (this.stateRegistry?.precomputeAll) {
+      await this.stateRegistry.precomputeAll();
+    }
+    
+    // Build model meshes using full ModelMesher
+    const offset = { x: 0, y: 0, z: 0 };
+    const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
+    const collectEmitters = this.chunkManager.particleQuality !== 'off';
+    const effectiveLightGrid = this.chunkManager.smoothLightingEnabled ? lightGrid : null;
+    const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid, collectEmitters };
+    
+    const result = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
+    
+    // Debug result
+    if (!this._modelResultLogged) {
+      this._modelResultLogged = true;
+      console.log('[SuperChunkManager] Model mesh result:', {
+        hasOpaque: !!result?.opaque,
+        opaqueVerts: result?.opaque?.vertexCount || 0,
+        hasTransparent: !!result?.transparent,
+        transparentVerts: result?.transparent?.vertexCount || 0,
+        hasParticles: !!result?.particleEmitters?.length,
+      });
+    }
+    
+    return result;
   }
 
   /**
@@ -1359,7 +1628,7 @@ export class SuperChunkManager {
       const meshResult = await this.workerPool.meshChunk(gridData, lightGridData, offset, options, priority);
       
       // Create Three.js meshes from returned data
-      this._createMeshesFromWorkerResult(superChunk, meshResult);
+      await this._createMeshesFromWorkerResult(superChunk, meshResult);
     } catch (error) {
       console.error('[SuperChunkManager] Worker meshing failed, falling back to main thread:', error);
       // Fall back to main thread on error
@@ -1631,99 +1900,6 @@ export class SuperChunkManager {
   }
     
   /**
-   * Create Three.js meshes from worker result data
-   */
-  _createMeshesFromWorkerResult(superChunk, meshResult) {
-    if (!meshResult) return;
-    
-    // Helper to check if mesh data has vertices
-    // ArrayBuffer uses byteLength, TypedArrays use length
-    const hasVertices = (data) => {
-      if (!data || !data.positions) return false;
-      const size = data.positions.byteLength ?? data.positions.length;
-      return size > 0;
-    };
-    
-    // Process solid meshes
-    if (hasVertices(meshResult.solid)) {
-      const mesh = this._createMeshFromData(meshResult.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
-      if (mesh) {
-        superChunk.meshes.push(mesh);
-        this.chunkManager.solidMeshes.push(mesh);
-      }
-    }
-    
-    // Process water meshes
-    if (hasVertices(meshResult.water)) {
-      const mesh = this._createMeshFromData(meshResult.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
-      if (mesh) {
-        mesh.renderOrder = 2;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.waterMeshes.push(mesh);
-      }
-    }
-    
-    // Process lava meshes
-    if (hasVertices(meshResult.lava)) {
-      const mesh = this._createMeshFromData(meshResult.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
-      if (mesh) {
-        mesh.renderOrder = 3;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.lavaMeshes.push(mesh);
-      }
-    }
-    
-    // Process glass meshes
-    if (hasVertices(meshResult.glass)) {
-      const mesh = this._createMeshFromData(meshResult.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
-      if (mesh) {
-        mesh.renderOrder = 1;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.glassMeshes.push(mesh);
-      }
-    }
-    
-    // Process model meshes
-    if (meshResult.model) {
-      if (hasVertices(meshResult.model.opaque)) {
-        const mesh = this._createMeshFromData(meshResult.model.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
-        if (mesh) {
-          superChunk.meshes.push(mesh);
-          this.chunkManager.modelMeshes.push(mesh);
-        }
-      }
-      
-      if (hasVertices(meshResult.model.transparent)) {
-        const mesh = this._createMeshFromData(meshResult.model.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
-        if (mesh) {
-          mesh.renderOrder = 0.5;
-          superChunk.meshes.push(mesh);
-          this.chunkManager.transparentModelMeshes.push(mesh);
-        }
-      }
-      
-      if (hasVertices(meshResult.model.overlay)) {
-        const mesh = this._createMeshFromData(meshResult.model.overlay, this.chunkManager.overlayModelMaterial, this.chunkManager.overlayModelGroup);
-        if (mesh) {
-          mesh.renderOrder = 4;
-          superChunk.meshes.push(mesh);
-          this.chunkManager.overlayModelMeshes.push(mesh);
-        }
-      }
-      
-      // Register particle emitters
-      if (meshResult.model.particleEmitters && meshResult.model.particleEmitters.length > 0) {
-        const emitterManager = this.chunkManager.particleEmitterManager;
-        if (emitterManager) {
-          for (const emitter of meshResult.model.particleEmitters) {
-            emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
-          }
-        }
-      }
-    }
-  }
-
-  /**
    * Create a Three.js mesh from worker data (ArrayBuffer based)
    */
   _createMeshFromData(data, material, group) {
@@ -1947,21 +2123,27 @@ export class SuperChunkManager {
       const oldMeshes = [...superChunk.meshes];
       superChunk.meshes = [];
       
-      // Collect job data
+      // Collect job data - IMPORTANT: clone ArrayBuffers for parallel dispatch
+      // When multiple jobs are dispatched in parallel, they may share neighbor data.
+      // Transferring an ArrayBuffer detaches it, so we must clone to avoid the
+      // "attempting to access detached ArrayBuffer" error on subsequent jobs.
       const chunks = [];
       for (const [, chunkInfo] of superChunk.loadedChunks) {
         if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
+        const originalBuffer = chunkInfo.data.compressedData;
         chunks.push({
           chunkX: chunkInfo.chunkX,
           chunkZ: chunkInfo.chunkZ,
-          compressedData: chunkInfo.data.compressedData,
+          // Clone the buffer so transfer doesn't affect other jobs
+          compressedData: originalBuffer.slice(0),
           compressionType: chunkInfo.data.compressionType,
         });
       }
       
       if (chunks.length === 0) continue;
       
-      const neighbors = this._collectNeighborDataForWorker(superChunk);
+      // Clone neighbor buffers too - they may be shared between multiple super-chunk jobs
+      const neighbors = this._collectNeighborDataForWorker(superChunk, true /* cloneBuffers */);
       const bounds = {
         minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
         minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
@@ -2003,8 +2185,8 @@ export class SuperChunkManager {
         continue;
       }
       
-      // Create meshes from worker result
-      this._createMeshesFromWorkerResult(job.superChunk, result.result);
+      // Create meshes from worker result (async for model mesh precomputation)
+      await this._createMeshesFromWorkerResult(job.superChunk, result.result);
       
       // Dispose old meshes
       this._disposeOldMeshes(job.oldMeshes);

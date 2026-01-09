@@ -58,7 +58,7 @@ export const DEFAULT_CONFIG = {
   
   // World files
   debugWorldPath: path.join(PROJECT_ROOT, 'test', 'world_files', 'debug_world.zip'),
-  hermitcraftPath: path.join(PROJECT_ROOT, 'test-regions', 'hermitcraft_map', 'hermitcraft_map.zip'),
+  hermitcraftPath: path.join(PROJECT_ROOT, 'test-regions', 'hermitcraft10', 'hermitcraft10.zip'),
 };
 
 /**
@@ -144,8 +144,8 @@ export async function createDriver(headless = true, config = DEFAULT_CONFIG) {
   options.addArguments('--use-angle=metal');
   
   // Enable logging
-  const loggingPrefs = new chrome.logging.Preferences();
-  loggingPrefs.setLevel('browser', 'ALL');
+  const loggingPrefs = new logging.Preferences();
+  loggingPrefs.setLevel(logging.Type.BROWSER, logging.Level.ALL);
   options.setLoggingPrefs(loggingPrefs);
   
   const driver = await new Builder()
@@ -218,15 +218,83 @@ export async function uploadFile(driver, filePath, fileType = 'auto') {
   }
   
   // Find the appropriate file input
+  // World files use accept=".mca,.mcr,.zip", region files also use the same input
   let fileInput;
-  if (fileType === 'world') {
-    fileInput = await driver.findElement(By.css('input[type="file"][accept=".zip"]'));
+  if (fileType === 'world' || fileType === 'region') {
+    fileInput = await driver.findElement(By.css('input[type="file"][accept=".mca,.mcr,.zip"]'));
   } else {
-    fileInput = await driver.findElement(By.css('input[type="file"][accept=".mca,.mcr"]'));
+    // Fallback for other file types
+    fileInput = await driver.findElement(By.css('input[type="file"][accept=".mca,.mcr,.zip"]'));
   }
   
   await fileInput.sendKeys(filePath);
   console.log(`${colors.green}  ✓ File uploaded${colors.reset}`);
+}
+
+/**
+ * Select a dimension from the dimension picker modal
+ * @param {object} driver - WebDriver instance
+ * @param {string} dimensionId - Dimension to select: 'overworld', 'the_nether', 'the_end'
+ * @param {number} timeout - Max time to wait for picker
+ */
+export async function selectDimension(driver, dimensionId = 'overworld', timeout = 30000) {
+  console.log(`${colors.dim}  Waiting for dimension picker (up to ${timeout/1000}s)...${colors.reset}`);
+  
+  try {
+    // Wait for dimension picker modal to appear
+    const modal = await driver.wait(
+      until.elementLocated(By.css('.dimension-picker-modal')),
+      timeout,
+      'Dimension picker not found'
+    );
+    
+    // Wait for modal to be visible
+    await driver.wait(until.elementIsVisible(modal), 5000);
+    
+    console.log(`${colors.dim}  Dimension picker detected, selecting ${dimensionId}...${colors.reset}`);
+    
+    // Find all dimension option buttons
+    const dimensionButtons = await driver.findElements(By.css('.dimension-option'));
+    console.log(`${colors.dim}  Found ${dimensionButtons.length} dimension options${colors.reset}`);
+    
+    for (const button of dimensionButtons) {
+      // Get the dimension name text from the button
+      const text = await button.getText();
+      console.log(`${colors.dim}    - Option: "${text.replace(/\n/g, ' ')}"${colors.reset}`);
+      
+      // Match by dimension name (case insensitive)
+      const textLower = text.toLowerCase();
+      const isMatch = (
+        (dimensionId === 'overworld' && textLower.includes('overworld')) ||
+        (dimensionId === 'the_nether' && (textLower.includes('nether') || textLower.includes('dim-1'))) ||
+        (dimensionId === 'the_end' && (textLower.includes('the end') || textLower.includes('dim1'))) ||
+        textLower.includes(dimensionId.replace('_', ' '))
+      );
+      
+      if (isMatch) {
+        await button.click();
+        console.log(`${colors.green}  ✓ Selected dimension: ${dimensionId}${colors.reset}`);
+        // Wait a moment for the selection to process
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return true;
+      }
+    }
+    
+    // If no match found, click the first option (usually overworld)
+    if (dimensionButtons.length > 0) {
+      await dimensionButtons[0].click();
+      console.log(`${colors.yellow}  ⚠ Dimension ${dimensionId} not found, selected first option${colors.reset}`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return true;
+    }
+    
+    console.log(`${colors.red}  ✗ No dimensions found in picker${colors.reset}`);
+    return false;
+  } catch (error) {
+    // No dimension picker appeared - single dimension world or error
+    console.log(`${colors.dim}  No dimension picker appeared (${error.message})${colors.reset}`);
+    return false;
+  }
 }
 
 /**

@@ -181,6 +181,11 @@ impl MeshResult {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn solid_packed_light(&self) -> Vec<u8> {
+        self.solid.packed_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn solid_indices(&self) -> Vec<u32> {
         self.solid.indices.clone()
     }
@@ -227,6 +232,11 @@ impl MeshResult {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn water_packed_light(&self) -> Vec<u8> {
+        self.water.packed_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn water_indices(&self) -> Vec<u32> {
         self.water.indices.clone()
     }
@@ -270,6 +280,11 @@ impl MeshResult {
     #[wasm_bindgen(getter)]
     pub fn lava_block_light(&self) -> Vec<f32> {
         self.lava.block_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn lava_packed_light(&self) -> Vec<u8> {
+        self.lava.packed_light.clone()
     }
 
     #[wasm_bindgen(getter)]
@@ -324,6 +339,11 @@ impl MeshResult {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn glass_packed_light(&self) -> Vec<u8> {
+        self.glass.packed_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn glass_indices(&self) -> Vec<u32> {
         self.glass.indices.clone()
     }
@@ -375,6 +395,11 @@ impl MeshResult {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn model_opaque_packed_light(&self) -> Vec<u8> {
+        self.model_opaque.packed_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn model_opaque_indices(&self) -> Vec<u32> {
         self.model_opaque.indices.clone()
     }
@@ -423,6 +448,11 @@ impl MeshResult {
     #[wasm_bindgen(getter)]
     pub fn model_transparent_block_light(&self) -> Vec<f32> {
         self.model_transparent.block_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_packed_light(&self) -> Vec<u8> {
+        self.model_transparent.packed_light.clone()
     }
 
     #[wasm_bindgen(getter)]
@@ -737,6 +767,11 @@ impl ProcessedChunk {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn solid_packed_light(&self) -> Vec<u8> {
+        self.mesh.solid_packed_light()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn solid_indices(&self) -> Vec<u32> {
         self.mesh.solid_indices()
     }
@@ -782,6 +817,11 @@ impl ProcessedChunk {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn water_packed_light(&self) -> Vec<u8> {
+        self.mesh.water_packed_light()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn water_indices(&self) -> Vec<u32> {
         self.mesh.water_indices()
     }
@@ -824,6 +864,11 @@ impl ProcessedChunk {
     #[wasm_bindgen(getter)]
     pub fn lava_block_light(&self) -> Vec<f32> {
         self.mesh.lava_block_light()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn lava_packed_light(&self) -> Vec<u8> {
+        self.mesh.lava_packed_light()
     }
 
     #[wasm_bindgen(getter)]
@@ -874,6 +919,11 @@ impl ProcessedChunk {
     #[wasm_bindgen(getter)]
     pub fn glass_block_light(&self) -> Vec<f32> {
         self.mesh.glass_block_light()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn glass_packed_light(&self) -> Vec<u8> {
+        self.mesh.glass_packed_light()
     }
 
     #[wasm_bindgen(getter)]
@@ -928,6 +978,11 @@ impl ProcessedChunk {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn model_opaque_packed_light(&self) -> Vec<u8> {
+        self.mesh.model_opaque_packed_light()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn model_opaque_indices(&self) -> Vec<u32> {
         self.mesh.model_opaque_indices()
     }
@@ -976,6 +1031,11 @@ impl ProcessedChunk {
     #[wasm_bindgen(getter)]
     pub fn model_transparent_block_light(&self) -> Vec<f32> {
         self.mesh.model_transparent_block_light()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_packed_light(&self) -> Vec<u8> {
+        self.mesh.model_transparent_packed_light()
     }
 
     #[wasm_bindgen(getter)]

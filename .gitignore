@@ -30,3 +30,16 @@ minecraft_versions
 src/wasm-mesher/target/
 src/wasm-mesher/Cargo.lock
 src/mesh/wasm/pkg/
+
+# Test outputs (regenerated on test runs)
+test/screenshots/current/
+test/screenshots/diff/
+test/e2e/baseline/
+test/e2e/current/
+test/e2e/diff/
+test/e2e/performance-results.json
+
+# Local test worlds
+debug_world/
+test/world_files/hermitcraft10.zip
+test/world_files/hermitcraft10_backup.zip

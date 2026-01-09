@@ -6,6 +6,7 @@
 use crate::grid::{BinaryGrid, LightGrid};
 use crate::lookup::Lookups;
 use crate::mesher::{MeshData, ao};
+use crate::mesher::ao::light_within_tolerance;
 use crate::types::{
     Face, SECTION_SIZE, SECTION_VOLUME, BLOCK_ID_MASK, SLAB_MASK, SLAB_SHIFT,
     SLAB_DOUBLE, section_to_world_y,
@@ -262,15 +263,16 @@ fn mesh_face_top(
                 let (start_sky, start_block) = ao::get_face_light(light_grid, world_x, face_y, world_z);
 
                 // Expand width (+X) - compare mask_value to ensure same block type AND axis
+                // Use tolerant matching for AO and light to create larger merged quads
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_top_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
-                    if !start_ao.matches(&check_ao) {
+                    if !start_ao.matches_tolerant(&check_ao) {
                         break;
                     }
-                    // Check light compatibility
+                    // Check light compatibility with tolerance
                     let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + w as i32, face_y, world_z);
-                    if check_sky != start_sky || check_block != start_block {
+                    if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                         break;
                     }
                     w += 1;
@@ -285,12 +287,12 @@ fn mesh_face_top(
                             break 'outer;
                         }
                         let check_ao = ao::get_top_face_ao(grid, lookups, world_x + k as i32, block_y, world_z + h as i32);
-                        if !start_ao.matches(&check_ao) {
+                        if !start_ao.matches_tolerant(&check_ao) {
                             break 'outer;
                         }
-                        // Check light compatibility
+                        // Check light compatibility with tolerance
                         let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + k as i32, face_y, world_z + h as i32);
-                        if check_sky != start_sky || check_block != start_block {
+                        if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                             break 'outer;
                         }
                     }
@@ -449,11 +451,11 @@ fn mesh_face_bottom(
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_bottom_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
-                    if !start_ao.matches(&check_ao) {
+                    if !start_ao.matches_tolerant(&check_ao) {
                         break;
                     }
                     let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + w as i32, face_y, world_z);
-                    if check_sky != start_sky || check_block != start_block {
+                    if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                         break;
                     }
                     w += 1;
@@ -467,11 +469,11 @@ fn mesh_face_bottom(
                             break 'outer;
                         }
                         let check_ao = ao::get_bottom_face_ao(grid, lookups, world_x + k as i32, block_y, world_z + h as i32);
-                        if !start_ao.matches(&check_ao) {
+                        if !start_ao.matches_tolerant(&check_ao) {
                             break 'outer;
                         }
                         let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + k as i32, face_y, world_z + h as i32);
-                        if check_sky != start_sky || check_block != start_block {
+                        if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                             break 'outer;
                         }
                     }
@@ -626,11 +628,11 @@ fn mesh_face_north(
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_north_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
-                    if !start_ao.matches(&check_ao) {
+                    if !start_ao.matches_tolerant(&check_ao) {
                         break;
                     }
                     let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + w as i32, block_y, face_z);
-                    if check_sky != start_sky || check_block != start_block {
+                    if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                         break;
                     }
                     w += 1;
@@ -644,11 +646,11 @@ fn mesh_face_north(
                             break 'outer;
                         }
                         let check_ao = ao::get_north_face_ao(grid, lookups, world_x + k as i32, block_y + h as i32, world_z);
-                        if !start_ao.matches(&check_ao) {
+                        if !start_ao.matches_tolerant(&check_ao) {
                             break 'outer;
                         }
                         let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + k as i32, block_y + h as i32, face_z);
-                        if check_sky != start_sky || check_block != start_block {
+                        if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                             break 'outer;
                         }
                     }
@@ -806,11 +808,11 @@ fn mesh_face_south(
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_south_face_ao(grid, lookups, world_x + w as i32, block_y, world_z);
-                    if !start_ao.matches(&check_ao) {
+                    if !start_ao.matches_tolerant(&check_ao) {
                         break;
                     }
                     let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + w as i32, block_y, face_z);
-                    if check_sky != start_sky || check_block != start_block {
+                    if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                         break;
                     }
                     w += 1;
@@ -824,11 +826,11 @@ fn mesh_face_south(
                             break 'outer;
                         }
                         let check_ao = ao::get_south_face_ao(grid, lookups, world_x + k as i32, block_y + h as i32, world_z);
-                        if !start_ao.matches(&check_ao) {
+                        if !start_ao.matches_tolerant(&check_ao) {
                             break 'outer;
                         }
                         let (check_sky, check_block) = ao::get_face_light(light_grid, world_x + k as i32, block_y + h as i32, face_z);
-                        if check_sky != start_sky || check_block != start_block {
+                        if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                             break 'outer;
                         }
                     }
@@ -986,11 +988,11 @@ fn mesh_face_east(
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_east_face_ao(grid, lookups, world_x, block_y, world_z + w as i32);
-                    if !start_ao.matches(&check_ao) {
+                    if !start_ao.matches_tolerant(&check_ao) {
                         break;
                     }
                     let (check_sky, check_block) = ao::get_face_light(light_grid, face_x, block_y, world_z + w as i32);
-                    if check_sky != start_sky || check_block != start_block {
+                    if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                         break;
                     }
                     w += 1;
@@ -1004,11 +1006,11 @@ fn mesh_face_east(
                             break 'outer;
                         }
                         let check_ao = ao::get_east_face_ao(grid, lookups, world_x, block_y + h as i32, world_z + k as i32);
-                        if !start_ao.matches(&check_ao) {
+                        if !start_ao.matches_tolerant(&check_ao) {
                             break 'outer;
                         }
                         let (check_sky, check_block) = ao::get_face_light(light_grid, face_x, block_y + h as i32, world_z + k as i32);
-                        if check_sky != start_sky || check_block != start_block {
+                        if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                             break 'outer;
                         }
                     }
@@ -1163,11 +1165,11 @@ fn mesh_face_west(
                 let mut w = 1usize;
                 while ii + w < S && !visited[mi + w] && mask[mi + w] == mask_value {
                     let check_ao = ao::get_west_face_ao(grid, lookups, world_x, block_y, world_z + w as i32);
-                    if !start_ao.matches(&check_ao) {
+                    if !start_ao.matches_tolerant(&check_ao) {
                         break;
                     }
                     let (check_sky, check_block) = ao::get_face_light(light_grid, face_x, block_y, world_z + w as i32);
-                    if check_sky != start_sky || check_block != start_block {
+                    if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                         break;
                     }
                     w += 1;
@@ -1181,11 +1183,11 @@ fn mesh_face_west(
                             break 'outer;
                         }
                         let check_ao = ao::get_west_face_ao(grid, lookups, world_x, block_y + h as i32, world_z + k as i32);
-                        if !start_ao.matches(&check_ao) {
+                        if !start_ao.matches_tolerant(&check_ao) {
                             break 'outer;
                         }
                         let (check_sky, check_block) = ao::get_face_light(light_grid, face_x, block_y + h as i32, world_z + k as i32);
-                        if check_sky != start_sky || check_block != start_block {
+                        if !light_within_tolerance(start_sky, start_block, check_sky, check_block) {
                             break 'outer;
                         }
                     }
