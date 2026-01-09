@@ -657,12 +657,22 @@ function RegionScene({
     };
   }, [scene, invalidate, chunkManagerRef]);
   
-  // Initialize particle system when particle atlas becomes available
+  // Initialize or update particle system when particle atlas becomes available or changes
   useEffect(() => {
     const manager = managerRef.current;
     if (manager && particleAtlas) {
-      console.log('[RegionViewer] Initializing particle system with atlas');
-      manager.initParticleSystem(particleAtlas);
+      // Unwrap the atlas from the wrapper object (used to trigger React state changes)
+      const atlas = particleAtlas.atlas || particleAtlas;
+      
+      // If particle system already exists, update its atlas (for texture pack hotswapping)
+      if (manager.particleSystem) {
+        console.log('[RegionViewer] Updating particle system atlas, version:', particleAtlas.version);
+        manager.updateParticleAtlas(atlas);
+      } else {
+        // First time initialization
+        console.log('[RegionViewer] Initializing particle system with atlas');
+        manager.initParticleSystem(atlas);
+      }
     }
   }, [particleAtlas]);
   
@@ -904,7 +914,8 @@ function RegionScene({
     }
     
     if (isFreshLoad) {
-      manager.clear(); // This also clears loadedRegionKeys
+      // Pass invalidateWorkers when texture pack changed to ensure workers use new texture indices
+      manager.clear({ invalidateWorkers: textureAtlasChanged }); // This also clears loadedRegionKeys
     }
     
     // Compute combined center from ALL region coordinates (including existing)

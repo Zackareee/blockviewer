@@ -264,6 +264,41 @@ export function updateParticleAmbientBrightness(material, brightness) {
   }
 }
 
+/**
+ * Update particle material with a new atlas
+ * @param {THREE.ShaderMaterial} material - The particle material to update
+ * @param {ParticleAtlas} particleAtlas - The new particle texture atlas
+ */
+export function updateParticleMaterialAtlas(material, particleAtlas) {
+  if (!material?.uniforms) return;
+  
+  const materialData = particleAtlas ? particleAtlas.getMaterialData() : null;
+  
+  if (!materialData) {
+    console.warn('[ParticleMaterial] updateParticleMaterialAtlas called with no material data');
+    return;
+  }
+  
+  // Ensure nearest neighbor filtering for pixel art look
+  if (materialData.atlas) {
+    materialData.atlas.magFilter = THREE.NearestFilter;
+    materialData.atlas.minFilter = THREE.NearestFilter;
+    materialData.atlas.generateMipmaps = false;
+    materialData.atlas.needsUpdate = true;
+  }
+  
+  // Update uniforms
+  material.uniforms.uAtlas.value = materialData.atlas;
+  material.uniforms.uAtlasSize.value.set(materialData.tilesPerRow || 1, materialData.tilesPerCol || 1);
+  material.uniforms.uTileUV.value.set(materialData.tileUV?.x || 1, materialData.tileUV?.y || 1);
+  material.uniforms.uTextureUV.value.set(materialData.textureUV?.x || 1, materialData.textureUV?.y || 1);
+  material.uniforms.uBorderUV.value.set(materialData.borderUV?.x || 0, materialData.borderUV?.y || 0);
+  
+  console.log(`[ParticleMaterial] Updated atlas: ${materialData.atlasWidth}x${materialData.atlasHeight}, ` +
+    `${materialData.tilesPerRow}x${materialData.tilesPerCol} tiles, ` +
+    `${materialData.textureSize}x${materialData.textureSize} resolution`);
+}
+
 export {
   particleVertexShader,
   particleFragmentShader,

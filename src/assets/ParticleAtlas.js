@@ -465,6 +465,11 @@ class ParticleAtlas {
       console.warn('[ParticleAtlas] No particle textures found');
       return false;
     }
+    
+    // Debug: Check fallback status
+    const hasFallback = !!packManager.fallbackManager;
+    const fallbackLoaded = packManager.fallbackManager?.isLoaded;
+    console.log(`[ParticleAtlas] Pack has fallback: ${hasFallback}, fallback loaded: ${fallbackLoaded}, total paths: ${particleTextures.length}`);
 
     // Detect texture size from first particle
     this.textureSize = this._detectTextureSize(packManager, particleTextures);
@@ -492,6 +497,11 @@ class ParticleAtlas {
     this.totalTiles = totalTiles;
 
     console.log(`[ParticleAtlas] Building atlas from ${particleTextures.length} particle textures (${totalTiles} total tiles, ${this.textureSize}x${this.textureSize} resolution)...`);
+    
+    // Debug: Check if firefly texture is in the list
+    const hasFireflyPath = particleTextures.some(p => p.includes('firefly'));
+    const fireflyBitmap = packManager.getParticleTexture('textures/particle/firefly.png');
+    console.log(`[ParticleAtlas] Debug - firefly in paths: ${hasFireflyPath}, firefly bitmap: ${fireflyBitmap ? `${fireflyBitmap.width}x${fireflyBitmap.height}` : 'null'}`);
 
     // Calculate atlas dimensions (power of 2)
     const tilesPerRow = Math.ceil(Math.sqrt(totalTiles));
@@ -567,6 +577,14 @@ class ParticleAtlas {
 
     this.isBuilt = true;
     console.log(`[ParticleAtlas] Built ${this.atlasWidth}x${this.atlasHeight} atlas with ${this.particleLookup.size} particle entries`);
+    
+    // Debug: Check key entries
+    const fireflyEntry = this.particleLookup.get('firefly');
+    const flameEntry = this.particleLookup.get('flame');
+    const tintedLeavesEntry = this.particleLookup.get('tinted_leaves');
+    console.log(`[ParticleAtlas] Debug - firefly: ${fireflyEntry ? `idx=${fireflyEntry.index}` : 'NOT FOUND'}, ` +
+      `flame: ${flameEntry ? `idx=${flameEntry.index}` : 'NOT FOUND'}, ` +
+      `tinted_leaves: ${tintedLeavesEntry ? `idx=${tintedLeavesEntry.index}` : 'NOT FOUND'}`);
 
     return true;
   }

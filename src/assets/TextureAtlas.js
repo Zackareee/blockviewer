@@ -605,6 +605,14 @@ class TextureAtlas {
     
     console.log(`[TextureAtlas] Built texture index lookup: ${registeredCount} blocks registered, ${foundCount} found textures, ${this.texturePathToIndex.size} atlas textures`);
     
+    // Debug: log sample indices to verify they match the current atlas
+    const samplePaths = ['block/stone', 'block/dirt', 'block/grass_block_top', 'block/grass_block_side'];
+    console.log('[TextureAtlas] Sample atlas positions (should differ between packs):');
+    for (const path of samplePaths) {
+      const idx = this.texturePathToIndex.get(path);
+      console.log(`  ${path}: index=${idx !== undefined ? idx : 'NOT FOUND'}`);
+    }
+    
     return this.textureIndexLookup;
   }
 

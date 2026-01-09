@@ -1703,6 +1703,25 @@ export class ChunkManager {
     
     console.log('[ChunkManager] Particle system initialized, atlas isBuilt:', particleAtlas?.isBuilt);
   }
+  
+  /**
+   * Update the particle system's atlas (for texture pack hotswapping)
+   * @param {ParticleAtlas} particleAtlas - The new particle texture atlas
+   */
+  updateParticleAtlas(particleAtlas) {
+    if (!this.particlesEnabled || !this.particleSystem) {
+      console.log('[ChunkManager] Particle system not available for atlas update');
+      return;
+    }
+    
+    if (!particleAtlas || !particleAtlas.isBuilt) {
+      console.warn('[ChunkManager] Invalid particle atlas for update');
+      return;
+    }
+    
+    this.particleSystem.setAtlas(particleAtlas);
+    console.log('[ChunkManager] Particle atlas updated');
+  }
 
   /**
    * Update particle system (call every frame)
@@ -3110,8 +3129,18 @@ export class ChunkManager {
 
   /**
    * Clear all meshes
+   * @param {Object} options - Clear options
+   * @param {boolean} options.invalidateWorkers - If true, dispose streamingLoader for texture pack changes
    */
-  clear() {
+  clear(options = {}) {
+    // If invalidateWorkers is set, dispose the streaming loader so it reinitializes with new texture data
+    // This is critical for texture pack hotswapping
+    if (options.invalidateWorkers && this.streamingLoader) {
+      console.log('[ChunkManager] Disposing streaming loader for texture pack change...');
+      this.streamingLoader.dispose();
+      this.streamingLoader = null;
+    }
+    
     for (const mesh of this.solidMeshes) {
       this.solidGroup.remove(mesh);
       this._disposeMeshOrLOD(mesh);

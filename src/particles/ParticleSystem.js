@@ -10,7 +10,7 @@
  */
 
 import * as THREE from 'three';
-import { createParticleMaterial, createAdditiveParticleMaterial, updateParticleTime } from '../viewer/materials/ParticleMaterial.js';
+import { createParticleMaterial, createAdditiveParticleMaterial, updateParticleTime, updateParticleMaterialAtlas } from '../viewer/materials/ParticleMaterial.js';
 
 // Maximum particles per type
 const MAX_PARTICLES = 5000;
@@ -464,13 +464,32 @@ export class ParticleSystem {
       // Debug: log when sprite not found (only once per type)
       if (!this._missingTypes) this._missingTypes = new Set();
       if (!this._missingTypes.has(type)) {
-        console.warn(`[ParticleSystem] No sprite data for particle type: ${type}, using fallback`);
+        console.warn(`[ParticleSystem] No sprite data for particle type: ${type}, trying fallback`);
         this._missingTypes.add(type);
       }
-      particle.baseSpriteIndex = 0;
-      particle.spriteIndex = 0;
-      particle.frameCount = 1;
-      particle.frameIndices = null;
+      
+      // Try to use 'flame' as fallback for additive particles, 'generic_0' for normal
+      // This is better than index 0 which could be anything
+      const ADDITIVE_PARTICLES = new Set([
+        'flame', 'small_flame', 'soul_fire_flame', 'lava', 
+        'end_rod', 'copper_flame', 'firefly'
+      ]);
+      const isAdditive = ADDITIVE_PARTICLES.has(type);
+      const fallbackType = isAdditive ? 'flame' : 'generic_0';
+      const fallbackData = this.particleAtlas?.getParticleUV?.(fallbackType);
+      
+      if (fallbackData) {
+        particle.baseSpriteIndex = fallbackData.index;
+        particle.spriteIndex = fallbackData.index;
+        particle.frameCount = 1; // Don't use fallback's frame count
+        particle.frameIndices = null;
+      } else {
+        // Last resort: use index 0
+        particle.baseSpriteIndex = 0;
+        particle.spriteIndex = 0;
+        particle.frameCount = 1;
+        particle.frameIndices = null;
+      }
     }
     
     // Debug: log first particle creation
@@ -755,6 +774,45 @@ export class ParticleSystem {
     this.additiveMesh = null;
     this.normalMaterial = null;
     this.additiveMaterial = null;
+  }
+  
+  /**
+   * Update the particle atlas (for texture pack hotswapping)
+   * Updates both materials with the new atlas data
+   * Clears all existing particles since their sprite indices are no longer valid
+   * @param {ParticleAtlas} newAtlas - The new particle texture atlas
+   */
+  setAtlas(newAtlas) {
+    if (!newAtlas || !newAtlas.isBuilt) {
+      console.warn('[ParticleSystem] setAtlas called with invalid atlas');
+      return;
+    }
+    
+    // IMPORTANT: Clear all existing particles before updating the atlas
+    // Existing particles have sprite indices pointing to the OLD atlas layout.
+    // After the atlas is rebuilt, those indices point to wrong textures.
+    // Emitters will respawn particles with correct indices immediately.
+    const oldNormalCount = this.normalPool.aliveCount;
+    const oldAdditiveCount = this.additivePool.aliveCount;
+    this.clear();
+    
+    this.particleAtlas = newAtlas;
+    
+    // Update existing materials if they exist
+    if (this.normalMaterial) {
+      updateParticleMaterialAtlas(this.normalMaterial, newAtlas);
+    }
+    if (this.additiveMaterial) {
+      updateParticleMaterialAtlas(this.additiveMaterial, newAtlas);
+    }
+    
+    // Clear missing types cache since new atlas may have different particles
+    this._missingTypes = new Set();
+    
+    const materialData = newAtlas.getMaterialData();
+    console.log(`[ParticleSystem] Atlas updated: cleared ${oldNormalCount + oldAdditiveCount} particles, ` +
+      `${newAtlas.particleLookup?.size || 0} particle types, ` +
+      `${materialData?.textureSize || '?'}x${materialData?.textureSize || '?'} resolution`);
   }
 }
 

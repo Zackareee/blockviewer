@@ -657,6 +657,12 @@ class ModelGeometry {
         // should be rendered as overlays that don't occlude geometry behind them
         const isOverlay = isSingleSidedElement;
         
+        // Check if this element already defines the opposite face (e.g., north+south on same plane)
+        // Cross models like flowers define both sides explicitly, so we shouldn't emit backfaces
+        const OPPOSITE_FACES = { north: 'south', south: 'north', east: 'west', west: 'east', up: 'down', down: 'up' };
+        const oppositeFaceName = OPPOSITE_FACES[faceName];
+        const hasOppositeFace = oppositeFaceName && element.faces && (oppositeFaceName in element.faces);
+        
         cullFaces.push({
           faceIndex: faceIndex++,
           indexStart: faceStartIndex,
@@ -669,6 +675,7 @@ class ModelGeometry {
           shade: elementShade, // Whether to apply directional face shading
           singleSided: isSingleSidedElement, // Whether to cull backfaces (torch bulb panels, etc.)
           overlay: isOverlay, // Whether to render without depth write (glow effects)
+          hasOppositeFace: hasOppositeFace, // True if model already defines opposite face (cross models)
         });
       }
     }

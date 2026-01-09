@@ -1719,7 +1719,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             
             // For cross-model plants (shade: false), emit backface with reversed winding
             // These blocks need to be visible from both sides
-            if (!cullInfo.singleSided && cullInfo.shade === false) {
+            // EXCEPT when the model already defines the opposite face (hasOppositeFace)
+            // Cross models like flowers define both north+south or west+east explicitly
+            if (!cullInfo.singleSided && cullInfo.shade === false && !cullInfo.hasOppositeFace) {
               // Ensure capacity for backface indices
               if (indexCount + 6 > indices.length) {
                 indices = growArrayUint(indices, Math.ceil(indices.length * 2));

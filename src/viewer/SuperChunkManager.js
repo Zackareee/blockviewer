@@ -216,6 +216,10 @@ export class SuperChunkManager {
     // Set of dirty super-chunks that need rebuild
     this.dirtySet = new Set();
     
+    // Set of super-chunks that need rebuild due to neighbor changes (boundary stitching)
+    // These are ALREADY BUILT chunks that have visible artifacts - highest priority
+    this.boundaryDirtySet = new Set();
+    
     // Callbacks
     this.onSuperChunkRebuilt = options.onSuperChunkRebuilt || null;
     
@@ -250,9 +254,16 @@ export class SuperChunkManager {
    * Call this before building any super-chunks for best performance
    */
   async initializeWasm() {
-    if (this.wasmInitialized) return true;
-    if (this.wasmInitPromise) return this.wasmInitPromise;
+    if (this.wasmInitialized) {
+      console.log('[SuperChunkManager] initializeWasm: already initialized, skipping');
+      return true;
+    }
+    if (this.wasmInitPromise) {
+      console.log('[SuperChunkManager] initializeWasm: initialization in progress, waiting...');
+      return this.wasmInitPromise;
+    }
     
+    console.log(`[SuperChunkManager] initializeWasm: starting fresh initialization (version ${this._textureVersion || 0})`);
     this.wasmInitPromise = this._doInitializeWasm();
     return this.wasmInitPromise;
   }
@@ -275,10 +286,27 @@ export class SuperChunkManager {
       }
       
       // Build lookup tables from registry
+      // IMPORTANT: Get the CURRENT textureIndexLookup from ChunkManager
+      // This is critical for texture pack hotswapping - must use the NEW lookup
       const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
+      console.log('[SuperChunkManager] Building lookup tables with textureIndexLookup:', 
+        textureIndexLookup ? `${textureIndexLookup.registeredBlocks?.size || 0} blocks registered` : 'null');
+      
+      // Debug: log specific block texture indices to verify they're from the new pack
+      if (textureIndexLookup) {
+        const stoneId = this.registry.getBlockId('stone') || this.registry.getBlockId('minecraft:stone');
+        const dirtId = this.registry.getBlockId('dirt') || this.registry.getBlockId('minecraft:dirt');
+        const grassId = this.registry.getBlockId('grass_block') || this.registry.getBlockId('minecraft:grass_block');
+        console.log('[SuperChunkManager] Sample texture indices (should change with new pack):');
+        console.log(`  stone (id=${stoneId}): up=${textureIndexLookup.getIndex(stoneId, 0)}`);
+        console.log(`  dirt (id=${dirtId}): up=${textureIndexLookup.getIndex(dirtId, 0)}`);
+        console.log(`  grass_block (id=${grassId}): up=${textureIndexLookup.getIndex(grassId, 0)}, side=${textureIndexLookup.getIndex(grassId, 2)}`);
+      }
+      
       const lookups = buildLookupTables(this.registry, textureIndexLookup);
       
       // Initialize lookups in WASM memory
+      // This OVERWRITES any previous lookup data (essential for texture pack changes)
       initWasmLookups(lookups);
       
       this.wasmInitialized = true;
@@ -384,12 +412,12 @@ export class SuperChunkManager {
     
     // Only mark for rebuild if chunk was actually added (not already present)
     if (wasAdded) {
-    const key = this.getSuperChunkKey(chunkX, chunkZ);
-    this.dirtySet.add(key);
+      const key = this.getSuperChunkKey(chunkX, chunkZ);
+      this.dirtySet.add(key);
       
-      // Also mark adjacent super-chunks dirty so they can update their
-      // boundary rendering (fluid walls, lighting, etc.)
-      this._markAdjacentDirty(chunkX, chunkZ);
+      // Note: We DON'T mark adjacent super-chunks dirty here anymore.
+      // Instead, we mark them after THIS super-chunk is built (in buildSuperChunk).
+      // This ensures neighbors rebuild with complete data, not partial data.
     }
     
     return wasAdded;
@@ -438,7 +466,9 @@ export class SuperChunkManager {
     
     // Check if we should use unified WASM pipeline for individual chunk processing
     // This is beneficial when all chunks have raw compressed data
-    const pipelineReady = isUnifiedPipelineReady();
+    // IMPORTANT: Also check this.wasmInitialized to ensure lookup tables are current
+    // (invalidateWorkerPool sets wasmInitialized=false to force reinit with new texture indices)
+    const pipelineReady = isUnifiedPipelineReady() && this.wasmInitialized;
     const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
     const useUnifiedPipeline = pipelineReady && hasRawCompressed;
     
@@ -513,8 +543,16 @@ export class SuperChunkManager {
       await this._buildSuperChunkMainThread(superChunk, grid, stateGrid, lightGrid, offset, beaconResult);
     }
     
+    // Track if this is the first build (before we set hasBeenBuilt)
+    const isFirstBuild = !superChunk.hasBeenBuilt;
+    
     superChunk.isDirty = false;
     superChunk.hasBeenBuilt = true;
+    
+    // NOW mark adjacent super-chunks as needing rebuild
+    // This happens AFTER we're built, so neighbors will have our complete data
+    // Only on first build - rebuilds shouldn't cascade to neighbors
+    this._markNeighborsDirtyAfterBuild(superChunk, isFirstBuild);
     
     // Reduce log noise during normal operation - uncomment for debugging
     // console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
@@ -672,10 +710,17 @@ export class SuperChunkManager {
       }
     }
     
+    // Track if this is the first build (before we set hasBeenBuilt)
+    const isFirstBuild = !superChunk.hasBeenBuilt;
+    
     // Mark as built early so solid geometry is visible immediately
     // Model meshes will be added below but terrain is already visible
     superChunk.isDirty = false;
     superChunk.hasBeenBuilt = true;
+    
+    // Mark neighbors that need updating now that we have complete data
+    // Only on first build - rebuilds shouldn't cascade to neighbors
+    this._markNeighborsDirtyAfterBuild(superChunk, isFirstBuild);
     
     // Yield to allow solid meshes to render before building model meshes
     await new Promise(r => setTimeout(r, 0));
@@ -939,57 +984,53 @@ export class SuperChunkManager {
   }
   
   /**
-   * Mark adjacent super-chunks as dirty so they rebuild with new boundary data.
-   * Called when a chunk is added that affects neighbors' fluid/lighting.
+   * Mark all adjacent super-chunks as needing rebuild after THIS super-chunk is built.
+   * 
+   * This is called AFTER buildSuperChunk completes, ensuring that when neighbors
+   * rebuild, they will have access to our complete data via _includeNeighborData.
+   * 
+   * Only marks neighbors that:
+   * 1. Exist (have been created)
+   * 2. Have been built BEFORE us (are visible, so artifacts would be visible)
+   * 3. Haven't already seen our data (tracked via neighbor set)
+   * 
+   * @param {SuperChunk} superChunk - The super-chunk that was just built
+   * @param {boolean} isFirstBuild - True if this is the first build (not a rebuild)
    */
-  _markAdjacentDirty(chunkX, chunkZ) {
-    const sx = Math.floor(chunkX / SUPER_CHUNK_SIZE);
-    const sz = Math.floor(chunkZ / SUPER_CHUNK_SIZE);
+  _markNeighborsDirtyAfterBuild(superChunk, isFirstBuild) {
+    // Only mark neighbors on first build - not on rebuilds
+    // Rebuilds happen BECAUSE neighbor data changed, so marking neighbors
+    // would cause an infinite loop
+    if (!isFirstBuild) return;
     
-    // Check if this chunk is on the edge of its super-chunk
-    const localX = ((chunkX % SUPER_CHUNK_SIZE) + SUPER_CHUNK_SIZE) % SUPER_CHUNK_SIZE;
-    const localZ = ((chunkZ % SUPER_CHUNK_SIZE) + SUPER_CHUNK_SIZE) % SUPER_CHUNK_SIZE;
+    const sx = superChunk.superX;
+    const sz = superChunk.superZ;
     
-    const isWestEdge = localX === 0;
-    const isEastEdge = localX === SUPER_CHUNK_SIZE - 1;
-    const isNorthEdge = localZ === 0;
-    const isSouthEdge = localZ === SUPER_CHUNK_SIZE - 1;
+    // Check all 8 adjacent super-chunks
+    const neighborOffsets = [
+      { dx: -1, dz: 0 },  // West
+      { dx: 1, dz: 0 },   // East
+      { dx: 0, dz: -1 },  // North
+      { dx: 0, dz: 1 },   // South
+      { dx: -1, dz: -1 }, // Northwest
+      { dx: 1, dz: -1 },  // Northeast
+      { dx: -1, dz: 1 },  // Southwest
+      { dx: 1, dz: 1 },   // Southeast
+    ];
     
-    // Mark adjacent super-chunks dirty if this chunk is on their border
-    if (isWestEdge) {
-      const key = `${sx - 1},${sz}`;
-      if (this.superChunks.has(key)) this.dirtySet.add(key);
-    }
-    if (isEastEdge) {
-      const key = `${sx + 1},${sz}`;
-      if (this.superChunks.has(key)) this.dirtySet.add(key);
-    }
-    if (isNorthEdge) {
-      const key = `${sx},${sz - 1}`;
-      if (this.superChunks.has(key)) this.dirtySet.add(key);
-    }
-    if (isSouthEdge) {
-      const key = `${sx},${sz + 1}`;
-      if (this.superChunks.has(key)) this.dirtySet.add(key);
-    }
-    // Corners
-    if (isWestEdge && isNorthEdge) {
-      const key = `${sx - 1},${sz - 1}`;
-      if (this.superChunks.has(key)) this.dirtySet.add(key);
-    }
-    if (isEastEdge && isNorthEdge) {
-      const key = `${sx + 1},${sz - 1}`;
-      if (this.superChunks.has(key)) this.dirtySet.add(key);
-    }
-    if (isWestEdge && isSouthEdge) {
-      const key = `${sx - 1},${sz + 1}`;
-      if (this.superChunks.has(key)) this.dirtySet.add(key);
-    }
-    if (isEastEdge && isSouthEdge) {
-      const key = `${sx + 1},${sz + 1}`;
-      if (this.superChunks.has(key)) this.dirtySet.add(key);
+    for (const { dx, dz } of neighborOffsets) {
+      const key = `${sx + dx},${sz + dz}`;
+      const neighbor = this.superChunks.get(key);
+      
+      if (neighbor && neighbor.hasBeenBuilt) {
+        // Neighbor was built before us, so it doesn't have our data
+        // Mark it for rebuild so it can include our blocks/light
+        this.boundaryDirtySet.add(key);
+        this.dirtySet.add(key);
+      }
     }
   }
+
 
   /**
    * Build super-chunk meshes using worker pool (offloads meshing to worker threads)
@@ -1519,16 +1560,42 @@ export class SuperChunkManager {
 
   /**
    * Rebuild all dirty super-chunks with frame budget awareness
+   * 
+   * PRIORITY ORDER:
+   * 1. Boundary-dirty chunks (already built, have visible artifacts) - HIGHEST
+   * 2. Regular dirty chunks (new chunks needing initial build)
+   * 
    * @param {number} maxRebuilds - Maximum number of super-chunks to rebuild per call
    * @param {number} budgetMs - Maximum time budget in ms (0 = no limit)
    * @returns {number} Number of super-chunks rebuilt
    */
   async rebuildDirty(maxRebuilds = 2, budgetMs = 0) {
-    if (this.dirtySet.size === 0) return 0;
+    const totalDirty = this.dirtySet.size + this.boundaryDirtySet.size;
+    if (totalDirty === 0) return 0;
     
     let rebuiltCount = 0;
     const startTime = performance.now();
-    const keysToRebuild = [...this.dirtySet].slice(0, maxRebuilds);
+    
+    // Prioritize boundary-dirty chunks (visible artifacts) over new chunks
+    // Build the list: boundary-dirty first, then regular dirty
+    const keysToRebuild = [];
+    
+    // First add boundary-dirty (already visible, have artifacts)
+    for (const key of this.boundaryDirtySet) {
+      if (keysToRebuild.length >= maxRebuilds) break;
+      keysToRebuild.push(key);
+    }
+    
+    // Then add regular dirty (new chunks, not yet visible)
+    if (keysToRebuild.length < maxRebuilds) {
+      for (const key of this.dirtySet) {
+        if (keysToRebuild.length >= maxRebuilds) break;
+        // Skip if already in the list (boundary-dirty are also in dirtySet)
+        if (!this.boundaryDirtySet.has(key)) {
+          keysToRebuild.push(key);
+        }
+      }
+    }
     
     for (const key of keysToRebuild) {
       // Check budget if specified
@@ -1537,7 +1604,10 @@ export class SuperChunkManager {
       }
       
       const superChunk = this.superChunks.get(key);
-      if (superChunk && superChunk.isDirty) {
+      // Rebuild if super-chunk exists - it's in the dirty set so it needs rebuilding
+      // (Don't check superChunk.isDirty - that's set by addChunk, but boundary dirty
+      // chunks are added to dirtySet without setting that flag)
+      if (superChunk) {
         // Store old meshes to remove AFTER new ones are ready
         const oldMeshes = [...superChunk.meshes];
         
@@ -1561,7 +1631,9 @@ export class SuperChunkManager {
         // Yield to browser between super-chunks to maintain responsiveness
         await new Promise(resolve => setTimeout(resolve, 0));
       }
+      // Remove from both sets
       this.dirtySet.delete(key);
+      this.boundaryDirtySet.delete(key);
     }
     
     return rebuiltCount;
@@ -1570,6 +1642,10 @@ export class SuperChunkManager {
   /**
    * Schedule rebuild using requestIdleCallback for non-blocking updates
    * Used during player movement to avoid frame drops
+   * 
+   * IMPORTANT: Boundary-dirty chunks (visible artifacts) get higher priority
+   * even during movement to fix stitching issues quickly.
+   * 
    * @param {boolean} lowPriority - If true, use longer timeout and smaller batches
    */
   scheduleIdleRebuild(lowPriority = false) {
@@ -1578,31 +1654,57 @@ export class SuperChunkManager {
     const callback = async (deadline) => {
       this._idleCallbackId = null;
       
-      if (this.dirtySet.size === 0) return;
+      const totalDirty = this.dirtySet.size + this.boundaryDirtySet.size;
+      if (totalDirty === 0) return;
       
-      // Mesh multiple super-chunks based on meshingSpeed setting
-      // Higher = faster chunk appearance, but may cause frame drops
-      const budgetMs = lowPriority ? 8 : 12;
-      const chunksToMesh = lowPriority ? 1 : this.meshingSpeed;
+      // Boundary-dirty chunks (visible artifacts) should be processed faster
+      // even during movement - these are the "seam" artifacts users see
+      const hasBoundaryDirty = this.boundaryDirtySet.size > 0;
+      
+      // When we have boundary artifacts, be more aggressive:
+      // - Use higher time budget
+      // - Process more chunks per callback
+      // - Use shorter delays between callbacks
+      let budgetMs, chunksToMesh, nextDelay;
+      
+      if (hasBoundaryDirty) {
+        // High priority for visible artifacts - fix seams quickly
+        budgetMs = 16;  // Full frame budget
+        chunksToMesh = Math.max(2, this.meshingSpeed);  // At least 2 chunks
+        nextDelay = 8;  // Fast follow-up
+      } else if (lowPriority) {
+        // Low priority during streaming - process slowly
+        budgetMs = 8;
+        chunksToMesh = 1;
+        nextDelay = 24;
+      } else {
+        // Normal priority when queue is stable
+        budgetMs = 12;
+        chunksToMesh = this.meshingSpeed;
+        nextDelay = 16;
+      }
+      
       await this.rebuildDirty(chunksToMesh, budgetMs);
       
       // Schedule another callback if more rebuilds needed
-      if (this.dirtySet.size > 0) {
+      if (this.dirtySet.size > 0 || this.boundaryDirtySet.size > 0) {
         // Use setTimeout for consistent scheduling - rIC has variable delays
-        setTimeout(() => this.scheduleIdleRebuild(lowPriority), lowPriority ? 32 : 16);
+        setTimeout(() => this.scheduleIdleRebuild(lowPriority), nextDelay);
       }
     };
     
-    // Timeout determines how long we wait before forcing the callback
-    const timeout = lowPriority ? 100 : 32;
+    // When boundary artifacts exist, schedule more urgently
+    const hasBoundaryDirty = this.boundaryDirtySet.size > 0;
+    const timeout = hasBoundaryDirty ? 16 : (lowPriority ? 100 : 32);
     
     if (typeof requestIdleCallback !== 'undefined') {
       this._idleCallbackId = requestIdleCallback(callback, { timeout });
     } else {
       // Fallback: use setTimeout with small delay
+      const fallbackDelay = hasBoundaryDirty ? 4 : (lowPriority ? 32 : 16);
       this._idleCallbackId = setTimeout(
-        () => callback({ timeRemaining: () => lowPriority ? 8 : 12 }),
-        lowPriority ? 32 : 16
+        () => callback({ timeRemaining: () => hasBoundaryDirty ? 16 : (lowPriority ? 8 : 12) }),
+        fallbackDelay
       );
     }
   }
@@ -1711,6 +1813,71 @@ export class SuperChunkManager {
   }
 
   /**
+   * Check if there are any dirty super-chunks needing rebuild
+   * @returns {boolean} true if any chunks need rebuilding
+   */
+  hasDirtyChunks() {
+    return this.dirtySet.size > 0 || this.boundaryDirtySet.size > 0;
+  }
+  
+  /**
+   * Check if there are boundary-dirty super-chunks (visible artifacts)
+   * @returns {boolean} true if any built chunks have boundary artifacts
+   */
+  hasBoundaryDirtyChunks() {
+    return this.boundaryDirtySet.size > 0;
+  }
+  
+  /**
+   * Force immediate rebuild of boundary-dirty super-chunks (visible artifacts)
+   * 
+   * This bypasses the idle callback system to fix seams immediately.
+   * Should be called after chunk batches during streaming to ensure
+   * visible artifacts are fixed quickly.
+   * 
+   * @param {number} maxRebuilds - Maximum number to rebuild (default 1 to avoid frame drops)
+   * @returns {Promise<number>} Number of super-chunks rebuilt
+   */
+  async repairBoundaries(maxRebuilds = 1) {
+    if (this.boundaryDirtySet.size === 0) return 0;
+    
+    // Only rebuild boundary-dirty chunks (the ones with visible artifacts)
+    const keysToRebuild = [...this.boundaryDirtySet].slice(0, maxRebuilds);
+    let rebuiltCount = 0;
+    
+    for (const key of keysToRebuild) {
+      const superChunk = this.superChunks.get(key);
+      // Rebuild if super-chunk exists - it's in boundaryDirtySet so needs fixing
+      if (superChunk) {
+        // Store old meshes to remove AFTER new ones are ready
+        const oldMeshes = [...superChunk.meshes];
+        
+        // Build new meshes
+        await this.buildSuperChunk(superChunk, true /* keepOldMeshes */);
+        
+        // Remove old meshes from manager arrays and scene
+        for (const mesh of oldMeshes) {
+          if (this.chunkManager.solidMeshes) removeFromArray(this.chunkManager.solidMeshes, mesh);
+          if (this.chunkManager.waterMeshes) removeFromArray(this.chunkManager.waterMeshes, mesh);
+          if (this.chunkManager.lavaMeshes) removeFromArray(this.chunkManager.lavaMeshes, mesh);
+          if (this.chunkManager.glassMeshes) removeFromArray(this.chunkManager.glassMeshes, mesh);
+          if (this.chunkManager.modelMeshes) removeFromArray(this.chunkManager.modelMeshes, mesh);
+          if (this.chunkManager.beaconMeshes) removeFromArray(this.chunkManager.beaconMeshes, mesh);
+          if (mesh.geometry) mesh.geometry.dispose();
+          if (mesh.parent) mesh.parent.remove(mesh);
+        }
+        
+        rebuiltCount++;
+      }
+      // Remove from both sets
+      this.dirtySet.delete(key);
+      this.boundaryDirtySet.delete(key);
+    }
+    
+    return rebuiltCount;
+  }
+
+  /**
    * Get statistics about super-chunks
    */
   getStats() {
@@ -1726,7 +1893,8 @@ export class SuperChunkManager {
       superChunkCount: this.superChunks.size,
       totalChunks,
       totalMeshes,
-      dirtyCount: this.dirtySet.size
+      dirtyCount: this.dirtySet.size,
+      boundaryDirtyCount: this.boundaryDirtySet.size
     };
   }
 
@@ -1740,6 +1908,7 @@ export class SuperChunkManager {
     }
     this.superChunks.clear();
     this.dirtySet.clear();
+    this.boundaryDirtySet.clear();
   }
 
   /**
@@ -1747,7 +1916,9 @@ export class SuperChunkManager {
    * Call this when the texture pack changes to ensure workers use new indices
    */
   invalidateWorkerPool() {
-    console.log('[SuperChunkManager] Invalidating worker pool for texture pack change...');
+    // Increment version to track texture pack changes
+    this._textureVersion = (this._textureVersion || 0) + 1;
+    console.log(`[SuperChunkManager] Invalidating worker pool for texture pack change (version ${this._textureVersion})...`);
     
     // Terminate existing worker pool AND reset the singleton
     // This is critical - just calling terminate() leaves a dead pool in the singleton

@@ -224,7 +224,8 @@ function App() {
       const pAtlas = getParticleAtlas();
       const particleBuildSuccess = await pAtlas.build(pm);
       console.log('[App] Particle atlas built:', particleBuildSuccess, 'isBuilt:', pAtlas.isBuilt, 'textures:', pAtlas.particleLookup?.size || 0);
-      setParticleAtlas(pAtlas);
+      // Wrap in new object to trigger React state change (atlas is singleton, same reference)
+      setParticleAtlas({ atlas: pAtlas, version: Date.now() });
       
       // Set the material data (includes atlas, textureIndexLookup, and size)
       setTextureAtlas(atlas.getMaterialData());
@@ -304,12 +305,21 @@ function App() {
       const mapperStats = modelTextureMapper.getStats();
       console.log(`[App] ModelTextureMapper stats: ${mapperStats.hitCount} blocks from models, ${mapperStats.missCount} using fallback`);
       
+      // Rebuild particle atlas for the custom texture pack
+      const pAtlas = getParticleAtlas();
+      const particleBuildSuccess = await pAtlas.build(customPack);
+      console.log('[App] Particle atlas rebuilt for custom pack:', particleBuildSuccess, 'textures:', pAtlas.particleLookup?.size || 0);
+      // Wrap in new object to trigger React state change (atlas is singleton, same reference)
+      setParticleAtlas({ atlas: pAtlas, version: Date.now() });
+      
       setTextureAtlas(atlas.getMaterialData());
+      setPackManager(customPack); // Update pack manager reference for beacon beams etc.
       setTexturePackInfo(customPack.getPackInfo());
       setTextureMode(TEXTURE_MODE.CUSTOM_PACK);
       
-      // Debug: generate atlas preview URL
+      // Debug: generate atlas preview URLs
       setAtlasDebugUrl(atlas.toDataURL());
+      setParticleAtlasDebugUrl(pAtlas.toDataURL());
       
       console.log('[App] Custom texture pack loaded:', file.name);
     } catch (err) {

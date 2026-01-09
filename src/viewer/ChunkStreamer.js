@@ -499,6 +499,9 @@ export class ChunkStreamer {
       if (success) {
         console.log('[ChunkStreamer] ✅ WASM mesher initialized - using high-performance mode');
         
+        // Clear the reinit pending flag - lookup tables are now current
+        this._wasmReinitPending = false;
+        
         // Initialize block registry for unified pipeline (NBT parsing in WASM)
         if (this.registry && initBlockRegistry(this.registry)) {
           console.log('[ChunkStreamer] ✅ Block registry initialized - unified pipeline ready');
@@ -517,10 +520,12 @@ export class ChunkStreamer {
         }
       } else {
         console.log('[ChunkStreamer] WASM not available - using JavaScript mesher');
+        this._wasmReinitPending = false; // Clear flag even on failure
       }
       return success;
     } catch (error) {
       console.error('[ChunkStreamer] Failed to initialize WASM:', error);
+      this._wasmReinitPending = false; // Clear flag on error
       return false;
     }
   }
@@ -1093,8 +1098,15 @@ export class ChunkStreamer {
       this.onChunkUnloaded?.(chunkX, chunkZ);
     }
     
-    // Schedule idle rebuild for removed chunks (non-blocking)
-    if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
+    // Immediately repair boundary artifacts for remaining visible chunks
+    // This fixes seams that appear when neighbor chunks are unloaded
+    if (this.superChunkManager?.hasBoundaryDirtyChunks()) {
+      // Don't await - let this run in background to avoid blocking camera
+      this.superChunkManager.repairBoundaries(2).catch(() => {});
+    }
+    
+    // Schedule idle rebuild for any remaining dirty chunks (non-blocking)
+    if (this.superChunkManager?.hasDirtyChunks()) {
       this.superChunkManager.scheduleIdleRebuild();
     }
     
@@ -1170,9 +1182,16 @@ export class ChunkStreamer {
         // Note: Meshing is still throttled separately to avoid frame drops
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        // Schedule super-chunk rebuilds for idle time instead of blocking
-        // This prevents stuttering during movement
-        if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
+        // Fix boundary seams immediately for already-visible chunks
+        // This repairs water/light artifacts at chunk borders as soon as neighbor data arrives
+        // Repair up to 2 boundaries per batch to keep up with fast movement
+        if (this.superChunkManager?.hasBoundaryDirtyChunks()) {
+          await this.superChunkManager.repairBoundaries(2);
+        }
+        
+        // Schedule remaining super-chunk rebuilds for idle time
+        // This prevents stuttering during movement while ensuring new chunks get built
+        if (this.superChunkManager?.hasDirtyChunks()) {
           this.superChunkManager.scheduleIdleRebuild(true); // Low priority during streaming
         }
         
@@ -1182,7 +1201,7 @@ export class ChunkStreamer {
       }
       
       // Schedule any remaining dirty super-chunks for idle time rebuilding
-      if (this.superChunkManager && this.superChunkManager.dirtySet.size > 0) {
+      if (this.superChunkManager?.hasDirtyChunks()) {
         this.superChunkManager.scheduleIdleRebuild(false); // Normal priority when queue is empty
       }
     } finally {
@@ -1246,7 +1265,8 @@ export class ChunkStreamer {
       // Rebuild ALL dirty super-chunks after initial load is complete
       // This is more efficient than rebuilding after each batch
       if (this.superChunkManager) {
-        const totalDirty = this.superChunkManager.dirtySet.size;
+        const stats = this.superChunkManager.getStats();
+        const totalDirty = stats.dirtyCount;
         let rebuilt = 0;
         
         // Report meshing stage start
@@ -1258,10 +1278,11 @@ export class ChunkStreamer {
           stageProgress: 0,
         });
         
-        while (this.superChunkManager.dirtySet.size > 0) {
-          const beforeSize = this.superChunkManager.dirtySet.size;
+        while (this.superChunkManager.hasDirtyChunks()) {
+          const beforeStats = this.superChunkManager.getStats();
           await this.superChunkManager.rebuildDirty(4);
-          rebuilt += beforeSize - this.superChunkManager.dirtySet.size;
+          const afterStats = this.superChunkManager.getStats();
+          rebuilt += beforeStats.dirtyCount - afterStats.dirtyCount;
           
           // Report meshing progress
           const progress = totalDirty > 0 ? Math.round((rebuilt / totalDirty) * 100) : 100;
@@ -1328,7 +1349,12 @@ export class ChunkStreamer {
           // Parse region file
           // Wait for WASM init if it's in progress (max 500ms)
           // This ensures we use the unified pipeline when possible
-          if (!isUnifiedPipelineReady() && this._wasmInitPromise) {
+          // CRITICAL: Also wait if WASM reinit is pending (texture pack hotswap)
+          // This prevents chunks from being meshed with stale lookup tables
+          if (this._wasmReinitPending || (!isUnifiedPipelineReady() && this._wasmInitPromise)) {
+            if (this._wasmReinitPending) {
+              console.log('[ChunkStreamer] Waiting for WASM reinit after texture pack change...');
+            }
             await Promise.race([
               this._wasmInitPromise,
               new Promise(r => setTimeout(r, 500))
@@ -1695,8 +1721,27 @@ export class ChunkStreamer {
 
   /**
    * Clear all loaded chunks
+   * @param {Object} options - Clear options
+   * @param {boolean} options.invalidateWorkers - If true, invalidate worker pool for texture pack changes
    */
-  clear() {
+  clear(options = {}) {
+    // If invalidateWorkers is set, invalidate the worker pool first
+    // This is critical for texture pack hotswapping - workers have cached texture indices
+    if (options.invalidateWorkers && this.superChunkManager) {
+      console.log('[ChunkStreamer] Invalidating worker pool for texture pack change...');
+      this.superChunkManager.invalidateWorkerPool();
+      
+      // Mark that we need to wait for WASM reinit before loading any chunks
+      // This ensures chunks aren't meshed with stale lookup tables
+      this._wasmReinitPending = true;
+      
+      // Also recreate the meshBuilder with the new texture lookup
+      // This is used for fallback meshing when workers aren't available
+      this.meshBuilder = new RegionMeshBuilder({
+        textureIndexLookup: this.chunkManager.getTextureIndexLookup?.() || null,
+      });
+    }
+    
     // Clear super-chunk manager (disposes all meshes)
     if (this.superChunkManager) {
       this.superChunkManager.clear();

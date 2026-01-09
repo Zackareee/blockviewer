@@ -1,9 +1,9 @@
 //! Block property lookup tables
 //!
-//! These tables are initialized once from JavaScript and stored in static memory
-//! for fast access during meshing.
+//! These tables are initialized from JavaScript and stored in static memory
+//! for fast access during meshing. They can be UPDATED for texture pack hotswapping.
 
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 /// Maximum block ID (12-bit = 4096)
 const MAX_BLOCK_ID: usize = 4096;
@@ -32,8 +32,8 @@ pub struct Lookups {
     pub lava_color: (f32, f32, f32),
 }
 
-/// Static storage for lookup tables
-static LOOKUP_STORAGE: OnceLock<LookupStorage> = OnceLock::new();
+/// Static storage for lookup tables - uses RwLock to allow updates for texture pack hotswapping
+static LOOKUP_STORAGE: RwLock<Option<LookupStorage>> = RwLock::new(None);
 
 struct LookupStorage {
     is_opaque: Vec<u8>,
@@ -60,28 +60,39 @@ struct LookupStorage {
 
 impl Lookups {
     /// Create lookups from static storage
+    /// Uses unsafe to create static references - safe because storage outlives all uses
     pub fn get() -> Option<Self> {
-        LOOKUP_STORAGE.get().map(|storage| Self {
-            is_opaque: &storage.is_opaque,
-            is_non_cube: &storage.is_non_cube,
-            is_slab: &storage.is_slab,
-            is_fluid: &storage.is_fluid,
-            is_glass: &storage.is_glass,
-            is_ao_transparent: &storage.is_ao_transparent,
-            is_rotatable: &storage.is_rotatable,
-            is_directional: &storage.is_directional,
-            color_r: &storage.color_r,
-            color_g: &storage.color_g,
-            color_b: &storage.color_b,
-            face_tint_types: &storage.face_tint_types,
-            texture_indices: &storage.texture_indices,
-            water_still_idx: storage.water_still_idx,
-            water_flow_idx: storage.water_flow_idx,
-            lava_still_idx: storage.lava_still_idx,
-            lava_flow_idx: storage.lava_flow_idx,
-            water_color: storage.water_color,
-            lava_color: storage.lava_color,
-        })
+        // Get read lock on storage
+        let guard = LOOKUP_STORAGE.read().ok()?;
+        let storage = guard.as_ref()?;
+        
+        // SAFETY: The storage is static and we hold a read lock while creating the Lookups
+        // The Lookups struct is used synchronously within a single mesh operation
+        // and doesn't outlive the storage. We use transmute to create 'static references
+        // because the RwLock guards the data.
+        unsafe {
+            Some(Self {
+                is_opaque: std::mem::transmute::<&[u8], &'static [u8]>(&storage.is_opaque[..]),
+                is_non_cube: std::mem::transmute::<&[u8], &'static [u8]>(&storage.is_non_cube[..]),
+                is_slab: std::mem::transmute::<&[u8], &'static [u8]>(&storage.is_slab[..]),
+                is_fluid: std::mem::transmute::<&[u8], &'static [u8]>(&storage.is_fluid[..]),
+                is_glass: std::mem::transmute::<&[u8], &'static [u8]>(&storage.is_glass[..]),
+                is_ao_transparent: std::mem::transmute::<&[u8], &'static [u8]>(&storage.is_ao_transparent[..]),
+                is_rotatable: std::mem::transmute::<&[u8], &'static [u8]>(&storage.is_rotatable[..]),
+                is_directional: std::mem::transmute::<&[u8], &'static [u8]>(&storage.is_directional[..]),
+                color_r: std::mem::transmute::<&[f32], &'static [f32]>(&storage.color_r[..]),
+                color_g: std::mem::transmute::<&[f32], &'static [f32]>(&storage.color_g[..]),
+                color_b: std::mem::transmute::<&[f32], &'static [f32]>(&storage.color_b[..]),
+                face_tint_types: std::mem::transmute::<&[u8], &'static [u8]>(&storage.face_tint_types[..]),
+                texture_indices: std::mem::transmute::<&[f32], &'static [f32]>(&storage.texture_indices[..]),
+                water_still_idx: storage.water_still_idx,
+                water_flow_idx: storage.water_flow_idx,
+                lava_still_idx: storage.lava_still_idx,
+                lava_flow_idx: storage.lava_flow_idx,
+                water_color: storage.water_color,
+                lava_color: storage.lava_color,
+            })
+        }
     }
 
     /// Unsafe: create from raw pointer (for legacy API)
@@ -255,7 +266,10 @@ pub fn init_lookups(
         lava_color: (1.0, 0.4, 0.0),
     };
 
-    let _ = LOOKUP_STORAGE.set(storage);
+    // Use write lock to update storage - allows texture pack hotswapping
+    if let Ok(mut guard) = LOOKUP_STORAGE.write() {
+        *guard = Some(storage);
+    }
     
     // Return a dummy pointer - the actual data is in static storage
     std::ptr::null()

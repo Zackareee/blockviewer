@@ -598,8 +598,17 @@ class TexturePackManager {
   
   /**
    * Get all loaded particle texture paths
+   * Includes textures from fallback pack to ensure complete particle atlas
    */
   getParticleTextureList() {
+    // Combine this pack's textures with fallback textures
+    if (this.fallbackManager) {
+      const combined = new Set(this.fallbackManager.getParticleTextureList());
+      for (const path of this.particleTextures.keys()) {
+        combined.add(path);
+      }
+      return Array.from(combined);
+    }
     return Array.from(this.particleTextures.keys());
   }
   
