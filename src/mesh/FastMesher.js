@@ -217,6 +217,8 @@ function sampleVertexLight(lightGrid, x, y, z, aoLevel, blockGrid, isOpaque, isA
     avgSky = totalSky / count;
     avgBlock = totalBlock / count;
   } else {
+    // All sampled positions are solid - vertex is in a corner
+    // Use the face position's light value as fallback
     const light = lightGrid.getLight(x, y, z);
     avgSky = light.skyLight;
     avgBlock = light.blockLight;
@@ -310,6 +312,7 @@ function sampleSmoothLight(lightGrid, x, y, z, nx, ny, nz, blockGrid, isOpaque, 
     avgSky = totalSky / airCount;
     avgBlock = totalBlock / airCount;
   } else {
+    // All sampled positions are solid - use the face position's light
     const light = lightGrid.getLight(x, y, z);
     avgSky = light.skyLight;
     avgBlock = light.blockLight;
@@ -421,12 +424,14 @@ function getFaceLightForMerge(lightGrid, blockX, blockY, blockZ, face) {
 
 /**
  * Check if blocks can be merged based on their light values.
- * Blocks can only merge if both sky light AND block light are identical or very close.
- * This prevents lighting discontinuities when greedy meshing near light sources or shadows.
+ * Blocks can only merge if both sky light AND block light are identical (threshold=0).
+ * This prevents blocky lighting artifacts near light sources.
+ * The strict matching ensures each block gets its own vertex light values,
+ * which then smoothly interpolate across the face.
  * 
  * @param {{skyLight: number, blockLight: number}} baseLight - Light of the first block
  * @param {{skyLight: number, blockLight: number}} checkLight - Light of the block to check
- * @param {number} threshold - Maximum allowed difference (0 = exact match required)
+ * @param {number} threshold - Maximum allowed difference (default 0 for smooth lighting)
  * @returns {boolean} true if blocks can be merged
  */
 function canMergeBlockLight(baseLight, checkLight, threshold = 0) {

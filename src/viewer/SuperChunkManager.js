@@ -907,7 +907,7 @@ export class SuperChunkManager {
       if (!neighborSuperChunk) continue;
       
       for (const [, chunkInfo] of neighborSuperChunk.loadedChunks) {
-        if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
+        if (!chunkInfo.data) continue;
         
         // Only include chunks that are adjacent to this super-chunk's boundary
         const isAdjacent = this._isChunkAdjacentToBoundary(
@@ -916,14 +916,34 @@ export class SuperChunkManager {
         );
         
         if (isAdjacent) {
-          const originalBuffer = chunkInfo.data.compressedData;
-          neighbors.push({
-            chunkX: chunkInfo.chunkX,
-            chunkZ: chunkInfo.chunkZ,
-            // Clone buffer when needed for parallel dispatch to avoid detached buffer errors
-            compressedData: cloneBuffers ? originalBuffer.slice(0) : originalBuffer,
-            compressionType: chunkInfo.data.compressionType,
-          });
+          // Handle raw compressed data (preferred - worker can decompress)
+          if (chunkInfo.isRawCompressed && chunkInfo.data.compressedData) {
+            const originalBuffer = chunkInfo.data.compressedData;
+            neighbors.push({
+              chunkX: chunkInfo.chunkX,
+              chunkZ: chunkInfo.chunkZ,
+              // Clone buffer when needed for parallel dispatch to avoid detached buffer errors
+              compressedData: cloneBuffers ? originalBuffer.slice(0) : originalBuffer,
+              compressionType: chunkInfo.data.compressionType,
+            });
+          }
+          // Handle pre-parsed NBT data - re-compress for worker
+          // This ensures neighbors from main-thread-built super-chunks are included
+          else if (chunkInfo.data && !chunkInfo.isRawCompressed) {
+            try {
+              // The data is already parsed NBT, encode it as JSON for the worker
+              // Worker will detect this and handle accordingly
+              neighbors.push({
+                chunkX: chunkInfo.chunkX,
+                chunkZ: chunkInfo.chunkZ,
+                parsedData: chunkInfo.data, // Worker will handle parsed NBT directly
+                isParsed: true,
+              });
+            } catch (e) {
+              // Skip this neighbor if serialization fails
+              console.warn(`[SuperChunkManager] Failed to serialize neighbor ${chunkInfo.chunkX},${chunkInfo.chunkZ}:`, e.message);
+            }
+          }
         }
       }
     }
@@ -2191,11 +2211,24 @@ export class SuperChunkManager {
       // Dispose old meshes
       this._disposeOldMeshes(job.oldMeshes);
       
-      // Mark as built
+      // Mark as built and handle neighbor marking
+      const isFirstBuild = !job.superChunk.hasBeenBuilt;
       job.superChunk.isDirty = false;
       job.superChunk.hasBeenBuilt = true;
       
+      // Mark neighbors for rebuild on first build
+      this._markNeighborsDirtyAfterBuild(job.superChunk, isFirstBuild);
+      
       rebuiltCount++;
+    }
+    
+    // Process urgent boundary repairs immediately to minimize visible artifacts
+    // This catches super-chunks that were just marked dirty by the above loop
+    if (this.boundaryDirtySet.size > 0) {
+      const urgentRepairs = Math.min(this.boundaryDirtySet.size, 2);
+      if (urgentRepairs > 0) {
+        await this._processBoundaryRepairsImmediate(urgentRepairs);
+      }
     }
     
     // Single yield after all work is done
@@ -2204,6 +2237,72 @@ export class SuperChunkManager {
     }
     
     return rebuiltCount;
+  }
+  
+  /**
+   * Immediately process boundary repairs to minimize visible artifacts
+   * @param {number} maxRepairs - Maximum number of repairs to process
+   */
+  async _processBoundaryRepairsImmediate(maxRepairs) {
+    const keysToRepair = [...this.boundaryDirtySet].slice(0, maxRepairs);
+    
+    for (const key of keysToRepair) {
+      const superChunk = this.superChunks.get(key);
+      if (!superChunk || !superChunk.hasBeenBuilt) {
+        this.boundaryDirtySet.delete(key);
+        this.dirtySet.delete(key);
+        continue;
+      }
+      
+      // Check if we can use worker pool
+      const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
+      if (!hasRawCompressed || !this.useSuperChunkWorkerPool) {
+        continue; // Skip - let normal rebuild handle it
+      }
+      
+      // Collect chunks and neighbors
+      const chunks = [];
+      for (const [, chunkInfo] of superChunk.loadedChunks) {
+        if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
+        chunks.push({
+          chunkX: chunkInfo.chunkX,
+          chunkZ: chunkInfo.chunkZ,
+          compressedData: chunkInfo.data.compressedData.slice(0),
+          compressionType: chunkInfo.data.compressionType,
+        });
+      }
+      
+      if (chunks.length === 0) continue;
+      
+      const neighbors = this._collectNeighborDataForWorker(superChunk, true);
+      const bounds = {
+        minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
+        minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
+        maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+        maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+      };
+      
+      const oldMeshes = [...superChunk.meshes];
+      
+      try {
+        const { result } = await this.superChunkWorkerPool.process({
+          chunks, neighbors, bounds,
+          priority: 100, // High priority for boundary repairs
+          superChunkKey: key,
+        });
+        
+        await this._createMeshesFromWorkerResult(superChunk, result);
+        this._disposeOldMeshes(oldMeshes);
+        
+        superChunk.isDirty = false;
+        // Don't mark neighbors dirty again - this is a repair, not first build
+      } catch (error) {
+        console.warn(`[SuperChunkManager] Boundary repair failed for ${key}:`, error.message);
+      }
+      
+      this.boundaryDirtySet.delete(key);
+      this.dirtySet.delete(key);
+    }
   }
 
   /**

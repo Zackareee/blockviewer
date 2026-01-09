@@ -42,16 +42,13 @@ impl FaceAO {
         self.v0 == self.v1 && self.v1 == self.v2 && self.v2 == self.v3
     }
 
-    /// Compare with another AO pattern (exact match)
+    /// Compare with another AO pattern
     pub fn matches(&self, other: &FaceAO) -> bool {
         self.v0 == other.v0 && self.v1 == other.v1 && 
         self.v2 == other.v2 && self.v3 == other.v3
     }
     
-    /// Compare with another AO pattern (tolerant match for greedy meshing)
-    /// Allows merging faces where AO differs by at most 1 level per vertex
-    /// This creates larger merged quads with minimal visual impact
-    #[inline]
+    /// Compare with tolerance (for greedy meshing - allows merging faces with similar AO)
     pub fn matches_tolerant(&self, other: &FaceAO) -> bool {
         // Check if any vertex differs by more than 1 level
         let diff0 = (self.v0 as i8 - other.v0 as i8).abs();
@@ -399,31 +396,15 @@ pub fn light_matches(
     sky1 == sky2 && block1 == block2
 }
 
-/// Light matching tolerance for greedy meshing
-/// Allows merging faces with similar (but not identical) light values
-/// The shader handles smooth interpolation, so small differences are invisible
-pub const LIGHT_TOLERANCE: u8 = 2;
+/// Tolerance for light merging in greedy meshing
+/// 0 = exact match required for smooth lighting, prevents blocky appearance
+const LIGHT_TOLERANCE: u8 = 0;
 
-/// Check if light values are within tolerance for merging
-/// This allows larger merged quads while maintaining visual quality
+/// Check if two light values are within tolerance for merging
 #[inline]
 pub fn light_within_tolerance(sky1: u8, block1: u8, sky2: u8, block2: u8) -> bool {
     let sky_diff = (sky1 as i16 - sky2 as i16).unsigned_abs() as u8;
     let block_diff = (block1 as i16 - block2 as i16).unsigned_abs() as u8;
     sky_diff <= LIGHT_TOLERANCE && block_diff <= LIGHT_TOLERANCE
-}
-
-/// Check if two blocks have compatible light for merging (with tolerance)
-/// Returns true if they can be merged (within LIGHT_TOLERANCE levels)
-#[inline]
-pub fn light_matches_tolerant(
-    light_grid: Option<&LightGrid>,
-    x1: i32, y1: i32, z1: i32,
-    x2: i32, y2: i32, z2: i32,
-) -> bool {
-    let (sky1, block1) = get_face_light(light_grid, x1, y1, z1);
-    let (sky2, block2) = get_face_light(light_grid, x2, y2, z2);
-    
-    light_within_tolerance(sky1, block1, sky2, block2)
 }
 

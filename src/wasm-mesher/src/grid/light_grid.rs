@@ -129,13 +129,11 @@ impl LightGrid {
             let idx = block_index_in_section(local_x, local_y, local_z);
             LightValue::unpack(section[idx])
         } else {
-            // If we have Minecraft light data, missing sections are dark (caves, unlit areas)
-            // If we don't have data (fallback mode), assume full sky light (outdoor)
-            if self.has_minecraft_data {
-                LightValue::new(0, 0)
-            } else {
-                LightValue::new(MAX_LIGHT, 0)
-            }
+            // Missing sections default to full sky light
+            // Minecraft only stores sections that have blocks - empty sections above terrain
+            // don't have stored light data and are implicitly full sky light.
+            // Underground caves HAVE block data, so their light values ARE stored (as 0).
+            LightValue::new(MAX_LIGHT, 0)
         }
     }
 
