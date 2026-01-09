@@ -24,6 +24,8 @@ import { buildModelMeshesWithInstancing } from '../mesh/ModelMesher.js';
 import { propagateSkyLight } from '../mesh/LightPropagator.js';
 import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
 import { getMeshWorkerPool, resetMeshWorkerPool } from '../mesh/workers/MeshWorkerPool.js';
+import { getSuperChunkWorkerPool, resetSuperChunkWorkerPool } from '../mesh/workers/SuperChunkWorkerPool.js';
+import { supportsWorkerPipeline } from '../utils/CapabilityDetector.js';
 import { 
   initWasmMesher, 
   isWasmAvailable, 
@@ -36,6 +38,7 @@ import {
 } from '../mesh/wasm/WasmMesher.js';
 import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
+import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
 
 // Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
 // Smaller size = faster rebuilds, less jank, more responsive loading
@@ -223,10 +226,16 @@ export class SuperChunkManager {
     // Callbacks
     this.onSuperChunkRebuilt = options.onSuperChunkRebuilt || null;
     
-    // Worker pool state
+    // Worker pool state (old MeshWorkerPool - deprecated)
     this.workerPool = null;
     this.workerPoolInitialized = false;
     this.workerPoolInitPromise = null;
+    
+    // SuperChunkWorkerPool state (new unified pipeline)
+    this.superChunkWorkerPool = null;
+    this.superChunkWorkerPoolInitialized = false;
+    this.superChunkWorkerPoolPromise = null;
+    this.useSuperChunkWorkerPool = options.useSuperChunkWorkerPool ?? supportsWorkerPipeline();
     
     // WASM mesher state
     this.wasmInitialized = false;
@@ -372,6 +381,76 @@ export class SuperChunkManager {
   }
 
   /**
+   * Initialize the SuperChunkWorkerPool (new unified pipeline)
+   * This moves ALL processing to workers for maximum performance
+   */
+  async initializeSuperChunkWorkerPool() {
+    if (this.superChunkWorkerPoolInitialized) return true;
+    if (this.superChunkWorkerPoolPromise) return this.superChunkWorkerPoolPromise;
+    
+    this.superChunkWorkerPoolPromise = this._doInitializeSuperChunkWorkerPool();
+    return this.superChunkWorkerPoolPromise;
+  }
+
+  async _doInitializeSuperChunkWorkerPool() {
+    if (!this.useSuperChunkWorkerPool) {
+      console.log('[SuperChunkManager] SuperChunkWorkerPool disabled');
+      return false;
+    }
+
+    try {
+      console.log('[SuperChunkManager] Initializing SuperChunkWorkerPool...');
+      
+      // Export block registry data for workers
+      const blockRegistryData = this._exportBlockRegistryForWorker();
+      
+      // Ensure state registry geometries are pre-computed before export
+      let stateRegistryData = null;
+      if (this.stateRegistry) {
+        await this.stateRegistry.precomputeAll();
+        const exported = this.stateRegistry.exportForWorker();
+        stateRegistryData = exported.data;
+      }
+      
+      // Get or create the worker pool
+      this.superChunkWorkerPool = getSuperChunkWorkerPool();
+      
+      // Initialize with registry data
+      await this.superChunkWorkerPool.initialize(blockRegistryData, stateRegistryData);
+      
+      this.superChunkWorkerPoolInitialized = true;
+      console.log('[SuperChunkManager] SuperChunkWorkerPool initialized successfully');
+      return true;
+    } catch (error) {
+      console.error('[SuperChunkManager] Failed to initialize SuperChunkWorkerPool:', error);
+      this.useSuperChunkWorkerPool = false;
+      return false;
+    }
+  }
+
+  /**
+   * Export block registry data for worker initialization
+   */
+  _exportBlockRegistryForWorker() {
+    const blocks = [];
+    
+    for (let id = 0; id < 4096; id++) {
+      const info = this.registry.getBlockInfo(id);
+      if (!info || !info.name) continue;
+      
+      blocks.push({
+        name: info.name,
+        color: info.color || 0x707070,
+        isOpaque: info.isOpaque ?? true,
+        isFluid: info.isFluid ?? false,
+        isNonCube: this.registry.isNonCube?.(id) ?? false,
+      });
+    }
+    
+    return { blocks };
+  }
+
+  /**
    * Get super-chunk key from world chunk coordinates
    */
   getSuperChunkKey(chunkX, chunkZ) {
@@ -448,9 +527,15 @@ export class SuperChunkManager {
   /**
    * Build meshes for a super-chunk
    * This decodes all chunks into a shared grid and runs the greedy mesher once.
-   * Uses worker pool if available, falls back to main thread meshing.
+   * 
+   * Priority order:
+   * 1. SuperChunkWorkerPool (new unified off-thread pipeline) - best performance
+   * 2. Unified WASM pipeline (main thread but fast)
+   * 3. Main thread JavaScript (fallback)
    */
   async buildSuperChunk(superChunk, keepOldMeshes = false) {
+    const meshStartTime = performance.now();
+    
     // Dispose old meshes (unless caller will handle cleanup)
     if (!keepOldMeshes) {
       superChunk.dispose();
@@ -464,16 +549,32 @@ export class SuperChunkManager {
       return;
     }
     
-    // Check if we should use unified WASM pipeline for individual chunk processing
-    // This is beneficial when all chunks have raw compressed data
+    const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
+    const superChunkKey = `${superChunk.superX},${superChunk.superZ}`;
+    
+    // Priority 1: Try SuperChunkWorkerPool (fully off-thread pipeline)
+    if (this.useSuperChunkWorkerPool && this.superChunkWorkerPoolInitialized && hasRawCompressed) {
+      try {
+        await this._buildSuperChunkWithWorkerPool(superChunk);
+        const meshDuration = performance.now() - meshStartTime;
+        chunkLoadLogger.logProcess('meshing', meshDuration, superChunk.superX, superChunk.superZ);
+        return;
+      } catch (error) {
+        console.warn('[SuperChunkManager] SuperChunkWorkerPool failed, falling back:', error.message);
+        // Fall through to other methods
+      }
+    }
+    
+    // Priority 2: Check if we should use unified WASM pipeline (main thread)
     // IMPORTANT: Also check this.wasmInitialized to ensure lookup tables are current
     // (invalidateWorkerPool sets wasmInitialized=false to force reinit with new texture indices)
     const pipelineReady = isUnifiedPipelineReady() && this.wasmInitialized;
-    const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
     const useUnifiedPipeline = pipelineReady && hasRawCompressed;
     
     if (useUnifiedPipeline) {
       await this._buildSuperChunkUnified(superChunk);
+      const meshDuration = performance.now() - meshStartTime;
+      chunkLoadLogger.logProcess('meshing', meshDuration, superChunk.superX, superChunk.superZ);
       return;
     }
     
@@ -554,10 +655,208 @@ export class SuperChunkManager {
     // Only on first build - rebuilds shouldn't cascade to neighbors
     this._markNeighborsDirtyAfterBuild(superChunk, isFirstBuild);
     
-    // Reduce log noise during normal operation - uncomment for debugging
-    // console.log(`[SuperChunkManager] Built super-chunk ${superChunk.superX},${superChunk.superZ}: ${superChunk.meshes.length} meshes from ${superChunk.loadedChunks.size} chunks`);
+    // Log meshing time for performance profiling
+    const meshDuration = performance.now() - meshStartTime;
+    chunkLoadLogger.logProcess('meshing', meshDuration, superChunk.superX, superChunk.superZ);
     
     this.onSuperChunkRebuilt?.(superChunk);
+  }
+
+  /**
+   * Build super-chunk using SuperChunkWorkerPool (fully off-thread pipeline)
+   * 
+   * This is the most efficient approach:
+   * - ALL processing happens in workers (decompress, decode, mesh)
+   * - Main thread only creates Three.js BufferGeometry (~2ms)
+   * - Enables 4+ chunks/second without FPS drops
+   */
+  async _buildSuperChunkWithWorkerPool(superChunk) {
+    const key = `${superChunk.superX},${superChunk.superZ}`;
+    
+    // Collect raw compressed chunk data
+    const chunks = [];
+    for (const [, chunkInfo] of superChunk.loadedChunks) {
+      if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
+      
+      chunks.push({
+        chunkX: chunkInfo.chunkX,
+        chunkZ: chunkInfo.chunkZ,
+        compressedData: chunkInfo.data.compressedData,
+        compressionType: chunkInfo.data.compressionType,
+      });
+    }
+    
+    if (chunks.length === 0) {
+      throw new Error('No raw compressed chunks available');
+    }
+    
+    // Collect neighbor chunks for boundary handling
+    const neighbors = this._collectNeighborDataForWorker(superChunk);
+    
+    // Calculate bounds
+    const bounds = {
+      minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
+      minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
+      maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+      maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+    };
+    
+    // Process in worker
+    const { result, stats } = await this.superChunkWorkerPool.process({
+      chunks,
+      neighbors,
+      bounds,
+      priority: 0,
+      superChunkKey: key,
+    });
+    
+    // Create Three.js meshes from worker result (main thread only, ~2ms total)
+    this._createMeshesFromWorkerResult(superChunk, result);
+    
+    // Track stats
+    if (stats) {
+      // Log first successful build
+      if (!this._workerPoolLoggedOnce) {
+        console.log(`[SuperChunkManager] 🚀 SuperChunkWorkerPool active: ${stats.totalTimeMs.toFixed(1)}ms per super-chunk`);
+        this._workerPoolLoggedOnce = true;
+      }
+    }
+    
+    // Mark as built
+    const isFirstBuild = !superChunk.hasBeenBuilt;
+    superChunk.isDirty = false;
+    superChunk.hasBeenBuilt = true;
+    
+    // Mark neighbors that need updating
+    this._markNeighborsDirtyAfterBuild(superChunk, isFirstBuild);
+    
+    this.onSuperChunkRebuilt?.(superChunk);
+  }
+
+  /**
+   * Collect neighbor chunk data for worker (raw compressed)
+   */
+  _collectNeighborDataForWorker(superChunk) {
+    const neighbors = [];
+    const superX = superChunk.superX;
+    const superZ = superChunk.superZ;
+    
+    // Check all 8 neighboring super-chunks
+    const neighborOffsets = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1],          [0, 1],
+      [1, -1], [1, 0], [1, 1],
+    ];
+    
+    for (const [dx, dz] of neighborOffsets) {
+      const neighborKey = `${superX + dx},${superZ + dz}`;
+      const neighborSuperChunk = this.superChunks.get(neighborKey);
+      if (!neighborSuperChunk) continue;
+      
+      for (const [, chunkInfo] of neighborSuperChunk.loadedChunks) {
+        if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
+        
+        // Only include chunks that are adjacent to this super-chunk's boundary
+        const isAdjacent = this._isChunkAdjacentToBoundary(
+          chunkInfo.chunkX, chunkInfo.chunkZ,
+          superChunk.superX, superChunk.superZ
+        );
+        
+        if (isAdjacent) {
+          neighbors.push({
+            chunkX: chunkInfo.chunkX,
+            chunkZ: chunkInfo.chunkZ,
+            compressedData: chunkInfo.data.compressedData,
+            compressionType: chunkInfo.data.compressionType,
+          });
+        }
+      }
+    }
+    
+    return neighbors;
+  }
+
+  /**
+   * Check if a chunk is adjacent to a super-chunk boundary
+   */
+  _isChunkAdjacentToBoundary(chunkX, chunkZ, superX, superZ) {
+    const minChunkX = superX * SUPER_CHUNK_SIZE;
+    const minChunkZ = superZ * SUPER_CHUNK_SIZE;
+    const maxChunkX = minChunkX + SUPER_CHUNK_SIZE - 1;
+    const maxChunkZ = minChunkZ + SUPER_CHUNK_SIZE - 1;
+    
+    // Check if chunk is directly adjacent to any edge
+    const isAdjacentX = (chunkX === minChunkX - 1 || chunkX === maxChunkX + 1);
+    const isAdjacentZ = (chunkZ === minChunkZ - 1 || chunkZ === maxChunkZ + 1);
+    const isWithinX = chunkX >= minChunkX - 1 && chunkX <= maxChunkX + 1;
+    const isWithinZ = chunkZ >= minChunkZ - 1 && chunkZ <= maxChunkZ + 1;
+    
+    return (isAdjacentX && isWithinZ) || (isAdjacentZ && isWithinX);
+  }
+
+  /**
+   * Create Three.js meshes from worker result
+   * This is the only work done on the main thread (~2ms total)
+   */
+  _createMeshesFromWorkerResult(superChunk, result) {
+    // Solid mesh
+    if (result.solid && result.solid.positions.length > 0) {
+      const mesh = this._createMesh(result.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.solidMeshes.push(mesh);
+      }
+    }
+    
+    // Water mesh
+    if (result.water && result.water.positions.length > 0) {
+      const mesh = this._createMesh(result.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
+      if (mesh) {
+        mesh.renderOrder = 2;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.waterMeshes.push(mesh);
+      }
+    }
+    
+    // Lava mesh
+    if (result.lava && result.lava.positions.length > 0) {
+      const mesh = this._createMesh(result.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
+      if (mesh) {
+        mesh.renderOrder = 3;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.lavaMeshes.push(mesh);
+      }
+    }
+    
+    // Glass mesh
+    if (result.glass && result.glass.positions.length > 0) {
+      const mesh = this._createMesh(result.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
+      if (mesh) {
+        mesh.renderOrder = 1;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.glassMeshes.push(mesh);
+      }
+    }
+    
+    // Model meshes
+    if (result.models) {
+      if (result.models.opaque && result.models.opaque.positions.length > 0) {
+        const mesh = this._createMesh(result.models.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+        if (mesh) {
+          superChunk.meshes.push(mesh);
+          this.chunkManager.modelMeshes.push(mesh);
+        }
+      }
+      
+      if (result.models.transparent && result.models.transparent.positions.length > 0) {
+        const mesh = this._createMesh(result.models.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+        if (mesh) {
+          mesh.renderOrder = 0.5;
+          superChunk.meshes.push(mesh);
+          this.chunkManager.transparentModelMeshes.push(mesh);
+        }
+      }
+    }
   }
 
   /**
@@ -1573,9 +1872,6 @@ export class SuperChunkManager {
     const totalDirty = this.dirtySet.size + this.boundaryDirtySet.size;
     if (totalDirty === 0) return 0;
     
-    let rebuiltCount = 0;
-    const startTime = performance.now();
-    
     // Prioritize boundary-dirty chunks (visible artifacts) over new chunks
     // Build the list: boundary-dirty first, then regular dirty
     const keysToRebuild = [];
@@ -1597,6 +1893,20 @@ export class SuperChunkManager {
       }
     }
     
+    if (keysToRebuild.length === 0) return 0;
+    
+    // Check if we can use parallel worker pool dispatch
+    const canUseParallel = this.useSuperChunkWorkerPool && this.superChunkWorkerPoolInitialized;
+    
+    if (canUseParallel) {
+      // PARALLEL PATH: Dispatch all jobs to workers at once, await all results
+      return await this._rebuildDirtyParallel(keysToRebuild);
+    }
+    
+    // SEQUENTIAL PATH: Fallback for non-worker builds
+    let rebuiltCount = 0;
+    const startTime = performance.now();
+    
     for (const key of keysToRebuild) {
       // Check budget if specified
       if (budgetMs > 0 && (performance.now() - startTime) >= budgetMs) {
@@ -1604,39 +1914,131 @@ export class SuperChunkManager {
       }
       
       const superChunk = this.superChunks.get(key);
-      // Rebuild if super-chunk exists - it's in the dirty set so it needs rebuilding
-      // (Don't check superChunk.isDirty - that's set by addChunk, but boundary dirty
-      // chunks are added to dirtySet without setting that flag)
       if (superChunk) {
-        // Store old meshes to remove AFTER new ones are ready
         const oldMeshes = [...superChunk.meshes];
-        
-        // Build new meshes (this creates new meshes but doesn't dispose old yet)
-        await this.buildSuperChunk(superChunk, true /* keepOldMeshes */);
-        
-        // NOW remove old meshes from manager arrays and scene
-        for (const mesh of oldMeshes) {
-          if (this.chunkManager.solidMeshes) removeFromArray(this.chunkManager.solidMeshes, mesh);
-          if (this.chunkManager.waterMeshes) removeFromArray(this.chunkManager.waterMeshes, mesh);
-          if (this.chunkManager.lavaMeshes) removeFromArray(this.chunkManager.lavaMeshes, mesh);
-          if (this.chunkManager.glassMeshes) removeFromArray(this.chunkManager.glassMeshes, mesh);
-          if (this.chunkManager.modelMeshes) removeFromArray(this.chunkManager.modelMeshes, mesh);
-          if (this.chunkManager.beaconMeshes) removeFromArray(this.chunkManager.beaconMeshes, mesh);
-          if (mesh.geometry) mesh.geometry.dispose();
-          if (mesh.parent) mesh.parent.remove(mesh);
-        }
-        
+        await this.buildSuperChunk(superChunk, true);
+        this._disposeOldMeshes(oldMeshes);
         rebuiltCount++;
-        
-        // Yield to browser between super-chunks to maintain responsiveness
-        await new Promise(resolve => setTimeout(resolve, 0));
       }
-      // Remove from both sets
       this.dirtySet.delete(key);
       this.boundaryDirtySet.delete(key);
     }
     
     return rebuiltCount;
+  }
+
+  /**
+   * Parallel rebuild using worker pool - dispatches all jobs at once
+   * This maximizes worker utilization for much higher throughput
+   */
+  async _rebuildDirtyParallel(keysToRebuild) {
+    // Collect all super-chunks and their old meshes
+    const buildJobs = [];
+    
+    for (const key of keysToRebuild) {
+      const superChunk = this.superChunks.get(key);
+      if (!superChunk) continue;
+      
+      // Check if we can use worker pool for this chunk
+      const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
+      if (!hasRawCompressed) continue;
+      
+      // Store old meshes to dispose after new ones are ready
+      const oldMeshes = [...superChunk.meshes];
+      superChunk.meshes = [];
+      
+      // Collect job data
+      const chunks = [];
+      for (const [, chunkInfo] of superChunk.loadedChunks) {
+        if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
+        chunks.push({
+          chunkX: chunkInfo.chunkX,
+          chunkZ: chunkInfo.chunkZ,
+          compressedData: chunkInfo.data.compressedData,
+          compressionType: chunkInfo.data.compressionType,
+        });
+      }
+      
+      if (chunks.length === 0) continue;
+      
+      const neighbors = this._collectNeighborDataForWorker(superChunk);
+      const bounds = {
+        minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
+        minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
+        maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+        maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+      };
+      
+      buildJobs.push({
+        key,
+        superChunk,
+        oldMeshes,
+        jobData: { chunks, neighbors, bounds, priority: 0, superChunkKey: key },
+      });
+      
+      // Mark as no longer dirty immediately (prevents re-queuing)
+      this.dirtySet.delete(key);
+      this.boundaryDirtySet.delete(key);
+    }
+    
+    if (buildJobs.length === 0) return 0;
+    
+    // Dispatch ALL jobs to worker pool in parallel
+    const jobPromises = buildJobs.map(job => 
+      this.superChunkWorkerPool.process(job.jobData)
+        .then(result => ({ job, result }))
+        .catch(error => ({ job, error }))
+    );
+    
+    // Wait for all jobs to complete
+    const results = await Promise.all(jobPromises);
+    
+    // Process all results - create meshes and dispose old ones
+    let rebuiltCount = 0;
+    for (const { job, result, error } of results) {
+      if (error) {
+        console.warn(`[SuperChunkManager] Parallel build failed for ${job.key}:`, error.message);
+        // Re-add to dirty set for retry
+        this.dirtySet.add(job.key);
+        continue;
+      }
+      
+      // Create meshes from worker result
+      this._createMeshesFromWorkerResult(job.superChunk, result.result);
+      
+      // Dispose old meshes
+      this._disposeOldMeshes(job.oldMeshes);
+      
+      // Mark as built
+      job.superChunk.isDirty = false;
+      job.superChunk.hasBeenBuilt = true;
+      
+      rebuiltCount++;
+    }
+    
+    // Single yield after all work is done
+    if (rebuiltCount > 0) {
+      this.onSuperChunkRebuilt?.();
+    }
+    
+    return rebuiltCount;
+  }
+
+  /**
+   * Helper to dispose old meshes
+   */
+  _disposeOldMeshes(oldMeshes) {
+    for (const mesh of oldMeshes) {
+      if (this.chunkManager.solidMeshes) removeFromArray(this.chunkManager.solidMeshes, mesh);
+      if (this.chunkManager.waterMeshes) removeFromArray(this.chunkManager.waterMeshes, mesh);
+      if (this.chunkManager.lavaMeshes) removeFromArray(this.chunkManager.lavaMeshes, mesh);
+      if (this.chunkManager.glassMeshes) removeFromArray(this.chunkManager.glassMeshes, mesh);
+      if (this.chunkManager.modelMeshes) removeFromArray(this.chunkManager.modelMeshes, mesh);
+      if (this.chunkManager.beaconMeshes) removeFromArray(this.chunkManager.beaconMeshes, mesh);
+      if (this.chunkManager.transparentModelMeshes) removeFromArray(this.chunkManager.transparentModelMeshes, mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.parent) mesh.parent.remove(mesh);
+    }
   }
   
   /**
@@ -1667,21 +2069,26 @@ export class SuperChunkManager {
       // - Use shorter delays between callbacks
       let budgetMs, chunksToMesh, nextDelay;
       
+      // When using parallel worker pool, we can process many more chunks at once
+      // since the main thread just dispatches and waits
+      const canUseParallel = this.useSuperChunkWorkerPool && this.superChunkWorkerPoolInitialized;
+      const parallelMultiplier = canUseParallel ? 4 : 1; // Process 4x more with parallel
+      
       if (hasBoundaryDirty) {
         // High priority for visible artifacts - fix seams quickly
-        budgetMs = 16;  // Full frame budget
-        chunksToMesh = Math.max(2, this.meshingSpeed);  // At least 2 chunks
-        nextDelay = 8;  // Fast follow-up
+        budgetMs = 0; // No budget limit when parallel
+        chunksToMesh = Math.max(4, this.meshingSpeed * parallelMultiplier);
+        nextDelay = 4;  // Fast follow-up
       } else if (lowPriority) {
-        // Low priority during streaming - process slowly
-        budgetMs = 8;
-        chunksToMesh = 1;
-        nextDelay = 24;
+        // Low priority during streaming - but still batch multiple with parallel
+        budgetMs = canUseParallel ? 0 : 8;
+        chunksToMesh = canUseParallel ? Math.max(4, this.meshingSpeed * 2) : 1;
+        nextDelay = canUseParallel ? 8 : 24;
       } else {
         // Normal priority when queue is stable
-        budgetMs = 12;
-        chunksToMesh = this.meshingSpeed;
-        nextDelay = 16;
+        budgetMs = canUseParallel ? 0 : 12;
+        chunksToMesh = this.meshingSpeed * parallelMultiplier;
+        nextDelay = canUseParallel ? 4 : 16;
       }
       
       await this.rebuildDirty(chunksToMesh, budgetMs);

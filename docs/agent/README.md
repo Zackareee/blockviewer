@@ -125,3 +125,4 @@ textureAtlas            // Texture atlas material data
 
 4. **Performance issues**: Try disabling smooth lighting or reducing render distance
 
+

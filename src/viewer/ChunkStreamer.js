@@ -39,6 +39,7 @@ import {
   isUnifiedPipelineReady, 
   initBlockRegistry,
 } from '../mesh/wasm/WasmMesher.js';
+import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
 
 // Chunk size in blocks (Minecraft standard)
 const CHUNK_SIZE = 16;
@@ -360,6 +361,12 @@ export class ChunkStreamer {
       console.warn('[ChunkStreamer] WASM init failed, using JS fallback:', err);
     });
     
+    // Initialize SuperChunkWorkerPool for fully off-thread processing (async, non-blocking)
+    // This is the most efficient mode - enables 4+ chunks/sec without FPS drops
+    this._superChunkWorkerPoolPromise = this.initializeSuperChunkWorkerPool().catch(err => {
+      console.warn('[ChunkStreamer] SuperChunkWorkerPool init failed, using WASM/JS fallback:', err);
+    });
+    
     // Initialize worker pool for parallel meshing (async, non-blocking)
     // This will speed up meshing once initialized
     this.initializeWorkerPool().catch(err => {
@@ -526,6 +533,28 @@ export class ChunkStreamer {
     } catch (error) {
       console.error('[ChunkStreamer] Failed to initialize WASM:', error);
       this._wasmReinitPending = false; // Clear flag on error
+      return false;
+    }
+  }
+
+  /**
+   * Initialize the SuperChunkWorkerPool for fully off-thread processing
+   * This is the most efficient mode - enables 4+ chunks/sec without FPS drops
+   */
+  async initializeSuperChunkWorkerPool() {
+    if (!this.superChunkManager) {
+      console.warn('[ChunkStreamer] SuperChunkManager not initialized yet');
+      return false;
+    }
+    
+    try {
+      const success = await this.superChunkManager.initializeSuperChunkWorkerPool();
+      if (success) {
+        console.log('[ChunkStreamer] ✅ SuperChunkWorkerPool initialized - maximum performance mode');
+      }
+      return success;
+    } catch (error) {
+      console.error('[ChunkStreamer] Failed to initialize SuperChunkWorkerPool:', error);
       return false;
     }
   }
@@ -1316,6 +1345,10 @@ export class ChunkStreamer {
   async _loadChunk(item) {
     const { chunkX, chunkZ, regionX, regionZ } = item;
     const chunkKey = `${chunkX},${chunkZ}`;
+    const loadStartTime = performance.now();
+    
+    // Log chunk load start
+    chunkLoadLogger.log('loadStart', chunkX, chunkZ, { regionX, regionZ });
     
     try {
       let chunkData;
@@ -1406,8 +1439,17 @@ export class ChunkStreamer {
       this.stats.totalChunksLoaded++;
       this.onChunkLoaded?.(chunkX, chunkZ);
       
+      // Log chunk load completion
+      const loadDuration = performance.now() - loadStartTime;
+      chunkLoadLogger.log('loadEnd', chunkX, chunkZ, { 
+        duration: loadDuration,
+        isRawCompressed: chunkData?.isRawCompressed || false,
+      });
+      chunkLoadLogger.logProcess('total', loadDuration, chunkX, chunkZ);
+      
     } catch (error) {
       console.error(`[ChunkStreamer] Failed to load chunk ${chunkKey}:`, error);
+      chunkLoadLogger.log('error', chunkX, chunkZ, { error: error.message });
     } finally {
       this.loadingChunks.delete(chunkKey);
     }

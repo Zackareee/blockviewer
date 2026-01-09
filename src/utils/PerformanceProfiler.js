@@ -13,7 +13,12 @@
  * 
  *   // Or run a specific benchmark path
  *   window.__profiler.runBenchmark();
+ * 
+ *   // Get detailed process breakdown
+ *   window.__profiler.getProcessBreakdown();
  */
+
+import { chunkLoadLogger } from './ChunkLoadLogger.js';
 
 export class PerformanceProfiler {
   constructor() {
@@ -25,6 +30,13 @@ export class PerformanceProfiler {
     this.animationFrameId = null;
     this.lastFrameTime = 0;
     
+    // Process-level profiling
+    this.processTimings = new Map(); // processName -> { samples: [], totalTime: 0 }
+    this.activeProcesses = new Map(); // processName -> startTime
+    
+    // Bottleneck detection
+    this.bottlenecks = [];
+    
     // Expose to window for console access
     if (typeof window !== 'undefined') {
       window.__profiler = this;
@@ -32,7 +44,52 @@ export class PerformanceProfiler {
       console.log('  window.__profiler.start(30000)  - Start profiling for 30 seconds');
       console.log('  window.__profiler.stop()        - Stop and show results');
       console.log('  window.__profiler.printReport() - Print last results');
+      console.log('  window.__profiler.getProcessBreakdown() - Show process timings');
+      console.log('  window.__profiler.detectBottlenecks()   - Analyze bottlenecks');
     }
+  }
+  
+  /**
+   * Start timing a process
+   * @param {string} processName - Name of the process
+   */
+  startProcess(processName) {
+    this.activeProcesses.set(processName, performance.now());
+  }
+  
+  /**
+   * End timing a process
+   * @param {string} processName - Name of the process
+   */
+  endProcess(processName) {
+    const startTime = this.activeProcesses.get(processName);
+    if (startTime === undefined) return;
+    
+    const duration = performance.now() - startTime;
+    this.activeProcesses.delete(processName);
+    
+    if (!this.processTimings.has(processName)) {
+      this.processTimings.set(processName, { samples: [], totalTime: 0 });
+    }
+    
+    const timing = this.processTimings.get(processName);
+    timing.samples.push(duration);
+    timing.totalTime += duration;
+  }
+  
+  /**
+   * Record a process timing directly
+   * @param {string} processName - Name of the process
+   * @param {number} durationMs - Duration in milliseconds
+   */
+  recordProcess(processName, durationMs) {
+    if (!this.processTimings.has(processName)) {
+      this.processTimings.set(processName, { samples: [], totalTime: 0 });
+    }
+    
+    const timing = this.processTimings.get(processName);
+    timing.samples.push(durationMs);
+    timing.totalTime += durationMs;
   }
   
   /**
@@ -277,10 +334,123 @@ export class PerformanceProfiler {
       lagSpikes,
     };
   }
+
+  /**
+   * Get process-level breakdown
+   */
+  getProcessBreakdown() {
+    const breakdown = {};
+    
+    for (const [name, timing] of this.processTimings) {
+      const samples = timing.samples;
+      if (samples.length === 0) continue;
+      
+      const sorted = [...samples].sort((a, b) => a - b);
+      breakdown[name] = {
+        count: samples.length,
+        totalTime: timing.totalTime,
+        avgTime: timing.totalTime / samples.length,
+        minTime: sorted[0],
+        maxTime: sorted[sorted.length - 1],
+        p50: sorted[Math.floor(sorted.length * 0.5)],
+        p95: sorted[Math.floor(sorted.length * 0.95)],
+        p99: sorted[Math.floor(sorted.length * 0.99)],
+      };
+    }
+    
+    // Also include chunk loading stats
+    const chunkStats = chunkLoadLogger.getStats();
+    breakdown.chunkLoading = chunkStats;
+    
+    return breakdown;
+  }
+  
+  /**
+   * Detect bottlenecks based on process timings
+   */
+  detectBottlenecks() {
+    const breakdown = this.getProcessBreakdown();
+    const bottlenecks = [];
+    
+    // Analyze each process
+    for (const [name, stats] of Object.entries(breakdown)) {
+      if (name === 'chunkLoading') continue; // Skip aggregate stats
+      
+      // Flag if average time is too high
+      if (stats.avgTime > 50) {
+        bottlenecks.push({
+          process: name,
+          issue: 'High average time',
+          avgTime: stats.avgTime,
+          recommendation: `${name} averaging ${stats.avgTime.toFixed(1)}ms - consider optimization`,
+        });
+      }
+      
+      // Flag if p95 is much higher than average (high variance)
+      if (stats.p95 > stats.avgTime * 3 && stats.p95 > 100) {
+        bottlenecks.push({
+          process: name,
+          issue: 'High variance',
+          avgTime: stats.avgTime,
+          p95: stats.p95,
+          recommendation: `${name} has spikes (p95: ${stats.p95.toFixed(1)}ms vs avg: ${stats.avgTime.toFixed(1)}ms)`,
+        });
+      }
+    }
+    
+    // Check chunk loading rate
+    if (breakdown.chunkLoading?.chunksPerSecond < 4) {
+      bottlenecks.push({
+        process: 'chunkLoading',
+        issue: 'Low chunk throughput',
+        chunksPerSecond: breakdown.chunkLoading.chunksPerSecond,
+        recommendation: `Only ${breakdown.chunkLoading.chunksPerSecond.toFixed(2)} chunks/sec - target is 4+`,
+      });
+    }
+    
+    this.bottlenecks = bottlenecks;
+    
+    // Print bottlenecks
+    console.log('\n═══════════════════════════════════════════════════════════════');
+    console.log('  BOTTLENECK ANALYSIS');
+    console.log('═══════════════════════════════════════════════════════════════\n');
+    
+    if (bottlenecks.length === 0) {
+      console.log('  ✓ No significant bottlenecks detected');
+    } else {
+      for (const b of bottlenecks) {
+        console.log(`  ⚠ ${b.process}: ${b.issue}`);
+        console.log(`    ${b.recommendation}`);
+        console.log();
+      }
+    }
+    
+    // Print process breakdown
+    console.log('  PROCESS TIMING BREAKDOWN:');
+    for (const [name, stats] of Object.entries(breakdown)) {
+      if (name === 'chunkLoading') continue;
+      console.log(`    ${name}:`);
+      console.log(`      Count: ${stats.count} | Avg: ${stats.avgTime.toFixed(1)}ms | p95: ${stats.p95.toFixed(1)}ms | Max: ${stats.maxTime.toFixed(1)}ms`);
+    }
+    
+    console.log('\n═══════════════════════════════════════════════════════════════\n');
+    
+    return bottlenecks;
+  }
+  
+  /**
+   * Reset all process timings
+   */
+  resetProcessTimings() {
+    this.processTimings.clear();
+    this.activeProcesses.clear();
+    this.bottlenecks = [];
+  }
 }
 
 // Auto-instantiate
 export const profiler = new PerformanceProfiler();
+
 
 
 

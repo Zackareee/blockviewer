@@ -231,3 +231,4 @@ Add mesh to scene
 | `src/mesh/wasm/WasmMesher.js` | JS ↔ WASM bridge |
 | `src/viewer/SuperChunkManager.js` | Orchestrates WASM meshing |
 
+

@@ -471,6 +471,153 @@ class StateRegistry {
     registry.nextId = data.nextId;
     return registry;
   }
+
+  /**
+   * Export registry data for worker initialization in an efficient format
+   * Returns data and a list of transferable ArrayBuffers for zero-copy transfer
+   * 
+   * @returns {{ data: Object, transferables: ArrayBuffer[] }}
+   */
+  exportForWorker() {
+    const statesData = [];
+    const transferables = [];
+    
+    for (let i = 0; i < this.nextId; i++) {
+      const state = this.states[i];
+      if (!state || !state.geometry) continue;
+      
+      // Collect all geometry data with cloned TypedArrays for transfer
+      const geometryData = state.geometry.map(geom => {
+        const data = {
+          isFullCube: geom.isFullCube,
+          isTransparent: geom.isTransparent,
+          isOverlay: geom.isOverlay,
+          hasShade: geom.hasShade,
+        };
+        
+        // Clone TypedArrays so we can transfer them
+        if (geom.positions && geom.positions.length > 0) {
+          data.positions = geom.positions.slice();
+          transferables.push(data.positions.buffer);
+        }
+        if (geom.normals && geom.normals.length > 0) {
+          data.normals = geom.normals.slice();
+          transferables.push(data.normals.buffer);
+        }
+        if (geom.uvs && geom.uvs.length > 0) {
+          data.uvs = geom.uvs.slice();
+          transferables.push(data.uvs.buffer);
+        }
+        if (geom.texIndices && geom.texIndices.length > 0) {
+          data.texIndices = new Uint16Array(geom.texIndices);
+          transferables.push(data.texIndices.buffer);
+        }
+        if (geom.colors && geom.colors.length > 0) {
+          data.colors = geom.colors.slice();
+          transferables.push(data.colors.buffer);
+        }
+        if (geom.indices && geom.indices.length > 0) {
+          data.indices = new Uint16Array(geom.indices);
+          transferables.push(data.indices.buffer);
+        }
+        
+        // Face data for culling (not transferred, just cloned)
+        if (geom.faces) {
+          data.faces = geom.faces.map(face => ({
+            normal: face.normal,
+            cullFace: face.cullFace,
+            vertexCount: face.vertexCount,
+            tintIndex: face.tintIndex,
+            textureIndex: face.textureIndex,
+            shade: face.shade,
+          }));
+        }
+        
+        return data;
+      });
+      
+      statesData.push({
+        id: state.id,
+        blockName: state.blockName,
+        properties: state.properties,
+        propsKey: state.propsKey,
+        geometry: geometryData,
+        isFullCube: state.isFullCube,
+      });
+    }
+    
+    // Build lookup table: blockName|propsKey -> stateId
+    const lookupEntries = [];
+    for (const [key, id] of this.lookup.entries()) {
+      lookupEntries.push([key, id]);
+    }
+    
+    const data = {
+      states: statesData,
+      lookup: lookupEntries,
+      nextId: this.nextId,
+    };
+    
+    console.log(`[StateRegistry] Exported ${statesData.length} states with ${transferables.length} transferable buffers`);
+    
+    return { data, transferables };
+  }
+
+  /**
+   * Import registry data from exportForWorker (for use in workers)
+   * Reconstructs the registry from transferred data
+   * 
+   * @param {Object} data - Data from exportForWorker
+   * @returns {StateRegistry}
+   */
+  static importInWorker(data) {
+    const registry = new StateRegistry();
+    registry.initialized = true; // Workers don't need resolvers
+    
+    for (const stateData of data.states) {
+      // Geometry data already has TypedArrays from transfer
+      const geometry = stateData.geometry.map(geomData => ({
+        positions: geomData.positions || null,
+        normals: geomData.normals || null,
+        uvs: geomData.uvs || null,
+        texIndices: geomData.texIndices || null,
+        colors: geomData.colors || null,
+        indices: geomData.indices || null,
+        isFullCube: geomData.isFullCube,
+        isTransparent: geomData.isTransparent,
+        isOverlay: geomData.isOverlay,
+        hasShade: geomData.hasShade,
+        faces: geomData.faces,
+      }));
+      
+      const state = {
+        id: stateData.id,
+        blockName: stateData.blockName,
+        properties: stateData.properties,
+        propsKey: stateData.propsKey,
+        variants: null,
+        geometry,
+        isFullCube: stateData.isFullCube,
+      };
+      
+      registry.states[state.id] = state;
+      
+      if (!registry.byBlock.has(state.blockName)) {
+        registry.byBlock.set(state.blockName, new Set());
+      }
+      registry.byBlock.get(state.blockName).add(state.id);
+    }
+    
+    // Restore lookup table
+    for (const [key, id] of data.lookup) {
+      registry.lookup.set(key, id);
+    }
+    
+    registry.nextId = data.nextId;
+    
+    console.log(`[StateRegistry] Imported ${data.states.length} states in worker`);
+    return registry;
+  }
 }
 
 // Singleton

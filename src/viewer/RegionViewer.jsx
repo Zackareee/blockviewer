@@ -56,9 +56,26 @@ function AdaptivePerformance() {
 
 /**
  * Dynamic FOV updater - updates camera FOV when prop changes
+ * Also exposes camera and renderer to window for E2E testing
  */
 function DynamicFOV({ fov }) {
-  const { camera, invalidate } = useThree();
+  const { camera, invalidate, gl, scene } = useThree();
+  
+  // Expose camera and renderer to window for E2E testing
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__camera = camera;
+      window.__renderer = gl;
+      window.__scene = scene;
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete window.__camera;
+        delete window.__renderer;
+        delete window.__scene;
+      }
+    };
+  }, [camera, gl, scene]);
   
   useEffect(() => {
     if (camera.fov !== fov) {
@@ -1149,6 +1166,11 @@ function RegionScene({
         },
       });
       streamerRef.current = streamer;
+      
+      // Expose ChunkStreamer to window for E2E testing
+      if (typeof window !== 'undefined') {
+        window.__chunkStreamer = streamer;
+      }
       
       console.log('[RegionViewer] Created ChunkStreamer with distance:', chunkStreamDistance);
     }
