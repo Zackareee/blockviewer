@@ -293,6 +293,54 @@ function AnimationUpdater({ managerRef }) {
 }
 
 /**
+ * Frame Rate Limiter - Controls how often the render loop runs
+ * 
+ * This component limits frame rate to reduce system resource usage while maintaining
+ * smooth animations. Uses requestAnimationFrame with time-based throttling.
+ * 
+ * PERFORMANCE: By default limits to 60 FPS. This prevents the GPU from running at
+ * full speed (120+ FPS) when nothing is changing, significantly reducing system load.
+ * 
+ * @param {number} targetFps - Target frame rate (default 60)
+ * @param {boolean} enabled - Whether to limit frame rate (default true)
+ */
+function FrameRateLimiter({ targetFps = 60, enabled = true }) {
+  const { invalidate } = useThree();
+  const lastFrameTimeRef = useRef(0);
+  const animationIdRef = useRef(null);
+  
+  useEffect(() => {
+    if (!enabled) return;
+    
+    const minFrameTime = 1000 / targetFps;
+    
+    const animate = () => {
+      const now = performance.now();
+      const elapsed = now - lastFrameTimeRef.current;
+      
+      // Only render if enough time has passed
+      if (elapsed >= minFrameTime) {
+        lastFrameTimeRef.current = now - (elapsed % minFrameTime); // Maintain timing accuracy
+        invalidate();
+      }
+      
+      animationIdRef.current = requestAnimationFrame(animate);
+    };
+    
+    // Start the animation loop
+    animationIdRef.current = requestAnimationFrame(animate);
+    
+    return () => {
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current);
+      }
+    };
+  }, [enabled, targetFps, invalidate]);
+  
+  return null;
+}
+
+/**
  * Debug block highlight - shows red wireframe around hovered block
  */
 function BlockHighlight({ position }) {
@@ -1555,12 +1603,18 @@ export function RegionViewer({
       // Disable Three.js color management - Minecraft works directly in sRGB without gamma correction
       // This prevents automatic sRGB conversion that would wash out colors
       flat={true}
-      // Always render - demand mode can cause issues with LOD updates
-      frameloop="always"
+      // PERFORMANCE: Use demand mode with controlled invalidation
+      // This prevents GPU from running at full speed (120+ FPS) when idle
+      // FrameRateLimiter component handles controlled invalidation for animations
+      frameloop="demand"
       // Performance settings - DPR based on target resolution
       dpr={calculatedDpr} // Target resolution controls DPR
       performance={{ min: 0.3 }} // Allow more aggressive quality reduction
     >
+      {/* PERFORMANCE: Frame rate limiter - controls render rate to reduce system load */}
+      {/* Limits to 60 FPS by default, preventing GPU from running at max speed */}
+      <FrameRateLimiter targetFps={60} enabled={true} />
+      
       {/* Dynamic fog is handled inside RegionScene where we have access to dynamic sky colors */}
       
       {/* Dynamic FOV updater - responds to prop changes */}
