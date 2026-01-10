@@ -136,6 +136,265 @@ fn mesh_chunk_with_bounds(
     }
 }
 
+// ============================================================================
+// Zero-Copy Meshing API (Phase 4: SharedArrayBuffer)
+// ============================================================================
+
+/// Metadata for zero-copy mesh result - only counts, no data copying
+#[wasm_bindgen]
+pub struct MeshSizes {
+    // Solid mesh sizes
+    pub solid_position_count: u32,
+    pub solid_index_count: u32,
+    pub solid_vertex_count: u32,
+    // Water mesh sizes
+    pub water_position_count: u32,
+    pub water_index_count: u32,
+    pub water_vertex_count: u32,
+    // Lava mesh sizes  
+    pub lava_position_count: u32,
+    pub lava_index_count: u32,
+    pub lava_vertex_count: u32,
+    // Glass mesh sizes
+    pub glass_position_count: u32,
+    pub glass_index_count: u32,
+    pub glass_vertex_count: u32,
+    // Model opaque sizes
+    pub model_opaque_position_count: u32,
+    pub model_opaque_index_count: u32,
+    pub model_opaque_vertex_count: u32,
+    // Model transparent sizes
+    pub model_transparent_position_count: u32,
+    pub model_transparent_index_count: u32,
+    pub model_transparent_vertex_count: u32,
+}
+
+/// Pre-compute mesh sizes before allocating buffers
+#[wasm_bindgen]
+pub fn compute_mesh_sizes(
+    grid_data: &[u8],
+    light_data: &[u8],
+    state_data: &[u8],
+    min_chunk_x: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_z: i32,
+) -> MeshSizes {
+    let bounds = Some(mesher::MeshBounds {
+        min_chunk_x,
+        min_chunk_z,
+        max_chunk_x,
+        max_chunk_z,
+    });
+    
+    // Run meshing to get sizes (we'll cache the result for write_mesh_data)
+    let result = mesh_chunk_with_bounds(grid_data, light_data, state_data, std::ptr::null(), 0, bounds);
+    
+    // Store result in thread-local for subsequent write call
+    CACHED_RESULT.with(|cache| {
+        *cache.borrow_mut() = Some(result);
+    });
+    
+    // Get sizes from cached result
+    CACHED_RESULT.with(|cache| {
+        let cache = cache.borrow();
+        let result = cache.as_ref().unwrap();
+        
+        MeshSizes {
+            solid_position_count: result.solid.positions.len() as u32,
+            solid_index_count: result.solid.indices.len() as u32,
+            solid_vertex_count: result.solid.vertex_count,
+            water_position_count: result.water.positions.len() as u32,
+            water_index_count: result.water.indices.len() as u32,
+            water_vertex_count: result.water.vertex_count,
+            lava_position_count: result.lava.positions.len() as u32,
+            lava_index_count: result.lava.indices.len() as u32,
+            lava_vertex_count: result.lava.vertex_count,
+            glass_position_count: result.glass.positions.len() as u32,
+            glass_index_count: result.glass.indices.len() as u32,
+            glass_vertex_count: result.glass.vertex_count,
+            model_opaque_position_count: result.model_opaque.positions.len() as u32,
+            model_opaque_index_count: result.model_opaque.indices.len() as u32,
+            model_opaque_vertex_count: result.model_opaque.vertex_count,
+            model_transparent_position_count: result.model_transparent.positions.len() as u32,
+            model_transparent_index_count: result.model_transparent.indices.len() as u32,
+            model_transparent_vertex_count: result.model_transparent.vertex_count,
+        }
+    })
+}
+
+// Thread-local cache for mesh result between compute_mesh_sizes and write_mesh_data calls
+std::thread_local! {
+    static CACHED_RESULT: std::cell::RefCell<Option<MeshResult>> = std::cell::RefCell::new(None);
+}
+
+/// Write cached mesh data to pre-allocated JS typed arrays (zero-copy path)
+/// Call this immediately after compute_mesh_sizes with appropriately sized arrays.
+/// 
+/// Buffer layout per mesh type:
+/// - positions: Float32Array (vertex_count * 3)
+/// - normals: Float32Array (vertex_count * 3)
+/// - colors: Float32Array (vertex_count * 3)
+/// - tex_indices: Float32Array (vertex_count)
+/// - tex_rotations: Float32Array (vertex_count) 
+/// - tint_types: Float32Array (vertex_count)
+/// - packed_light: Uint8Array (vertex_count)
+/// - indices: Uint32Array (index_count)
+#[wasm_bindgen]
+pub fn write_mesh_to_buffers(
+    // Solid buffers
+    solid_positions: &mut [f32],
+    solid_normals: &mut [f32],
+    solid_colors: &mut [f32],
+    solid_tex_indices: &mut [f32],
+    solid_tex_rotations: &mut [f32],
+    solid_tint_types: &mut [f32],
+    solid_packed_light: &mut [u8],
+    solid_indices: &mut [u32],
+    // Water buffers
+    water_positions: &mut [f32],
+    water_normals: &mut [f32],
+    water_colors: &mut [f32],
+    water_uvs: &mut [f32],
+    water_tex_indices: &mut [f32],
+    water_packed_light: &mut [u8],
+    water_indices: &mut [u32],
+    // Lava buffers
+    lava_positions: &mut [f32],
+    lava_normals: &mut [f32],
+    lava_colors: &mut [f32],
+    lava_uvs: &mut [f32],
+    lava_tex_indices: &mut [f32],
+    lava_packed_light: &mut [u8],
+    lava_indices: &mut [u32],
+    // Glass buffers
+    glass_positions: &mut [f32],
+    glass_normals: &mut [f32],
+    glass_colors: &mut [f32],
+    glass_tex_indices: &mut [f32],
+    glass_tex_rotations: &mut [f32],
+    glass_tint_types: &mut [f32],
+    glass_packed_light: &mut [u8],
+    glass_indices: &mut [u32],
+) -> bool {
+    CACHED_RESULT.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(result) = cache.take() {
+            // Copy solid mesh data
+            if !result.solid.positions.is_empty() {
+                solid_positions[..result.solid.positions.len()].copy_from_slice(&result.solid.positions);
+                solid_normals[..result.solid.normals.len()].copy_from_slice(&result.solid.normals);
+                solid_colors[..result.solid.colors.len()].copy_from_slice(&result.solid.colors);
+                solid_tex_indices[..result.solid.tex_indices.len()].copy_from_slice(&result.solid.tex_indices);
+                solid_tex_rotations[..result.solid.tex_rotations.len()].copy_from_slice(&result.solid.tex_rotations);
+                solid_tint_types[..result.solid.tint_types.len()].copy_from_slice(&result.solid.tint_types);
+                solid_packed_light[..result.solid.packed_light.len()].copy_from_slice(&result.solid.packed_light);
+                solid_indices[..result.solid.indices.len()].copy_from_slice(&result.solid.indices);
+            }
+            
+            // Copy water mesh data
+            if !result.water.positions.is_empty() {
+                water_positions[..result.water.positions.len()].copy_from_slice(&result.water.positions);
+                water_normals[..result.water.normals.len()].copy_from_slice(&result.water.normals);
+                water_colors[..result.water.colors.len()].copy_from_slice(&result.water.colors);
+                water_uvs[..result.water.uvs.len()].copy_from_slice(&result.water.uvs);
+                water_tex_indices[..result.water.tex_indices.len()].copy_from_slice(&result.water.tex_indices);
+                water_packed_light[..result.water.packed_light.len()].copy_from_slice(&result.water.packed_light);
+                water_indices[..result.water.indices.len()].copy_from_slice(&result.water.indices);
+            }
+            
+            // Copy lava mesh data
+            if !result.lava.positions.is_empty() {
+                lava_positions[..result.lava.positions.len()].copy_from_slice(&result.lava.positions);
+                lava_normals[..result.lava.normals.len()].copy_from_slice(&result.lava.normals);
+                lava_colors[..result.lava.colors.len()].copy_from_slice(&result.lava.colors);
+                lava_uvs[..result.lava.uvs.len()].copy_from_slice(&result.lava.uvs);
+                lava_tex_indices[..result.lava.tex_indices.len()].copy_from_slice(&result.lava.tex_indices);
+                lava_packed_light[..result.lava.packed_light.len()].copy_from_slice(&result.lava.packed_light);
+                lava_indices[..result.lava.indices.len()].copy_from_slice(&result.lava.indices);
+            }
+            
+            // Copy glass mesh data
+            if !result.glass.positions.is_empty() {
+                glass_positions[..result.glass.positions.len()].copy_from_slice(&result.glass.positions);
+                glass_normals[..result.glass.normals.len()].copy_from_slice(&result.glass.normals);
+                glass_colors[..result.glass.colors.len()].copy_from_slice(&result.glass.colors);
+                glass_tex_indices[..result.glass.tex_indices.len()].copy_from_slice(&result.glass.tex_indices);
+                glass_tex_rotations[..result.glass.tex_rotations.len()].copy_from_slice(&result.glass.tex_rotations);
+                glass_tint_types[..result.glass.tint_types.len()].copy_from_slice(&result.glass.tint_types);
+                glass_packed_light[..result.glass.packed_light.len()].copy_from_slice(&result.glass.packed_light);
+                glass_indices[..result.glass.indices.len()].copy_from_slice(&result.glass.indices);
+            }
+            
+            true
+        } else {
+            false
+        }
+    })
+}
+
+/// Write model mesh data to pre-allocated buffers
+#[wasm_bindgen]
+pub fn write_model_mesh_to_buffers(
+    // Opaque model buffers
+    opaque_positions: &mut [f32],
+    opaque_normals: &mut [f32],
+    opaque_colors: &mut [f32],
+    opaque_uvs: &mut [f32],
+    opaque_tex_indices: &mut [f32],
+    opaque_packed_light: &mut [u8],
+    opaque_indices: &mut [u32],
+    // Transparent model buffers
+    transparent_positions: &mut [f32],
+    transparent_normals: &mut [f32],
+    transparent_colors: &mut [f32],
+    transparent_uvs: &mut [f32],
+    transparent_tex_indices: &mut [f32],
+    transparent_packed_light: &mut [u8],
+    transparent_indices: &mut [u32],
+) -> bool {
+    // Model data is written during the main write_mesh_to_buffers call
+    // This is a placeholder for future model-specific zero-copy path
+    CACHED_RESULT.with(|cache| {
+        let cache = cache.borrow();
+        if let Some(result) = cache.as_ref() {
+            // Copy opaque model mesh data
+            if !result.model_opaque.positions.is_empty() {
+                opaque_positions[..result.model_opaque.positions.len()].copy_from_slice(&result.model_opaque.positions);
+                opaque_normals[..result.model_opaque.normals.len()].copy_from_slice(&result.model_opaque.normals);
+                opaque_colors[..result.model_opaque.colors.len()].copy_from_slice(&result.model_opaque.colors);
+                opaque_uvs[..result.model_opaque.uvs.len()].copy_from_slice(&result.model_opaque.uvs);
+                opaque_tex_indices[..result.model_opaque.tex_indices.len()].copy_from_slice(&result.model_opaque.tex_indices);
+                opaque_packed_light[..result.model_opaque.packed_light.len()].copy_from_slice(&result.model_opaque.packed_light);
+                opaque_indices[..result.model_opaque.indices.len()].copy_from_slice(&result.model_opaque.indices);
+            }
+            
+            // Copy transparent model mesh data
+            if !result.model_transparent.positions.is_empty() {
+                transparent_positions[..result.model_transparent.positions.len()].copy_from_slice(&result.model_transparent.positions);
+                transparent_normals[..result.model_transparent.normals.len()].copy_from_slice(&result.model_transparent.normals);
+                transparent_colors[..result.model_transparent.colors.len()].copy_from_slice(&result.model_transparent.colors);
+                transparent_uvs[..result.model_transparent.uvs.len()].copy_from_slice(&result.model_transparent.uvs);
+                transparent_tex_indices[..result.model_transparent.tex_indices.len()].copy_from_slice(&result.model_transparent.tex_indices);
+                transparent_packed_light[..result.model_transparent.packed_light.len()].copy_from_slice(&result.model_transparent.packed_light);
+                transparent_indices[..result.model_transparent.indices.len()].copy_from_slice(&result.model_transparent.indices);
+            }
+            
+            true
+        } else {
+            false
+        }
+    })
+}
+
+/// Clear the cached mesh result (call if you don't need to write it)
+#[wasm_bindgen]
+pub fn clear_cached_result() {
+    CACHED_RESULT.with(|cache| {
+        *cache.borrow_mut() = None;
+    });
+}
+
 /// Result containing all mesh buffers
 #[wasm_bindgen]
 pub struct MeshResult {

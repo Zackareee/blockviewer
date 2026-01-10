@@ -446,6 +446,145 @@ export function getMeshBufferPool(options) {
   return meshBufferPoolInstance;
 }
 
+// ============================================================================
+// ZeroCopyMeshAllocator - Pre-sized buffer allocation for WASM mesh output
+// ============================================================================
+
+/**
+ * Allocates typed arrays for zero-copy mesh output from WASM.
+ * Uses SharedArrayBuffer when available for true zero-copy between workers.
+ */
+export class ZeroCopyMeshAllocator {
+  constructor() {
+    this.isShared = isSharedBufferSupported();
+  }
+  
+  /**
+   * Allocate buffers for a solid/glass mesh based on sizes from compute_mesh_sizes
+   * @param {number} positionCount - Number of position floats (vertex_count * 3)
+   * @param {number} vertexCount - Number of vertices
+   * @param {number} indexCount - Number of indices
+   * @returns {Object} Allocated buffers
+   */
+  allocateSolidMesh(positionCount, vertexCount, indexCount) {
+    const BufferType = this.isShared ? SharedArrayBuffer : ArrayBuffer;
+    
+    return {
+      positions: new Float32Array(new BufferType(positionCount * 4)),
+      normals: new Float32Array(new BufferType(positionCount * 4)),
+      colors: new Float32Array(new BufferType(positionCount * 4)),
+      texIndices: new Float32Array(new BufferType(vertexCount * 4)),
+      texRotations: new Float32Array(new BufferType(vertexCount * 4)),
+      tintTypes: new Float32Array(new BufferType(vertexCount * 4)),
+      packedLight: new Uint8Array(new BufferType(vertexCount)),
+      indices: new Uint32Array(new BufferType(indexCount * 4)),
+      vertexCount,
+      isShared: this.isShared,
+    };
+  }
+  
+  /**
+   * Allocate buffers for a fluid mesh (water/lava)
+   * @param {number} positionCount - Number of position floats (vertex_count * 3)
+   * @param {number} vertexCount - Number of vertices
+   * @param {number} indexCount - Number of indices
+   * @returns {Object} Allocated buffers
+   */
+  allocateFluidMesh(positionCount, vertexCount, indexCount) {
+    const BufferType = this.isShared ? SharedArrayBuffer : ArrayBuffer;
+    
+    return {
+      positions: new Float32Array(new BufferType(positionCount * 4)),
+      normals: new Float32Array(new BufferType(positionCount * 4)),
+      colors: new Float32Array(new BufferType(positionCount * 4)),
+      uvs: new Float32Array(new BufferType(vertexCount * 2 * 4)), // 2 floats per vertex
+      texIndices: new Float32Array(new BufferType(vertexCount * 4)),
+      packedLight: new Uint8Array(new BufferType(vertexCount)),
+      indices: new Uint32Array(new BufferType(indexCount * 4)),
+      vertexCount,
+      isShared: this.isShared,
+    };
+  }
+  
+  /**
+   * Allocate buffers for a model mesh
+   * @param {number} positionCount - Number of position floats (vertex_count * 3)
+   * @param {number} vertexCount - Number of vertices
+   * @param {number} indexCount - Number of indices
+   * @returns {Object} Allocated buffers
+   */
+  allocateModelMesh(positionCount, vertexCount, indexCount) {
+    const BufferType = this.isShared ? SharedArrayBuffer : ArrayBuffer;
+    
+    return {
+      positions: new Float32Array(new BufferType(positionCount * 4)),
+      normals: new Float32Array(new BufferType(positionCount * 4)),
+      colors: new Float32Array(new BufferType(positionCount * 4)),
+      uvs: new Float32Array(new BufferType(vertexCount * 2 * 4)),
+      texIndices: new Float32Array(new BufferType(vertexCount * 4)),
+      packedLight: new Uint8Array(new BufferType(vertexCount)),
+      indices: new Uint32Array(new BufferType(indexCount * 4)),
+      vertexCount,
+      isShared: this.isShared,
+    };
+  }
+  
+  /**
+   * Allocate all buffers for a complete mesh result
+   * @param {Object} sizes - MeshSizes from WASM compute_mesh_sizes
+   * @returns {Object} All allocated buffer sets
+   */
+  allocateAll(sizes) {
+    return {
+      solid: this.allocateSolidMesh(
+        sizes.solid_position_count,
+        sizes.solid_vertex_count,
+        sizes.solid_index_count
+      ),
+      water: this.allocateFluidMesh(
+        sizes.water_position_count,
+        sizes.water_vertex_count,
+        sizes.water_index_count
+      ),
+      lava: this.allocateFluidMesh(
+        sizes.lava_position_count,
+        sizes.lava_vertex_count,
+        sizes.lava_index_count
+      ),
+      glass: this.allocateSolidMesh(
+        sizes.glass_position_count,
+        sizes.glass_vertex_count,
+        sizes.glass_index_count
+      ),
+      modelOpaque: this.allocateModelMesh(
+        sizes.model_opaque_position_count,
+        sizes.model_opaque_vertex_count,
+        sizes.model_opaque_index_count
+      ),
+      modelTransparent: this.allocateModelMesh(
+        sizes.model_transparent_position_count,
+        sizes.model_transparent_vertex_count,
+        sizes.model_transparent_index_count
+      ),
+      isShared: this.isShared,
+    };
+  }
+}
+
+// Singleton allocator
+let zeroCopyAllocatorInstance = null;
+
+/**
+ * Get the global zero-copy mesh allocator
+ * @returns {ZeroCopyMeshAllocator}
+ */
+export function getZeroCopyAllocator() {
+  if (!zeroCopyAllocatorInstance) {
+    zeroCopyAllocatorInstance = new ZeroCopyMeshAllocator();
+  }
+  return zeroCopyAllocatorInstance;
+}
+
 export default {
   isSharedBufferSupported,
   createBuffer,
@@ -456,5 +595,7 @@ export default {
   SharedBufferRing,
   MeshBufferPool,
   getMeshBufferPool,
+  ZeroCopyMeshAllocator,
+  getZeroCopyAllocator,
 };
 

@@ -14,6 +14,7 @@ default = ["console_error_panic_hook"]
 [dependencies]
 wasm-bindgen = "0.2.92"
 js-sys = "0.3.69"
+wasm-bindgen-futures = "0.4"
 
 # Fast hash for state string lookups
 fnv = "1.0"
