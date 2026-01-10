@@ -34,6 +34,24 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+/// Initialize Rayon thread pool for parallel meshing
+/// Only available when built with the "parallel" feature
+/// Must be called before any parallel meshing operations
+#[cfg(feature = "parallel")]
+#[wasm_bindgen]
+pub fn init_thread_pool(num_threads: usize) -> Result<(), JsValue> {
+    wasm_bindgen_rayon::init_thread_pool(num_threads)
+}
+
+/// Check if parallel meshing is available
+#[wasm_bindgen]
+pub fn is_parallel_available() -> bool {
+    #[cfg(feature = "parallel")]
+    { true }
+    #[cfg(not(feature = "parallel"))]
+    { false }
+}
+
 /// Main entry point for meshing a chunk
 /// 
 /// Takes serialized grid data and returns mesh buffers
@@ -70,6 +88,30 @@ pub fn mesh_chunk_bounded(
         max_chunk_z,
     });
     mesh_chunk_with_bounds(grid_data, light_data, state_data, lookup_ptr, lookup_len, bounds)
+}
+
+/// Mesh a single chunk in streaming mode (for deferred boundary repair)
+#[wasm_bindgen]
+pub fn mesh_chunk_streaming(
+    grid_data: &[u8],
+    light_data: &[u8],
+    chunk_x: i32,
+    chunk_z: i32,
+) -> StreamingMeshResultWasm {
+    let grid = grid::BinaryGrid::from_bytes(grid_data);
+    let light_grid = if !light_data.is_empty() {
+        Some(grid::LightGrid::from_bytes(light_data))
+    } else {
+        None
+    };
+    
+    let lookups = match lookup::Lookups::get() {
+        Some(l) => l,
+        None => return StreamingMeshResultWasm::empty(),
+    };
+    
+    let result = mesher::mesh_solid_streaming(&grid, light_grid.as_ref(), &lookups, chunk_x, chunk_z);
+    StreamingMeshResultWasm::from(result)
 }
 
 fn mesh_chunk_with_bounds(
@@ -393,6 +435,72 @@ pub fn clear_cached_result() {
     CACHED_RESULT.with(|cache| {
         *cache.borrow_mut() = None;
     });
+}
+
+// ============================================================================
+// Streaming Mode Result
+// ============================================================================
+
+/// Result from streaming mesh - includes boundary face info
+#[wasm_bindgen]
+pub struct StreamingMeshResultWasm {
+    mesh: mesher::MeshData,
+    boundary_neg_x_count: u32,
+    boundary_pos_x_count: u32,
+    boundary_neg_z_count: u32,
+    boundary_pos_z_count: u32,
+}
+
+impl StreamingMeshResultWasm {
+    pub fn empty() -> Self {
+        Self {
+            mesh: mesher::MeshData::new(),
+            boundary_neg_x_count: 0,
+            boundary_pos_x_count: 0,
+            boundary_neg_z_count: 0,
+            boundary_pos_z_count: 0,
+        }
+    }
+    
+    pub fn from(result: mesher::StreamingMeshResult) -> Self {
+        Self {
+            mesh: result.mesh,
+            boundary_neg_x_count: result.boundary_faces.neg_x.len() as u32,
+            boundary_pos_x_count: result.boundary_faces.pos_x.len() as u32,
+            boundary_neg_z_count: result.boundary_faces.neg_z.len() as u32,
+            boundary_pos_z_count: result.boundary_faces.pos_z.len() as u32,
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl StreamingMeshResultWasm {
+    #[wasm_bindgen(getter)]
+    pub fn positions(&self) -> Vec<f32> { self.mesh.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn normals(&self) -> Vec<f32> { self.mesh.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn colors(&self) -> Vec<f32> { self.mesh.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn tex_indices(&self) -> Vec<f32> { self.mesh.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn tex_rotations(&self) -> Vec<f32> { self.mesh.tex_rotations.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn tint_types(&self) -> Vec<f32> { self.mesh.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn packed_light(&self) -> Vec<u8> { self.mesh.packed_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn indices(&self) -> Vec<u32> { self.mesh.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn vertex_count(&self) -> u32 { self.mesh.vertex_count }
+    #[wasm_bindgen(getter)]
+    pub fn boundary_neg_x_count(&self) -> u32 { self.boundary_neg_x_count }
+    #[wasm_bindgen(getter)]
+    pub fn boundary_pos_x_count(&self) -> u32 { self.boundary_pos_x_count }
+    #[wasm_bindgen(getter)]
+    pub fn boundary_neg_z_count(&self) -> u32 { self.boundary_neg_z_count }
+    #[wasm_bindgen(getter)]
+    pub fn boundary_pos_z_count(&self) -> u32 { self.boundary_pos_z_count }
 }
 
 /// Result containing all mesh buffers

@@ -40,11 +40,42 @@ import {
 import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
 import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
+import { getBoundaryRepairManager } from '../mesh/BoundaryRepair.js';
 import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
 
-// Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
-// Smaller size = faster rebuilds, less jank, more responsive loading
-const SUPER_CHUNK_SIZE = 2;
+// Super-chunk size configuration
+// 2 = 2x2 chunks (32x32 blocks) - balanced performance
+// 1 = single chunks (16x16 blocks) - streaming mode for faster first-paint
+const DEFAULT_SUPER_CHUNK_SIZE = 2;
+
+// Global streaming mode configuration
+let streamingModeEnabled = false;
+
+/**
+ * Get the current super-chunk size based on streaming mode
+ */
+function getSuperChunkSize() {
+  return streamingModeEnabled ? 1 : DEFAULT_SUPER_CHUNK_SIZE;
+}
+
+/**
+ * Enable or disable streaming mode (single-chunk processing)
+ * @param {boolean} enabled - Whether to enable streaming mode
+ */
+export function setStreamingModeEnabled(enabled) {
+  streamingModeEnabled = enabled;
+}
+
+/**
+ * Check if streaming mode is enabled
+ * @returns {boolean}
+ */
+export function isStreamingModeEnabled() {
+  return streamingModeEnabled;
+}
+
+// Legacy constant for backward compatibility
+const SUPER_CHUNK_SIZE = DEFAULT_SUPER_CHUNK_SIZE;
 const BLOCKS_PER_SUPER_CHUNK = SUPER_CHUNK_SIZE * 16; // 32 blocks
 
 // Note: For neighbor block data, we use the existing decodeChunk function
@@ -306,6 +337,41 @@ export class SuperChunkManager {
     // We use a conservative budget to leave room for rendering
     this._frameBudgetMs = options.frameBudgetMs ?? 8; // Half a frame at 60fps
     this._streamingMode = false; // When true, process more aggressively
+    
+    // Boundary repair manager for streaming mode
+    this._boundaryRepairManager = getBoundaryRepairManager();
+    
+    // Whether to use streaming mode (single-chunk processing)
+    this._useStreamingMode = options.useStreamingMode ?? false;
+  }
+  
+  /**
+   * Enable or disable streaming mode
+   * In streaming mode:
+   * - Each chunk is meshed individually (no super-chunk batching)
+   * - Boundary faces render conservatively
+   * - Repairs happen when neighbors load
+   * @param {boolean} enabled
+   */
+  setStreamingMode(enabled) {
+    this._useStreamingMode = enabled;
+    setStreamingModeEnabled(enabled);
+  }
+  
+  /**
+   * Check if streaming mode is active
+   * @returns {boolean}
+   */
+  isStreamingMode() {
+    return this._useStreamingMode;
+  }
+  
+  /**
+   * Process pending boundary repairs (call once per frame)
+   * @param {number} maxRepairs - Maximum repairs to process
+   */
+  processBoundaryRepairs(maxRepairs = 4) {
+    return this._boundaryRepairManager.processRepairs(maxRepairs);
   }
   
   /**

@@ -160,6 +160,72 @@ const NORMALS: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
   vec3<f32>(0.0, 0.0, 1.0),   // +Z
 );
 
+// AO levels: 3 = full brightness, 0 = maximum occlusion
+// Maps to colors: [1.0, 0.9, 0.8, 0.65, 0.4]
+const AO_BRIGHTNESS: array<f32, 5> = array<f32, 5>(1.0, 0.9, 0.8, 0.65, 0.4);
+
+// Check if block at position is opaque (for AO)
+fn is_block_opaque_at(section_idx: u32, x: i32, y: i32, z: i32) -> bool {
+  // Bounds check
+  if (x < 0 || x >= 16 || y < 0 || y >= 16 || z < 0 || z >= 16) {
+    return false; // Treat out-of-bounds as air
+  }
+  
+  let idx = u32(x) + u32(y) * 16u + u32(z) * 256u;
+  let block = block_grid[section_idx].data[idx];
+  return block != 0u; // Simplified: non-air is opaque
+}
+
+// Calculate AO for a single vertex corner
+// side1, side2: the two adjacent side blocks
+// corner: the diagonal corner block
+fn calculate_vertex_ao(side1: bool, side2: bool, corner: bool) -> u32 {
+  if (side1 && side2) {
+    return 0u; // Maximum occlusion
+  }
+  var ao = 3u;
+  if (side1) { ao = ao - 1u; }
+  if (side2) { ao = ao - 1u; }
+  if (corner) { ao = ao - 1u; }
+  return ao;
+}
+
+// Get AO for all 4 vertices of a top face (+Y)
+fn get_top_face_ao(section_idx: u32, x: i32, y: i32, z: i32) -> vec4<u32> {
+  let y_above = y + 1;
+  
+  // V0 (SW corner): check W, S, SW
+  let v0_west = is_block_opaque_at(section_idx, x - 1, y_above, z);
+  let v0_south = is_block_opaque_at(section_idx, x, y_above, z + 1);
+  let v0_sw = is_block_opaque_at(section_idx, x - 1, y_above, z + 1);
+  let ao0 = calculate_vertex_ao(v0_west, v0_south, v0_sw);
+  
+  // V1 (SE corner): check E, S, SE
+  let v1_east = is_block_opaque_at(section_idx, x + 1, y_above, z);
+  let v1_south = is_block_opaque_at(section_idx, x, y_above, z + 1);
+  let v1_se = is_block_opaque_at(section_idx, x + 1, y_above, z + 1);
+  let ao1 = calculate_vertex_ao(v1_east, v1_south, v1_se);
+  
+  // V2 (NE corner): check E, N, NE
+  let v2_east = is_block_opaque_at(section_idx, x + 1, y_above, z);
+  let v2_north = is_block_opaque_at(section_idx, x, y_above, z - 1);
+  let v2_ne = is_block_opaque_at(section_idx, x + 1, y_above, z - 1);
+  let ao2 = calculate_vertex_ao(v2_east, v2_north, v2_ne);
+  
+  // V3 (NW corner): check W, N, NW
+  let v3_west = is_block_opaque_at(section_idx, x - 1, y_above, z);
+  let v3_north = is_block_opaque_at(section_idx, x, y_above, z - 1);
+  let v3_nw = is_block_opaque_at(section_idx, x - 1, y_above, z - 1);
+  let ao3 = calculate_vertex_ao(v3_west, v3_north, v3_nw);
+  
+  return vec4<u32>(ao0, ao1, ao2, ao3);
+}
+
+// Get AO brightness for a vertex
+fn ao_to_brightness(ao: u32) -> f32 {
+  return AO_BRIGHTNESS[min(ao, 4u)];
+}
+
 fn emit_face(block_x: f32, block_y: f32, block_z: f32, face: u32, tex_idx: u32, light: u32) {
   // Allocate 4 vertices atomically
   let vertex_offset = atomicAdd(&counters.solid_vertices, 4u);
@@ -282,6 +348,162 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       emit_face(world_x, world_y, world_z, face, tex_idx, light);
     }
   }
+}
+`;
+
+// Greedy merge shader - merges adjacent faces of the same block type
+const GREEDY_MERGE_SHADER = /* wgsl */`
+// Workgroup shared memory for greedy merging
+var<workgroup> slice_mask: array<u32, 256>; // 16x16 slice of block IDs
+var<workgroup> slice_visited: array<u32, 8>; // Bit flags for visited (256 bits)
+
+struct Section {
+  data: array<u32, 4096>,
+}
+
+struct MergedQuad {
+  x: u32,       // Start X position
+  y: u32,       // Start Y position  
+  z: u32,       // Slice position (layer)
+  width: u32,   // Quad width
+  height: u32,  // Quad height
+  block_id: u32,
+  face: u32,
+  ao: u32,      // Packed AO for 4 corners
+}
+
+@group(0) @binding(0) var<storage, read> block_grid: array<Section>;
+@group(0) @binding(1) var<storage, read> face_visibility: array<u32>;
+@group(0) @binding(2) var<storage, read_write> merged_quads: array<MergedQuad>;
+@group(0) @binding(3) var<storage, read_write> quad_count: atomic<u32>;
+
+fn is_visited(idx: u32) -> bool {
+  let word = idx / 32u;
+  let bit = idx % 32u;
+  return (slice_visited[word] & (1u << bit)) != 0u;
+}
+
+fn mark_visited(idx: u32) {
+  let word = idx / 32u;
+  let bit = idx % 32u;
+  atomicOr(&slice_visited[word], 1u << bit);
+}
+
+// Build mask for a Y-slice (for top/bottom faces)
+fn build_slice_mask_y(section_idx: u32, layer_y: u32, face: u32) {
+  let tid = workgroupUniformLoad(&slice_mask[0]); // Sync point
+  
+  // Each thread processes multiple cells
+  for (var i = 0u; i < 256u; i = i + 64u) {
+    let local_idx = i + (tid % 64u);
+    if (local_idx < 256u) {
+      let x = local_idx % 16u;
+      let z = local_idx / 16u;
+      let block_idx = x + layer_y * 16u + z * 256u;
+      
+      let visibility_idx = section_idx * 4096u + block_idx;
+      let visibility = face_visibility[visibility_idx];
+      
+      // Check if this face is visible
+      if ((visibility & (1u << face)) != 0u) {
+        let block = block_grid[section_idx].data[block_idx];
+        slice_mask[local_idx] = block & 0xFFFu; // Store block ID
+      } else {
+        slice_mask[local_idx] = 0u;
+      }
+    }
+  }
+  
+  // Clear visited flags
+  for (var i = 0u; i < 8u; i = i + 1u) {
+    slice_visited[i] = 0u;
+  }
+  
+  workgroupBarrier();
+}
+
+// Greedy merge within a slice
+fn greedy_merge_slice(section_idx: u32, layer: u32, face: u32) {
+  let tid = 0u; // Would be workgroup local id
+  
+  // Each thread tries to create quads starting from different positions
+  for (var start = 0u; start < 256u; start = start + 1u) {
+    if (is_visited(start) || slice_mask[start] == 0u) {
+      continue;
+    }
+    
+    let block_id = slice_mask[start];
+    let start_x = start % 16u;
+    let start_z = start / 16u;
+    
+    // Expand width (+X)
+    var width = 1u;
+    while (start_x + width < 16u) {
+      let check_idx = start_z * 16u + start_x + width;
+      if (is_visited(check_idx) || slice_mask[check_idx] != block_id) {
+        break;
+      }
+      width = width + 1u;
+    }
+    
+    // Expand height (+Z)
+    var height = 1u;
+    loop {
+      if (start_z + height >= 16u) {
+        break;
+      }
+      
+      var row_ok = true;
+      for (var dx = 0u; dx < width; dx = dx + 1u) {
+        let check_idx = (start_z + height) * 16u + start_x + dx;
+        if (is_visited(check_idx) || slice_mask[check_idx] != block_id) {
+          row_ok = false;
+          break;
+        }
+      }
+      
+      if (!row_ok) {
+        break;
+      }
+      height = height + 1u;
+    }
+    
+    // Mark all cells as visited
+    for (var dz = 0u; dz < height; dz = dz + 1u) {
+      for (var dx = 0u; dx < width; dx = dx + 1u) {
+        let idx = (start_z + dz) * 16u + start_x + dx;
+        mark_visited(idx);
+      }
+    }
+    
+    // Output merged quad
+    let quad_idx = atomicAdd(&quad_count, 1u);
+    merged_quads[quad_idx] = MergedQuad(
+      start_x,
+      layer,
+      start_z,
+      width,
+      height,
+      block_id,
+      face,
+      0u, // AO would be calculated separately
+    );
+  }
+}
+
+@compute @workgroup_size(1) // Serial for now, parallel version needs more complex sync
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let section_idx = global_id.z;
+  let face = global_id.x; // 0-5 for each face direction
+  
+  // Process each layer for this face
+  if (face == 3u) { // +Y (top) face - iterate Y layers
+    for (var y = 0u; y < 16u; y = y + 1u) {
+      build_slice_mask_y(section_idx, y, face);
+      greedy_merge_slice(section_idx, y, face);
+    }
+  }
+  // Similar for other face directions...
 }
 `;
 

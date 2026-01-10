@@ -6,6 +6,7 @@
   "scripts": {
     "build:wasm": "cd src/wasm-mesher && wasm-pack build --target web --out-dir ../mesh/wasm/pkg",
     "build:wasm:release": "cd src/wasm-mesher && wasm-pack build --target web --release --out-dir ../mesh/wasm/pkg",
+    "build:wasm:parallel": "cd src/wasm-mesher && RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals' wasm-pack build --target web --features parallel --out-dir ../mesh/wasm/pkg -- -Z build-std=panic_abort,std",
     "dev": "vite",
     "dev:wasm": "npm run build:wasm && vite",
     "build": "npm run build:wasm:release && vite build",

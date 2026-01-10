@@ -7,6 +7,12 @@ pub mod fluid;
 pub mod greedy;
 pub mod model;
 
+// Re-export streaming mode types
+pub use greedy::{BoundaryFaces, BoundaryFace, StreamingMeshResult, mesh_solid_streaming};
+
+// Re-export parallel meshing
+pub use greedy::mesh_solid_parallel;
+
 /// Common mesh data output
 #[derive(Debug, Clone, Default)]
 pub struct MeshData {

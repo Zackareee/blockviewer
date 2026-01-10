@@ -121,6 +121,19 @@ async function initWasmMesher() {
     
     wasmModule = wasm;
     wasmInitialized = true;
+    
+    // Try to initialize Rayon thread pool if parallel feature is available
+    if (typeof wasm.is_parallel_available === 'function' && wasm.is_parallel_available()) {
+      try {
+        // Use navigator.hardwareConcurrency or default to 4 threads
+        const numThreads = Math.min(navigator?.hardwareConcurrency || 4, 8);
+        await wasm.init_thread_pool(numThreads);
+        console.log(`[SuperChunkWorker] Rayon thread pool initialized with ${numThreads} threads`);
+      } catch (e) {
+        console.warn('[SuperChunkWorker] Failed to init Rayon thread pool:', e.message);
+      }
+    }
+    
     console.log('[SuperChunkWorker] WASM module initialized');
     return true;
   } catch (error) {

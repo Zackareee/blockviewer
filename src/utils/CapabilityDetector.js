@@ -391,6 +391,109 @@ export function hasWebGPUSupport() {
   return caps.hasWebGPU;
 }
 
+// ============================================================================
+// Meshing Path Selection
+// ============================================================================
+
+/**
+ * Available meshing paths in order of preference
+ */
+export const MeshingPath = {
+  WEBGPU: 'webgpu',     // GPU compute shaders (fastest, requires WebGPU)
+  WASM_PARALLEL: 'wasm-parallel', // WASM with Rayon threading (fast, requires SAB)
+  WASM: 'wasm',         // Single-threaded WASM (good, widely supported)
+  JS: 'js',             // Pure JavaScript fallback (slowest, always works)
+};
+
+/**
+ * Cached meshing path selection
+ */
+let cachedMeshingPath = null;
+
+/**
+ * Determine the optimal meshing path based on capabilities
+ * 
+ * Selection priority:
+ * 1. WebGPU compute shaders (if available and large enough storage)
+ * 2. WASM with Rayon parallelism (if SharedArrayBuffer available)
+ * 3. Single-threaded WASM (default fast path)
+ * 4. Pure JavaScript (fallback)
+ * 
+ * @param {boolean} forceRedetect - Force re-detection (skip cache)
+ * @returns {Promise<string>} One of MeshingPath values
+ */
+export async function selectMeshingPath(forceRedetect = false) {
+  if (cachedMeshingPath && !forceRedetect) {
+    return cachedMeshingPath;
+  }
+  
+  const caps = detectCapabilities();
+  
+  // Check WebGPU first
+  if (caps.hasWebGPU) {
+    const webgpuCaps = await detectWebGPU();
+    if (webgpuCaps.available) {
+      // Ensure sufficient storage buffer size for chunk data
+      const minStorageSize = 32 * 1024 * 1024; // 32MB minimum
+      if (webgpuCaps.limits.maxStorageBufferBindingSize >= minStorageSize) {
+        cachedMeshingPath = MeshingPath.WEBGPU;
+        console.log('[CapabilityDetector] Selected WebGPU meshing path');
+        return cachedMeshingPath;
+      }
+    }
+  }
+  
+  // Check WASM availability (assume WASM is available if we got this far)
+  const hasWasm = typeof WebAssembly !== 'undefined';
+  
+  if (hasWasm) {
+    // Check for parallel WASM support (requires SharedArrayBuffer + atomics)
+    if (caps.hasSharedArrayBuffer && typeof Atomics !== 'undefined') {
+      // Check if cross-origin isolation is enabled (required for SAB)
+      const isIsolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
+      
+      if (isIsolated) {
+        cachedMeshingPath = MeshingPath.WASM_PARALLEL;
+        console.log('[CapabilityDetector] Selected WASM parallel meshing path');
+        return cachedMeshingPath;
+      }
+    }
+    
+    // Single-threaded WASM
+    cachedMeshingPath = MeshingPath.WASM;
+    console.log('[CapabilityDetector] Selected WASM meshing path');
+    return cachedMeshingPath;
+  }
+  
+  // JavaScript fallback
+  cachedMeshingPath = MeshingPath.JS;
+  console.log('[CapabilityDetector] Selected JavaScript meshing path (fallback)');
+  return cachedMeshingPath;
+}
+
+/**
+ * Get the currently selected meshing path (sync, uses cached value)
+ * Call selectMeshingPath() first to ensure detection has run
+ * 
+ * @returns {string|null} One of MeshingPath values, or null if not yet detected
+ */
+export function getCurrentMeshingPath() {
+  return cachedMeshingPath;
+}
+
+/**
+ * Force a specific meshing path (for testing or debugging)
+ * @param {string} path - One of MeshingPath values
+ */
+export function setMeshingPath(path) {
+  if (!Object.values(MeshingPath).includes(path)) {
+    console.warn(`[CapabilityDetector] Invalid meshing path: ${path}`);
+    return;
+  }
+  cachedMeshingPath = path;
+  console.log(`[CapabilityDetector] Meshing path manually set to: ${path}`);
+}
+
 export default {
   detectCapabilities,
   getOptimalConfig,
@@ -401,5 +504,9 @@ export default {
   getRecommendedSettings,
   detectWebGPU,
   hasWebGPUSupport,
+  MeshingPath,
+  selectMeshingPath,
+  getCurrentMeshingPath,
+  setMeshingPath,
 };
 

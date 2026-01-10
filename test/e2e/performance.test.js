@@ -303,7 +303,7 @@ async function measureNavigationPerformance(driver, durationMs = 10000) {
     
     const samples = window.__fpsData.samples;
     if (samples.length === 0) {
-      return { avgFps: 0, minFps: 0, maxFps: 0, p1Fps: 0, meshesBuilt: 0, meshesPerSecond: 0, samples: [] };
+      return { avgFps: 0, minFps: 0, maxFps: 0, p1Fps: 0, meshesBuilt: 0, meshesPerSecond: 0, chunksPerSecond: 0, samples: [] };
     }
     
     // Calculate FPS stats
@@ -319,6 +319,10 @@ async function measureNavigationPerformance(driver, durationMs = 10000) {
     const durationSec = (samples[samples.length - 1].time - samples[0].time) / 1000;
     const meshesPerSecond = durationSec > 0 ? totalMeshes / durationSec : 0;
     
+    // Convert to chunks/sec (1 super-chunk = 4 Minecraft chunks)
+    // This is the universal metric regardless of batching strategy
+    const chunksPerSecond = meshesPerSecond * 4;
+    
     return {
       avgFps,
       minFps,
@@ -326,13 +330,14 @@ async function measureNavigationPerformance(driver, durationMs = 10000) {
       p1Fps,
       meshesBuilt: totalMeshes,
       meshesPerSecond,
+      chunksPerSecond,
       samples: samples.slice(-20), // Last 20 samples for detail
     };
   `);
   
   console.log(`${colors.green}  ✓ Navigation test complete${colors.reset}`);
   console.log(`${colors.dim}    Average FPS: ${results.avgFps.toFixed(1)}, Min: ${results.minFps.toFixed(1)}, P1: ${results.p1Fps.toFixed(1)}${colors.reset}`);
-  console.log(`${colors.dim}    Meshes built: ${results.meshesBuilt}, Rate: ${results.meshesPerSecond.toFixed(2)}/sec${colors.reset}`);
+  console.log(`${colors.dim}    Meshes built: ${results.meshesBuilt}, Rate: ${results.meshesPerSecond.toFixed(2)}/sec (${results.chunksPerSecond.toFixed(1)} chunks/sec)${colors.reset}`);
   
   return results;
 }
@@ -343,20 +348,21 @@ async function measureNavigationPerformance(driver, durationMs = 10000) {
 function analyzePerformance(loadingStats, chunkStats, profilerStats, navStats = null) {
   const bottlenecks = [];
   
-  // Check post-load navigation mesh rate (target: 8 meshes/sec)
+  // Check post-load navigation rate (target: 32 chunks/sec = 8 meshes/sec)
   if (navStats) {
-    if (navStats.meshesPerSecond < 4) {
+    const chunksPerSec = navStats.chunksPerSecond || (navStats.meshesPerSecond * 4);
+    if (chunksPerSec < 16) {
       bottlenecks.push({
         category: 'CRITICAL',
-        issue: 'Very low navigation mesh rate',
-        detail: `${navStats.meshesPerSecond.toFixed(2)} meshes/sec during navigation (target: 8+)`,
+        issue: 'Very low navigation chunk rate',
+        detail: `${chunksPerSec.toFixed(1)} chunks/sec during navigation (target: 32+)`,
         recommendation: 'Check frame-budgeted mesh upload queue and worker utilization',
       });
-    } else if (navStats.meshesPerSecond < 8) {
+    } else if (chunksPerSec < 32) {
       bottlenecks.push({
         category: 'WARNING',
-        issue: 'Below target navigation mesh rate',
-        detail: `${navStats.meshesPerSecond.toFixed(2)} meshes/sec during navigation (target: 8+)`,
+        issue: 'Below target navigation chunk rate',
+        detail: `${chunksPerSec.toFixed(1)} chunks/sec during navigation (target: 32+)`,
         recommendation: 'Consider increasing frame budget or worker concurrency',
       });
     }
