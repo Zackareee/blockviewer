@@ -37,9 +37,10 @@ pub fn init() {
 /// Initialize Rayon thread pool for parallel meshing
 /// Only available when built with the "parallel" feature
 /// Must be called before any parallel meshing operations
+/// Returns a Promise that resolves when the pool is ready
 #[cfg(feature = "parallel")]
 #[wasm_bindgen]
-pub fn init_thread_pool(num_threads: usize) -> Result<(), JsValue> {
+pub fn init_thread_pool(num_threads: usize) -> js_sys::Promise {
     wasm_bindgen_rayon::init_thread_pool(num_threads)
 }
 

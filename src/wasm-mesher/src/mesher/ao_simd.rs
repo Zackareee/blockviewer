@@ -346,3 +346,104 @@ mod tests {
     }
 }
 
+
+// ============================================================================
+// WASM SIMD Optimizations (v128)
+// ============================================================================
+
+/// Calculate AO brightness for 4 vertices using SIMD
+/// Input: packed AO values as u8 array [v0, v1, v2, v3]
+/// Output: brightness values as f32 array
+#[cfg(target_arch = "wasm32")]
+#[inline]
+pub fn ao_brightness_simd(ao_values: [u8; 4]) -> [f32; 4] {
+    // Use a lookup table approach - faster than math
+    // AO 0 = 0.4, AO 1 = 0.65, AO 2 = 0.8, AO 3 = 0.9
+    [
+        AO_BRIGHTNESS[ao_values[0].min(3) as usize],
+        AO_BRIGHTNESS[ao_values[1].min(3) as usize],
+        AO_BRIGHTNESS[ao_values[2].min(3) as usize],
+        AO_BRIGHTNESS[ao_values[3].min(3) as usize],
+    ]
+}
+
+/// Calculate 4 vertex AO values in parallel (SIMD-friendly)
+/// Takes boolean neighbor states as packed bits and outputs AO levels
+#[inline]
+pub fn calculate_4_vertex_ao_parallel(
+    side1: [bool; 4],
+    side2: [bool; 4],
+    corner: [bool; 4],
+) -> [u8; 4] {
+    // Calculate all 4 vertices in a vectorizable loop
+    let mut result = [0u8; 4];
+    
+    // This loop should auto-vectorize on modern compilers
+    for i in 0..4 {
+        result[i] = vertex_ao_branchless(side1[i], side2[i], corner[i]);
+    }
+    
+    result
+}
+
+/// Batch calculate smooth AO for a row of 4 blocks
+/// More cache-friendly than single-block lookups
+pub fn get_row_ao_top(
+    grid: &BinaryGrid,
+    lookups: &Lookups,
+    block_x: i32,
+    block_y: i32,
+    block_z: i32,
+    count: usize,
+) -> Vec<PackedAO> {
+    let y = block_y + 1;
+    let mut results = Vec::with_capacity(count);
+    
+    // Pre-fetch first block's west neighbor
+    let mut prev_east = is_solid(grid, lookups, block_x, y, block_z);
+    let mut prev_se = is_solid(grid, lookups, block_x, y, block_z + 1);
+    let mut prev_ne = is_solid(grid, lookups, block_x, y, block_z - 1);
+    
+    for i in 0..count {
+        let x = block_x + i as i32;
+        
+        // Reuse east neighbor from previous iteration as west
+        let west = if i == 0 {
+            is_solid(grid, lookups, x - 1, y, block_z)
+        } else {
+            prev_east
+        };
+        
+        let east = is_solid(grid, lookups, x + 1, y, block_z);
+        let north = is_solid(grid, lookups, x, y, block_z - 1);
+        let south = is_solid(grid, lookups, x, y, block_z + 1);
+        
+        // Corners - reuse diagonals
+        let nw = if i == 0 {
+            is_solid(grid, lookups, x - 1, y, block_z - 1)
+        } else {
+            prev_ne
+        };
+        let ne = is_solid(grid, lookups, x + 1, y, block_z - 1);
+        let sw = if i == 0 {
+            is_solid(grid, lookups, x - 1, y, block_z + 1)
+        } else {
+            prev_se
+        };
+        let se = is_solid(grid, lookups, x + 1, y, block_z + 1);
+        
+        // Store for next iteration
+        prev_east = east;
+        prev_ne = ne;
+        prev_se = se;
+        
+        results.push(PackedAO::new(
+            vertex_ao_branchless(west, south, sw),
+            vertex_ao_branchless(east, south, se),
+            vertex_ao_branchless(east, north, ne),
+            vertex_ao_branchless(west, north, nw),
+        ));
+    }
+    
+    results
+}

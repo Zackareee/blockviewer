@@ -772,6 +772,181 @@ export class WebGPUMesher {
   }
   
   /**
+   * Mesh a super-chunk using GPU compute shaders
+   * Main entry point for WebGPU meshing path
+   * 
+   * @param {BinaryGrid} grid - Block grid
+   * @param {LightGrid} lightGrid - Light data
+   * @param {BlockStateGrid} stateGrid - Block state grid (unused for solid blocks)
+   * @param {Object} bounds - Mesh bounds {minChunkX, minChunkZ, maxChunkX, maxChunkZ}
+   * @returns {Promise<Object>} Mesh result with GPU buffers
+   */
+  async meshSuperChunk(grid, lightGrid, stateGrid, bounds) {
+    if (!this.initialized) {
+      const success = await this.initialize();
+      if (!success) {
+        throw new Error('Failed to initialize WebGPU');
+      }
+    }
+    
+    // Serialize grid data for GPU upload
+    const gridData = this.serializeGridForGPU(grid, bounds);
+    const lightData = this.serializeLightForGPU(lightGrid, bounds);
+    
+    // Build lookup tables
+    const lookupData = this.buildLookupTable();
+    const textureData = this.buildTextureTable();
+    
+    // Upload to GPU
+    const buffers = this.uploadGridData(gridData, lightData, lookupData, textureData);
+    
+    // Count sections in bounds
+    const sectionCount = this.countSectionsInBounds(grid, bounds);
+    
+    // Run meshing pipeline
+    const result = await this.mesh(buffers, sectionCount);
+    
+    // Clean up input buffers
+    buffers.gridBuffer.destroy();
+    buffers.lightBuffer.destroy();
+    buffers.lookupBuffer.destroy();
+    buffers.textureBuffer.destroy();
+    
+    return result;
+  }
+  
+  /**
+   * Serialize a BinaryGrid for GPU upload
+   * @private
+   */
+  serializeGridForGPU(grid, bounds) {
+    const sections = [];
+    for (const [key, section] of grid.iter_sections()) {
+      if (bounds) {
+        const chunkX = key.chunk_x;
+        const chunkZ = key.chunk_z;
+        if (chunkX < bounds.minChunkX || chunkX > bounds.maxChunkX ||
+            chunkZ < bounds.minChunkZ || chunkZ > bounds.maxChunkZ) {
+          continue;
+        }
+      }
+      // Convert u16 section to u32 for GPU
+      const u32Section = new Uint32Array(4096);
+      for (let i = 0; i < 4096; i++) {
+        u32Section[i] = section[i];
+      }
+      sections.push(u32Section);
+    }
+    
+    // Flatten all sections into one buffer
+    const totalSize = sections.length * 4096 * 4;
+    const buffer = new Uint32Array(totalSize / 4);
+    let offset = 0;
+    for (const section of sections) {
+      buffer.set(section, offset);
+      offset += 4096;
+    }
+    
+    return buffer;
+  }
+  
+  /**
+   * Serialize a LightGrid for GPU upload
+   * @private
+   */
+  serializeLightForGPU(lightGrid, bounds) {
+    if (!lightGrid) {
+      // Return empty buffer if no light data
+      return new Uint32Array(1);
+    }
+    
+    const sections = [];
+    for (const [key, section] of lightGrid.iter_sections()) {
+      if (bounds) {
+        const chunkX = key.chunk_x;
+        const chunkZ = key.chunk_z;
+        if (chunkX < bounds.minChunkX || chunkX > bounds.maxChunkX ||
+            chunkZ < bounds.minChunkZ || chunkZ > bounds.maxChunkZ) {
+          continue;
+        }
+      }
+      // Pack light data: sky << 4 | block
+      const packedSection = new Uint32Array(4096);
+      for (let i = 0; i < 4096; i++) {
+        // Light grid stores raw light values
+        packedSection[i] = section[i];
+      }
+      sections.push(packedSection);
+    }
+    
+    const totalSize = sections.length * 4096 * 4;
+    const buffer = new Uint32Array(Math.max(totalSize / 4, 1));
+    let offset = 0;
+    for (const section of sections) {
+      buffer.set(section, offset);
+      offset += 4096;
+    }
+    
+    return buffer;
+  }
+  
+  /**
+   * Build block lookup table for GPU
+   * @private
+   */
+  buildLookupTable() {
+    // Create a lookup table for block properties
+    // Flags: opaque, transparent, fluid, glass, slab
+    const lookup = new Uint32Array(4096); // Support up to 4096 block IDs
+    
+    // Default: air is not opaque
+    lookup[0] = 0;
+    
+    // Mark stone and other common solid blocks as opaque
+    // This is a simplified version - full implementation would use registry
+    for (let i = 1; i < 256; i++) {
+      lookup[i] = 1; // FLAG_OPAQUE
+    }
+    
+    return lookup;
+  }
+  
+  /**
+   * Build texture index lookup table for GPU
+   * @private
+   */
+  buildTextureTable() {
+    // Map block IDs to texture indices
+    // Simplified version - full implementation would use texture atlas
+    const textures = new Uint32Array(4096);
+    for (let i = 0; i < 4096; i++) {
+      textures[i] = i % 256; // Simple modulo mapping
+    }
+    return textures;
+  }
+  
+  /**
+   * Count sections within bounds
+   * @private
+   */
+  countSectionsInBounds(grid, bounds) {
+    let count = 0;
+    for (const [key] of grid.iter_sections()) {
+      if (bounds) {
+        const chunkX = key.chunk_x;
+        const chunkZ = key.chunk_z;
+        if (chunkX >= bounds.minChunkX && chunkX <= bounds.maxChunkX &&
+            chunkZ >= bounds.minChunkZ && chunkZ <= bounds.maxChunkZ) {
+          count++;
+        }
+      } else {
+        count++;
+      }
+    }
+    return Math.max(count, 1);
+  }
+  
+  /**
    * Clean up GPU resources
    */
   dispose() {

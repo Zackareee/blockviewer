@@ -42,6 +42,8 @@ import pako from 'pako';
 import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
 import { getBoundaryRepairManager } from '../mesh/BoundaryRepair.js';
 import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
+import { getUnifiedMeshPipeline } from '../mesh/UnifiedMeshPipeline.js';
+import { selectMeshingPath, getCurrentMeshingPath, MeshingPath } from '../utils/CapabilityDetector.js';
 
 // Super-chunk size configuration
 // 2 = 2x2 chunks (32x32 blocks) - balanced performance
@@ -343,6 +345,41 @@ export class SuperChunkManager {
     
     // Whether to use streaming mode (single-chunk processing)
     this._useStreamingMode = options.useStreamingMode ?? false;
+    
+    // Unified mesh pipeline for automatic path selection (WebGPU/WASM/JS)
+    this._unifiedPipeline = null;
+    this._unifiedPipelineInitialized = false;
+    this._meshingPath = null;
+  }
+  
+  /**
+   * Initialize the unified mesh pipeline
+   * This selects the optimal meshing path (WebGPU, WASM+Rayon, WASM, JS)
+   */
+  async initUnifiedPipeline() {
+    if (this._unifiedPipelineInitialized) return;
+    
+    try {
+      // Detect the best meshing path
+      this._meshingPath = await selectMeshingPath();
+      console.log(`[SuperChunkManager] Selected meshing path: ${this._meshingPath}`);
+      
+      // Initialize the unified pipeline
+      this._unifiedPipeline = getUnifiedMeshPipeline();
+      await this._unifiedPipeline.initialize();
+      
+      this._unifiedPipelineInitialized = true;
+    } catch (e) {
+      console.warn('[SuperChunkManager] Failed to init unified pipeline:', e);
+    }
+  }
+  
+  /**
+   * Get the current meshing path
+   * @returns {string|null}
+   */
+  getMeshingPath() {
+    return this._meshingPath;
   }
   
   /**

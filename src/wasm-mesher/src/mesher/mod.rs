@@ -3,6 +3,7 @@
 pub mod ao;
 pub mod ao_simd;
 pub mod binary_cull;
+pub mod fast_greedy;
 pub mod fluid;
 pub mod greedy;
 pub mod model;
@@ -12,6 +13,9 @@ pub use greedy::{BoundaryFaces, BoundaryFace, StreamingMeshResult, mesh_solid_st
 
 // Re-export parallel meshing
 pub use greedy::mesh_solid_parallel;
+
+// Re-export fast greedy meshing with pre-allocated scratch
+pub use fast_greedy::{MeshScratch, mesh_solid_fast};
 
 /// Common mesh data output
 #[derive(Debug, Clone, Default)]

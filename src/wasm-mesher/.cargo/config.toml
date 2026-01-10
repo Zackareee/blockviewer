@@ -1,0 +1,11 @@
+# Cargo configuration for WASM with atomics/threading support
+# Required for wasm-bindgen-rayon parallel processing
+
+[target.wasm32-unknown-unknown]
+# Enable atomics, bulk-memory, and mutable-globals for SharedArrayBuffer support
+rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]
+
+[unstable]
+# Required for building std with atomics support
+# This requires nightly Rust
+build-std = ["panic_abort", "std"]

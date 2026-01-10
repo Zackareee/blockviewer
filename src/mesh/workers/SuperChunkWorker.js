@@ -49,6 +49,7 @@ let tintTypeLookup = null;
 let wasmModule = null;
 let wasmInitialized = false;
 let wasmLookupsInitialized = false;
+let wasmParallelAvailable = false;
 
 // ============================================================================
 // Decompression Helpers
@@ -126,12 +127,24 @@ async function initWasmMesher() {
     if (typeof wasm.is_parallel_available === 'function' && wasm.is_parallel_available()) {
       try {
         // Use navigator.hardwareConcurrency or default to 4 threads
-        const numThreads = Math.min(navigator?.hardwareConcurrency || 4, 8);
+        // Reserve 2 threads for main thread and this worker
+        const availableCores = navigator?.hardwareConcurrency || 4;
+        const numThreads = Math.max(2, Math.min(availableCores - 2, 8));
+        
+        // wasm-bindgen-rayon requires initThreadPool to be called
+        // The WASM module exports this when built with the parallel feature
         await wasm.init_thread_pool(numThreads);
+        
+        // Track that parallel meshing is available
+        wasmParallelAvailable = true;
+        
         console.log(`[SuperChunkWorker] Rayon thread pool initialized with ${numThreads} threads`);
       } catch (e) {
         console.warn('[SuperChunkWorker] Failed to init Rayon thread pool:', e.message);
+        wasmParallelAvailable = false;
       }
+    } else {
+      wasmParallelAvailable = false;
     }
     
     console.log('[SuperChunkWorker] WASM module initialized');
