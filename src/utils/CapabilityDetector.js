@@ -105,6 +105,10 @@ export function detectCapabilities() {
   // Basic Web Worker support
   const hasWebWorkers = typeof Worker !== 'undefined';
   
+  // WebGPU support (Phase 5.1)
+  // WebGPU is available in Chrome 113+, Edge 113+, Firefox Nightly
+  const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
+  
   // Classify hardware tier
   let tier;
   if (cores <= 4 || memory < 4) {
@@ -124,6 +128,7 @@ export function detectCapabilities() {
     hasOffscreenCanvas,
     supportsModuleWorkers,
     hasWebWorkers,
+    hasWebGPU,
     tier,
   };
   
@@ -135,6 +140,7 @@ export function detectCapabilities() {
     nativeDecompress: hasNativeDecompress,
     sharedArrayBuffer: hasSharedArrayBuffer,
     moduleWorkers: supportsModuleWorkers,
+    webGPU: hasWebGPU,
   });
   
   return cachedCapabilities;
@@ -179,9 +185,10 @@ export function getOptimalConfig(capabilities) {
       break;
       
     case 'high':
-      // Maximum throughput
+      // Maximum throughput - use up to 12 workers for high-end systems
+      // WASM model meshing offloads work from main thread, so more workers help
       config = {
-        workers: Math.max(4, Math.min(8, cores - 2)),
+        workers: Math.max(4, Math.min(12, cores - 2)),
         batchSize: 4,
         yieldFrequency: 'none',
         maxMemoryMB: 1024,
@@ -291,6 +298,99 @@ export function getRecommendedSettings() {
   };
 }
 
+// ============================================================================
+// Phase 5.1: WebGPU Detection
+// ============================================================================
+
+// Cached WebGPU capabilities
+let cachedWebGPUCapabilities = null;
+
+/**
+ * Detect WebGPU capabilities (async because it requires adapter request)
+ * 
+ * @returns {Promise<Object>} WebGPU capabilities
+ */
+export async function detectWebGPU() {
+  if (cachedWebGPUCapabilities !== null) {
+    return cachedWebGPUCapabilities;
+  }
+  
+  // Check if WebGPU is available
+  if (typeof navigator === 'undefined' || !('gpu' in navigator)) {
+    cachedWebGPUCapabilities = { 
+      available: false, 
+      reason: 'WebGPU not supported in this browser' 
+    };
+    return cachedWebGPUCapabilities;
+  }
+  
+  try {
+    // Request adapter (GPU)
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      cachedWebGPUCapabilities = { 
+        available: false, 
+        reason: 'No GPU adapter available' 
+      };
+      return cachedWebGPUCapabilities;
+    }
+    
+    // Request device
+    const device = await adapter.requestDevice();
+    if (!device) {
+      cachedWebGPUCapabilities = { 
+        available: false, 
+        reason: 'Failed to get GPU device' 
+      };
+      return cachedWebGPUCapabilities;
+    }
+    
+    // Get device limits
+    const limits = device.limits;
+    
+    cachedWebGPUCapabilities = {
+      available: true,
+      adapter: {
+        name: adapter.name || 'Unknown GPU',
+        features: [...adapter.features],
+        isFallbackAdapter: adapter.isFallbackAdapter,
+      },
+      limits: {
+        maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
+        maxComputeWorkgroupSizeX: limits.maxComputeWorkgroupSizeX,
+        maxComputeWorkgroupSizeY: limits.maxComputeWorkgroupSizeY,
+        maxComputeWorkgroupSizeZ: limits.maxComputeWorkgroupSizeZ,
+        maxComputeInvocationsPerWorkgroup: limits.maxComputeInvocationsPerWorkgroup,
+        maxComputeWorkgroupsPerDimension: limits.maxComputeWorkgroupsPerDimension,
+      },
+    };
+    
+    console.log('[CapabilityDetector] WebGPU available:', cachedWebGPUCapabilities.adapter.name);
+    
+    // Clean up - device will be recreated when actually needed
+    device.destroy();
+    
+    return cachedWebGPUCapabilities;
+  } catch (error) {
+    cachedWebGPUCapabilities = { 
+      available: false, 
+      reason: `WebGPU initialization failed: ${error.message}` 
+    };
+    return cachedWebGPUCapabilities;
+  }
+}
+
+/**
+ * Check if WebGPU compute shaders are supported for meshing
+ * This is a quick sync check - use detectWebGPU() for full capabilities
+ * 
+ * @returns {boolean}
+ */
+export function hasWebGPUSupport() {
+  const caps = detectCapabilities();
+  return caps.hasWebGPU;
+}
+
 export default {
   detectCapabilities,
   getOptimalConfig,
@@ -299,5 +399,7 @@ export default {
   resetCapabilities,
   shouldUseFallback,
   getRecommendedSettings,
+  detectWebGPU,
+  hasWebGPUSupport,
 };
 

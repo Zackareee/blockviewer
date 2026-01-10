@@ -9,7 +9,7 @@
 
 import { BinaryGrid, SECTION_SIZE, MIN_Y, MAX_Y, makeSectionKey } from './BinaryGrid.js';
 import { getBlockRegistry } from './BlockRegistry.js';
-import { BlockStateGrid } from './BlockStateGrid.js';
+import { BlockStateGrid, fnv1aHash, buildStateString } from './BlockStateGrid.js';
 import { isNonCubeBlock } from './ModelMesher.js';
 import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
 import { hasEmitter } from '../particles/ParticleEmitter.js';
@@ -195,6 +195,8 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
   const axisValues = new Uint8Array(len);  // Axis for rotatable blocks (0=y, 1=x, 2=z)
   const needsState = new Uint8Array(len);  // Track which entries need state storage
   const stateIds = new Uint16Array(len);   // State IDs for non-cube blocks
+  const stateHashes = new Array(len);      // FNV-1a hashes for WASM model meshing
+  const stateStrings = new Array(len);     // State strings for hash computation
   const names = new Array(len);            // Block names for state lookup
   const properties = new Array(len);       // Properties for each entry
   
@@ -207,6 +209,8 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
     properties[i] = props;
     blockIds[i] = registry.getBlockId(name);
     isAir[i] = isAirBlock(name) ? 1 : 0;
+    stateHashes[i] = 0n;
+    stateStrings[i] = null;
     
     // Extract fluid level for water/lava (but not cauldrons which contain fluid internally)
     if ((name.includes('water') || name.includes('lava')) && !FLUID_CONTAINER_BLOCKS.has(name)) {
@@ -253,13 +257,20 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
     // We need to track state for both non-cube blocks AND particle emitting blocks
     if (!isAir[i] && (isNonCubeBlock(name) || hasEmitter(name))) {
       needsState[i] = 1;
+      
+      // Compute state string and hash for WASM model meshing
+      const stateString = buildStateString(name, props || {});
+      stateStrings[i] = stateString;
+      stateHashes[i] = fnv1aHash(stateString);
+      
+      // Also register with legacy state registry
       if (stateRegistry) {
         stateIds[i] = stateRegistry.register(name, props || {});
       }
     }
   }
   
-  return { blockIds, isAir, levels, axisValues, needsState, stateIds, names, properties };
+  return { blockIds, isAir, levels, axisValues, needsState, stateIds, stateHashes, stateStrings, names, properties };
 }
 
 /**
@@ -330,7 +341,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
     if (!palette || palette.length === 0) return 0;
     
     const blockData = blockStates.data;
-    const { blockIds, isAir, levels, axisValues, needsState, stateIds } = preprocessPalette(palette, registry, stateRegistry);
+    const { blockIds, isAir, levels, axisValues, needsState, stateIds, stateHashes, stateStrings } = preprocessPalette(palette, registry, stateRegistry);
     
     // Check if any palette entries need state storage
     const hasNonCubeBlocks = stateGrid && needsState.some(v => v === 1);
@@ -357,7 +368,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
       // If this single block type needs state, fill state grid too
       if (hasNonCubeBlocks && needsState[0]) {
         for (let i = 0; i < 4096; i++) {
-          stateGrid.setState(sectionKey, i, stateIds[0]);
+          stateGrid.setStateHash(sectionKey, i, stateHashes[0], stateIds[0]);
         }
       }
       
@@ -393,9 +404,9 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
         gridSection[i] = (blockId & 0x0FFF) | ((metadata & 0xF) << 12);
         blocksDecoded++;
         
-        // Store state ID for non-cube blocks
+        // Store state hash for non-cube blocks (WASM model meshing)
         if (hasNonCubeBlocks && needsState[paletteIndex]) {
-          stateGrid.setState(sectionKey, i, stateIds[paletteIndex]);
+          stateGrid.setStateHash(sectionKey, i, stateHashes[paletteIndex], stateIds[paletteIndex]);
         }
       }
     }
@@ -411,7 +422,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
     
     if (palette.length === 0) return 0;
     
-    const { blockIds, isAir, levels, axisValues, needsState, stateIds } = preprocessPalette(palette, registry, stateRegistry);
+    const { blockIds, isAir, levels, axisValues, needsState, stateIds, stateHashes, stateStrings } = preprocessPalette(palette, registry, stateRegistry);
     const hasNonCubeBlocks = stateGrid && needsState.some(v => v === 1);
     const sectionKey = hasNonCubeBlocks ? makeSectionKey(chunkX, chunkZ, internalSectionY) : null;
     const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSectionY);
@@ -431,7 +442,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
       
       if (hasNonCubeBlocks && needsState[0]) {
         for (let i = 0; i < 4096; i++) {
-          stateGrid.setState(sectionKey, i, stateIds[0]);
+          stateGrid.setStateHash(sectionKey, i, stateHashes[0], stateIds[0]);
         }
       }
       
@@ -454,7 +465,7 @@ function decodeSection(section, chunkX, chunkZ, grid, registry, stateGrid = null
         blocksDecoded++;
         
         if (hasNonCubeBlocks && needsState[paletteIndex]) {
-          stateGrid.setState(sectionKey, i, stateIds[paletteIndex]);
+          stateGrid.setStateHash(sectionKey, i, stateHashes[paletteIndex], stateIds[paletteIndex]);
         }
       }
     }

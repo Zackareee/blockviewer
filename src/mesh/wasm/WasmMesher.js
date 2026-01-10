@@ -321,6 +321,63 @@ export function initModelRegistry(stateRegistry) {
   }
 }
 
+// Track if hash-based model registry has been initialized
+let hashModelRegistryInitialized = false;
+
+/**
+ * Initialize hash-based model registry in WASM
+ * This is the preferred method for WASM model meshing as it doesn't require
+ * synchronized state IDs between main thread and workers.
+ * 
+ * @param {StateRegistry} stateRegistry - The state registry with geometry data
+ * @returns {boolean} True if initialization succeeded
+ */
+export function initHashModelRegistry(stateRegistry) {
+  if (!isWasmAvailable()) {
+    console.warn('[WasmMesher] Cannot init hash model registry - WASM not available');
+    return false;
+  }
+  
+  if (hashModelRegistryInitialized) {
+    console.log('[WasmMesher] Hash model registry already initialized');
+    return true;
+  }
+  
+  try {
+    const startTime = performance.now();
+    
+    // Get hash-based export from state registry
+    const exportData = stateRegistry.exportHashModelGeometryForWasm?.();
+    
+    if (!exportData || !exportData.stateStrings || exportData.stateCount === 0) {
+      console.warn('[WasmMesher] No model geometry to initialize for hash registry');
+      return false;
+    }
+    
+    const { stateStrings, geometryData, faceCount, stateCount } = exportData;
+    
+    // Call WASM init function with state strings
+    wasmModule.init_hash_model_registry(stateStrings, geometryData);
+    hashModelRegistryInitialized = true;
+    
+    const elapsed = (performance.now() - startTime).toFixed(1);
+    console.log(`[WasmMesher] Hash model registry initialized: ${stateCount} states, ${faceCount} faces, ${(geometryData.length / 1024).toFixed(1)}KB in ${elapsed}ms`);
+    
+    return true;
+  } catch (error) {
+    console.error('[WasmMesher] Failed to init hash model registry:', error);
+    return false;
+  }
+}
+
+/**
+ * Check if hash-based model registry is initialized
+ * @returns {boolean}
+ */
+export function isHashModelRegistryReady() {
+  return hashModelRegistryInitialized;
+}
+
 /**
  * Serialize model geometry to binary format for WASM
  * 

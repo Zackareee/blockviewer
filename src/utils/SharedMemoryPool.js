@@ -254,6 +254,198 @@ export class SharedBufferPool {
   }
 }
 
+// ============================================================================
+// MeshBufferPool - Shared buffers for mesh output (Phase 2.1)
+// ============================================================================
+
+/**
+ * Ring buffer for shared mesh output data
+ * Pre-allocates shared buffers for zero-copy mesh data transfer
+ */
+class SharedBufferRing {
+  /**
+   * @param {number} count - Number of buffers in the ring
+   * @param {number} sizeBytes - Size of each buffer in bytes
+   */
+  constructor(count, sizeBytes) {
+    this.count = count;
+    this.sizeBytes = sizeBytes;
+    this.buffers = [];
+    this.available = [];
+    this.inUse = new Set();
+    this.isShared = isSharedBufferSupported();
+    
+    // Pre-allocate buffers
+    for (let i = 0; i < count; i++) {
+      const buffer = this.isShared
+        ? new SharedArrayBuffer(sizeBytes)
+        : new ArrayBuffer(sizeBytes);
+      this.buffers.push(buffer);
+      this.available.push(buffer);
+    }
+  }
+  
+  /**
+   * Acquire a buffer from the ring
+   * @returns {{ buffer: ArrayBuffer|SharedArrayBuffer, offset: number, length: number } | null}
+   */
+  acquire() {
+    if (this.available.length === 0) {
+      // Pool exhausted - create overflow buffer (will be released later)
+      const buffer = this.isShared
+        ? new SharedArrayBuffer(this.sizeBytes)
+        : new ArrayBuffer(this.sizeBytes);
+      this.inUse.add(buffer);
+      return { buffer, offset: 0, length: this.sizeBytes };
+    }
+    
+    const buffer = this.available.pop();
+    this.inUse.add(buffer);
+    return { buffer, offset: 0, length: this.sizeBytes };
+  }
+  
+  /**
+   * Release a buffer back to the ring
+   * @param {ArrayBuffer|SharedArrayBuffer} buffer
+   */
+  release(buffer) {
+    if (this.inUse.has(buffer)) {
+      this.inUse.delete(buffer);
+      // Only return to pool if it's an original buffer
+      if (this.buffers.includes(buffer)) {
+        this.available.push(buffer);
+      }
+    }
+  }
+  
+  getStats() {
+    return {
+      total: this.count,
+      available: this.available.length,
+      inUse: this.inUse.size,
+      sizeBytes: this.sizeBytes,
+      isShared: this.isShared
+    };
+  }
+  
+  dispose() {
+    this.buffers = [];
+    this.available = [];
+    this.inUse.clear();
+  }
+}
+
+/**
+ * Pool of shared buffers for mesh output data
+ * Manages separate pools for each mesh attribute type
+ */
+export class MeshBufferPool {
+  /**
+   * @param {Object} options - Pool configuration
+   * @param {number} [options.ringCount=16] - Number of buffers per ring
+   * @param {number} [options.positionBufferSize=512*1024] - Size of position buffers (bytes)
+   * @param {number} [options.normalBufferSize=512*1024] - Size of normal buffers (bytes)
+   * @param {number} [options.indexBufferSize=256*1024] - Size of index buffers (bytes)
+   * @param {number} [options.uvBufferSize=256*1024] - Size of UV buffers (bytes)
+   */
+  constructor(options = {}) {
+    const {
+      ringCount = 16,
+      positionBufferSize = 512 * 1024,  // 512KB - typical super-chunk needs ~100KB
+      normalBufferSize = 512 * 1024,
+      indexBufferSize = 256 * 1024,
+      uvBufferSize = 256 * 1024,
+    } = options;
+    
+    // Create rings for each attribute type
+    this.positionRing = new SharedBufferRing(ringCount, positionBufferSize);
+    this.normalRing = new SharedBufferRing(ringCount, normalBufferSize);
+    this.indexRing = new SharedBufferRing(ringCount, indexBufferSize);
+    this.uvRing = new SharedBufferRing(ringCount, uvBufferSize);
+    
+    // Additional attribute rings (colors, texIndices, etc.)
+    this.colorRing = new SharedBufferRing(ringCount, positionBufferSize);
+    this.texIndexRing = new SharedBufferRing(ringCount, 64 * 1024);
+    this.lightRing = new SharedBufferRing(ringCount, 128 * 1024);
+    
+    console.log('[MeshBufferPool] Initialized with', ringCount, 'buffers per ring, shared:', this.positionRing.isShared);
+  }
+  
+  /**
+   * Acquire a set of buffers for mesh output
+   * @returns {Object} Buffer set with all attribute buffers
+   */
+  acquireBufferSet() {
+    return {
+      positions: this.positionRing.acquire(),
+      normals: this.normalRing.acquire(),
+      indices: this.indexRing.acquire(),
+      uvs: this.uvRing.acquire(),
+      colors: this.colorRing.acquire(),
+      texIndices: this.texIndexRing.acquire(),
+      lights: this.lightRing.acquire(),
+      isShared: this.positionRing.isShared
+    };
+  }
+  
+  /**
+   * Release a buffer set back to the pool
+   * @param {Object} bufferSet - Previously acquired buffer set
+   */
+  releaseBufferSet(bufferSet) {
+    if (bufferSet.positions) this.positionRing.release(bufferSet.positions.buffer);
+    if (bufferSet.normals) this.normalRing.release(bufferSet.normals.buffer);
+    if (bufferSet.indices) this.indexRing.release(bufferSet.indices.buffer);
+    if (bufferSet.uvs) this.uvRing.release(bufferSet.uvs.buffer);
+    if (bufferSet.colors) this.colorRing.release(bufferSet.colors.buffer);
+    if (bufferSet.texIndices) this.texIndexRing.release(bufferSet.texIndices.buffer);
+    if (bufferSet.lights) this.lightRing.release(bufferSet.lights.buffer);
+  }
+  
+  /**
+   * Get pool statistics
+   */
+  getStats() {
+    return {
+      positions: this.positionRing.getStats(),
+      normals: this.normalRing.getStats(),
+      indices: this.indexRing.getStats(),
+      uvs: this.uvRing.getStats(),
+      colors: this.colorRing.getStats(),
+      texIndices: this.texIndexRing.getStats(),
+      lights: this.lightRing.getStats()
+    };
+  }
+  
+  /**
+   * Dispose all buffers
+   */
+  dispose() {
+    this.positionRing.dispose();
+    this.normalRing.dispose();
+    this.indexRing.dispose();
+    this.uvRing.dispose();
+    this.colorRing.dispose();
+    this.texIndexRing.dispose();
+    this.lightRing.dispose();
+  }
+}
+
+// Singleton instance for mesh buffer pool
+let meshBufferPoolInstance = null;
+
+/**
+ * Get the global mesh buffer pool
+ * @param {Object} [options] - Pool configuration (only used on first call)
+ * @returns {MeshBufferPool}
+ */
+export function getMeshBufferPool(options) {
+  if (!meshBufferPoolInstance) {
+    meshBufferPoolInstance = new MeshBufferPool(options);
+  }
+  return meshBufferPoolInstance;
+}
+
 export default {
   isSharedBufferSupported,
   createBuffer,
@@ -261,5 +453,8 @@ export default {
   SharedLookupManager,
   getSharedLookupManager,
   SharedBufferPool,
+  SharedBufferRing,
+  MeshBufferPool,
+  getMeshBufferPool,
 };
 

@@ -164,6 +164,94 @@ function initWasmLookups(lookups) {
   }
 }
 
+// Track WASM model registry initialization
+let wasmStateRegistryInitialized = false;
+let wasmModelRegistryInitialized = false;
+
+/**
+ * Initialize WASM state registry for model block resolution
+ * @param {Object} stateData - { stateStrings: string[], stateIds: Uint16Array }
+ */
+function initWasmStateRegistry(stateData) {
+  if (!wasmInitialized || !wasmModule) {
+    console.warn('[SuperChunkWorker] Cannot init state registry - WASM not available');
+    return false;
+  }
+  
+  if (!stateData || !stateData.stateStrings || stateData.stateStrings.length === 0) {
+    console.warn('[SuperChunkWorker] No state data provided');
+    return false;
+  }
+  
+  try {
+    // WASM expects newline-separated strings + u16 array
+    const stateStringsJoined = stateData.stateStrings.join('\n');
+    const stateIds = new Uint16Array(stateData.stateIds);
+    
+    wasmModule.init_state_registry(stateStringsJoined, stateIds);
+    wasmStateRegistryInitialized = true;
+    console.log(`[SuperChunkWorker] WASM state registry initialized with ${stateData.stateStrings.length} states`);
+    return true;
+  } catch (error) {
+    console.error('[SuperChunkWorker] Failed to init WASM state registry:', error);
+    return false;
+  }
+}
+
+/**
+ * Initialize WASM model registry with pre-baked geometry using HASH-BASED lookup
+ * This uses state strings instead of IDs to eliminate synchronization issues
+ * @param {Object} modelData - { stateStrings: string[], geometryData: Uint8Array }
+ */
+function initWasmModelRegistry(modelData) {
+  if (!wasmInitialized || !wasmModule) {
+    console.warn('[SuperChunkWorker] Cannot init model registry - WASM not available');
+    return false;
+  }
+  
+  if (!modelData || !modelData.geometryData || modelData.geometryData.length === 0) {
+    console.warn('[SuperChunkWorker] No model geometry data provided');
+    return false;
+  }
+  
+  try {
+    // Use HASH-BASED model registry (state strings → hash → geometry lookup)
+    // This eliminates the need for synchronized state IDs between threads
+    if (modelData.stateStrings && modelData.stateStrings.length > 0) {
+      // stateStrings can be either:
+      // 1. A newline-separated string (from exportHashModelGeometryForWasm)
+      // 2. An array of strings (legacy format)
+      const stateStringsJoined = typeof modelData.stateStrings === 'string' 
+        ? modelData.stateStrings 
+        : modelData.stateStrings.join('\n');
+      const stateCount = typeof modelData.stateStrings === 'string'
+        ? modelData.stateStrings.split('\n').length
+        : modelData.stateStrings.length;
+      const geometryData = new Uint8Array(modelData.geometryData);
+      
+      wasmModule.init_hash_model_registry(stateStringsJoined, geometryData);
+      wasmModelRegistryInitialized = true;
+      console.log(`[SuperChunkWorker] WASM HASH-BASED model registry initialized with ${stateCount} states, ${(modelData.geometryData.length / 1024).toFixed(1)}KB`);
+      return true;
+    } else if (modelData.stateIds) {
+      // Fallback to legacy ID-based registry if state strings not provided
+      const stateIds = new Uint16Array(modelData.stateIds);
+      const geometryData = new Uint8Array(modelData.geometryData);
+      
+      wasmModule.init_model_registry(stateIds, geometryData);
+      wasmModelRegistryInitialized = true;
+      console.log(`[SuperChunkWorker] WASM model registry initialized with ${modelData.stateIds.length} states (legacy ID-based), ${(modelData.geometryData.length / 1024).toFixed(1)}KB`);
+      return true;
+    } else {
+      console.warn('[SuperChunkWorker] No state identifiers provided for model registry');
+      return false;
+    }
+  } catch (error) {
+    console.error('[SuperChunkWorker] Failed to init WASM model registry:', error);
+    return false;
+  }
+}
+
 function serializeGridForWasm(grid) {
   const sections = [...grid.sections.entries()];
   const sectionCount = sections.length;
@@ -235,21 +323,35 @@ function serializeLightGridForWasm(lightGrid) {
   return new Uint8Array(buffer);
 }
 
-function wasmMeshChunk(grid, lightGrid, bounds) {
+function wasmMeshChunk(grid, lightGrid, stateGrid, bounds) {
   if (!wasmInitialized || !wasmLookupsInitialized) {
     throw new Error('WASM mesher not ready');
   }
   
   const gridData = serializeGridForWasm(grid);
   const lightData = serializeLightGridForWasm(lightGrid);
-  const stateData = new Uint8Array(4); // Empty state grid for now
+  
+  // Serialize state grid for WASM model meshing
+  // If WASM state/model registries are initialized, pass the state grid
+  // Otherwise pass empty marker and model meshing will happen on main thread
+  const canUseWasmModels = wasmStateRegistryInitialized && wasmModelRegistryInitialized && stateGrid;
+  const stateData = canUseWasmModels
+    ? stateGrid.serializeForWasm() 
+    : new Uint8Array(4);
+  
+  // One-time log of WASM model capability
+  if (!wasmMeshChunk._capabilityLogged) {
+    wasmMeshChunk._capabilityLogged = true;
+    console.log(`[SuperChunkWorker] WASM model meshing: ${canUseWasmModels ? 'ENABLED' : 'DISABLED'} (state=${wasmStateRegistryInitialized}, model=${wasmModelRegistryInitialized}, hasStateGrid=${!!stateGrid}, stateDataSize=${stateData.length})`);
+  }
   
   const result = wasmModule.mesh_chunk_bounded(
     gridData, lightData, stateData, null, 0,
     bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ
   );
   
-  return {
+  // Build base mesh result
+  const meshResult = {
     solid: {
       positions: new Float32Array(result.solid_positions),
       normals: new Float32Array(result.solid_normals),
@@ -297,6 +399,52 @@ function wasmMeshChunk(grid, lightGrid, bounds) {
       vertexCount: result.glass_vertex_count,
     },
   };
+  
+  // Include model meshes from WASM if available
+  // These are only populated when WASM state/model registries are initialized
+  if (result.model_opaque_vertex_count > 0) {
+    meshResult.modelOpaque = {
+      positions: new Float32Array(result.model_opaque_positions),
+      normals: new Float32Array(result.model_opaque_normals),
+      colors: new Float32Array(result.model_opaque_colors),
+      uvs: new Float32Array(result.model_opaque_uvs),
+      texIndices: new Float32Array(result.model_opaque_tex_indices),
+      tintTypes: new Float32Array(result.model_opaque_tint_types),
+      skyLight: new Float32Array(result.model_opaque_sky_light),
+      blockLight: new Float32Array(result.model_opaque_block_light),
+      indices: new Uint32Array(result.model_opaque_indices),
+      vertexCount: result.model_opaque_vertex_count,
+    };
+  }
+  
+  if (result.model_transparent_vertex_count > 0) {
+    meshResult.modelTransparent = {
+      positions: new Float32Array(result.model_transparent_positions),
+      normals: new Float32Array(result.model_transparent_normals),
+      colors: new Float32Array(result.model_transparent_colors),
+      uvs: new Float32Array(result.model_transparent_uvs),
+      texIndices: new Float32Array(result.model_transparent_tex_indices),
+      tintTypes: new Float32Array(result.model_transparent_tint_types),
+      skyLight: new Float32Array(result.model_transparent_sky_light),
+      blockLight: new Float32Array(result.model_transparent_block_light),
+      indices: new Uint32Array(result.model_transparent_indices),
+      vertexCount: result.model_transparent_vertex_count,
+    };
+  }
+  
+  // Flag to indicate WASM handled model meshing
+  // ONLY set true if WASM actually produced model vertices
+  // Don't skip main thread fallback if WASM returns empty models
+  const hasWasmModels = result.model_opaque_vertex_count > 0 || result.model_transparent_vertex_count > 0;
+  meshResult.wasmModelsIncluded = hasWasmModels;
+  
+  // One-time log of first WASM mesh result with models
+  if (!wasmMeshChunk._resultLogged && canUseWasmModels) {
+    wasmMeshChunk._resultLogged = true;
+    console.log(`[SuperChunkWorker] First WASM mesh result: solid=${result.solid_vertex_count}, modelOpaque=${result.model_opaque_vertex_count}, modelTransparent=${result.model_transparent_vertex_count}, hasWasmModels=${hasWasmModels}`);
+  }
+  
+  return meshResult;
 }
 
 // ============================================================================
@@ -700,12 +848,42 @@ class WorkerBinaryGrid {
 }
 
 // ============================================================================
-// Block State Grid
+// Block State Grid (stores u64 FNV hashes for WASM model meshing)
 // ============================================================================
+
+// FNV-1a constants for 64-bit hash
+const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
+const FNV_PRIME = 0x100000001b3n;
+
+/**
+ * Compute FNV-1a 64-bit hash of a string (matches Rust fnv crate)
+ */
+function fnv1aHash(str) {
+  let hash = FNV_OFFSET_BASIS;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= BigInt(str.charCodeAt(i));
+    hash = (hash * FNV_PRIME) & 0xFFFFFFFFFFFFFFFFn;
+  }
+  return hash;
+}
+
+/**
+ * Build canonical state string from block name and properties
+ */
+function buildStateString(blockName, properties = {}) {
+  const name = blockName.startsWith('minecraft:') ? blockName : `minecraft:${blockName}`;
+  const keys = Object.keys(properties).sort();
+  if (keys.length === 0) return name;
+  const propsStr = keys.map(k => `${k}=${properties[k]}`).join(',');
+  return `${name}[${propsStr}]`;
+}
 
 class WorkerBlockStateGrid {
   constructor() {
+    // Store u16 legacy IDs (primary, for backward compatibility)
     this.sections = new Map();
+    // Store u64 hashes for WASM model meshing
+    this.hashSections = new Map();
   }
   
   _getOrCreateSection(cx, cz, sy) {
@@ -718,15 +896,24 @@ class WorkerBlockStateGrid {
     return sec;
   }
   
+  _getOrCreateHashSection(cx, cz, sy) {
+    const key = makeSectionKey(cx, cz, sy);
+    let sec = this.hashSections.get(key);
+    if (!sec) {
+      sec = new BigUint64Array(S3);
+      this.hashSections.set(key, sec);
+    }
+    return sec;
+  }
+  
   getSection(cx, cz, sy) {
     return this.sections.get(makeSectionKey(cx, cz, sy));
   }
   
-  // Serialize for transfer to main thread
+  // Serialize legacy u16 data for transfer to main thread
   serialize() {
     const serialized = [];
     for (const [key, section] of this.sections) {
-      // Only include non-empty sections
       let hasData = false;
       for (let i = 0; i < section.length; i++) {
         if (section[i] !== 0) {
@@ -739,6 +926,64 @@ class WorkerBlockStateGrid {
       }
     }
     return serialized;
+  }
+  
+  /**
+   * Serialize u64 hashes for WASM consumption
+   * Format: [num_sections: u32][section_key: u64, data: [u64; 4096]]...
+   * @returns {Uint8Array}
+   */
+  serializeForWasm() {
+    const nonEmptySections = [];
+    for (const [key, section] of this.hashSections) {
+      let hasData = false;
+      for (let i = 0; i < section.length; i++) {
+        if (section[i] !== 0n) {
+          hasData = true;
+          break;
+        }
+      }
+      if (hasData) {
+        nonEmptySections.push({ key, section });
+      }
+    }
+    
+    if (nonEmptySections.length === 0) {
+      return new Uint8Array(4);
+    }
+    
+    // Calculate buffer size: 4 + (8 + 4096*8) * numSections
+    const SECTION_DATA_SIZE = S3 * 8; // 4096 * 8 bytes per u64
+    const bufferSize = 4 + nonEmptySections.length * (8 + SECTION_DATA_SIZE);
+    const buffer = new ArrayBuffer(bufferSize);
+    const view = new DataView(buffer);
+    
+    view.setUint32(0, nonEmptySections.length, true);
+    
+    let offset = 4;
+    for (const { key, section } of nonEmptySections) {
+      const parts = key.split(',');
+      const chunkX = parseInt(parts[0], 10);
+      const chunkZ = parseInt(parts[1], 10);
+      const sectionY = parseInt(parts[2], 10);
+      
+      // Pack section key to u64
+      const cx = BigInt(chunkX + 0x800000);
+      const cz = BigInt(chunkZ + 0x800000);
+      const sy = BigInt(sectionY & 0xFFFF);
+      const packedKey = (cx << 40n) | (cz << 16n) | sy;
+      
+      view.setBigUint64(offset, packedKey, true);
+      offset += 8;
+      
+      // Write section data (u64 hashes)
+      for (let i = 0; i < S3; i++) {
+        view.setBigUint64(offset, section[i], true);
+        offset += 8;
+      }
+    }
+    
+    return new Uint8Array(buffer);
   }
 }
 
@@ -969,6 +1214,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
       // Pre-process palette
       const blockIds = new Uint16Array(palette.length);
       const stateIds = stateGrid ? new Uint16Array(palette.length) : null;
+      const stateHashes = stateGrid ? new Array(palette.length) : null; // BigInt hashes for WASM
       const isAir = new Uint8Array(palette.length);
       const levels = new Int8Array(palette.length);
       const isWaterlogged = new Uint8Array(palette.length);
@@ -983,6 +1229,12 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
         if (stateGrid && stateRegistry && !isAir[i]) {
           const props = (typeof entry === 'object' && entry.Properties) ? entry.Properties : {};
           stateIds[i] = stateRegistry.register(name, props);
+          
+          // Compute FNV-1a hash for WASM model meshing
+          const stateString = buildStateString(name, props);
+          stateHashes[i] = fnv1aHash(stateString);
+        } else if (stateHashes) {
+          stateHashes[i] = 0n;
         }
         
         if (name.includes('water') || name.includes('lava')) {
@@ -1000,6 +1252,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
       const blockData = blockStates.data;
       const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSY);
       const stateSection = stateGrid ? stateGrid._getOrCreateSection(chunkX, chunkZ, internalSY) : null;
+      const hashSection = stateGrid ? stateGrid._getOrCreateHashSection(chunkX, chunkZ, internalSY) : null;
       
       if (palette.length === 1 || !blockData || blockData.length === 0) {
         if (!isAir[0]) {
@@ -1007,6 +1260,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
           const val = (blockIds[0] & 0x0FFF) | ((lv & 0xF) << 12);
           gridSection.fill(val);
           if (stateSection && stateIds) stateSection.fill(stateIds[0]);
+          if (hashSection && stateHashes) hashSection.fill(stateHashes[0]);
           totalBlocks += S3;
           grid.totalBlocks += S3;
         }
@@ -1022,6 +1276,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
           const lv = isWaterlogged[pi] ? 8 : (levels[pi] >= 0 ? levels[pi] : 0);
           gridSection[i] = (blockIds[pi] & 0x0FFF) | ((lv & 0xF) << 12);
           if (stateSection && stateIds) stateSection[i] = stateIds[pi];
+          if (hashSection && stateHashes) hashSection[i] = stateHashes[pi];
           totalBlocks++;
           grid.totalBlocks++;
         }
@@ -2399,10 +2654,10 @@ async function processSuperChunk(data) {
   // NOTE: WASM mesher does not check light values for merge decisions,
   // which can cause blocky lighting. For now, prefer WASM for speed
   // as light values are still per-vertex (just with larger quads).
-  // TODO: Add light-based merge checking to WASM mesher for smoother lighting.
+  // When WASM state/model registries are initialized, WASM also handles model meshing.
   if (wasmInitialized && wasmLookupsInitialized) {
     try {
-      gridMeshes = wasmMeshChunk(grid, lightGrid, bounds);
+      gridMeshes = wasmMeshChunk(grid, lightGrid, stateGrid, bounds);
     } catch (e) {
       console.warn('[SuperChunkWorker] WASM meshing failed, falling back to JS:', e.message);
       gridMeshes = buildGridMeshes(grid, blockRegistry, offset);
@@ -2412,30 +2667,40 @@ async function processSuperChunk(data) {
     gridMeshes = buildGridMeshes(grid, blockRegistry, offset);
   }
   
-  // Serialize grids for main thread model meshing
-  // Model meshing requires full ModelGeometry infrastructure not available in worker
-  const serializedGrid = grid.serialize();
-  const serializedStateGrid = stateGrid.serialize();
-  const serializedLightGrid = lightGrid.serialize();
+  // Check if WASM handled model meshing
+  const wasmHandledModels = gridMeshes.wasmModelsIncluded || false;
   
-  // Serialize state registry so main thread can map worker stateIds to its own IDs
-  // Only include states that are actually used in the stateGrid
-  const usedStateIds = new Set();
-  for (const { data } of serializedStateGrid) {
-    for (let i = 0; i < data.length; i++) {
-      if (data[i] !== 0) usedStateIds.add(data[i]);
+  // Only serialize grids for main thread model meshing if WASM didn't handle it
+  let serializedGrid = null;
+  let serializedStateGrid = null;
+  let serializedLightGrid = null;
+  let serializedStates = null;
+  
+  if (!wasmHandledModels) {
+    // Model meshing requires full ModelGeometry infrastructure not available in worker
+    serializedGrid = grid.serialize();
+    serializedStateGrid = stateGrid.serialize();
+    serializedLightGrid = lightGrid.serialize();
+    
+    // Serialize state registry so main thread can map worker stateIds to its own IDs
+    // Only include states that are actually used in the stateGrid
+    const usedStateIds = new Set();
+    for (const { data } of serializedStateGrid) {
+      for (let i = 0; i < data.length; i++) {
+        if (data[i] !== 0) usedStateIds.add(data[i]);
+      }
     }
-  }
-  
-  const serializedStates = [];
-  for (const stateId of usedStateIds) {
-    const state = stateRegistry.getState(stateId);
-    if (state) {
-      serializedStates.push({
-        workerStateId: stateId,
-        blockName: state.blockName,
-        properties: state.properties,
-      });
+    
+    serializedStates = [];
+    for (const stateId of usedStateIds) {
+      const state = stateRegistry.getState(stateId);
+      if (state) {
+        serializedStates.push({
+          workerStateId: stateId,
+          blockName: state.blockName,
+          properties: state.properties,
+        });
+      }
     }
   }
   
@@ -2448,25 +2713,29 @@ async function processSuperChunk(data) {
     water: null,
     lava: null,
     glass: null,
-    models: null,
-    // Serialized grids for main thread model meshing
-    grids: {
+    modelOpaque: null,
+    modelTransparent: null,
+    // Only include serialized grids if WASM didn't handle model meshing
+    grids: wasmHandledModels ? null : {
       grid: serializedGrid,
       stateGrid: serializedStateGrid,
       lightGrid: serializedLightGrid,
       states: serializedStates, // Worker state ID -> blockName + properties mapping
     },
+    wasmModelsIncluded: wasmHandledModels,
   };
   
-  // Add grid section buffers to transferables
-  for (const section of serializedGrid.sections) {
-    transferables.push(section.data.buffer);
-  }
-  for (const section of serializedStateGrid) {
-    transferables.push(section.data.buffer);
-  }
-  for (const section of serializedLightGrid.sections) {
-    transferables.push(section.data.buffer);
+  // Add grid section buffers to transferables (only if not using WASM models)
+  if (!wasmHandledModels && serializedGrid) {
+    for (const section of serializedGrid.sections) {
+      transferables.push(section.data.buffer);
+    }
+    for (const section of serializedStateGrid) {
+      transferables.push(section.data.buffer);
+    }
+    for (const section of serializedLightGrid.sections) {
+      transferables.push(section.data.buffer);
+    }
   }
   
   // Add grid meshes with all attributes (texture indices, rotations, tint types, lighting)
@@ -2574,8 +2843,63 @@ async function processSuperChunk(data) {
     );
   }
   
-  // Note: Model meshes are built on main thread using the serialized grids
-  // because the worker doesn't have access to ModelGeometry for computing geometry
+  // Include WASM model meshes if available (opaque models like stairs, slabs)
+  if (gridMeshes.modelOpaque && gridMeshes.modelOpaque.vertexCount > 0) {
+    result.modelOpaque = {
+      positions: gridMeshes.modelOpaque.positions,
+      normals: gridMeshes.modelOpaque.normals,
+      colors: gridMeshes.modelOpaque.colors,
+      uvs: gridMeshes.modelOpaque.uvs,
+      texIndices: gridMeshes.modelOpaque.texIndices,
+      tintTypes: gridMeshes.modelOpaque.tintTypes,
+      skyLight: gridMeshes.modelOpaque.skyLight,
+      blockLight: gridMeshes.modelOpaque.blockLight,
+      indices: gridMeshes.modelOpaque.indices,
+      vertexCount: gridMeshes.modelOpaque.vertexCount,
+      triangleCount: gridMeshes.modelOpaque.indices.length / 3,
+    };
+    transferables.push(
+      gridMeshes.modelOpaque.positions.buffer,
+      gridMeshes.modelOpaque.normals.buffer,
+      gridMeshes.modelOpaque.colors.buffer,
+      gridMeshes.modelOpaque.uvs.buffer,
+      gridMeshes.modelOpaque.texIndices.buffer,
+      gridMeshes.modelOpaque.tintTypes.buffer,
+      gridMeshes.modelOpaque.skyLight.buffer,
+      gridMeshes.modelOpaque.blockLight.buffer,
+      gridMeshes.modelOpaque.indices.buffer
+    );
+  }
+  
+  // Include WASM transparent model meshes if available (leaves, glass panes)
+  if (gridMeshes.modelTransparent && gridMeshes.modelTransparent.vertexCount > 0) {
+    result.modelTransparent = {
+      positions: gridMeshes.modelTransparent.positions,
+      normals: gridMeshes.modelTransparent.normals,
+      colors: gridMeshes.modelTransparent.colors,
+      uvs: gridMeshes.modelTransparent.uvs,
+      texIndices: gridMeshes.modelTransparent.texIndices,
+      tintTypes: gridMeshes.modelTransparent.tintTypes,
+      skyLight: gridMeshes.modelTransparent.skyLight,
+      blockLight: gridMeshes.modelTransparent.blockLight,
+      indices: gridMeshes.modelTransparent.indices,
+      vertexCount: gridMeshes.modelTransparent.vertexCount,
+      triangleCount: gridMeshes.modelTransparent.indices.length / 3,
+    };
+    transferables.push(
+      gridMeshes.modelTransparent.positions.buffer,
+      gridMeshes.modelTransparent.normals.buffer,
+      gridMeshes.modelTransparent.colors.buffer,
+      gridMeshes.modelTransparent.uvs.buffer,
+      gridMeshes.modelTransparent.texIndices.buffer,
+      gridMeshes.modelTransparent.tintTypes.buffer,
+      gridMeshes.modelTransparent.skyLight.buffer,
+      gridMeshes.modelTransparent.blockLight.buffer,
+      gridMeshes.modelTransparent.indices.buffer
+    );
+  }
+  
+  // Note: If WASM didn't handle models, they are built on main thread using the serialized grids
   
   const totalTime = performance.now() - startTime;
   
@@ -2624,9 +2948,20 @@ self.onmessage = async function(e) {
         initWasmLookups(data.wasmLookups);
       }
       
+      // Initialize WASM state registry for model block resolution
+      if (wasmReady && data.wasmStateRegistry) {
+        initWasmStateRegistry(data.wasmStateRegistry);
+      }
+      
+      // Initialize WASM model registry with pre-baked geometry
+      if (wasmReady && data.wasmModelRegistry) {
+        initWasmModelRegistry(data.wasmModelRegistry);
+      }
+      
       workerInitialized = true;
       
-      self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized });
+      const wasmModelsReady = wasmInitialized && wasmLookupsInitialized && wasmStateRegistryInitialized && wasmModelRegistryInitialized;
+      self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized, wasmModelsAvailable: wasmModelsReady });
       break;
     }
     

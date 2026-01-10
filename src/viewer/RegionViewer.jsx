@@ -67,12 +67,18 @@ function DynamicFOV({ fov }) {
       window.__camera = camera;
       window.__renderer = gl;
       window.__scene = scene;
+      // Expose render info function for performance diagnostics
+      window.__renderInfo = () => gl.info;
+      console.log('[RegionViewer] Performance diagnostics available:');
+      console.log('  window.__renderInfo() - Get Three.js render stats');
+      console.log('  window.__frameCostEnabled = true - Enable per-frame logging');
     }
     return () => {
       if (typeof window !== 'undefined') {
         delete window.__camera;
         delete window.__renderer;
         delete window.__scene;
+        delete window.__renderInfo;
       }
     };
   }, [camera, gl, scene]);
@@ -84,6 +90,57 @@ function DynamicFOV({ fov }) {
       invalidate();
     }
   }, [camera, fov, invalidate]);
+  
+  return null;
+}
+
+/**
+ * Frame Cost Diagnostics - Logs per-frame GPU costs for performance investigation
+ * Enable via: window.__frameCostEnabled = true
+ */
+function FrameCostDiagnostics() {
+  const { gl } = useThree();
+  const frameCount = useRef(0);
+  const lastLogTime = useRef(0);
+  
+  useFrame(() => {
+    // Check if diagnostics are enabled via window flag
+    if (typeof window === 'undefined' || !window.__frameCostEnabled) return;
+    
+    frameCount.current++;
+    const now = performance.now();
+    
+    // Log every second (or every 60 frames, whichever comes first)
+    if (now - lastLogTime.current >= 1000 || frameCount.current >= 60) {
+      const info = gl.info;
+      const fps = frameCount.current / ((now - lastLogTime.current) / 1000);
+      
+      console.log('[FrameCost]', {
+        fps: fps.toFixed(1),
+        drawCalls: info.render.calls,
+        triangles: info.render.triangles,
+        points: info.render.points,
+        lines: info.render.lines,
+        textures: info.memory.textures,
+        geometries: info.memory.geometries,
+        programs: info.programs?.length || 0,
+      });
+      
+      // Also log particle info if available
+      if (window.__chunkManager) {
+        const stats = window.__chunkManager.getStats();
+        if (stats.particleCount > 0 || stats.particleEmitters > 0) {
+          console.log('[FrameCost] Particles:', {
+            active: stats.particleCount,
+            emitters: stats.particleEmitters,
+          });
+        }
+      }
+      
+      frameCount.current = 0;
+      lastLogTime.current = now;
+    }
+  });
   
   return null;
 }
@@ -293,49 +350,22 @@ function AnimationUpdater({ managerRef }) {
 }
 
 /**
- * Frame Rate Limiter - Controls how often the render loop runs
- * 
- * This component limits frame rate to reduce system resource usage while maintaining
- * smooth animations. Uses requestAnimationFrame with time-based throttling.
- * 
- * PERFORMANCE: By default limits to 60 FPS. This prevents the GPU from running at
- * full speed (120+ FPS) when nothing is changing, significantly reducing system load.
- * 
- * @param {number} targetFps - Target frame rate (default 60)
- * @param {boolean} enabled - Whether to limit frame rate (default true)
+ * Frame-budgeted mesh upload processor
+ * Processes queued mesh uploads from worker results, throttled to prevent frame drops.
+ * This is the key to achieving stable FPS during chunk loading.
  */
-function FrameRateLimiter({ targetFps = 60, enabled = true }) {
-  const { invalidate } = useThree();
-  const lastFrameTimeRef = useRef(0);
-  const animationIdRef = useRef(null);
-  
-  useEffect(() => {
-    if (!enabled) return;
+function MeshUploadProcessor({ streamerRef }) {
+  useFrame(() => {
+    const streamer = streamerRef.current;
+    if (!streamer) return;
     
-    const minFrameTime = 1000 / targetFps;
-    
-    const animate = () => {
-      const now = performance.now();
-      const elapsed = now - lastFrameTimeRef.current;
-      
-      // Only render if enough time has passed
-      if (elapsed >= minFrameTime) {
-        lastFrameTimeRef.current = now - (elapsed % minFrameTime); // Maintain timing accuracy
-        invalidate();
-      }
-      
-      animationIdRef.current = requestAnimationFrame(animate);
-    };
-    
-    // Start the animation loop
-    animationIdRef.current = requestAnimationFrame(animate);
-    
-    return () => {
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current);
-      }
-    };
-  }, [enabled, targetFps, invalidate]);
+    // Process mesh uploads within frame budget
+    // This is called via requestAnimationFrame internally, but we also call it here
+    // to ensure uploads happen in sync with the render loop
+    if (streamer.hasPendingMeshUploads()) {
+      streamer.processMeshUploads();
+    }
+  });
   
   return null;
 }
@@ -1477,6 +1507,9 @@ function RegionScene({
       {/* Animated texture time updates */}
       <AnimationUpdater managerRef={managerRef} />
       
+      {/* Frame-budgeted mesh upload processing */}
+      <MeshUploadProcessor streamerRef={streamerRef} />
+      
       {/* Debug block highlight */}
       {debugMode && hoveredBlock && (
         <BlockHighlight position={hoveredBlock} />
@@ -1603,22 +1636,19 @@ export function RegionViewer({
       // Disable Three.js color management - Minecraft works directly in sRGB without gamma correction
       // This prevents automatic sRGB conversion that would wash out colors
       flat={true}
-      // PERFORMANCE: Use demand mode with controlled invalidation
-      // This prevents GPU from running at full speed (120+ FPS) when idle
-      // FrameRateLimiter component handles controlled invalidation for animations
-      frameloop="demand"
+      // Always render - demand mode can cause issues with LOD updates
+      frameloop="always"
       // Performance settings - DPR based on target resolution
       dpr={calculatedDpr} // Target resolution controls DPR
       performance={{ min: 0.3 }} // Allow more aggressive quality reduction
     >
-      {/* PERFORMANCE: Frame rate limiter - controls render rate to reduce system load */}
-      {/* Limits to 60 FPS by default, preventing GPU from running at max speed */}
-      <FrameRateLimiter targetFps={60} enabled={true} />
-      
       {/* Dynamic fog is handled inside RegionScene where we have access to dynamic sky colors */}
       
       {/* Dynamic FOV updater - responds to prop changes */}
       <DynamicFOV fov={fov} />
+      
+      {/* Frame cost diagnostics - enable via window.__frameCostEnabled = true */}
+      <FrameCostDiagnostics />
       
       {/* Adaptive performance - automatically adjusts quality (only when using native resolution) */}
       {/* Disabled when chunk streaming is enabled since streaming is designed to be smooth */}

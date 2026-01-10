@@ -60,7 +60,7 @@ function getCachedModelLookupTables(registry) {
 // Minimum instance count to trigger instancing (below this, use regular geometry)
 const INSTANCING_THRESHOLD = 50;
 
-// Blocks eligible for GPU instancing (simple cross-pattern blocks)
+// Blocks eligible for GPU instancing (Phase 3.1 & 3.2)
 // These have identical geometry regardless of state properties
 const INSTANCEABLE_BLOCKS = new Set([
   // Grass and ferns (most common - huge performance gain)
@@ -81,6 +81,45 @@ const INSTANCEABLE_BLOCKS = new Set([
   'hanging_roots',
   // Mushrooms (small)
   'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  
+  // === Phase 3.2: Extended instancing blocks ===
+  
+  // Torches (very common in builds)
+  'torch', 'soul_torch', 'redstone_torch',
+  'wall_torch', 'soul_wall_torch', 'redstone_wall_torch',
+  
+  // Rails (common in Minecraft worlds)
+  'rail', 'powered_rail', 'detector_rail', 'activator_rail',
+  
+  // Buttons (all wood types and stone)
+  'stone_button', 'polished_blackstone_button',
+  'oak_button', 'spruce_button', 'birch_button', 'jungle_button',
+  'acacia_button', 'dark_oak_button', 'mangrove_button', 'cherry_button',
+  'bamboo_button', 'crimson_button', 'warped_button', 'pale_oak_button',
+  
+  // Levers
+  'lever',
+  
+  // Pressure plates
+  'stone_pressure_plate', 'polished_blackstone_pressure_plate',
+  'light_weighted_pressure_plate', 'heavy_weighted_pressure_plate',
+  'oak_pressure_plate', 'spruce_pressure_plate', 'birch_pressure_plate',
+  'jungle_pressure_plate', 'acacia_pressure_plate', 'dark_oak_pressure_plate',
+  'mangrove_pressure_plate', 'cherry_pressure_plate', 'bamboo_pressure_plate',
+  'crimson_pressure_plate', 'warped_pressure_plate', 'pale_oak_pressure_plate',
+  
+  // Candles
+  'candle', 'white_candle', 'orange_candle', 'magenta_candle', 'light_blue_candle',
+  'yellow_candle', 'lime_candle', 'pink_candle', 'gray_candle', 'light_gray_candle',
+  'cyan_candle', 'purple_candle', 'blue_candle', 'brown_candle', 'green_candle',
+  'red_candle', 'black_candle',
+  
+  // Crops (common in farms)
+  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush',
+  
+  // Coral plants
+  'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
+  'tube_coral_fan', 'brain_coral_fan', 'bubble_coral_fan', 'fire_coral_fan', 'horn_coral_fan',
 ]);
 
 // Map face name to face index constant
@@ -1877,8 +1916,10 @@ export function buildModelMeshesWithInstancing(grid, stateGrid, registry, stateR
     cpuCullCenter = null,
   } = options;
   
-  // TEMPORARY: Disable instancing until it's fully debugged
-  // Just use regular mesh generation for all blocks
+  // Phase 3.1: Enable GPU instancing for repeated block models
+  // Set to false to use instancing, true to fall back to regular meshing
+  // Currently disabled: instancing adds overhead without significant benefit
+  // and causes FPS drops during navigation
   const DISABLE_INSTANCING = true;
   if (DISABLE_INSTANCING) {
     const regularMeshes = buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset, options);

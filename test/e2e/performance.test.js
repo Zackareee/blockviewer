@@ -173,23 +173,224 @@ async function monitorChunkLoading(driver, timeoutMs, uploadStartTime) {
 }
 
 /**
+ * Move camera and measure post-load performance (FPS and mesh rate)
+ * This tests the real-world experience of navigating after initial load
+ * @param {object} driver - WebDriver instance
+ * @param {number} durationMs - How long to run the navigation test
+ * @returns {object} Navigation performance stats
+ */
+async function measureNavigationPerformance(driver, durationMs = 10000) {
+  console.log(`\n${colors.dim}  Starting post-load navigation test (${(durationMs / 1000).toFixed(0)}s)...${colors.reset}`);
+  
+  // Start FPS monitoring and track NEW meshes built (not net change)
+  await driver.executeScript(`
+    window.__fpsData = {
+      samples: [],
+      lastTime: performance.now(),
+      frameCount: 0,
+      totalMeshesBuilt: 0,
+      lastMeshCount: window.__chunkStreamer?.superChunkManager?.superChunks?.size || 0,
+    };
+    
+    // FPS counter
+    window.__fpsLoop = () => {
+      const now = performance.now();
+      window.__fpsData.frameCount++;
+      
+      // Sample every 500ms
+      const elapsed = now - window.__fpsData.lastTime;
+      if (elapsed >= 500) {
+        const fps = (window.__fpsData.frameCount / elapsed) * 1000;
+        const currentMeshes = window.__chunkStreamer?.superChunkManager?.superChunks?.size || 0;
+        const meshesDelta = currentMeshes - window.__fpsData.lastMeshCount;
+        
+        // Only count positive (new meshes loaded), not negative (unloaded)
+        if (meshesDelta > 0) {
+          window.__fpsData.totalMeshesBuilt += meshesDelta;
+        }
+        
+        window.__fpsData.lastMeshCount = currentMeshes;
+        
+        window.__fpsData.samples.push({
+          time: now,
+          fps: fps,
+          meshCount: currentMeshes,
+          meshesLoaded: window.__fpsData.totalMeshesBuilt,
+        });
+        
+        window.__fpsData.lastTime = now;
+        window.__fpsData.frameCount = 0;
+      }
+      
+      if (!window.__fpsData.stopped) {
+        requestAnimationFrame(window.__fpsLoop);
+      }
+    };
+    
+    requestAnimationFrame(window.__fpsLoop);
+  `);
+  
+  // Get initial camera/player position from the streamer (where chunks are already loaded)
+  const initialPos = await driver.executeScript(`
+    // Get player position from streamer (this is where chunks are centered)
+    if (window.__chunkStreamer) {
+      return {
+        x: window.__chunkStreamer.playerChunkX * 16 + 8,
+        y: 64,
+        z: window.__chunkStreamer.playerChunkZ * 16 + 8,
+      };
+    }
+    // Fallback to camera position
+    const camera = window.__chunkManager?.scene?.children?.find(c => c.isCamera);
+    return {
+      x: camera?.position?.x || 0,
+      y: camera?.position?.y || 64,
+      z: camera?.position?.z || 0,
+    };
+  `);
+  
+  console.log(`${colors.dim}    Initial camera: (${initialPos.x.toFixed(0)}, ${initialPos.y.toFixed(0)}, ${initialPos.z.toFixed(0)})${colors.reset}`);
+  
+  // Move camera in a STRAIGHT LINE to force loading new chunks
+  // Use walking speed (4.3 blocks/sec) which is more realistic for exploration
+  const startTime = Date.now();
+  const movementSpeed = 8; // Blocks per second (brisk walking)
+  const moveInterval = 50; // ms between moves (more frequent updates)
+  let moveCount = 0;
+  
+  // Pick a random direction to move in (to get variety in terrain)
+  const moveAngle = Math.random() * Math.PI * 2;
+  const moveDirX = Math.cos(moveAngle);
+  const moveDirZ = Math.sin(moveAngle);
+  
+  while (Date.now() - startTime < durationMs) {
+    // Calculate position along a straight line
+    const elapsed = (Date.now() - startTime) / 1000;
+    const distance = elapsed * movementSpeed; // Move at constant speed
+    
+    const newX = initialPos.x + moveDirX * distance;
+    const newZ = initialPos.z + moveDirZ * distance;
+    
+    // Update player position in streamer
+    await driver.executeScript(`
+      const x = arguments[0];
+      const z = arguments[1];
+      if (window.__chunkStreamer) {
+        window.__chunkStreamer.updatePlayerPosition(x, z);
+      }
+    `, newX, newZ);
+    
+    moveCount++;
+    await new Promise(resolve => setTimeout(resolve, moveInterval));
+    
+    // Log progress every 2 seconds
+    if (moveCount % 20 === 0) {
+      const stats = await driver.executeScript(`
+        return {
+          superChunks: window.__chunkStreamer?.superChunkManager?.superChunks?.size || 0,
+          fps: window.__fpsData?.samples?.length > 0 
+            ? window.__fpsData.samples[window.__fpsData.samples.length - 1].fps 
+            : 0,
+        };
+      `);
+      console.log(`${colors.dim}    ${((Date.now() - startTime) / 1000).toFixed(1)}s: ${stats.superChunks} super-chunks, ${stats.fps.toFixed(1)} FPS${colors.reset}`);
+    }
+  }
+  
+  // Stop FPS monitoring and collect results
+  const results = await driver.executeScript(`
+    window.__fpsData.stopped = true;
+    
+    const samples = window.__fpsData.samples;
+    if (samples.length === 0) {
+      return { avgFps: 0, minFps: 0, maxFps: 0, p1Fps: 0, meshesBuilt: 0, meshesPerSecond: 0, samples: [] };
+    }
+    
+    // Calculate FPS stats
+    const fpsValues = samples.map(s => s.fps).sort((a, b) => a - b);
+    const avgFps = fpsValues.reduce((a, b) => a + b, 0) / fpsValues.length;
+    const minFps = fpsValues[0];
+    const maxFps = fpsValues[fpsValues.length - 1];
+    const p1Index = Math.floor(fpsValues.length * 0.01);
+    const p1Fps = fpsValues[p1Index] || minFps;
+    
+    // Calculate mesh rate from total meshes built (not net change)
+    const totalMeshes = window.__fpsData.totalMeshesBuilt;
+    const durationSec = (samples[samples.length - 1].time - samples[0].time) / 1000;
+    const meshesPerSecond = durationSec > 0 ? totalMeshes / durationSec : 0;
+    
+    return {
+      avgFps,
+      minFps,
+      maxFps,
+      p1Fps,
+      meshesBuilt: totalMeshes,
+      meshesPerSecond,
+      samples: samples.slice(-20), // Last 20 samples for detail
+    };
+  `);
+  
+  console.log(`${colors.green}  ✓ Navigation test complete${colors.reset}`);
+  console.log(`${colors.dim}    Average FPS: ${results.avgFps.toFixed(1)}, Min: ${results.minFps.toFixed(1)}, P1: ${results.p1Fps.toFixed(1)}${colors.reset}`);
+  console.log(`${colors.dim}    Meshes built: ${results.meshesBuilt}, Rate: ${results.meshesPerSecond.toFixed(2)}/sec${colors.reset}`);
+  
+  return results;
+}
+
+/**
  * Analyze performance results and detect bottlenecks
  */
-function analyzePerformance(loadingStats, chunkStats, profilerStats) {
+function analyzePerformance(loadingStats, chunkStats, profilerStats, navStats = null) {
   const bottlenecks = [];
   
-  // Check overall chunk loading rate
+  // Check post-load navigation mesh rate (target: 8 meshes/sec)
+  if (navStats) {
+    if (navStats.meshesPerSecond < 4) {
+      bottlenecks.push({
+        category: 'CRITICAL',
+        issue: 'Very low navigation mesh rate',
+        detail: `${navStats.meshesPerSecond.toFixed(2)} meshes/sec during navigation (target: 8+)`,
+        recommendation: 'Check frame-budgeted mesh upload queue and worker utilization',
+      });
+    } else if (navStats.meshesPerSecond < 8) {
+      bottlenecks.push({
+        category: 'WARNING',
+        issue: 'Below target navigation mesh rate',
+        detail: `${navStats.meshesPerSecond.toFixed(2)} meshes/sec during navigation (target: 8+)`,
+        recommendation: 'Consider increasing frame budget or worker concurrency',
+      });
+    }
+    
+    // Check FPS during navigation
+    if (navStats.p1Fps < 20) {
+      bottlenecks.push({
+        category: 'CRITICAL',
+        issue: 'Severe FPS drops during navigation',
+        detail: `P1 FPS: ${navStats.p1Fps.toFixed(1)} (target: 30+)`,
+        recommendation: 'Reduce mesh upload budget or spread work across more frames',
+      });
+    } else if (navStats.avgFps < 30) {
+      bottlenecks.push({
+        category: 'WARNING',
+        issue: 'Low average FPS during navigation',
+        detail: `Average FPS: ${navStats.avgFps.toFixed(1)} (target: 30+)`,
+        recommendation: 'Check for main thread blocking during mesh uploads',
+      });
+    }
+  }
+  
+  // Check initial load mesh rate
   if (loadingStats.meshesPerSecond < 1) {
     bottlenecks.push({
       category: 'CRITICAL',
-      issue: 'Low mesh throughput',
+      issue: 'Low initial load mesh throughput',
       detail: `${loadingStats.meshesPerSecond.toFixed(2)} meshes/sec (target: 1+)`,
       recommendation: 'Check worker pool utilization and meshing pipeline',
     });
   } else if (loadingStats.meshesPerSecond < 1.5) {
     bottlenecks.push({
       category: 'WARNING',
-      issue: 'Below optimal mesh throughput',
+      issue: 'Below optimal initial load throughput',
       detail: `${loadingStats.meshesPerSecond.toFixed(2)} meshes/sec (optimal: 1.5+)`,
       recommendation: 'Consider increasing worker count or batch size',
     });
@@ -224,18 +425,28 @@ function analyzePerformance(loadingStats, chunkStats, profilerStats) {
 /**
  * Print performance report
  */
-function printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlenecks) {
+function printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlenecks, navStats = null) {
   console.log(`\n${colors.cyan}${colors.bold}═══════════════════════════════════════════════════════════════${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}  PERFORMANCE TEST RESULTS${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}═══════════════════════════════════════════════════════════════${colors.reset}\n`);
   
   // Summary
-  console.log(`${colors.bold}  E2E TIMING (from file upload to load complete):${colors.reset}`);
+  console.log(`${colors.bold}  INITIAL LOAD (file upload to load complete):${colors.reset}`);
   console.log(`    Super-chunks Meshed: ${loadingStats.totalSuperChunks} (${loadingStats.totalChunks} chunks)`);
   console.log(`    Time to First Chunk: ${loadingStats.firstChunkTimeMs ? (loadingStats.firstChunkTimeMs / 1000).toFixed(2) + 's' : 'N/A'}`);
   console.log(`    Total E2E Time: ${colors.bold}${(loadingStats.totalTimeMs / 1000).toFixed(2)}s${colors.reset}`);
   console.log(`    Average Rate: ${colors.bold}${loadingStats.meshesPerSecond.toFixed(2)} meshes/sec${colors.reset}`);
   console.log();
+  
+  // Navigation stats (post-load)
+  if (navStats) {
+    console.log(`${colors.bold}  POST-LOAD NAVIGATION (camera movement test):${colors.reset}`);
+    console.log(`    Meshes Built: ${navStats.meshesBuilt}`);
+    console.log(`    Mesh Rate: ${colors.bold}${navStats.meshesPerSecond.toFixed(2)} meshes/sec${colors.reset} (target: 8+)`);
+    console.log(`    Average FPS: ${colors.bold}${navStats.avgFps.toFixed(1)}${colors.reset} (target: 30+)`);
+    console.log(`    Min FPS: ${navStats.minFps.toFixed(1)}, P1 FPS: ${navStats.p1Fps.toFixed(1)}`);
+    console.log();
+  }
   
   // Process timing breakdown
   if (chunkStats?.processTiming) {
@@ -271,16 +482,20 @@ function printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlen
   }
   console.log();
   
-  // Performance grade
+  // Performance grade - based on navigation mesh rate (target: 8/sec) and FPS (target: 30)
   let grade, gradeColor;
-  // Grade based on meshes per second (super-chunks)
-  if (loadingStats.meshesPerSecond >= 2) {
+  
+  // Use navigation stats if available, otherwise fall back to initial load stats
+  const meshRate = navStats ? navStats.meshesPerSecond : loadingStats.meshesPerSecond;
+  const avgFps = navStats ? navStats.avgFps : 60; // Assume good if no nav stats
+  
+  if (meshRate >= 8 && avgFps >= 30) {
     grade = 'EXCELLENT';
     gradeColor = colors.green;
-  } else if (loadingStats.meshesPerSecond >= 1.5) {
+  } else if (meshRate >= 6 && avgFps >= 25) {
     grade = 'GOOD';
     gradeColor = colors.green;
-  } else if (loadingStats.meshesPerSecond >= 1) {
+  } else if (meshRate >= 4 && avgFps >= 20) {
     grade = 'ACCEPTABLE';
     gradeColor = colors.yellow;
   } else {
@@ -290,7 +505,11 @@ function printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlen
   
   console.log(`${colors.bold}═══════════════════════════════════════════════════════════════${colors.reset}`);
   console.log(`  Performance Grade: ${gradeColor}${colors.bold}${grade}${colors.reset}`);
-  console.log(`  ${loadingStats.meshesPerSecond.toFixed(2)} meshes/second`);
+  if (navStats) {
+    console.log(`  Navigation: ${meshRate.toFixed(2)} meshes/sec @ ${avgFps.toFixed(1)} FPS`);
+  } else {
+    console.log(`  Initial Load: ${meshRate.toFixed(2)} meshes/sec`);
+  }
   console.log(`${colors.bold}═══════════════════════════════════════════════════════════════${colors.reset}\n`);
   
   return grade !== 'POOR';
@@ -366,17 +585,21 @@ async function runTests() {
       uploadStartTime
     );
     
+    // Run post-load navigation test - THIS IS THE KEY METRIC
+    // Move camera around for 10 seconds and measure FPS and mesh loading rate
+    const navStats = await measureNavigationPerformance(driver, 10000);
+    
     // Get chunk loading stats from browser
     const chunkStats = await getChunkLoadingStats(driver);
     
     // Get profiler stats
     const profilerStats = await getProfilerStats(driver);
     
-    // Analyze performance
-    const bottlenecks = analyzePerformance(loadingStats, chunkStats, profilerStats);
+    // Analyze performance (navigation stats are the primary metric)
+    const bottlenecks = analyzePerformance(loadingStats, chunkStats, profilerStats, navStats);
     
     // Print report
-    success = printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlenecks);
+    success = printPerformanceReport(loadingStats, chunkStats, profilerStats, bottlenecks, navStats);
     
     // Export results to JSON
     const results = {
@@ -388,6 +611,7 @@ async function runTests() {
         headless: HEADLESS,
       },
       loadingStats,
+      navStats, // Post-load navigation performance (primary metric)
       chunkStats,
       profilerStats,
       bottlenecks,

@@ -1526,13 +1526,20 @@ const QUALITY_MULTIPLIERS = {
 /**
  * ParticleEmitterManager - Manages all emitter instances
  * 
- * Simple approach: All blocks use EmitterInstance objects.
- * Distance culling ensures only nearby emitters are updated each frame.
+ * Uses chunk-based spatial partitioning to efficiently cull distant emitters.
+ * Instead of iterating all emitters every frame, we only check emitters in
+ * chunks that are within the max distance from the camera.
+ * 
+ * Performance: O(nearby_chunks * emitters_per_chunk) instead of O(all_emitters)
  */
 export class ParticleEmitterManager {
   constructor() {
-    // Map of position key -> EmitterInstance
+    // Map of position key -> EmitterInstance (for fast lookup by position)
     this.emitters = new Map();
+    
+    // Spatial hash: chunk key "cx,cz" -> Set of emitter position keys
+    // This allows O(1) lookup of all emitters in a chunk
+    this.chunkEmitters = new Map();
     
     // Maximum distance from camera to update emitters (default: 3 chunks = 48 blocks)
     this.maxDistance = 48;
@@ -1545,6 +1552,53 @@ export class ParticleEmitterManager {
     this.cameraX = 0;
     this.cameraY = 0;
     this.cameraZ = 0;
+    
+    // Cached nearby chunk keys (updated when camera moves to a new chunk)
+    this._lastCameraChunkX = null;
+    this._lastCameraChunkZ = null;
+    this._nearbyChunkKeys = [];
+  }
+  
+  /**
+   * Get chunk key for a world position
+   * @private
+   */
+  _getChunkKey(x, z) {
+    const cx = Math.floor(x / 16);
+    const cz = Math.floor(z / 16);
+    return `${cx},${cz}`;
+  }
+  
+  /**
+   * Update the list of nearby chunk keys when camera moves to a new chunk
+   * @private
+   */
+  _updateNearbyChunks() {
+    const cameraChunkX = Math.floor(this.cameraX / 16);
+    const cameraChunkZ = Math.floor(this.cameraZ / 16);
+    
+    // Only recalculate if camera moved to a different chunk
+    if (cameraChunkX === this._lastCameraChunkX && cameraChunkZ === this._lastCameraChunkZ) {
+      return;
+    }
+    
+    this._lastCameraChunkX = cameraChunkX;
+    this._lastCameraChunkZ = cameraChunkZ;
+    
+    // Calculate chunk radius based on maxDistance (add 1 for safety margin)
+    const chunkRadius = Math.ceil(this.maxDistance / 16) + 1;
+    
+    // Build list of chunk keys within range
+    this._nearbyChunkKeys = [];
+    for (let dx = -chunkRadius; dx <= chunkRadius; dx++) {
+      for (let dz = -chunkRadius; dz <= chunkRadius; dz++) {
+        const key = `${cameraChunkX + dx},${cameraChunkZ + dz}`;
+        // Only add if this chunk has emitters
+        if (this.chunkEmitters.has(key)) {
+          this._nearbyChunkKeys.push(key);
+        }
+      }
+    }
   }
   
   /**
@@ -1583,6 +1637,26 @@ export class ParticleEmitterManager {
     emitter.qualityMultiplier = this.qualityMultiplier;
     this.emitters.set(key, emitter);
     
+    // Add to spatial hash
+    const chunkKey = this._getChunkKey(x, z);
+    if (!this.chunkEmitters.has(chunkKey)) {
+      this.chunkEmitters.set(chunkKey, new Set());
+    }
+    this.chunkEmitters.get(chunkKey).add(key);
+    
+    // Invalidate nearby chunks cache since we added to a chunk
+    if (this._lastCameraChunkX !== null) {
+      // Check if this chunk is nearby - if so, add it to the cache
+      const cx = Math.floor(x / 16);
+      const cz = Math.floor(z / 16);
+      const chunkRadius = Math.ceil(this.maxDistance / 16) + 1;
+      if (Math.abs(cx - this._lastCameraChunkX) <= chunkRadius &&
+          Math.abs(cz - this._lastCameraChunkZ) <= chunkRadius) {
+        if (!this._nearbyChunkKeys.includes(chunkKey)) {
+          this._nearbyChunkKeys.push(chunkKey);
+        }
+      }
+    }
   }
   
   /**
@@ -1597,6 +1671,17 @@ export class ParticleEmitterManager {
     if (emitter) {
       emitter.deactivate();
       this.emitters.delete(key);
+      
+      // Remove from spatial hash
+      const chunkKey = this._getChunkKey(x, z);
+      const chunkSet = this.chunkEmitters.get(chunkKey);
+      if (chunkSet) {
+        chunkSet.delete(key);
+        // Clean up empty chunk sets
+        if (chunkSet.size === 0) {
+          this.chunkEmitters.delete(chunkKey);
+        }
+      }
     }
   }
   
@@ -1613,24 +1698,43 @@ export class ParticleEmitterManager {
   }
   
   /**
-   * Update all emitters
+   * Update emitters in nearby chunks
+   * Uses spatial hash to only iterate emitters in chunks within range,
+   * avoiding O(all_emitters) iteration every frame.
+   * 
    * @param {number} deltaTime - Time since last update
    * @param {ParticleSystem} particleSystem - Particle system to spawn into
    */
   update(deltaTime, particleSystem) {
-    const maxDistSq = this.maxDistance * this.maxDistance;
-    let activeCount = 0;
+    // Skip update if quality is 'off'
+    if (this.qualityMultiplier === 0) return;
     
-    for (const emitter of this.emitters.values()) {
-      // Distance culling
-      const dx = emitter.x - this.cameraX;
-      const dy = emitter.y - this.cameraY;
-      const dz = emitter.z - this.cameraZ;
-      const distSq = dx * dx + dy * dy + dz * dz;
+    // Update nearby chunks list if camera moved to a new chunk
+    this._updateNearbyChunks();
+    
+    // Early exit if no nearby chunks have emitters
+    if (this._nearbyChunkKeys.length === 0) return;
+    
+    const maxDistSq = this.maxDistance * this.maxDistance;
+    
+    // Only iterate emitters in nearby chunks
+    for (const chunkKey of this._nearbyChunkKeys) {
+      const emitterKeys = this.chunkEmitters.get(chunkKey);
+      if (!emitterKeys) continue;
       
-      if (distSq <= maxDistSq) {
-        emitter.update(deltaTime, particleSystem);
-        activeCount++;
+      for (const key of emitterKeys) {
+        const emitter = this.emitters.get(key);
+        if (!emitter) continue;
+        
+        // Distance culling (still needed for precision within chunk range)
+        const dx = emitter.x - this.cameraX;
+        const dy = emitter.y - this.cameraY;
+        const dz = emitter.z - this.cameraZ;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        
+        if (distSq <= maxDistSq) {
+          emitter.update(deltaTime, particleSystem);
+        }
       }
     }
   }
@@ -1643,6 +1747,10 @@ export class ParticleEmitterManager {
       emitter.deactivate();
     }
     this.emitters.clear();
+    this.chunkEmitters.clear();
+    this._nearbyChunkKeys = [];
+    this._lastCameraChunkX = null;
+    this._lastCameraChunkZ = null;
   }
   
   /**

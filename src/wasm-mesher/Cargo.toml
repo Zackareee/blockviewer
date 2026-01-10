@@ -15,6 +15,9 @@ default = ["console_error_panic_hook"]
 wasm-bindgen = "0.2.92"
 js-sys = "0.3.69"
 
+# Fast hash for state string lookups
+fnv = "1.0"
+
 # NBT parsing and decompression for unified WASM pipeline
 fastnbt = "2.4"
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }

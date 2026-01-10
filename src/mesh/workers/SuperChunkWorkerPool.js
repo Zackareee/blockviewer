@@ -123,17 +123,19 @@ export class SuperChunkWorkerPool {
    * @param {Object} blockRegistryData - Block registry export data
    * @param {Object} stateRegistryData - State registry export data (from exportForWorker)
    * @param {Object} wasmLookups - WASM lookup tables for meshing
+   * @param {Object} wasmStateRegistry - WASM state registry data { stateStrings, stateIds }
+   * @param {Object} wasmModelRegistry - WASM model registry data { stateIds, geometryData }
    */
-  async initialize(blockRegistryData, stateRegistryData, wasmLookups = null) {
+  async initialize(blockRegistryData, stateRegistryData, wasmLookups = null, wasmStateRegistry = null, wasmModelRegistry = null) {
     if (this.initPromise) {
       return this.initPromise;
     }
     
-    this.initPromise = this._doInitialize(blockRegistryData, stateRegistryData, wasmLookups);
+    this.initPromise = this._doInitialize(blockRegistryData, stateRegistryData, wasmLookups, wasmStateRegistry, wasmModelRegistry);
     return this.initPromise;
   }
   
-  async _doInitialize(blockRegistryData, stateRegistryData, wasmLookups) {
+  async _doInitialize(blockRegistryData, stateRegistryData, wasmLookups, wasmStateRegistry, wasmModelRegistry) {
     console.log(`[SuperChunkWorkerPool] Initializing ${this.workerCount} workers...`);
     
     // Store init data for late-joined workers
@@ -141,6 +143,8 @@ export class SuperChunkWorkerPool {
       blockRegistry: blockRegistryData,
       stateRegistry: stateRegistryData?.data || stateRegistryData,
       wasmLookups: wasmLookups,
+      wasmStateRegistry: wasmStateRegistry,
+      wasmModelRegistry: wasmModelRegistry,
     };
     
     // Create workers
@@ -379,6 +383,47 @@ export class SuperChunkWorkerPool {
       }
     }
     return -1;
+  }
+  
+  // =========================================================================
+  // Phase 6.3: Work Stealing for Load Balancing
+  // =========================================================================
+  
+  /**
+   * Check if work stealing is beneficial
+   * Returns true if there are queued jobs and idle workers
+   */
+  _shouldSteal() {
+    // Check if there are idle workers
+    const idleWorkers = this.workerBusy.filter(busy => !busy).length;
+    return idleWorkers > 0 && !this.jobQueue.isEmpty();
+  }
+  
+  /**
+   * Get the most loaded worker (most queued jobs would be assigned to it)
+   * In our current implementation, jobs go to any available worker,
+   * so this returns the busiest worker that might benefit from work stealing
+   */
+  _getMostLoadedWorkerIndex() {
+    // Find a busy worker (in case we want to implement per-worker queues later)
+    for (let i = 0; i < this.workerCount; i++) {
+      if (this.workerBusy[i]) {
+        return i;
+      }
+    }
+    return -1;
+  }
+  
+  /**
+   * Attempt to steal work when a worker becomes idle
+   * This is called after a worker completes a job
+   * @param {number} idleWorkerIndex - Index of the worker that just became idle
+   */
+  _trySteal(idleWorkerIndex) {
+    // If there are pending jobs in the queue, assign to idle worker
+    if (!this.jobQueue.isEmpty() && !this.workerBusy[idleWorkerIndex]) {
+      this._processQueue();
+    }
   }
   
   /**

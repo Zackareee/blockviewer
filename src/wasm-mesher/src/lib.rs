@@ -19,7 +19,7 @@ use wasm_bindgen::prelude::*;
 
 // Re-export registry init functions
 pub use registry::init_block_registry;
-pub use models::registry::{init_state_registry, init_model_registry};
+pub use models::registry::{init_state_registry, init_model_registry, init_hash_model_registry};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global allocator.
 #[cfg(feature = "wee_alloc")]
@@ -87,7 +87,7 @@ fn mesh_chunk_with_bounds(
     } else {
         None
     };
-    let _state_grid = if !state_data.is_empty() {
+    let state_grid = if !state_data.is_empty() {
         Some(grid::BlockStateGrid::from_bytes(state_data))
     } else {
         None
@@ -113,15 +113,26 @@ fn mesh_chunk_with_bounds(
     let solid_result = mesher::greedy::mesh_solid_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
     let fluid_result = mesher::fluid::mesh_fluids_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
     let glass_result = mesher::greedy::mesh_glass_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
+    
+    // Model meshing using hash-based registry (if state grid provided and registry initialized)
+    let (model_opaque, model_transparent) = if let Some(ref sg) = state_grid {
+        if models::registry::is_hash_model_registry_initialized() {
+            let model_result = models::mesher::mesh_models_bounded(&grid, sg, light_grid.as_ref(), &lookups, bounds.as_ref());
+            (model_result.opaque, model_result.transparent)
+        } else {
+            (models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new())
+        }
+    } else {
+        (models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new())
+    };
 
     MeshResult {
         solid: solid_result,
         water: fluid_result.water,
         lava: fluid_result.lava,
         glass: glass_result,
-        // No model meshes from raw grids (requires state grid)
-        model_opaque: models::geometry::ModelMeshData::new(),
-        model_transparent: models::geometry::ModelMeshData::new(),
+        model_opaque,
+        model_transparent,
     }
 }
 

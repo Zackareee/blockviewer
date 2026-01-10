@@ -57,12 +57,12 @@ pub fn mesh_models(
 }
 
 /// Collect non-cube block positions for JS-side meshing
-/// Returns a list of (x, y, z, state_id) for each non-cube block
+/// Returns a list of (x, y, z, state_hash) for each non-cube block
 pub fn collect_model_positions(
     grid: &BinaryGrid,
     state_grid: Option<&BlockStateGrid>,
     lookups: &Lookups,
-) -> Vec<(i32, i32, i32, u16)> {
+) -> Vec<(i32, i32, i32, u64)> {
     let mut positions = Vec::new();
 
     for (key, section) in grid.iter_sections() {

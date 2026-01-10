@@ -568,13 +568,13 @@ struct ProcessedPalette {
     axis_values: Vec<u8>,
 }
 
-/// Preprocessed palette data with state IDs for model blocks
+/// Preprocessed palette data with state hashes for model blocks
 struct ProcessedPaletteWithStates {
     block_ids: Vec<u16>,
     is_air: Vec<bool>,
     levels: Vec<i8>,
     axis_values: Vec<u8>,
-    state_ids: Vec<u16>, // State ID for model blocks (0 = not a model block)
+    state_ids: Vec<u64>, // State hash for model blocks (0 = not a model block)
 }
 
 /// Preprocess palette entries
@@ -686,19 +686,19 @@ fn preprocess_palette_with_states(palette: &[nbt::PaletteEntry]) -> ProcessedPal
         };
         axis_values.push(axis);
         
-        // Check if this is a model block (non-cube) and resolve state ID
-        let state_id = if let Some(ref lookups) = lookups {
+        // Check if this is a model block (non-cube) and compute state hash
+        let state_hash = if let Some(ref lookups) = lookups {
             if lookups.is_non_cube(block_id) {
-                // Build state string and look up state ID
+                // Build state string and compute hash for model lookup
                 let state_string = build_state_string(name, entry.properties.as_ref());
-                crate::models::registry::get_state_id(&state_string)
+                crate::models::registry::hash_state_string(&state_string)
             } else {
                 0
             }
         } else {
             0
         };
-        state_ids.push(state_id);
+        state_ids.push(state_hash);
     }
     
     ProcessedPaletteWithStates {
