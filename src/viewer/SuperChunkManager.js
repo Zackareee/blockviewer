@@ -1197,11 +1197,10 @@ export class SuperChunkManager {
    * Solid/water/lava/glass meshes come from worker
    * Model meshes are built on main thread using serialized grids
    * 
-   * Uses mesh queue to spread creation across frames for smooth loading.
-   * Solid meshes are created immediately for quick visual feedback.
+   * All meshes for a super-chunk are created together to avoid visual popping.
    */
   async _createMeshesFromWorkerResult(superChunk, result) {
-    // Solid mesh - create immediately for quick visual feedback
+    // Solid mesh
     if (result.solid && result.solid.positions.length > 0) {
       const mesh = this._createMesh(result.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
       if (mesh) {
@@ -1210,89 +1209,70 @@ export class SuperChunkManager {
       }
     }
     
-    // Queue remaining meshes for deferred creation
     // Water mesh
     if (result.water && result.water.positions.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.water,
-        material: this.chunkManager.waterMaterial,
-        group: this.chunkManager.waterGroup,
-        superChunk,
-        meshType: 'water',
-        renderOrder: 2,
-        meshArray: this.chunkManager.waterMeshes,
-      });
+      const mesh = this._createMesh(result.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
+      if (mesh) {
+        mesh.renderOrder = 2;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.waterMeshes.push(mesh);
+      }
     }
     
     // Lava mesh
     if (result.lava && result.lava.positions.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.lava,
-        material: this.chunkManager.lavaMaterial,
-        group: this.chunkManager.lavaGroup,
-        superChunk,
-        meshType: 'lava',
-        renderOrder: 3,
-        meshArray: this.chunkManager.lavaMeshes,
-      });
+      const mesh = this._createMesh(result.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
+      if (mesh) {
+        mesh.renderOrder = 3;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.lavaMeshes.push(mesh);
+      }
     }
     
     // Glass mesh
     if (result.glass && result.glass.positions.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.glass,
-        material: this.chunkManager.glassMaterial,
-        group: this.chunkManager.glassGroup,
-        superChunk,
-        meshType: 'glass',
-        renderOrder: 1,
-        meshArray: this.chunkManager.glassMeshes,
-      });
+      const mesh = this._createMesh(result.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
+      if (mesh) {
+        mesh.renderOrder = 1;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.glassMeshes.push(mesh);
+      }
     }
     
     // Build model meshes on main thread from serialized grids
     if (result.grids) {
       const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
       if (modelResult) {
-        // Opaque models - queue for deferred creation
+        // Opaque models
         if (modelResult.opaque && modelResult.opaque.positions?.length > 0) {
-          this.meshCreationQueue.add({
-            meshData: modelResult.opaque,
-            material: this.chunkManager.modelMaterial,
-            group: this.chunkManager.modelGroup,
-            superChunk,
-            meshType: 'modelOpaque',
-            meshArray: this.chunkManager.modelMeshes,
-          });
+          const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+          if (mesh) {
+            superChunk.meshes.push(mesh);
+            this.chunkManager.modelMeshes.push(mesh);
+          }
         }
         
         // Transparent models
         if (modelResult.transparent && modelResult.transparent.positions?.length > 0) {
-          this.meshCreationQueue.add({
-            meshData: modelResult.transparent,
-            material: this.chunkManager.transparentModelMaterial,
-            group: this.chunkManager.transparentModelGroup,
-            superChunk,
-            meshType: 'modelTransparent',
-            renderOrder: 0.5,
-            meshArray: this.chunkManager.transparentModelMeshes,
-          });
+          const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.5;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.transparentModelMeshes.push(mesh);
+          }
         }
         
         // Overlay models (grass side overlays)
         if (modelResult.overlay && modelResult.overlay.positions?.length > 0) {
-          this.meshCreationQueue.add({
-            meshData: modelResult.overlay,
-            material: this.chunkManager.overlayMaterial,
-            group: this.chunkManager.overlayGroup,
-            superChunk,
-            meshType: 'modelOverlay',
-            renderOrder: 0.1,
-            meshArray: this.chunkManager.overlayMeshes,
-          });
+          const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.1;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.overlayMeshes?.push(mesh);
+          }
         }
         
-        // Register particle emitters (doesn't create meshes, do immediately)
+        // Register particle emitters
         if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
           const emitterManager = this.chunkManager.particleEmitterManager;
           if (emitterManager) {
