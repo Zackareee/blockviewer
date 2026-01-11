@@ -21,6 +21,9 @@ use wasm_bindgen::prelude::*;
 pub use registry::init_block_registry;
 pub use models::registry::{init_state_registry, init_model_registry, init_model_registry_v2, is_hash_model_registry_initialized};
 
+// V3: Block-name-based registry exports
+pub use models::block_registry::init_block_model_registry;
+
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global allocator.
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
