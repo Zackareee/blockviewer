@@ -147,18 +147,6 @@ export class SuperChunkWorkerPool {
       wasmModelRegistry: wasmModelRegistry,
     };
     
-    // Log what we're sending to workers
-    console.log(`[SuperChunkWorkerPool] Init data for workers:`, {
-      hasBlockRegistry: !!blockRegistryData,
-      hasStateRegistry: !!stateRegistryData,
-      hasWasmLookups: !!wasmLookups,
-      hasWasmStateRegistry: !!wasmStateRegistry,
-      hasWasmModelRegistry: !!wasmModelRegistry,
-      wasmModelRegistrySize: wasmModelRegistry?.geometryData?.length || 0,
-      wasmModelRegistryStates: wasmModelRegistry?.stateStrings?.length || 
-        (typeof wasmModelRegistry?.stateStrings === 'string' ? wasmModelRegistry.stateStrings.split('\n').length : 0),
-    });
-    
     // Create workers
     const initPromises = [];
     for (let i = 0; i < this.workerCount; i++) {
@@ -256,17 +244,6 @@ export class SuperChunkWorkerPool {
       
       case 'registryUpdated': {
         // Registry update acknowledged
-        break;
-      }
-      
-      case 'hashCompare': {
-        // Hash comparison debug info from worker
-        const { stateString, jsHash, wasmHash, match } = e.data;
-        console.log(`[SuperChunkWorkerPool] Hash compare: "${stateString.substring(0, 50)}..." JS=${jsHash} WASM=${wasmHash} match=${match}`);
-        // Expose to window for testing
-        if (typeof window !== 'undefined') {
-          window.__hashCompareResult = { stateString, jsHash, wasmHash, match };
-        }
         break;
       }
     }

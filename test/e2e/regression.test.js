@@ -247,15 +247,6 @@ async function runTests() {
     // Wait for chunks to stream in
     await waitForChunksLoaded(driver, 50, CONFIG.chunkLoadTimeout);
     
-    // Capture WASM model meshing diagnostics
-    const wasmStatus = await driver.executeScript('return window.__wasmModelStatus || null');
-    if (wasmStatus) {
-      console.log(`${colors.dim}  WASM model meshing: ${wasmStatus.wasmModelsIncluded ? 'ACTIVE' : 'DISABLED'} (verts=${wasmStatus.modelOpaqueVerts})${colors.reset}`);
-      if (wasmStatus.workerDiag) {
-        console.log(`${colors.dim}    Diag: state=${wasmStatus.workerDiag.wasmStateRegistryInitialized}, model=${wasmStatus.workerDiag.wasmModelRegistryInitialized}, grid=${wasmStatus.workerDiag.hasStateGrid}, sections=${wasmStatus.workerDiag.hashSectionCount}, dataSize=${wasmStatus.workerDiag.stateDataSize}${colors.reset}`);
-      }
-    }
-    
     // Run all test cases (world is already loaded)
     for (const testCase of cases) {
       try {

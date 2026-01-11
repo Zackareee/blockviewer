@@ -8,9 +8,7 @@
 //! The hash-based approach uses FNV-1a hashing for deterministic lookups.
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
-use fnv::FnvHasher;
 use wasm_bindgen::prelude::*;
 use super::geometry::ModelGeometry;
 
@@ -27,30 +25,22 @@ static HASH_MODEL_REGISTRY: OnceLock<HashModelRegistry> = OnceLock::new();
 // FNV-1a Hash Function
 // ============================================================================
 
+// FNV-1a 64-bit constants - MUST match JavaScript implementation exactly
+const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+const FNV_PRIME: u64 = 0x00000100000001B3;
+
 /// Compute FNV-1a 64-bit hash of a state string
-/// This is deterministic and produces the same hash for the same string
-/// regardless of which thread/worker computes it.
 /// 
-/// IMPORTANT: This uses direct byte hashing (NOT str.hash()) to match JavaScript.
-/// The JavaScript implementation hashes bytes directly without the 0xff suffix
-/// that Rust's str.hash() adds.
+/// CRITICAL: This MUST match the JavaScript fnv1aHash() implementation exactly!
+/// JavaScript hashes raw character codes (bytes), so we hash raw bytes here.
+/// Do NOT use Rust's Hash trait as it includes string length in the hash.
 #[inline]
 pub fn hash_state_string(state: &str) -> u64 {
-    // FNV-1a constants
-    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
-    
     let mut hash = FNV_OFFSET_BASIS;
-    
-    for byte in state.as_bytes() {
-        hash ^= *byte as u64;
+    for byte in state.bytes() {
+        hash ^= byte as u64;
         hash = hash.wrapping_mul(FNV_PRIME);
     }
-    
-    // Add 0xff suffix to match JavaScript implementation (which adds it for Rust compatibility)
-    hash ^= 0xFF;
-    hash = hash.wrapping_mul(FNV_PRIME);
-    
     hash
 }
 
@@ -308,8 +298,7 @@ pub fn init_model_registry(state_ids: Vec<u16>, geometry_data: Vec<u8>) {
         let mut faces = Vec::with_capacity(num_faces);
         
         for _ in 0..num_faces {
-            // Face size: 1 (direction) + 48 (vertices) + 32 (uvs) + 2 (texture) + 1 (tint) + 1 (cull) = 85 bytes
-            if offset + 85 > geometry_data.len() {
+            if offset + 84 > geometry_data.len() {
                 break;
             }
             
@@ -403,10 +392,6 @@ pub fn init_hash_model_registry(state_strings: String, geometry_data: Vec<u8>) {
     let mut registry = HashModelRegistry::new();
     let state_lines: Vec<&str> = state_strings.lines().collect();
     
-    // Debug: collect sample stairs/slabs for hash verification
-    let mut stairs_samples: Vec<(String, u64)> = Vec::new();
-    let mut slab_samples: Vec<(String, u64)> = Vec::new();
-    
     // Deserialize geometry data (same format as init_model_registry)
     let mut offset = 0;
     let mut state_idx = 0;
@@ -415,23 +400,13 @@ pub fn init_hash_model_registry(state_strings: String, geometry_data: Vec<u8>) {
         let state_string = state_lines[state_idx];
         state_idx += 1;
         
-        // Debug: collect sample hashes for stairs and slabs
-        let hash = hash_state_string(state_string);
-        if state_string.contains("stairs") && stairs_samples.len() < 3 {
-            stairs_samples.push((state_string.to_string(), hash));
-        }
-        if state_string.contains("_slab") && slab_samples.len() < 3 {
-            slab_samples.push((state_string.to_string(), hash));
-        }
-        
         let num_faces = u16::from_le_bytes([geometry_data[offset], geometry_data[offset + 1]]) as usize;
         offset += 2;
         
         let mut faces = Vec::with_capacity(num_faces);
         
         for _ in 0..num_faces {
-            // Face size: 1 (direction) + 48 (vertices) + 32 (uvs) + 2 (texture) + 1 (tint) + 1 (cull) = 85 bytes
-            if offset + 85 > geometry_data.len() {
+            if offset + 84 > geometry_data.len() {
                 break;
             }
             
@@ -495,24 +470,6 @@ pub fn init_hash_model_registry(state_strings: String, geometry_data: Vec<u8>) {
     let count = registry.len();
     let _ = HASH_MODEL_REGISTRY.set(registry);
     
-    // Debug: Log sample stairs hashes for verification
-    if !stairs_samples.is_empty() {
-        for (state_str, hash) in &stairs_samples {
-            web_sys::console::log_1(&format!(
-                "[WASM Registry] Stairs registered: \"{}\" -> 0x{:016x}",
-                state_str, hash
-            ).into());
-        }
-    }
-    if !slab_samples.is_empty() {
-        for (state_str, hash) in &slab_samples {
-            web_sys::console::log_1(&format!(
-                "[WASM Registry] Slab registered: \"{}\" -> 0x{:016x}",
-                state_str, hash
-            ).into());
-        }
-    }
-    
     web_sys::console::log_1(&format!("[WASM] Hash-based model registry initialized with {} models", count).into());
 }
 
@@ -541,8 +498,7 @@ pub fn init_hash_model_registry_precomputed(state_hashes: Vec<u64>, geometry_dat
         let mut faces = Vec::with_capacity(num_faces);
         
         for _ in 0..num_faces {
-            // Face size: 1 (direction) + 48 (vertices) + 32 (uvs) + 2 (texture) + 1 (tint) + 1 (cull) = 85 bytes
-            if offset + 85 > geometry_data.len() {
+            if offset + 84 > geometry_data.len() {
                 break;
             }
             
@@ -602,14 +558,6 @@ pub fn init_hash_model_registry_precomputed(state_hashes: Vec<u64>, geometry_dat
     }
     
     let count = registry.len();
-    
-    // Log first 5 registered hashes for debugging
-    let sample_hashes: Vec<String> = registry.models.keys()
-        .take(5)
-        .map(|h| format!("0x{:016x}", h))
-        .collect();
-    web_sys::console::log_1(&format!("[WASM] Hash-based model registry: {} models, sample hashes: {:?}", count, sample_hashes).into());
-    
     let _ = HASH_MODEL_REGISTRY.set(registry);
     
     web_sys::console::log_1(&format!("[WASM] Hash-based model registry initialized with {} models (precomputed hashes)", count).into());
@@ -628,11 +576,6 @@ pub fn get_model_geometry_by_string(state_string: &str) -> Option<&'static Model
 /// Check if hash-based model registry is initialized
 pub fn is_hash_model_registry_initialized() -> bool {
     HASH_MODEL_REGISTRY.get().map(|r| !r.is_empty()).unwrap_or(false)
-}
-
-/// Get the number of models in the hash-based registry
-pub fn get_hash_model_registry_size() -> usize {
-    HASH_MODEL_REGISTRY.get().map(|r| r.len()).unwrap_or(0)
 }
 
 /// Expose hash function to JavaScript for pre-computing hashes

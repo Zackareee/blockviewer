@@ -780,25 +780,13 @@ export class SuperChunkManager {
         // Export WASM model geometry data using HASH-BASED lookup
         // This eliminates the need for synchronized state IDs between main thread and workers
         const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
-        console.log(`[SuperChunkManager] WASM model export: textureIndexLookup=${!!textureIndexLookup}`);
         if (textureIndexLookup) {
           const modelExport = this.stateRegistry.exportHashModelGeometryForWasm(textureIndexLookup);
           wasmModelRegistry = {
             stateStrings: modelExport.stateStrings,  // Use state strings for hash-based lookup
             geometryData: modelExport.geometryData,
           };
-          console.log(`[SuperChunkManager] ✅ Exported ${modelExport.stateStrings.length} model states with ${modelExport.faceCount} faces for WASM hash-based lookup (${(modelExport.geometryData.length / 1024).toFixed(1)}KB)`);
-          
-          // Expose to window for testing
-          if (typeof window !== 'undefined') {
-            window.__wasmModelRegistryInfo = {
-              stateCount: modelExport.stateCount,
-              faceCount: modelExport.faceCount,
-              dataSize: modelExport.geometryData.length,
-            };
-          }
-        } else {
-          console.warn('[SuperChunkManager] ⚠️ No textureIndexLookup - WASM model meshing will be disabled');
+          console.log(`[SuperChunkManager] Exported ${modelExport.stateStrings.length} model states with ${modelExport.faceCount} faces for WASM hash-based lookup (${(modelExport.geometryData.length / 1024).toFixed(1)}KB)`);
         }
       }
       
@@ -1358,30 +1346,9 @@ export class SuperChunkManager {
   /**
    * Create Three.js meshes from worker result
    * Solid/water/lava/glass meshes come from worker
-   * Model meshes are built on main thread using serialized grids (if WASM didn't handle them)
+   * Model meshes are built on main thread using serialized grids
    */
   async _createMeshesFromWorkerResult(superChunk, result) {
-    // Track WASM model status for diagnostics
-    if (!this._wasmModelStatusLogged) {
-      this._wasmModelStatusLogged = true;
-      this._wasmModelStatus = {
-        wasmModelsIncluded: result.wasmModelsIncluded,
-        hasModelOpaque: !!result.modelOpaque,
-        modelOpaqueVerts: result.modelOpaque?.vertexCount || 0,
-        hasGrids: !!result.grids,
-        fallbackToMainThread: !result.wasmModelsIncluded && !!result.grids,
-        workerDiag: result.wasmModelDiag || null,
-      };
-      console.log(`[SuperChunkManager] First mesh result:`, this._wasmModelStatus);
-      // Expose to window for testing
-      if (typeof window !== 'undefined') {
-        window.__wasmModelStatus = this._wasmModelStatus;
-      }
-    }
-    
-    // Accumulate model vertex counts
-    if (!this._totalModelVerts) this._totalModelVerts = 0;
-    this._totalModelVerts += result.modelOpaque?.vertexCount || 0;
     // Solid mesh
     if (result.solid && result.solid.positions.length > 0) {
       const mesh = this._createMesh(result.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
@@ -1441,7 +1408,8 @@ export class SuperChunkManager {
         }
       }
     } else if (result.grids) {
-      // Build model meshes immediately (no deferral - prevents pop-in)
+      // Fallback: Build model meshes on main thread when WASM didn't produce vertices
+      // This can happen if hash lookup fails or state grid was empty
       const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
       this._applyModelMeshResult(superChunk, modelResult);
     }

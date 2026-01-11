@@ -2,7 +2,7 @@
 //!
 //! Meshes non-cube blocks (slabs, stairs, fences, etc.) using pre-baked model geometry.
 
-use crate::grid::{BinaryGrid, LightGrid, LightValue, BlockStateGrid};
+use crate::grid::{BinaryGrid, LightGrid, BlockStateGrid};
 use crate::lookup::Lookups;
 use crate::mesher::MeshBounds;
 use crate::types::{SectionKey, SECTION_SIZE, SECTION_VOLUME, Face, block_index_in_section};
@@ -68,27 +68,6 @@ pub fn mesh_models(
 ) -> ModelMeshResult {
     let mut result = ModelMeshResult::new();
     
-    // Debug counters (only active once)
-    static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    let should_log = !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed);
-    let mut total_hashes = 0u32;
-    let mut found_models = 0u32;
-    let mut misses_logged = 0u32;
-    let mut faces_emitted = 0u32;
-    let mut faces_culled = 0u32;
-    
-    // Log state grid and registry info once
-    if should_log {
-        let section_count = state_grid.iter_sections_with_states().count();
-        let registry_size = super::registry::get_hash_model_registry_size();
-        let registry_initialized = super::registry::is_hash_model_registry_initialized();
-        web_sys::console::log_1(&format!(
-            "[WASM ModelMesher] Registry: {} models, initialized={}. State grid: {} sections. bounds={:?}",
-            registry_size, registry_initialized, section_count, 
-            bounds.map(|b| (b.min_chunk_x, b.min_chunk_z, b.max_chunk_x, b.max_chunk_z))
-        ).into());
-    }
-    
     // Iterate over sections with states
     for (key, section) in state_grid.iter_sections_with_states() {
         // Check bounds
@@ -114,61 +93,31 @@ pub fn mesh_models(
                         continue;
                     }
                     
-                    total_hashes += 1;
-                    
                     let world_x = base_x + local_x as i32;
                     let world_y = base_y + local_y as i32;
                     let world_z = base_z + local_z as i32;
                     
                     // Get model geometry by hash
                     let model = match get_model_geometry_by_hash(state_hash) {
-                        Some(m) => {
-                            found_models += 1;
-                            m
-                        },
-                        None => {
-                            // Log first 5 misses
-                            if should_log && misses_logged < 5 {
-                                misses_logged += 1;
-                                web_sys::console::log_1(&format!(
-                                    "[WASM ModelMesher] Hash miss #{}: 0x{:016x} at ({}, {}, {})",
-                                    misses_logged, state_hash, world_x, world_y, world_z
-                                ).into());
-                            }
-                            continue;
-                        }
+                        Some(m) => m,
+                        None => continue,
                     };
                     
-                    // Get the model block's own light (fallback for faces without clear direction)
-                    let own_light = if let Some(lg) = light_grid {
-                        lg.get_light(world_x, world_y, world_z)
+                    // Get light at this position
+                    let (sky_light, block_light) = if let Some(lg) = light_grid {
+                        let light = lg.get_light(world_x, world_y, world_z);
+                        (light.sky_light as f32 / 15.0, light.block_light as f32 / 15.0)
                     } else {
-                        LightValue { sky_light: 15, block_light: 0 }
+                        (1.0, 0.0)
                     };
                     
                     // Process each face
                     for face in &model.faces {
                         // Check if face should be culled
                         if should_cull_face(grid, lookups, world_x, world_y, world_z, face) {
-                            faces_culled += 1;
                             continue;
                         }
                         
-                        // Sample light for this face based on face direction
-                        // Model blocks exist in air space - when a face points INTO a solid block,
-                        // use the model block's own light (not the solid block's light which is 0)
-                        let (sky_light, block_light) = sample_face_light(
-                            grid,
-                            light_grid,
-                            lookups,
-                            world_x,
-                            world_y,
-                            world_z,
-                            face,
-                            &own_light,
-                        );
-                        
-                        faces_emitted += 1;
                         // Emit face to appropriate mesh
                         // For now, all go to opaque (TODO: separate transparent)
                         emit_face(
@@ -186,70 +135,7 @@ pub fn mesh_models(
         }
     }
     
-    // Log debug info once
-    if should_log {
-        web_sys::console::log_1(&format!(
-            "[WASM ModelMesher] Hashes looked up: {}, Models found: {} ({}% hit rate), Faces emitted: {}, culled: {}",
-            total_hashes, found_models,
-            if total_hashes > 0 { found_models * 100 / total_hashes } else { 0 },
-            faces_emitted, faces_culled
-        ).into());
-    }
-    
     result
-}
-
-/// Sample light for a face based on its direction
-/// 
-/// Model blocks exist in air space. For faces pointing into transparent blocks,
-/// sample light from the adjacent position (more accurate sky light exposure).
-/// For faces against solid blocks, use the model block's own light.
-fn sample_face_light(
-    grid: &BinaryGrid,
-    light_grid: Option<&LightGrid>,
-    lookups: &Lookups,
-    world_x: i32,
-    world_y: i32,
-    world_z: i32,
-    face: &ModelFace,
-    own_light: &LightValue,
-) -> (f32, f32) {
-    // If no light grid, return full brightness
-    let lg = match light_grid {
-        Some(lg) => lg,
-        None => return (1.0, 0.0),
-    };
-    
-    // Get face direction for light sampling
-    let face_direction = face.get_face_direction();
-    
-    // Get the adjacent position based on face direction
-    let (adj_x, adj_y, adj_z) = match face_direction {
-        Some(Face::Up) => (world_x, world_y + 1, world_z),
-        Some(Face::Down) => (world_x, world_y - 1, world_z),
-        Some(Face::North) => (world_x, world_y, world_z - 1),
-        Some(Face::South) => (world_x, world_y, world_z + 1),
-        Some(Face::West) => (world_x - 1, world_y, world_z),
-        Some(Face::East) => (world_x + 1, world_y, world_z),
-        None => {
-            // No clear face direction (cross-model plants, etc.)
-            // Use the block's own position light
-            return (own_light.sky_light as f32 / 15.0, own_light.block_light as f32 / 15.0);
-        }
-    };
-    
-    // Check if adjacent block is transparent (air or non-opaque)
-    let adj_block = grid.get_block(adj_x, adj_y, adj_z);
-    let adj_id = (adj_block & 0x0FFF) as usize;
-    
-    // If adjacent is air (id=0) or not fully opaque, sample from there
-    if adj_id == 0 || (adj_id < lookups.is_opaque.len() && lookups.is_opaque[adj_id] == 0) {
-        let adj_light = lg.get_light(adj_x, adj_y, adj_z);
-        (adj_light.sky_light as f32 / 15.0, adj_light.block_light as f32 / 15.0)
-    } else {
-        // Face is against a solid block - use own position's light
-        (own_light.sky_light as f32 / 15.0, own_light.block_light as f32 / 15.0)
-    }
 }
 
 /// Check if a face should be culled based on neighboring blocks
@@ -343,14 +229,12 @@ fn emit_face(
     }
     
     // Add indices (two triangles)
-    // Match JS ModelMesher winding: [0, 2, 1] and [0, 3, 2]
-    // This is counter-clockwise when viewed from outside (THREE.js FrontSide)
     mesh.indices.push(base_vertex);
-    mesh.indices.push(base_vertex + 2);
     mesh.indices.push(base_vertex + 1);
-    mesh.indices.push(base_vertex);
-    mesh.indices.push(base_vertex + 3);
     mesh.indices.push(base_vertex + 2);
+    mesh.indices.push(base_vertex);
+    mesh.indices.push(base_vertex + 2);
+    mesh.indices.push(base_vertex + 3);
     
     mesh.vertex_count += 4;
 }

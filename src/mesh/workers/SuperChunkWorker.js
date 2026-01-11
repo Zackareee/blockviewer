@@ -368,15 +368,7 @@ function wasmMeshChunk(grid, lightGrid, stateGrid, bounds) {
   // One-time log of WASM model capability
   if (!wasmMeshChunk._capabilityLogged) {
     wasmMeshChunk._capabilityLogged = true;
-    // Detailed diagnostic for WASM model capability
-    const hashSectionCount = stateGrid?.hashSections?.size || 0;
-    console.log(`[SuperChunkWorker] WASM model meshing: ${canUseWasmModels ? 'ENABLED' : 'DISABLED'}`, {
-      wasmStateRegistryInitialized,
-      wasmModelRegistryInitialized,
-      hasStateGrid: !!stateGrid,
-      hashSectionCount,
-      stateDataSize: stateData.length,
-    });
+    console.log(`[SuperChunkWorker] WASM model meshing: ${canUseWasmModels ? 'ENABLED' : 'DISABLED'} (state=${wasmStateRegistryInitialized}, model=${wasmModelRegistryInitialized}, hasStateGrid=${!!stateGrid}, stateDataSize=${stateData.length})`);
   }
   
   const result = wasmModule.mesh_chunk_bounded(
@@ -473,9 +465,9 @@ function wasmMeshChunk(grid, lightGrid, stateGrid, bounds) {
   meshResult.wasmModelsIncluded = hasWasmModels;
   
   // One-time log of first WASM mesh result with models
-  if (!wasmMeshChunk._resultLogged && canUseWasmModels) {
+  if (!wasmMeshChunk._resultLogged) {
     wasmMeshChunk._resultLogged = true;
-    console.log(`[SuperChunkWorker] First WASM mesh result: solid=${result.solid_vertex_count}, modelOpaque=${result.model_opaque_vertex_count}, modelTransparent=${result.model_transparent_vertex_count}, hasWasmModels=${hasWasmModels}`);
+    console.log(`[SuperChunkWorker] First WASM mesh: solid=${result.solid_vertex_count}, modelOpaque=${result.model_opaque_vertex_count}, hasWasmModels=${hasWasmModels}, canUseWasmModels=${canUseWasmModels}`);
   }
   
   return meshResult;
@@ -890,9 +882,7 @@ const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
 const FNV_PRIME = 0x100000001b3n;
 
 /**
- * Compute FNV-1a 64-bit hash of a string (matches Rust str.hash() with FnvHasher)
- * CRITICAL: Rust's str.hash() adds a 0xff suffix byte after the string bytes
- * to allow HashMaps to distinguish strings from other types.
+ * Compute FNV-1a 64-bit hash of a string (matches Rust fnv crate)
  */
 function fnv1aHash(str) {
   let hash = FNV_OFFSET_BASIS;
@@ -900,9 +890,6 @@ function fnv1aHash(str) {
     hash ^= BigInt(str.charCodeAt(i));
     hash = (hash * FNV_PRIME) & 0xFFFFFFFFFFFFFFFFn;
   }
-  // Add 0xff suffix to match Rust's str.hash() implementation
-  hash ^= 0xFFn;
-  hash = (hash * FNV_PRIME) & 0xFFFFFFFFFFFFFFFFn;
   return hash;
 }
 
@@ -989,20 +976,6 @@ class WorkerBlockStateGrid {
     
     if (nonEmptySections.length === 0) {
       return new Uint8Array(4);
-    }
-    
-    // One-time diagnostic: log sample hashes for debugging
-    if (!this._serializeDiagLogged) {
-      this._serializeDiagLogged = true;
-      const sampleHashes = [];
-      for (const { section } of nonEmptySections.slice(0, 1)) {
-        for (let i = 0; i < section.length && sampleHashes.length < 5; i++) {
-          if (section[i] !== 0n) {
-            sampleHashes.push(`0x${section[i].toString(16)}`);
-          }
-        }
-      }
-      console.log(`[WorkerBlockStateGrid] serializeForWasm: ${nonEmptySections.length} sections, sample hashes:`, sampleHashes);
     }
     
     // Calculate buffer size: 4 + (8 + 4096*8) * numSections
@@ -1286,12 +1259,6 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
           // Compute FNV-1a hash for WASM model meshing
           const stateString = buildStateString(name, props);
           stateHashes[i] = fnv1aHash(stateString);
-          
-          // Debug: Log first stairs hash we encounter
-          if (!decodeChunk._stairsLogged && name.includes('stairs')) {
-            decodeChunk._stairsLogged = true;
-            console.log(`[SuperChunkWorker] Chunk decode - first stairs: "${stateString}" hash=0x${stateHashes[i].toString(16)}`);
-          }
         } else if (stateHashes) {
           stateHashes[i] = 0n;
         }
@@ -2729,22 +2696,6 @@ async function processSuperChunk(data) {
   // Check if WASM handled model meshing
   const wasmHandledModels = gridMeshes.wasmModelsIncluded || false;
   
-  // Expose WASM model capability diagnostics in result (one-time)
-  if (!processSuperChunk._wasmDiagLogged) {
-    processSuperChunk._wasmDiagLogged = true;
-    // Compute serialized state grid size for diagnostics
-    const stateGridSerializedSize = stateGrid?.hashSections?.size 
-      ? 4 + stateGrid.hashSections.size * (8 + 4096 * 8) 
-      : 0;
-    gridMeshes.wasmModelDiag = {
-      wasmStateRegistryInitialized,
-      wasmModelRegistryInitialized,
-      hasStateGrid: !!stateGrid,
-      hashSectionCount: stateGrid?.hashSections?.size || 0,
-      stateDataSize: stateGridSerializedSize,
-    };
-  }
-  
   // Only serialize grids for main thread model meshing if WASM didn't handle it
   let serializedGrid = null;
   let serializedStateGrid = null;
@@ -2798,7 +2749,6 @@ async function processSuperChunk(data) {
       states: serializedStates, // Worker state ID -> blockName + properties mapping
     },
     wasmModelsIncluded: wasmHandledModels,
-    wasmModelDiag: gridMeshes.wasmModelDiag || null,
   };
   
   // Add grid section buffers to transferables (only if not using WASM models)
@@ -3025,60 +2975,18 @@ self.onmessage = async function(e) {
       }
       
       // Initialize WASM state registry for model block resolution
-      console.log(`[SuperChunkWorker] Init data received:`, {
-        hasWasmStateRegistry: !!data.wasmStateRegistry,
-        hasWasmModelRegistry: !!data.wasmModelRegistry,
-        wasmModelRegistrySize: data.wasmModelRegistry?.geometryData?.length || 0,
-      });
-      
       if (wasmReady && data.wasmStateRegistry) {
-        const stateResult = initWasmStateRegistry(data.wasmStateRegistry);
-        console.log(`[SuperChunkWorker] State registry init: ${stateResult ? 'SUCCESS' : 'FAILED'}`);
-      } else {
-        console.warn(`[SuperChunkWorker] Skipping state registry: wasmReady=${wasmReady}, hasData=${!!data.wasmStateRegistry}`);
+        initWasmStateRegistry(data.wasmStateRegistry);
       }
       
       // Initialize WASM model registry with pre-baked geometry
       if (wasmReady && data.wasmModelRegistry) {
-        const modelResult = initWasmModelRegistry(data.wasmModelRegistry);
-        console.log(`[SuperChunkWorker] Model registry init: ${modelResult ? 'SUCCESS' : 'FAILED'}`);
-        
-        // Debug: Log sample state strings and verify hash matches WASM
-        if (data.wasmModelRegistry.stateStrings && wasmModule.compute_state_hash) {
-          const stateStrings = typeof data.wasmModelRegistry.stateStrings === 'string' 
-            ? data.wasmModelRegistry.stateStrings.split('\n') 
-            : data.wasmModelRegistry.stateStrings;
-          const stairsStates = stateStrings.filter(s => s.includes('oak_stairs')).slice(0, 3);
-          console.log(`[SuperChunkWorker] Sample oak_stairs states in registry (${stairsStates.length}):`, stairsStates.slice(0, 2));
-          if (stairsStates.length > 0) {
-            const jsHash = fnv1aHash(stairsStates[0]);
-            console.log(`[SuperChunkWorker] JS hash for "${stairsStates[0]}": 0x${jsHash.toString(16)}`);
-            // Compare with WASM hash and send result back
-            try {
-              const wasmHash = wasmModule.compute_state_hash(stairsStates[0]);
-              const match = jsHash === BigInt(wasmHash);
-              console.log(`[SuperChunkWorker] JS hash: 0x${jsHash.toString(16)}, WASM hash: 0x${wasmHash.toString(16)}, match: ${match}`);
-              // Post hash comparison result so main thread can see it
-              self.postMessage({ 
-                type: 'hashCompare', 
-                stateString: stairsStates[0],
-                jsHash: jsHash.toString(),
-                wasmHash: wasmHash.toString(),
-                match
-              });
-            } catch (e) {
-              console.log(`[SuperChunkWorker] compute_state_hash failed:`, e);
-            }
-          }
-        }
-      } else {
-        console.warn(`[SuperChunkWorker] Skipping model registry: wasmReady=${wasmReady}, hasData=${!!data.wasmModelRegistry}`);
+        initWasmModelRegistry(data.wasmModelRegistry);
       }
       
       workerInitialized = true;
       
       const wasmModelsReady = wasmInitialized && wasmLookupsInitialized && wasmStateRegistryInitialized && wasmModelRegistryInitialized;
-      console.log(`[SuperChunkWorker] ✅ Init complete: wasmModelsReady=${wasmModelsReady} (wasm=${wasmInitialized}, lookups=${wasmLookupsInitialized}, state=${wasmStateRegistryInitialized}, model=${wasmModelRegistryInitialized})`);
       self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized, wasmModelsAvailable: wasmModelsReady });
       break;
     }

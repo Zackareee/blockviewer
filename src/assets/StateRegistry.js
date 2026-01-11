@@ -262,33 +262,14 @@ class StateRegistry {
    */
   async precomputeAll() {
     const promises = [];
-    let alreadyComputed = 0;
-    let needsComputation = 0;
-    
     for (let i = 0; i < this.nextId; i++) {
       // Skip states that already have geometry computed
-      if (this.states[i]?.geometry) {
-        alreadyComputed++;
-        continue;
-      }
-      needsComputation++;
+      if (this.states[i]?.geometry) continue;
       promises.push(this.getGeometry(i));
     }
-    
-    console.log(`[StateRegistry] precomputeAll: ${needsComputation} need computation, ${alreadyComputed} already done, total ${this.nextId} states`);
-    
     // Only await if there are new states to compute
     if (promises.length > 0) {
       await Promise.all(promises);
-      
-      // Check how many now have geometry
-      let withGeometry = 0;
-      for (let i = 0; i < this.nextId; i++) {
-        if (this.states[i]?.geometry && this.states[i].geometry.length > 0) {
-          withGeometry++;
-        }
-      }
-      console.log(`[StateRegistry] precomputeAll complete: ${withGeometry} states now have geometry`);
     }
   }
 
@@ -481,10 +462,9 @@ class StateRegistry {
     const geometryChunks = [];
     let totalFaceCount = 0;
     
-    // Direction name to index mapping (matches WASM Face enum)
-    // WASM: Up=0, Down=1, North=2, South=3, East=4, West=5
+    // Direction name to index mapping
     const DIRECTION_MAP = {
-      'up': 0, 'down': 1, 'north': 2, 'south': 3, 'east': 4, 'west': 5
+      'down': 0, 'up': 1, 'north': 2, 'south': 3, 'west': 4, 'east': 5
     };
     
     for (let i = 1; i < this.nextId; i++) {
@@ -499,20 +479,21 @@ class StateRegistry {
         
         // Extract face data for each cullFace entry
         for (const face of geom.cullFaces) {
-          // Get the first vertex index (same approach as JS ModelMesher)
-          // The indices array stores [v0, v2, v1, v0, v3, v2] for CCW winding
-          // The first index points to v0, and vertices are laid out consecutively as v0, v1, v2, v3
-          const srcVertexStart = geom.indices[face.indexStart];
+          // Get vertices for this face (4 vertices, 3 components each)
+          const startIdx = face.indexStart;
+          const vertexIndices = [];
+          for (let j = 0; j < 6; j++) {
+            vertexIndices.push(geom.indices[startIdx + j]);
+          }
           
-          // Validate we have enough vertices
-          if (srcVertexStart + 3 >= geom.positions.length / 3) continue;
+          // Get unique vertex indices (should be 4 for a quad)
+          const uniqueVerts = [...new Set(vertexIndices)].slice(0, 4);
+          if (uniqueVerts.length !== 4) continue;
           
-          // Read 4 CONSECUTIVE vertices starting from srcVertexStart
-          // This matches how JS ModelMesher reads geometry and preserves correct vertex order
+          // Extract vertex positions and UVs
           const vertices = [];
           const uvs = [];
-          for (let i = 0; i < 4; i++) {
-            const vi = srcVertexStart + i;
+          for (const vi of uniqueVerts) {
             vertices.push([
               geom.positions[vi * 3],
               geom.positions[vi * 3 + 1],
@@ -524,13 +505,11 @@ class StateRegistry {
             ]);
           }
           
-          // Get texture index from TextureIndexLookup class
+          // Get texture index
           let textureIndex = 0;
           if (textureIndexLookup && face.texture) {
             const texPath = face.texture.replace('minecraft:', '');
-            // textureIndexLookup is a TextureIndexLookup class with a texturePathToIndex Map
-            const pathMap = textureIndexLookup.texturePathToIndex || textureIndexLookup;
-            textureIndex = pathMap.get?.(texPath) ?? pathMap.get?.(`block/${texPath}`) ?? 0;
+            textureIndex = textureIndexLookup.get?.(texPath) || textureIndexLookup[texPath] || 0;
           }
           
           // Get direction
@@ -899,10 +878,6 @@ class StateRegistry {
       hash = BigInt.asUintN(64, hash * FNV_PRIME);
     }
     
-    // Add 0xff suffix to match Rust's str.hash() implementation
-    hash ^= 0xFFn;
-    hash = BigInt.asUintN(64, hash * FNV_PRIME);
-    
     return hash;
   }
 
@@ -940,51 +915,17 @@ class StateRegistry {
     const geometryChunks = [];
     let totalFaceCount = 0;
     
-    // Direction name to index mapping (matches WASM Face enum)
-    // WASM: Up=0, Down=1, North=2, South=3, East=4, West=5
+    // Direction name to index mapping
     const DIRECTION_MAP = {
-      'up': 0, 'down': 1, 'north': 2, 'south': 3, 'east': 4, 'west': 5
+      'down': 0, 'up': 1, 'north': 2, 'south': 3, 'west': 4, 'east': 5
     };
-    
-    // Debug: Count states with and without geometry
-    let withGeometry = 0;
-    let withoutGeometry = 0;
-    let noState = 0;
-    
-    // Debug first few states
-    let debugCount = 0;
     
     for (let i = 1; i < this.nextId; i++) {
       const state = this.states[i];
-      if (!state) { noState++; continue; }
-      if (!state.geometry || state.geometry.length === 0) { 
-        withoutGeometry++; 
-        // Debug first few states without geometry
-        if (debugCount < 3) {
-          console.log(`[StateRegistry] State ${i} (${state.blockName}) has no geometry`);
-          debugCount++;
-        }
-        continue; 
-      }
-      withGeometry++;
+      if (!state || !state.geometry || state.geometry.length === 0) continue;
       
       // Build canonical state string
       const stateStr = StateRegistry.buildStateString(state.blockName, state.properties);
-      const hash = StateRegistry.fnv1aHash(stateStr);
-      
-      // Debug: Log first 3 stairs and first 3 slabs for hash verification
-      // This must match the WASM [WASM Registry] output format for comparison
-      if (!this._stairsDebugCount) this._stairsDebugCount = 0;
-      if (!this._slabDebugCount) this._slabDebugCount = 0;
-      
-      if (state.blockName.includes('stairs') && this._stairsDebugCount < 3) {
-        this._stairsDebugCount++;
-        console.log(`[JS Registry] Stairs registered: "${stateStr}" -> 0x${hash.toString(16)}`);
-      }
-      if (state.blockName.includes('_slab') && this._slabDebugCount < 3) {
-        this._slabDebugCount++;
-        console.log(`[JS Registry] Slab registered: "${stateStr}" -> 0x${hash.toString(16)}`);
-      }
       
       // Collect all faces from all variants
       const allFaces = [];
@@ -994,20 +935,21 @@ class StateRegistry {
         
         // Extract face data for each cullFace entry
         for (const face of geom.cullFaces) {
-          // Get the first vertex index (same approach as JS ModelMesher)
-          // The indices array stores [v0, v2, v1, v0, v3, v2] for CCW winding
-          // The first index points to v0, and vertices are laid out consecutively as v0, v1, v2, v3
-          const srcVertexStart = geom.indices[face.indexStart];
+          // Get vertices for this face (4 vertices, 3 components each)
+          const startIdx = face.indexStart;
+          const vertexIndices = [];
+          for (let j = 0; j < 6; j++) {
+            vertexIndices.push(geom.indices[startIdx + j]);
+          }
           
-          // Validate we have enough vertices
-          if (srcVertexStart + 3 >= geom.positions.length / 3) continue;
+          // Get unique vertex indices (should be 4 for a quad)
+          const uniqueVerts = [...new Set(vertexIndices)].slice(0, 4);
+          if (uniqueVerts.length !== 4) continue;
           
-          // Read 4 CONSECUTIVE vertices starting from srcVertexStart
-          // This matches how JS ModelMesher reads geometry and preserves correct vertex order
+          // Extract vertex positions and UVs
           const vertices = [];
           const uvs = [];
-          for (let i = 0; i < 4; i++) {
-            const vi = srcVertexStart + i;
+          for (const vi of uniqueVerts) {
             vertices.push([
               geom.positions[vi * 3],
               geom.positions[vi * 3 + 1],
@@ -1019,13 +961,11 @@ class StateRegistry {
             ]);
           }
           
-          // Get texture index from TextureIndexLookup class
+          // Get texture index
           let textureIndex = 0;
           if (textureIndexLookup && face.texture) {
             const texPath = face.texture.replace('minecraft:', '');
-            // textureIndexLookup is a TextureIndexLookup class with a texturePathToIndex Map
-            const pathMap = textureIndexLookup.texturePathToIndex || textureIndexLookup;
-            textureIndex = pathMap.get?.(texPath) ?? pathMap.get?.(`block/${texPath}`) ?? 0;
+            textureIndex = textureIndexLookup.get?.(texPath) || textureIndexLookup[texPath] || 0;
           }
           
           // Get direction
@@ -1098,13 +1038,6 @@ class StateRegistry {
       geometryData.set(chunk, offset);
       offset += chunk.length;
     }
-    
-    // Debug: Log geometry status
-    console.log(`[StateRegistry] exportHashModelGeometryForWasm: ${withGeometry} states with geometry, ${withoutGeometry} without, ${noState} null, nextId=${this.nextId}`);
-    
-    // Debug: Check if oak_stairs was exported
-    const stairsStates = stateStrings.filter(s => s.includes('oak_stairs'));
-    console.log(`[StateRegistry] Exported ${stairsStates.length} oak_stairs states, sample:`, stairsStates.slice(0, 3));
     
     // Return state strings as newline-separated string for WASM
     return { 

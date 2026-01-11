@@ -569,13 +569,13 @@ export interface InitOutput {
   readonly clear_cached_result: () => void;
   readonly streamingmeshresultwasm_boundary_neg_z_count: (a: number) => number;
   readonly streamingmeshresultwasm_vertex_count: (a: number) => number;
+  readonly init_block_registry: (a: number, b: number, c: number, d: number) => void;
   readonly compute_state_hash: (a: number, b: number) => bigint;
   readonly compute_state_hashes: (a: number, b: number) => [number, number];
   readonly init_hash_model_registry: (a: number, b: number, c: number, d: number) => void;
   readonly init_hash_model_registry_precomputed: (a: number, b: number, c: number, d: number) => void;
   readonly init_model_registry: (a: number, b: number, c: number, d: number) => void;
   readonly init_state_registry: (a: number, b: number, c: number, d: number) => void;
-  readonly init_block_registry: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;

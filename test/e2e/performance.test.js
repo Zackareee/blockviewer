@@ -152,51 +152,13 @@ async function monitorChunkLoading(driver, timeoutMs, uploadStartTime) {
   
   const finalStats = await driver.executeScript(`
     if (window.__chunkStreamer) {
-      const scm = window.__chunkStreamer.superChunkManager;
       return {
         chunks: window.__chunkStreamer.loadedChunks.size,
-        superChunks: scm?.superChunks?.size || 0,
-        wasmModelStatusLogged: scm?._wasmModelStatusLogged || false,
+        superChunks: window.__chunkStreamer.superChunkManager?.superChunks?.size || 0,
       };
     }
-    return { chunks: 0, superChunks: 0, wasmModelStatusLogged: false };
+    return { chunks: 0, superChunks: 0 };
   `);
-  
-  // Check if WASM model meshing is working
-  const wasmStatus = await driver.executeScript(`
-    return window.__wasmModelStatus || null;
-  `);
-  const registryInfo = await driver.executeScript(`
-    return window.__wasmModelRegistryInfo || null;
-  `);
-  
-  if (registryInfo) {
-    console.log(`${colors.dim}  Model registry: ${registryInfo.stateCount} states, ${registryInfo.faceCount} faces, ${(registryInfo.dataSize/1024).toFixed(1)}KB${colors.reset}`);
-  }
-  
-  // Check hash comparison result
-  const hashCompare = await driver.executeScript(`
-    return window.__hashCompareResult || null;
-  `);
-  if (hashCompare) {
-    if (hashCompare.match) {
-      console.log(`${colors.green}  ✓ Hash match verified for: ${hashCompare.stateString.substring(0, 40)}...${colors.reset}`);
-    } else {
-      console.log(`${colors.red}  ✗ Hash MISMATCH: JS=${hashCompare.jsHash}, WASM=${hashCompare.wasmHash}${colors.reset}`);
-    }
-  }
-  
-  if (wasmStatus) {
-    if (wasmStatus.wasmModelsIncluded) {
-      console.log(`${colors.green}  ✓ WASM model meshing ACTIVE (${wasmStatus.modelOpaqueVerts} model vertices from WASM)${colors.reset}`);
-    } else if (wasmStatus.fallbackToMainThread) {
-      console.log(`${colors.yellow}  ⚠ WASM model meshing INACTIVE - falling back to main thread${colors.reset}`);
-      if (wasmStatus.workerDiag) {
-        const d = wasmStatus.workerDiag;
-        console.log(`${colors.dim}    Worker diagnostics: stateReg=${d.wasmStateRegistryInitialized}, modelReg=${d.wasmModelRegistryInitialized}, stateGrid=${d.hasStateGrid}, hashSections=${d.hashSectionCount}${colors.reset}`);
-      }
-    }
-  }
   
   const totalE2ETime = loadingCompleteTime || (Date.now() - uploadStartTime);
   

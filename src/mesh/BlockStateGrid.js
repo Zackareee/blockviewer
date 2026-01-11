@@ -32,10 +32,6 @@ export function fnv1aHash(str) {
     hash = (hash * FNV_PRIME) & 0xFFFFFFFFFFFFFFFFn; // Keep as 64-bit
   }
   
-  // Add 0xff suffix to match Rust's str.hash() implementation
-  hash ^= 0xFFn;
-  hash = (hash * FNV_PRIME) & 0xFFFFFFFFFFFFFFFFn;
-  
   return hash;
 }
 
@@ -170,41 +166,6 @@ export class BlockStateGrid {
    */
   getHashSection(sectionKey) {
     return this.hashSections.get(sectionKey) || null;
-  }
-
-  /**
-   * Get or create a section for legacy u16 state IDs
-   * @param {number} chunkX - Chunk X coordinate
-   * @param {number} chunkZ - Chunk Z coordinate  
-   * @param {number} sectionY - Section Y index
-   * @returns {Uint16Array}
-   */
-  _getOrCreateSection(chunkX, chunkZ, sectionY) {
-    const sectionKey = `${chunkX},${chunkZ},${sectionY}`;
-    let section = this.sections.get(sectionKey);
-    if (!section) {
-      section = new Uint16Array(4096);
-      this.sections.set(sectionKey, section);
-      this.hasStates.add(sectionKey);
-    }
-    return section;
-  }
-
-  /**
-   * Get or create a hash section for FNV-1a hashes
-   * @param {number} chunkX - Chunk X coordinate
-   * @param {number} chunkZ - Chunk Z coordinate
-   * @param {number} sectionY - Section Y index
-   * @returns {BigUint64Array}
-   */
-  _getOrCreateHashSection(chunkX, chunkZ, sectionY) {
-    const sectionKey = `${chunkX},${chunkZ},${sectionY}`;
-    let hashSection = this.hashSections.get(sectionKey);
-    if (!hashSection) {
-      hashSection = new BigUint64Array(4096);
-      this.hashSections.set(sectionKey, hashSection);
-    }
-    return hashSection;
   }
 
   /**
