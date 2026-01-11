@@ -251,18 +251,21 @@ async function measureNavigationPerformance(driver, durationMs = 10000) {
   
   console.log(`${colors.dim}    Initial camera: (${initialPos.x.toFixed(0)}, ${initialPos.y.toFixed(0)}, ${initialPos.z.toFixed(0)})${colors.reset}`);
   
-  // Move camera in a STRAIGHT LINE to force loading new chunks
-  // Movement speed affects how many new chunks are exposed vs how many can be loaded
-  // Slower = fewer exposed but higher load rate, Faster = more exposed but lower load rate
+  // Move camera in a STRAIGHT LINE at realistic walking speed
+  // This tests FPS stability during chunk loading with actual camera movement
   const startTime = Date.now();
-  const movementSpeed = 16; // Blocks per second (1 chunk/sec) - tests steady-state loading
-  const moveInterval = 50; // ms between moves (more frequent updates)
+  const movementSpeed = 5; // Blocks per second (realistic walking speed)
+  const moveInterval = 16; // ~60Hz updates for smooth camera movement
   let moveCount = 0;
   
   // Pick a random direction to move in (to get variety in terrain)
   const moveAngle = Math.random() * Math.PI * 2;
   const moveDirX = Math.cos(moveAngle);
   const moveDirZ = Math.sin(moveAngle);
+  
+  // Convert angle to yaw (degrees) for camera rotation
+  // Camera looks FORWARD in movement direction (add 180 to face forward not backward)
+  const yawDegrees = (-moveAngle * 180 / Math.PI) + 90 + 180;
   
   while (Date.now() - startTime < durationMs) {
     // Calculate position along a straight line
@@ -272,20 +275,42 @@ async function measureNavigationPerformance(driver, durationMs = 10000) {
     const newX = initialPos.x + moveDirX * distance;
     const newZ = initialPos.z + moveDirZ * distance;
     
-    // Update player position in streamer
+    // Update BOTH camera AND player position for realistic navigation
     await driver.executeScript(`
       const x = arguments[0];
-      const z = arguments[1];
+      const y = arguments[1];
+      const z = arguments[2];
+      const yaw = arguments[3];
+      
+      // Update player position for chunk streaming
       if (window.__chunkStreamer) {
         window.__chunkStreamer.updatePlayerPosition(x, z);
       }
-    `, newX, newZ);
+      
+      // Move the actual camera
+      const camera = window.__camera;
+      const controls = window.__cameraControls;
+      if (camera) {
+        camera.position.set(x, y, z);
+        if (controls && controls.target) {
+          // Look forward in movement direction
+          const lookDist = 10;
+          const yawRad = yaw * Math.PI / 180;
+          controls.target.set(
+            x + Math.sin(yawRad) * lookDist,
+            y,
+            z + Math.cos(yawRad) * lookDist
+          );
+          controls.update();
+        }
+      }
+    `, newX, initialPos.y, newZ, yawDegrees);
     
     moveCount++;
     await new Promise(resolve => setTimeout(resolve, moveInterval));
     
-    // Log progress every 2 seconds
-    if (moveCount % 20 === 0) {
+    // Log progress every 2 seconds (~125 iterations at 16ms)
+    if (moveCount % 125 === 0) {
       const stats = await driver.executeScript(`
         return {
           superChunks: window.__chunkStreamer?.superChunkManager?.superChunks?.size || 0,
