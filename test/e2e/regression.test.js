@@ -137,6 +137,17 @@ async function runScreenshotTest(driver, testCase) {
   // Wait for render stabilization
   await new Promise(resolve => setTimeout(resolve, 1000));
   
+  // Flush any pending mesh creation to ensure all geometry is rendered
+  await driver.executeScript(`
+    if (window.__chunkStreamer && window.__chunkStreamer.flushMeshQueue) {
+      return window.__chunkStreamer.flushMeshQueue();
+    }
+    return 0;
+  `);
+  
+  // Wait a frame for GPU to update
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
   // Take screenshot
   const currentPath = await takeScreenshot(driver, testCase.name, CONFIG.currentDir);
   console.log(`${colors.dim}  Screenshot: ${path.basename(currentPath)}${colors.reset}`);

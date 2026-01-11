@@ -491,6 +491,12 @@ export class ChunkStreamer {
         this.chunkManager.invalidate?.();
       }
     });
+    
+    // Set up mesh queue processor for per-frame mesh creation
+    // This spreads mesh creation across frames to avoid lag spikes
+    this.chunkManager.setMeshQueueProcessor(() => {
+      return this.superChunkManager.processQueuedMeshes();
+    });
   }
 
   /**
@@ -1812,6 +1818,29 @@ export class ChunkStreamer {
     this.stats.cacheMisses = 0;
   }
 
+  /**
+   * Flush all pending mesh creation immediately
+   * Used for tests or when immediate completion is required
+   * 
+   * @returns {number} Number of meshes created
+   */
+  flushMeshQueue() {
+    if (this.superChunkManager) {
+      return this.superChunkManager.flushMeshQueue();
+    }
+    return 0;
+  }
+  
+  /**
+   * Get number of pending meshes in the queue
+   */
+  getPendingMeshCount() {
+    if (this.superChunkManager) {
+      return this.superChunkManager.getPendingMeshCount();
+    }
+    return 0;
+  }
+  
   /**
    * Dispose of all resources
    */

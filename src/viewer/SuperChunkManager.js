@@ -50,6 +50,167 @@ import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
 const SUPER_CHUNK_SIZE = 2;
 const BLOCKS_PER_SUPER_CHUNK = SUPER_CHUNK_SIZE * 16; // 32 blocks
 
+/**
+ * MeshCreationQueue - Spreads mesh creation across frames to avoid frame spikes
+ * 
+ * When many chunks arrive at once, creating all meshes synchronously can cause
+ * significant frame drops (6-8 meshes per super-chunk × 2ms each = 12-16ms spike).
+ * 
+ * This queue processes meshes with a per-frame time budget, ensuring smooth
+ * camera movement even during heavy chunk loading.
+ */
+class MeshCreationQueue {
+  constructor() {
+    // Queue of mesh creation tasks: { meshData, material, group, superChunk, meshType, renderOrder, meshArray }
+    this.queue = [];
+    
+    // Per-frame time budget in milliseconds
+    this.frameBudgetMs = 3.0;
+    
+    // Priority order: solid first for quick visual feedback, then models, then transparent
+    this.priorityOrder = ['solid', 'modelOpaque', 'modelOverlay', 'glass', 'modelTransparent', 'water', 'lava'];
+    
+    // Stats
+    this.processedThisFrame = 0;
+    this.totalQueued = 0;
+    this.isProcessing = false;
+    
+    // Reference to createMesh function (set during first processFrame)
+    this._createMeshFn = null;
+    
+    // Callbacks for when chunks complete
+    this._onChunkComplete = null;
+  }
+  
+  /**
+   * Add a mesh creation task to the queue
+   * @param {Object} task - { meshData, material, group, superChunk, meshType, renderOrder, meshArray }
+   */
+  add(task) {
+    // Sort by priority when adding
+    const priority = this.priorityOrder.indexOf(task.meshType);
+    task.priority = priority >= 0 ? priority : 999;
+    
+    // Insert in priority order (lower priority value = higher priority)
+    let inserted = false;
+    for (let i = 0; i < this.queue.length; i++) {
+      if (task.priority < this.queue[i].priority) {
+        this.queue.splice(i, 0, task);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      this.queue.push(task);
+    }
+    
+    this.totalQueued++;
+  }
+  
+  /**
+   * Process queued mesh creation with time budget
+   * Call this each frame (e.g., in render loop or requestAnimationFrame)
+   * 
+   * @param {Function} createMeshFn - The _createMesh function to call
+   * @returns {number} Number of meshes created this frame
+   */
+  processFrame(createMeshFn) {
+    if (this.queue.length === 0) return 0;
+    
+    // Store createMesh function for processAll
+    this._createMeshFn = createMeshFn;
+    
+    const startTime = performance.now();
+    this.processedThisFrame = 0;
+    this.isProcessing = true;
+    
+    while (this.queue.length > 0) {
+      const elapsed = performance.now() - startTime;
+      if (elapsed >= this.frameBudgetMs) {
+        // Budget exhausted, continue next frame
+        break;
+      }
+      
+      this._processOne(createMeshFn);
+    }
+    
+    this.isProcessing = false;
+    return this.processedThisFrame;
+  }
+  
+  /**
+   * Process a single task from the queue
+   */
+  _processOne(createMeshFn) {
+    const task = this.queue.shift();
+    if (!task) return;
+    
+    const mesh = createMeshFn(task.meshData, task.material, task.group);
+    
+    if (mesh) {
+      if (task.renderOrder !== undefined) {
+        mesh.renderOrder = task.renderOrder;
+      }
+      
+      if (task.superChunk) {
+        task.superChunk.meshes.push(mesh);
+      }
+      
+      if (task.meshArray) {
+        task.meshArray.push(mesh);
+      }
+    }
+    
+    this.processedThisFrame++;
+  }
+  
+  /**
+   * Process all queued meshes immediately (no time budget)
+   * Use sparingly - can cause frame drops if many meshes are queued
+   * 
+   * @param {Function} createMeshFn - The _createMesh function to call
+   * @returns {number} Number of meshes created
+   */
+  processAll(createMeshFn) {
+    if (this.queue.length === 0) return 0;
+    
+    const fn = createMeshFn || this._createMeshFn;
+    if (!fn) return 0;
+    
+    this.processedThisFrame = 0;
+    this.isProcessing = true;
+    
+    while (this.queue.length > 0) {
+      this._processOne(fn);
+    }
+    
+    this.isProcessing = false;
+    return this.processedThisFrame;
+  }
+  
+  /**
+   * Clear all pending tasks (e.g., when unloading chunks)
+   */
+  clear() {
+    this.queue = [];
+    this.totalQueued = 0;
+  }
+  
+  /**
+   * Get queue length
+   */
+  get length() {
+    return this.queue.length;
+  }
+  
+  /**
+   * Check if queue is empty
+   */
+  get isEmpty() {
+    return this.queue.length === 0;
+  }
+}
+
 // Note: For neighbor block data, we use the existing decodeChunk function
 // which correctly handles all Minecraft format versions and unpacking
 
@@ -255,6 +416,9 @@ export class SuperChunkManager {
     // Meshing speed: how many super-chunks to mesh per idle callback
     // 1 = smoothest camera, higher = faster chunk appearance but may cause frame drops
     this.meshingSpeed = options.meshingSpeed ?? 1;
+    
+    // Mesh creation queue - spreads mesh creation across frames to avoid spikes
+    this.meshCreationQueue = new MeshCreationQueue();
   }
   
   /**
@@ -263,6 +427,41 @@ export class SuperChunkManager {
    */
   setMeshingSpeed(speed) {
     this.meshingSpeed = Math.max(1, Math.min(4, speed));
+  }
+  
+  /**
+   * Process queued mesh creation with per-frame budget
+   * Call this each frame in the render loop for smooth chunk loading
+   * 
+   * @returns {number} Number of meshes created this frame
+   */
+  processQueuedMeshes() {
+    if (this.meshCreationQueue.isEmpty) return 0;
+    
+    const count = this.meshCreationQueue.processFrame(
+      (meshData, material, group) => this._createMesh(meshData, material, group)
+    );
+    
+    return count;
+  }
+  
+  /**
+   * Get number of meshes waiting to be created
+   */
+  getPendingMeshCount() {
+    return this.meshCreationQueue.length;
+  }
+  
+  /**
+   * Flush all pending meshes immediately (no time budget)
+   * Use for tests or when immediate completion is required
+   * 
+   * @returns {number} Number of meshes created
+   */
+  flushMeshQueue() {
+    return this.meshCreationQueue.processAll(
+      (meshData, material, group) => this._createMesh(meshData, material, group)
+    );
   }
 
   /**
@@ -997,9 +1196,12 @@ export class SuperChunkManager {
    * Create Three.js meshes from worker result
    * Solid/water/lava/glass meshes come from worker
    * Model meshes are built on main thread using serialized grids
+   * 
+   * Uses mesh queue to spread creation across frames for smooth loading.
+   * Solid meshes are created immediately for quick visual feedback.
    */
   async _createMeshesFromWorkerResult(superChunk, result) {
-    // Solid mesh
+    // Solid mesh - create immediately for quick visual feedback
     if (result.solid && result.solid.positions.length > 0) {
       const mesh = this._createMesh(result.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
       if (mesh) {
@@ -1008,70 +1210,89 @@ export class SuperChunkManager {
       }
     }
     
+    // Queue remaining meshes for deferred creation
     // Water mesh
     if (result.water && result.water.positions.length > 0) {
-      const mesh = this._createMesh(result.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
-      if (mesh) {
-        mesh.renderOrder = 2;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.waterMeshes.push(mesh);
-      }
+      this.meshCreationQueue.add({
+        meshData: result.water,
+        material: this.chunkManager.waterMaterial,
+        group: this.chunkManager.waterGroup,
+        superChunk,
+        meshType: 'water',
+        renderOrder: 2,
+        meshArray: this.chunkManager.waterMeshes,
+      });
     }
     
     // Lava mesh
     if (result.lava && result.lava.positions.length > 0) {
-      const mesh = this._createMesh(result.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
-      if (mesh) {
-        mesh.renderOrder = 3;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.lavaMeshes.push(mesh);
-      }
+      this.meshCreationQueue.add({
+        meshData: result.lava,
+        material: this.chunkManager.lavaMaterial,
+        group: this.chunkManager.lavaGroup,
+        superChunk,
+        meshType: 'lava',
+        renderOrder: 3,
+        meshArray: this.chunkManager.lavaMeshes,
+      });
     }
     
     // Glass mesh
     if (result.glass && result.glass.positions.length > 0) {
-      const mesh = this._createMesh(result.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
-      if (mesh) {
-        mesh.renderOrder = 1;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.glassMeshes.push(mesh);
-      }
+      this.meshCreationQueue.add({
+        meshData: result.glass,
+        material: this.chunkManager.glassMaterial,
+        group: this.chunkManager.glassGroup,
+        superChunk,
+        meshType: 'glass',
+        renderOrder: 1,
+        meshArray: this.chunkManager.glassMeshes,
+      });
     }
     
     // Build model meshes on main thread from serialized grids
     if (result.grids) {
       const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
       if (modelResult) {
-        // Opaque models
+        // Opaque models - queue for deferred creation
         if (modelResult.opaque && modelResult.opaque.positions?.length > 0) {
-          const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
-          if (mesh) {
-            superChunk.meshes.push(mesh);
-            this.chunkManager.modelMeshes.push(mesh);
-          }
+          this.meshCreationQueue.add({
+            meshData: modelResult.opaque,
+            material: this.chunkManager.modelMaterial,
+            group: this.chunkManager.modelGroup,
+            superChunk,
+            meshType: 'modelOpaque',
+            meshArray: this.chunkManager.modelMeshes,
+          });
         }
         
         // Transparent models
         if (modelResult.transparent && modelResult.transparent.positions?.length > 0) {
-          const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
-          if (mesh) {
-            mesh.renderOrder = 0.5;
-            superChunk.meshes.push(mesh);
-            this.chunkManager.transparentModelMeshes.push(mesh);
-          }
+          this.meshCreationQueue.add({
+            meshData: modelResult.transparent,
+            material: this.chunkManager.transparentModelMaterial,
+            group: this.chunkManager.transparentModelGroup,
+            superChunk,
+            meshType: 'modelTransparent',
+            renderOrder: 0.5,
+            meshArray: this.chunkManager.transparentModelMeshes,
+          });
         }
         
         // Overlay models (grass side overlays)
         if (modelResult.overlay && modelResult.overlay.positions?.length > 0) {
-          const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
-          if (mesh) {
-            mesh.renderOrder = 0.1;
-            superChunk.meshes.push(mesh);
-            this.chunkManager.overlayMeshes?.push(mesh);
-          }
+          this.meshCreationQueue.add({
+            meshData: modelResult.overlay,
+            material: this.chunkManager.overlayMaterial,
+            group: this.chunkManager.overlayGroup,
+            superChunk,
+            meshType: 'modelOverlay',
+            renderOrder: 0.1,
+            meshArray: this.chunkManager.overlayMeshes,
+          });
         }
         
-        // Register particle emitters
+        // Register particle emitters (doesn't create meshes, do immediately)
         if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
           const emitterManager = this.chunkManager.particleEmitterManager;
           if (emitterManager) {

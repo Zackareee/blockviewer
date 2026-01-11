@@ -62,6 +62,9 @@ export class ChunkManager {
     this.onProgress = options.onProgress || null;
     this.onComplete = options.onComplete || null;
     
+    // Callback for processing mesh queue (set by ChunkStreamer/SuperChunkManager)
+    this._meshQueueProcessor = null;
+    
     // Track if manager has been disposed (for HMR detection)
     this._disposed = false;
     
@@ -1724,12 +1727,26 @@ export class ChunkManager {
   }
 
   /**
+   * Set mesh queue processor callback
+   * Called by ChunkStreamer to allow SuperChunkManager's mesh queue to be processed per-frame
+   * @param {Function} processor - Function that processes queued mesh creation
+   */
+  setMeshQueueProcessor(processor) {
+    this._meshQueueProcessor = processor;
+  }
+  
+  /**
    * Update particle system (call every frame)
    * @param {number} deltaTime - Time since last update in seconds
    * @param {number} time - Total elapsed time in seconds
    * @param {THREE.Camera} camera - The camera for distance culling
    */
   updateParticles(deltaTime, time, camera) {
+    // Process queued mesh creation (spread across frames)
+    if (this._meshQueueProcessor) {
+      this._meshQueueProcessor();
+    }
+    
     if (!this.particlesEnabled || !this.particleSystem) return;
     if (this.particleQuality === 'off') return; // Skip all updates when particles are off
     
