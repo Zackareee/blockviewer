@@ -2789,8 +2789,15 @@ async function processSuperChunk(data) {
     );
   }
   
-  // V3 Model Meshing - if V3 registry initialized, mesh models in WASM
-  if (v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0) {
+  // V3 Model Meshing - DISABLED until fully debugged
+  // The V3 mesh_models_v3 function is not producing correct geometry yet.
+  // The infrastructure is in place but needs debugging of:
+  // 1. ModelStateGrid serialization/deserialization
+  // 2. WASM mesh_models_v3 geometry output
+  // 3. Texture indices mapping
+  // For now, use the working fallback (grids returned to main thread)
+  const v3Enabled = false; // v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0;
+  if (v3Enabled) {
     try {
       const modelMeshes = wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds);
       

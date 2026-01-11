@@ -76,11 +76,14 @@ if command -v wasm-opt &> /dev/null; then
     wasm-opt -O3 pkg/wasm_mesher_bg.wasm -o pkg/wasm_mesher_bg.wasm
 fi
 
-# Copy to public directory and to wasm module directory
+# Copy to public directory and to wasm module directories
 echo "Copying to public/wasm and src/wasm/pkg..."
 cp -r "$WASM_DIR/pkg/"* "$PROJECT_ROOT/public/wasm/"
 mkdir -p "$PROJECT_ROOT/src/wasm/pkg"
 cp -r "$WASM_DIR/pkg/"* "$PROJECT_ROOT/src/wasm/pkg/"
+# Also copy to worker-accessible location
+mkdir -p "$PROJECT_ROOT/src/mesh/wasm/pkg"
+cp -r "$WASM_DIR/pkg/"* "$PROJECT_ROOT/src/mesh/wasm/pkg/"
 
 echo "=== Build complete ==="
 echo "WASM with Rayon parallel support built successfully!"
