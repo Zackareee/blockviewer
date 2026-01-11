@@ -630,6 +630,11 @@ pub fn is_hash_model_registry_initialized() -> bool {
     HASH_MODEL_REGISTRY.get().map(|r| !r.is_empty()).unwrap_or(false)
 }
 
+/// Get the number of models in the hash-based registry
+pub fn get_hash_model_registry_size() -> usize {
+    HASH_MODEL_REGISTRY.get().map(|r| r.len()).unwrap_or(0)
+}
+
 /// Expose hash function to JavaScript for pre-computing hashes
 #[wasm_bindgen]
 pub fn compute_state_hash(state_string: &str) -> u64 {

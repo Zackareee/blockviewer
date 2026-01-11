@@ -77,6 +77,18 @@ pub fn mesh_models(
     let mut faces_emitted = 0u32;
     let mut faces_culled = 0u32;
     
+    // Log state grid and registry info once
+    if should_log {
+        let section_count = state_grid.iter_sections_with_states().count();
+        let registry_size = super::registry::get_hash_model_registry_size();
+        let registry_initialized = super::registry::is_hash_model_registry_initialized();
+        web_sys::console::log_1(&format!(
+            "[WASM ModelMesher] Registry: {} models, initialized={}. State grid: {} sections. bounds={:?}",
+            registry_size, registry_initialized, section_count, 
+            bounds.map(|b| (b.min_chunk_x, b.min_chunk_z, b.max_chunk_x, b.max_chunk_z))
+        ).into());
+    }
+    
     // Iterate over sections with states
     for (key, section) in state_grid.iter_sections_with_states() {
         // Check bounds
