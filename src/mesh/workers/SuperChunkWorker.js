@@ -14,6 +14,7 @@
  */
 
 import pako from 'pako';
+import { ModelStateLookup } from './ModelStateLookup.js';
 
 // ============================================================================
 // Constants
@@ -49,6 +50,10 @@ let tintTypeLookup = null;
 let wasmModule = null;
 let wasmInitialized = false;
 let wasmLookupsInitialized = false;
+
+// V3 model meshing state
+let modelStateLookup = null;
+let v3RegistryInitialized = false;
 
 // ============================================================================
 // Decompression Helpers
@@ -296,6 +301,66 @@ function wasmMeshChunk(grid, lightGrid, bounds) {
       indices: new Uint32Array(result.glass_indices),
       vertexCount: result.glass_vertex_count,
     },
+  };
+}
+
+/**
+ * V3 Model Meshing - uses block-name-based registry with ModelStateGrid
+ * This meshes model blocks in WASM using the pre-baked geometry
+ */
+function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds) {
+  if (!wasmInitialized || !wasmLookupsInitialized || !v3RegistryInitialized) {
+    throw new Error('V3 WASM model mesher not ready');
+  }
+  
+  const gridData = serializeGridForWasm(grid);
+  const lightData = serializeLightGridForWasm(lightGrid);
+  const modelStateData = modelStateGrid.serializeForWasm();
+  
+  const result = wasmModule.mesh_models_v3(
+    gridData, lightData, modelStateData,
+    bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ
+  );
+  
+  // Extract model meshes from result
+  return {
+    modelOpaque: {
+      positions: new Float32Array(result.opaque_positions()),
+      normals: new Float32Array(result.opaque_normals()),
+      uvs: new Float32Array(result.opaque_uvs()),
+      colors: new Float32Array(result.opaque_colors()),
+      texIndices: new Float32Array(result.opaque_tex_indices()),
+      tintTypes: new Float32Array(result.opaque_tint_types()),
+      skyLight: new Float32Array(result.opaque_sky_light()),
+      blockLight: new Float32Array(result.opaque_block_light()),
+      indices: new Uint32Array(result.opaque_indices()),
+      vertexCount: result.opaque_vertex_count(),
+    },
+    modelTransparent: {
+      positions: new Float32Array(result.transparent_positions()),
+      normals: new Float32Array(result.transparent_normals()),
+      uvs: new Float32Array(result.transparent_uvs()),
+      colors: new Float32Array(result.transparent_colors()),
+      texIndices: new Float32Array(result.transparent_tex_indices()),
+      tintTypes: new Float32Array(result.transparent_tint_types()),
+      skyLight: new Float32Array(result.transparent_sky_light()),
+      blockLight: new Float32Array(result.transparent_block_light()),
+      indices: new Uint32Array(result.transparent_indices()),
+      vertexCount: result.transparent_vertex_count(),
+    },
+    modelOverlay: {
+      positions: new Float32Array(result.overlay_positions()),
+      normals: new Float32Array(result.overlay_normals()),
+      uvs: new Float32Array(result.overlay_uvs()),
+      colors: new Float32Array(result.overlay_colors()),
+      texIndices: new Float32Array(result.overlay_tex_indices()),
+      tintTypes: new Float32Array(result.overlay_tint_types()),
+      skyLight: new Float32Array(result.overlay_sky_light()),
+      blockLight: new Float32Array(result.overlay_block_light()),
+      indices: new Uint32Array(result.overlay_indices()),
+      vertexCount: result.overlay_vertex_count(),
+    },
+    beaconPositions: Array.from(result.beacon_positions()),
   };
 }
 
@@ -743,6 +808,111 @@ class WorkerBlockStateGrid {
 }
 
 // ============================================================================
+// Model State Grid (V3)
+// ============================================================================
+
+class WorkerModelStateGrid {
+  constructor() {
+    this.sections = new Map(); // key → Uint32Array(4096)
+  }
+  
+  _getOrCreateSection(cx, cz, sy) {
+    const key = makeSectionKey(cx, cz, sy);
+    let sec = this.sections.get(key);
+    if (!sec) {
+      sec = new Uint32Array(S3);
+      this.sections.set(key, sec);
+    }
+    return sec;
+  }
+  
+  set(x, y, z, modelState) {
+    const cx = Math.floor(x / S);
+    const cz = Math.floor(z / S);
+    const sy = Math.floor((y - MIN_Y) / S);
+    const sec = this._getOrCreateSection(cx, cz, sy);
+    
+    const lx = ((x % S) + S) % S;
+    const ly = ((y - MIN_Y) % S + S) % S;
+    const lz = ((z % S) + S) % S;
+    
+    sec[ly * S2 + lz * S + lx] = modelState;
+  }
+  
+  get(x, y, z) {
+    const cx = Math.floor(x / S);
+    const cz = Math.floor(z / S);
+    const sy = Math.floor((y - MIN_Y) / S);
+    const key = makeSectionKey(cx, cz, sy);
+    const sec = this.sections.get(key);
+    if (!sec) return 0;
+    
+    const lx = ((x % S) + S) % S;
+    const ly = ((y - MIN_Y) % S + S) % S;
+    const lz = ((z % S) + S) % S;
+    
+    return sec[ly * S2 + lz * S + lx];
+  }
+  
+  // Serialize for WASM consumption
+  // Format: [sectionCount: u32][sections...]
+  // Section: [key: u64][data: u32 × 4096]
+  serializeForWasm() {
+    // Count non-empty sections
+    const nonEmptySections = [];
+    for (const [key, section] of this.sections) {
+      let hasData = false;
+      for (let i = 0; i < section.length; i++) {
+        if (section[i] !== 0) {
+          hasData = true;
+          break;
+        }
+      }
+      if (hasData) {
+        nonEmptySections.push({ key, section });
+      }
+    }
+    
+    const sectionCount = nonEmptySections.length;
+    const totalSize = 4 + sectionCount * (8 + S3 * 4);
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+    let offset = 0;
+    
+    view.setUint32(offset, sectionCount, true);
+    offset += 4;
+    
+    for (const { key, section } of nonEmptySections) {
+      // Parse section key back to coords and pack as u64
+      const { chunkX, chunkZ, sectionY } = parseSectionKey(key);
+      const cx = (chunkX + 0x800000) & 0xFFFFFF;
+      const cz = (chunkZ + 0x800000) & 0xFFFFFF;
+      const sy = sectionY & 0xFFFF;
+      
+      // Pack: cx (24 bits at [40:64]) | cz (24 bits at [16:40]) | sy (16 bits at [0:16])
+      // Write as two 32-bit values for portability
+      const low = (cz << 16) | sy;
+      const high = (cx << 16) | (cz >> 8);
+      view.setUint32(offset, low, true);
+      view.setUint32(offset + 4, high, true);
+      offset += 8;
+      
+      // Write section data
+      for (let i = 0; i < S3; i++) {
+        view.setUint32(offset, section[i], true);
+        offset += 4;
+      }
+    }
+    
+    return new Uint8Array(buffer);
+  }
+  
+  get size() {
+    return this.sections.size;
+  }
+}
+
+// ============================================================================
 // Light Grid
 // ============================================================================
 
@@ -914,7 +1084,7 @@ function unpackBlockIndices(data, bitsPerBlock, totalBlocks) {
   return indices;
 }
 
-function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid) {
+function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid, modelStateGrid = null) {
   const chunkX = chunk.x;
   const chunkZ = chunk.z;
   const sections = chunk.data.sections || (chunk.data.Level?.Sections);
@@ -969,6 +1139,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
       // Pre-process palette
       const blockIds = new Uint16Array(palette.length);
       const stateIds = stateGrid ? new Uint16Array(palette.length) : null;
+      const modelStates = (modelStateGrid && modelStateLookup) ? new Uint32Array(palette.length) : null;
       const isAir = new Uint8Array(palette.length);
       const levels = new Int8Array(palette.length);
       const isWaterlogged = new Uint8Array(palette.length);
@@ -976,13 +1147,19 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
       for (let i = 0; i < palette.length; i++) {
         const entry = palette[i];
         const name = typeof entry === 'string' ? entry : (entry.Name || 'minecraft:air');
+        const shortName = name.replace('minecraft:', '');
         blockIds[i] = registry.getBlockId(name);
         isAir[i] = AIR_BLOCKS.has(name) || name.endsWith(':air') ? 1 : 0;
         
         // Register state if stateGrid and stateRegistry available
+        const props = (typeof entry === 'object' && entry.Properties) ? entry.Properties : {};
         if (stateGrid && stateRegistry && !isAir[i]) {
-          const props = (typeof entry === 'object' && entry.Properties) ? entry.Properties : {};
           stateIds[i] = stateRegistry.register(name, props);
+        }
+        
+        // V3: Get model state for model blocks
+        if (modelStates && !isAir[i] && modelStateLookup.isModelBlock(shortName)) {
+          modelStates[i] = modelStateLookup.getModelState(shortName, props);
         }
         
         if (name.includes('water') || name.includes('lava')) {
@@ -1001,12 +1178,30 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
       const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSY);
       const stateSection = stateGrid ? stateGrid._getOrCreateSection(chunkX, chunkZ, internalSY) : null;
       
+      // Pre-create model state section if needed
+      const hasModelBlocks = modelStates && modelStates.some(ms => ms !== 0);
+      
       if (palette.length === 1 || !blockData || blockData.length === 0) {
         if (!isAir[0]) {
           const lv = isWaterlogged[0] ? 8 : (levels[0] >= 0 ? levels[0] : 0);
           const val = (blockIds[0] & 0x0FFF) | ((lv & 0xF) << 12);
           gridSection.fill(val);
           if (stateSection && stateIds) stateSection.fill(stateIds[0]);
+          
+          // V3: Fill model state section if this is a model block
+          if (hasModelBlocks && modelStates[0] !== 0) {
+            const worldBaseX = chunkX * S;
+            const worldBaseZ = chunkZ * S;
+            const worldBaseY = baseY;
+            for (let ly = 0; ly < S; ly++) {
+              for (let lz = 0; lz < S; lz++) {
+                for (let lx = 0; lx < S; lx++) {
+                  modelStateGrid.set(worldBaseX + lx, worldBaseY + ly, worldBaseZ + lz, modelStates[0]);
+                }
+              }
+            }
+          }
+          
           totalBlocks += S3;
           grid.totalBlocks += S3;
         }
@@ -1016,12 +1211,27 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
       const bitsPerBlock = Math.max(4, Math.ceil(Math.log2(palette.length)));
       const indices = unpackBlockIndices(blockData, bitsPerBlock, S3);
       
+      // Pre-compute world coordinates base
+      const worldBaseX = chunkX * S;
+      const worldBaseZ = chunkZ * S;
+      const worldBaseY = baseY;
+      
       for (let i = 0; i < S3; i++) {
         const pi = indices[i];
         if (pi < palette.length && !isAir[pi]) {
           const lv = isWaterlogged[pi] ? 8 : (levels[pi] >= 0 ? levels[pi] : 0);
           gridSection[i] = (blockIds[pi] & 0x0FFF) | ((lv & 0xF) << 12);
           if (stateSection && stateIds) stateSection[i] = stateIds[pi];
+          
+          // V3: Store model state if this is a model block
+          if (modelStates && modelStates[pi] !== 0) {
+            // Convert section index to local coords
+            const ly = Math.floor(i / S2);
+            const lz = Math.floor((i % S2) / S);
+            const lx = i % S;
+            modelStateGrid.set(worldBaseX + lx, worldBaseY + ly, worldBaseZ + lz, modelStates[pi]);
+          }
+          
           totalBlocks++;
           grid.totalBlocks++;
         }
@@ -2271,6 +2481,11 @@ async function processSuperChunk(data) {
   const stateGrid = new WorkerBlockStateGrid();
   const lightGrid = new WorkerLightGrid();
   
+  // V3: Create model state grid only if V3 registry is initialized
+  const modelStateGrid = v3RegistryInitialized && modelStateLookup 
+    ? new WorkerModelStateGrid() 
+    : null;
+  
   const decodedChunks = [];
   
   // Decompress and decode all main chunks in parallel for speed
@@ -2298,7 +2513,7 @@ async function processSuperChunk(data) {
   for (const chunk of chunkResults) {
     if (chunk) {
       decodedChunks.push(chunk);
-      decodeChunk(chunk, grid, blockRegistry, stateGrid, stateRegistry, lightGrid);
+      decodeChunk(chunk, grid, blockRegistry, stateGrid, stateRegistry, lightGrid, modelStateGrid);
     }
   }
   
@@ -2574,8 +2789,71 @@ async function processSuperChunk(data) {
     );
   }
   
-  // Note: Model meshes are built on main thread using the serialized grids
-  // because the worker doesn't have access to ModelGeometry for computing geometry
+  // V3 Model Meshing - if V3 registry initialized, mesh models in WASM
+  if (v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0) {
+    try {
+      const modelMeshes = wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds);
+      
+      // Add model opaque mesh
+      if (modelMeshes.modelOpaque && modelMeshes.modelOpaque.vertexCount > 0) {
+        result.modelOpaque = modelMeshes.modelOpaque;
+        transferables.push(
+          modelMeshes.modelOpaque.positions.buffer,
+          modelMeshes.modelOpaque.normals.buffer,
+          modelMeshes.modelOpaque.uvs.buffer,
+          modelMeshes.modelOpaque.colors.buffer,
+          modelMeshes.modelOpaque.texIndices.buffer,
+          modelMeshes.modelOpaque.tintTypes.buffer,
+          modelMeshes.modelOpaque.skyLight.buffer,
+          modelMeshes.modelOpaque.blockLight.buffer,
+          modelMeshes.modelOpaque.indices.buffer
+        );
+      }
+      
+      // Add model transparent mesh
+      if (modelMeshes.modelTransparent && modelMeshes.modelTransparent.vertexCount > 0) {
+        result.modelTransparent = modelMeshes.modelTransparent;
+        transferables.push(
+          modelMeshes.modelTransparent.positions.buffer,
+          modelMeshes.modelTransparent.normals.buffer,
+          modelMeshes.modelTransparent.uvs.buffer,
+          modelMeshes.modelTransparent.colors.buffer,
+          modelMeshes.modelTransparent.texIndices.buffer,
+          modelMeshes.modelTransparent.tintTypes.buffer,
+          modelMeshes.modelTransparent.skyLight.buffer,
+          modelMeshes.modelTransparent.blockLight.buffer,
+          modelMeshes.modelTransparent.indices.buffer
+        );
+      }
+      
+      // Add model overlay mesh
+      if (modelMeshes.modelOverlay && modelMeshes.modelOverlay.vertexCount > 0) {
+        result.modelOverlay = modelMeshes.modelOverlay;
+        transferables.push(
+          modelMeshes.modelOverlay.positions.buffer,
+          modelMeshes.modelOverlay.normals.buffer,
+          modelMeshes.modelOverlay.uvs.buffer,
+          modelMeshes.modelOverlay.colors.buffer,
+          modelMeshes.modelOverlay.texIndices.buffer,
+          modelMeshes.modelOverlay.tintTypes.buffer,
+          modelMeshes.modelOverlay.skyLight.buffer,
+          modelMeshes.modelOverlay.blockLight.buffer,
+          modelMeshes.modelOverlay.indices.buffer
+        );
+      }
+      
+      // Add beacon positions
+      if (modelMeshes.beaconPositions && modelMeshes.beaconPositions.length > 0) {
+        result.beaconPositions = modelMeshes.beaconPositions;
+      }
+      
+      // Clear grids from result since model meshing was done in worker
+      result.grids = null;
+    } catch (e) {
+      console.warn('[SuperChunkWorker] V3 model meshing failed:', e.message);
+      // Fall back to returning grids for main thread model meshing
+    }
+  }
   
   const totalTime = performance.now() - startTime;
   
@@ -2624,7 +2902,7 @@ self.onmessage = async function(e) {
         initWasmLookups(data.wasmLookups);
       }
       
-      // Initialize WASM model registry if model geometry data is provided
+      // Initialize WASM model registry if model geometry data is provided (V2 - legacy)
       let modelRegistryReady = false;
       if (wasmReady && data.modelGeometry && wasmModule) {
         try {
@@ -2636,15 +2914,42 @@ self.onmessage = async function(e) {
             mg.geometryData
           );
           modelRegistryReady = true;
-          console.log(`[SuperChunkWorker] WASM model registry initialized: ${mg.stateIds.length} states, ${mg.faceCount} faces`);
+          console.log(`[SuperChunkWorker] WASM model registry V2 initialized: ${mg.stateIds.length} states, ${mg.faceCount} faces`);
         } catch (err) {
-          console.warn('[SuperChunkWorker] Failed to init model registry:', err);
+          console.warn('[SuperChunkWorker] Failed to init model registry V2:', err);
         }
+      }
+      
+      // Initialize V3 block model registry (block-name-based)
+      if (wasmReady && data.bakedModels && wasmModule) {
+        try {
+          const bakedData = new Uint8Array(data.bakedModels);
+          const result = wasmModule.init_block_model_registry(bakedData);
+          if (result) {
+            v3RegistryInitialized = true;
+            console.log(`[SuperChunkWorker] V3 block model registry initialized: ${(bakedData.length / 1024).toFixed(1)} KB`);
+          }
+        } catch (err) {
+          console.warn('[SuperChunkWorker] Failed to init V3 block model registry:', err);
+        }
+      }
+      
+      // Initialize ModelStateLookup for V3
+      if (data.manifest) {
+        modelStateLookup = new ModelStateLookup();
+        modelStateLookup.init(data.manifest);
+        console.log(`[SuperChunkWorker] ModelStateLookup initialized`);
       }
       
       workerInitialized = true;
       
-      self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized, modelRegistryReady });
+      self.postMessage({ 
+        type: 'ready', 
+        id, 
+        wasmAvailable: wasmInitialized && wasmLookupsInitialized, 
+        modelRegistryReady,
+        v3RegistryReady: v3RegistryInitialized && modelStateLookup !== null,
+      });
       break;
     }
     

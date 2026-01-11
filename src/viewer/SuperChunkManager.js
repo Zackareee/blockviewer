@@ -844,14 +844,41 @@ export class SuperChunkManager {
       const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
       const wasmLookups = this._buildWasmLookupsForWorker(textureIndexLookup);
       
-      // Get serialized model geometry for worker WASM model registry
+      // Get serialized model geometry for worker WASM model registry (V2 - legacy)
       const modelGeometryData = getSerializedModelGeometry(this.stateRegistry);
+      
+      // Load V3 baked models and manifest for worker model meshing
+      let bakedModelsData = null;
+      let manifestData = null;
+      try {
+        const [bakedResponse, manifestResponse] = await Promise.all([
+          fetch('/assets/baked-models.bin'),
+          fetch('/assets/block-model-manifest.json'),
+        ]);
+        
+        if (bakedResponse.ok && manifestResponse.ok) {
+          bakedModelsData = await bakedResponse.arrayBuffer();
+          manifestData = await manifestResponse.json();
+          console.log(`[SuperChunkManager] V3 baked models loaded: ${(bakedModelsData.byteLength / 1024).toFixed(1)} KB`);
+        } else {
+          console.warn('[SuperChunkManager] Failed to load V3 baked models, falling back to main-thread model meshing');
+        }
+      } catch (e) {
+        console.warn('[SuperChunkManager] Failed to load V3 assets:', e.message);
+      }
       
       // Get or create the worker pool
       this.superChunkWorkerPool = getSuperChunkWorkerPool();
       
-      // Initialize with registry data including WASM lookups and model geometry
-      await this.superChunkWorkerPool.initialize(blockRegistryData, stateRegistryData, wasmLookups, modelGeometryData);
+      // Initialize with registry data including WASM lookups, model geometry, and V3 data
+      await this.superChunkWorkerPool.initialize(
+        blockRegistryData, 
+        stateRegistryData, 
+        wasmLookups, 
+        modelGeometryData,
+        bakedModelsData,
+        manifestData
+      );
       
       this.superChunkWorkerPoolInitialized = true;
       console.log('[SuperChunkManager] SuperChunkWorkerPool initialized successfully');
@@ -1443,7 +1470,47 @@ export class SuperChunkManager {
       }
     }
     
-    // Build model meshes from grids (deferred to not block the frame)
+    // V3: Model meshes come directly from worker WASM
+    if (result.modelOpaque && result.modelOpaque.positions?.length > 0) {
+      const mesh = this._createMesh(result.modelOpaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.modelMeshes.push(mesh);
+      }
+    }
+    
+    if (result.modelTransparent && result.modelTransparent.positions?.length > 0) {
+      const mesh = this._createMesh(result.modelTransparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+      if (mesh) {
+        mesh.renderOrder = 0.5;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.transparentModelMeshes.push(mesh);
+      }
+    }
+    
+    if (result.modelOverlay && result.modelOverlay.positions?.length > 0) {
+      const mesh = this._createMesh(result.modelOverlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
+      if (mesh) {
+        mesh.renderOrder = 0.1;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.overlayMeshes?.push(mesh);
+      }
+    }
+    
+    // Register beacon positions
+    if (result.beaconPositions && result.beaconPositions.length > 0) {
+      const beaconManager = this.chunkManager.beaconBeamManager;
+      if (beaconManager) {
+        for (let i = 0; i < result.beaconPositions.length; i += 3) {
+          const x = result.beaconPositions[i];
+          const y = result.beaconPositions[i + 1];
+          const z = result.beaconPositions[i + 2];
+          beaconManager.addBeacon(x, y, z);
+        }
+      }
+    }
+    
+    // Legacy fallback: Build model meshes from grids (deferred to not block the frame)
     if (result.grids) {
       // Queue model mesh building for next idle callback to avoid blocking this frame
       this._queueModelMeshBuild(superChunk, result.grids);
