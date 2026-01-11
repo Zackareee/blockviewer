@@ -49,7 +49,6 @@ let tintTypeLookup = null;
 let wasmModule = null;
 let wasmInitialized = false;
 let wasmLookupsInitialized = false;
-let wasmParallelAvailable = false;
 
 // ============================================================================
 // Decompression Helpers
@@ -122,31 +121,6 @@ async function initWasmMesher() {
     
     wasmModule = wasm;
     wasmInitialized = true;
-    
-    // Try to initialize Rayon thread pool if parallel feature is available
-    if (typeof wasm.is_parallel_available === 'function' && wasm.is_parallel_available()) {
-      try {
-        // Use navigator.hardwareConcurrency or default to 4 threads
-        // Reserve 2 threads for main thread and this worker
-        const availableCores = navigator?.hardwareConcurrency || 4;
-        const numThreads = Math.max(2, Math.min(availableCores - 2, 8));
-        
-        // wasm-bindgen-rayon requires initThreadPool to be called
-        // The WASM module exports this when built with the parallel feature
-        await wasm.init_thread_pool(numThreads);
-        
-        // Track that parallel meshing is available
-        wasmParallelAvailable = true;
-        
-        console.log(`[SuperChunkWorker] Rayon thread pool initialized with ${numThreads} threads`);
-      } catch (e) {
-        console.warn('[SuperChunkWorker] Failed to init Rayon thread pool:', e.message);
-        wasmParallelAvailable = false;
-      }
-    } else {
-      wasmParallelAvailable = false;
-    }
-    
     console.log('[SuperChunkWorker] WASM module initialized');
     return true;
   } catch (error) {
@@ -186,94 +160,6 @@ function initWasmLookups(lookups) {
     return true;
   } catch (error) {
     console.error('[SuperChunkWorker] Failed to init WASM lookups:', error);
-    return false;
-  }
-}
-
-// Track WASM model registry initialization
-let wasmStateRegistryInitialized = false;
-let wasmModelRegistryInitialized = false;
-
-/**
- * Initialize WASM state registry for model block resolution
- * @param {Object} stateData - { stateStrings: string[], stateIds: Uint16Array }
- */
-function initWasmStateRegistry(stateData) {
-  if (!wasmInitialized || !wasmModule) {
-    console.warn('[SuperChunkWorker] Cannot init state registry - WASM not available');
-    return false;
-  }
-  
-  if (!stateData || !stateData.stateStrings || stateData.stateStrings.length === 0) {
-    console.warn('[SuperChunkWorker] No state data provided');
-    return false;
-  }
-  
-  try {
-    // WASM expects newline-separated strings + u16 array
-    const stateStringsJoined = stateData.stateStrings.join('\n');
-    const stateIds = new Uint16Array(stateData.stateIds);
-    
-    wasmModule.init_state_registry(stateStringsJoined, stateIds);
-    wasmStateRegistryInitialized = true;
-    console.log(`[SuperChunkWorker] WASM state registry initialized with ${stateData.stateStrings.length} states`);
-    return true;
-  } catch (error) {
-    console.error('[SuperChunkWorker] Failed to init WASM state registry:', error);
-    return false;
-  }
-}
-
-/**
- * Initialize WASM model registry with pre-baked geometry using HASH-BASED lookup
- * This uses state strings instead of IDs to eliminate synchronization issues
- * @param {Object} modelData - { stateStrings: string[], geometryData: Uint8Array }
- */
-function initWasmModelRegistry(modelData) {
-  if (!wasmInitialized || !wasmModule) {
-    console.warn('[SuperChunkWorker] Cannot init model registry - WASM not available');
-    return false;
-  }
-  
-  if (!modelData || !modelData.geometryData || modelData.geometryData.length === 0) {
-    console.warn('[SuperChunkWorker] No model geometry data provided');
-    return false;
-  }
-  
-  try {
-    // Use HASH-BASED model registry (state strings → hash → geometry lookup)
-    // This eliminates the need for synchronized state IDs between threads
-    if (modelData.stateStrings && modelData.stateStrings.length > 0) {
-      // stateStrings can be either:
-      // 1. A newline-separated string (from exportHashModelGeometryForWasm)
-      // 2. An array of strings (legacy format)
-      const stateStringsJoined = typeof modelData.stateStrings === 'string' 
-        ? modelData.stateStrings 
-        : modelData.stateStrings.join('\n');
-      const stateCount = typeof modelData.stateStrings === 'string'
-        ? modelData.stateStrings.split('\n').length
-        : modelData.stateStrings.length;
-      const geometryData = new Uint8Array(modelData.geometryData);
-      
-      wasmModule.init_hash_model_registry(stateStringsJoined, geometryData);
-      wasmModelRegistryInitialized = true;
-      console.log(`[SuperChunkWorker] WASM HASH-BASED model registry initialized with ${stateCount} states, ${(modelData.geometryData.length / 1024).toFixed(1)}KB`);
-      return true;
-    } else if (modelData.stateIds) {
-      // Fallback to legacy ID-based registry if state strings not provided
-      const stateIds = new Uint16Array(modelData.stateIds);
-      const geometryData = new Uint8Array(modelData.geometryData);
-      
-      wasmModule.init_model_registry(stateIds, geometryData);
-      wasmModelRegistryInitialized = true;
-      console.log(`[SuperChunkWorker] WASM model registry initialized with ${modelData.stateIds.length} states (legacy ID-based), ${(modelData.geometryData.length / 1024).toFixed(1)}KB`);
-      return true;
-    } else {
-      console.warn('[SuperChunkWorker] No state identifiers provided for model registry');
-      return false;
-    }
-  } catch (error) {
-    console.error('[SuperChunkWorker] Failed to init WASM model registry:', error);
     return false;
   }
 }
@@ -349,35 +235,21 @@ function serializeLightGridForWasm(lightGrid) {
   return new Uint8Array(buffer);
 }
 
-function wasmMeshChunk(grid, lightGrid, stateGrid, bounds) {
+function wasmMeshChunk(grid, lightGrid, bounds) {
   if (!wasmInitialized || !wasmLookupsInitialized) {
     throw new Error('WASM mesher not ready');
   }
   
   const gridData = serializeGridForWasm(grid);
   const lightData = serializeLightGridForWasm(lightGrid);
-  
-  // Serialize state grid for WASM model meshing
-  // If WASM state/model registries are initialized, pass the state grid
-  // Otherwise pass empty marker and model meshing will happen on main thread
-  const canUseWasmModels = wasmStateRegistryInitialized && wasmModelRegistryInitialized && stateGrid;
-  const stateData = canUseWasmModels
-    ? stateGrid.serializeForWasm() 
-    : new Uint8Array(4);
-  
-  // One-time log of WASM model capability
-  if (!wasmMeshChunk._capabilityLogged) {
-    wasmMeshChunk._capabilityLogged = true;
-    console.log(`[SuperChunkWorker] WASM model meshing: ${canUseWasmModels ? 'ENABLED' : 'DISABLED'} (state=${wasmStateRegistryInitialized}, model=${wasmModelRegistryInitialized}, hasStateGrid=${!!stateGrid}, stateDataSize=${stateData.length})`);
-  }
+  const stateData = new Uint8Array(4); // Empty state grid for now
   
   const result = wasmModule.mesh_chunk_bounded(
     gridData, lightData, stateData, null, 0,
     bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ
   );
   
-  // Build base mesh result
-  const meshResult = {
+  return {
     solid: {
       positions: new Float32Array(result.solid_positions),
       normals: new Float32Array(result.solid_normals),
@@ -425,52 +297,6 @@ function wasmMeshChunk(grid, lightGrid, stateGrid, bounds) {
       vertexCount: result.glass_vertex_count,
     },
   };
-  
-  // Include model meshes from WASM if available
-  // These are only populated when WASM state/model registries are initialized
-  if (result.model_opaque_vertex_count > 0) {
-    meshResult.modelOpaque = {
-      positions: new Float32Array(result.model_opaque_positions),
-      normals: new Float32Array(result.model_opaque_normals),
-      colors: new Float32Array(result.model_opaque_colors),
-      uvs: new Float32Array(result.model_opaque_uvs),
-      texIndices: new Float32Array(result.model_opaque_tex_indices),
-      tintTypes: new Float32Array(result.model_opaque_tint_types),
-      skyLight: new Float32Array(result.model_opaque_sky_light),
-      blockLight: new Float32Array(result.model_opaque_block_light),
-      indices: new Uint32Array(result.model_opaque_indices),
-      vertexCount: result.model_opaque_vertex_count,
-    };
-  }
-  
-  if (result.model_transparent_vertex_count > 0) {
-    meshResult.modelTransparent = {
-      positions: new Float32Array(result.model_transparent_positions),
-      normals: new Float32Array(result.model_transparent_normals),
-      colors: new Float32Array(result.model_transparent_colors),
-      uvs: new Float32Array(result.model_transparent_uvs),
-      texIndices: new Float32Array(result.model_transparent_tex_indices),
-      tintTypes: new Float32Array(result.model_transparent_tint_types),
-      skyLight: new Float32Array(result.model_transparent_sky_light),
-      blockLight: new Float32Array(result.model_transparent_block_light),
-      indices: new Uint32Array(result.model_transparent_indices),
-      vertexCount: result.model_transparent_vertex_count,
-    };
-  }
-  
-  // Flag to indicate WASM handled model meshing
-  // ONLY set true if WASM actually produced model vertices
-  // Don't skip main thread fallback if WASM returns empty models
-  const hasWasmModels = result.model_opaque_vertex_count > 0 || result.model_transparent_vertex_count > 0;
-  meshResult.wasmModelsIncluded = hasWasmModels;
-  
-  // One-time log of first WASM mesh result with models
-  if (!wasmMeshChunk._resultLogged) {
-    wasmMeshChunk._resultLogged = true;
-    console.log(`[SuperChunkWorker] First WASM mesh: solid=${result.solid_vertex_count}, modelOpaque=${result.model_opaque_vertex_count}, hasWasmModels=${hasWasmModels}, canUseWasmModels=${canUseWasmModels}`);
-  }
-  
-  return meshResult;
 }
 
 // ============================================================================
@@ -850,10 +676,6 @@ class WorkerBinaryGrid {
     return sec[ly * S2 + lz * S + lx];
   }
   
-  getBlockId(x, y, z) {
-    return this.getBlock(x, y, z) & BLOCK_ID_MASK;
-  }
-  
   // Serialize for transfer to main thread
   serialize() {
     const serialized = [];
@@ -874,42 +696,12 @@ class WorkerBinaryGrid {
 }
 
 // ============================================================================
-// Block State Grid (stores u64 FNV hashes for WASM model meshing)
+// Block State Grid
 // ============================================================================
-
-// FNV-1a constants for 64-bit hash
-const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-
-/**
- * Compute FNV-1a 64-bit hash of a string (matches Rust fnv crate)
- */
-function fnv1aHash(str) {
-  let hash = FNV_OFFSET_BASIS;
-  for (let i = 0; i < str.length; i++) {
-    hash ^= BigInt(str.charCodeAt(i));
-    hash = (hash * FNV_PRIME) & 0xFFFFFFFFFFFFFFFFn;
-  }
-  return hash;
-}
-
-/**
- * Build canonical state string from block name and properties
- */
-function buildStateString(blockName, properties = {}) {
-  const name = blockName.startsWith('minecraft:') ? blockName : `minecraft:${blockName}`;
-  const keys = Object.keys(properties).sort();
-  if (keys.length === 0) return name;
-  const propsStr = keys.map(k => `${k}=${properties[k]}`).join(',');
-  return `${name}[${propsStr}]`;
-}
 
 class WorkerBlockStateGrid {
   constructor() {
-    // Store u16 legacy IDs (primary, for backward compatibility)
     this.sections = new Map();
-    // Store u64 hashes for WASM model meshing
-    this.hashSections = new Map();
   }
   
   _getOrCreateSection(cx, cz, sy) {
@@ -922,24 +714,15 @@ class WorkerBlockStateGrid {
     return sec;
   }
   
-  _getOrCreateHashSection(cx, cz, sy) {
-    const key = makeSectionKey(cx, cz, sy);
-    let sec = this.hashSections.get(key);
-    if (!sec) {
-      sec = new BigUint64Array(S3);
-      this.hashSections.set(key, sec);
-    }
-    return sec;
-  }
-  
   getSection(cx, cz, sy) {
     return this.sections.get(makeSectionKey(cx, cz, sy));
   }
   
-  // Serialize legacy u16 data for transfer to main thread
+  // Serialize for transfer to main thread
   serialize() {
     const serialized = [];
     for (const [key, section] of this.sections) {
+      // Only include non-empty sections
       let hasData = false;
       for (let i = 0; i < section.length; i++) {
         if (section[i] !== 0) {
@@ -953,64 +736,6 @@ class WorkerBlockStateGrid {
     }
     return serialized;
   }
-  
-  /**
-   * Serialize u64 hashes for WASM consumption
-   * Format: [num_sections: u32][section_key: u64, data: [u64; 4096]]...
-   * @returns {Uint8Array}
-   */
-  serializeForWasm() {
-    const nonEmptySections = [];
-    for (const [key, section] of this.hashSections) {
-      let hasData = false;
-      for (let i = 0; i < section.length; i++) {
-        if (section[i] !== 0n) {
-          hasData = true;
-          break;
-        }
-      }
-      if (hasData) {
-        nonEmptySections.push({ key, section });
-      }
-    }
-    
-    if (nonEmptySections.length === 0) {
-      return new Uint8Array(4);
-    }
-    
-    // Calculate buffer size: 4 + (8 + 4096*8) * numSections
-    const SECTION_DATA_SIZE = S3 * 8; // 4096 * 8 bytes per u64
-    const bufferSize = 4 + nonEmptySections.length * (8 + SECTION_DATA_SIZE);
-    const buffer = new ArrayBuffer(bufferSize);
-    const view = new DataView(buffer);
-    
-    view.setUint32(0, nonEmptySections.length, true);
-    
-    let offset = 4;
-    for (const { key, section } of nonEmptySections) {
-      const parts = key.split(',');
-      const chunkX = parseInt(parts[0], 10);
-      const chunkZ = parseInt(parts[1], 10);
-      const sectionY = parseInt(parts[2], 10);
-      
-      // Pack section key to u64
-      const cx = BigInt(chunkX + 0x800000);
-      const cz = BigInt(chunkZ + 0x800000);
-      const sy = BigInt(sectionY & 0xFFFF);
-      const packedKey = (cx << 40n) | (cz << 16n) | sy;
-      
-      view.setBigUint64(offset, packedKey, true);
-      offset += 8;
-      
-      // Write section data (u64 hashes)
-      for (let i = 0; i < S3; i++) {
-        view.setBigUint64(offset, section[i], true);
-        offset += 8;
-      }
-    }
-    
-    return new Uint8Array(buffer);
-  }
 }
 
 // ============================================================================
@@ -1021,11 +746,6 @@ class WorkerLightGrid {
   constructor() {
     this.sections = new Map();
     this.hasMinecraftLightData = false;
-    // Track bounds for smart missing section handling
-    this.minChunkX = Infinity;
-    this.maxChunkX = -Infinity;
-    this.minChunkZ = Infinity;
-    this.maxChunkZ = -Infinity;
   }
   
   _getOrCreateSection(cx, cz, sy) {
@@ -1033,15 +753,9 @@ class WorkerLightGrid {
     let sec = this.sections.get(key);
     if (!sec) {
       // Each byte: high nibble = block light, low nibble = sky light
-      // Default to 0 (dark) - propagation will fill in correct values
       sec = new Uint8Array(S3);
-      sec.fill(0x00);
+      sec.fill(0x0F); // Default: sky 15, block 0
       this.sections.set(key, sec);
-      // Update bounds
-      if (cx < this.minChunkX) this.minChunkX = cx;
-      if (cx > this.maxChunkX) this.maxChunkX = cx;
-      if (cz < this.minChunkZ) this.minChunkZ = cz;
-      if (cz > this.maxChunkZ) this.maxChunkZ = cz;
     }
     return sec;
   }
@@ -1055,59 +769,12 @@ class WorkerLightGrid {
     const cz = Math.floor(z / S);
     const sy = Math.floor((y - MIN_Y) / S);
     const sec = this.getSection(cx, cz, sy);
-    if (!sec) {
-      // Smart default: check if position is within loaded bounds
-      const withinBounds = 
-        cx >= this.minChunkX && cx <= this.maxChunkX &&
-        cz >= this.minChunkZ && cz <= this.maxChunkZ;
-      
-      if (this.hasMinecraftLightData && withinBounds) {
-        // Within loaded chunks with MC data - missing section = underground
-        return { sky: 0, block: 0 };
-      }
-      // Outside bounds or no MC data - default to bright (safe fallback)
-      return { sky: 15, block: 0 };
-    }
+    if (!sec) return { sky: 15, block: 0 };
     const lx = ((x % S) + S) % S;
     const ly = ((y - MIN_Y) % S + S) % S;
     const lz = ((z % S) + S) % S;
     const val = sec[ly * S2 + lz * S + lx];
     return { sky: val & 0x0F, block: (val >> 4) & 0x0F };
-  }
-  
-  getSkyLight(x, y, z) {
-    const light = this.getLight(x, y, z);
-    return light.sky;
-  }
-  
-  setSkyLight(x, y, z, level) {
-    const cx = Math.floor(x / S);
-    const cz = Math.floor(z / S);
-    const sy = Math.floor((y - MIN_Y) / S);
-    const sec = this._getOrCreateSection(cx, cz, sy);
-    const lx = ((x % S) + S) % S;
-    const ly = ((y - MIN_Y) % S + S) % S;
-    const lz = ((z % S) + S) % S;
-    const idx = ly * S2 + lz * S + lx;
-    sec[idx] = (sec[idx] & 0xF0) | (level & 0x0F);
-  }
-  
-  getBlockLight(x, y, z) {
-    const light = this.getLight(x, y, z);
-    return light.block;
-  }
-  
-  setBlockLight(x, y, z, level) {
-    const cx = Math.floor(x / S);
-    const cz = Math.floor(z / S);
-    const sy = Math.floor((y - MIN_Y) / S);
-    const sec = this._getOrCreateSection(cx, cz, sy);
-    const lx = ((x % S) + S) % S;
-    const ly = ((y - MIN_Y) % S + S) % S;
-    const lz = ((z % S) + S) % S;
-    const idx = ly * S2 + lz * S + lx;
-    // Block light is stored in high nibble
-    sec[idx] = (sec[idx] & 0x0F) | ((level & 0x0F) << 4);
   }
   
   // Serialize for transfer to main thread
@@ -1240,7 +907,6 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
       // Pre-process palette
       const blockIds = new Uint16Array(palette.length);
       const stateIds = stateGrid ? new Uint16Array(palette.length) : null;
-      const stateHashes = stateGrid ? new Array(palette.length) : null; // BigInt hashes for WASM
       const isAir = new Uint8Array(palette.length);
       const levels = new Int8Array(palette.length);
       const isWaterlogged = new Uint8Array(palette.length);
@@ -1255,12 +921,6 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
         if (stateGrid && stateRegistry && !isAir[i]) {
           const props = (typeof entry === 'object' && entry.Properties) ? entry.Properties : {};
           stateIds[i] = stateRegistry.register(name, props);
-          
-          // Compute FNV-1a hash for WASM model meshing
-          const stateString = buildStateString(name, props);
-          stateHashes[i] = fnv1aHash(stateString);
-        } else if (stateHashes) {
-          stateHashes[i] = 0n;
         }
         
         if (name.includes('water') || name.includes('lava')) {
@@ -1278,7 +938,6 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
       const blockData = blockStates.data;
       const gridSection = grid._getOrCreateSection(chunkX, chunkZ, internalSY);
       const stateSection = stateGrid ? stateGrid._getOrCreateSection(chunkX, chunkZ, internalSY) : null;
-      const hashSection = stateGrid ? stateGrid._getOrCreateHashSection(chunkX, chunkZ, internalSY) : null;
       
       if (palette.length === 1 || !blockData || blockData.length === 0) {
         if (!isAir[0]) {
@@ -1286,7 +945,6 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
           const val = (blockIds[0] & 0x0FFF) | ((lv & 0xF) << 12);
           gridSection.fill(val);
           if (stateSection && stateIds) stateSection.fill(stateIds[0]);
-          if (hashSection && stateHashes) hashSection.fill(stateHashes[0]);
           totalBlocks += S3;
           grid.totalBlocks += S3;
         }
@@ -1302,7 +960,6 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
           const lv = isWaterlogged[pi] ? 8 : (levels[pi] >= 0 ? levels[pi] : 0);
           gridSection[i] = (blockIds[pi] & 0x0FFF) | ((lv & 0xF) << 12);
           if (stateSection && stateIds) stateSection[i] = stateIds[pi];
-          if (hashSection && stateHashes) hashSection[i] = stateHashes[pi];
           totalBlocks++;
           grid.totalBlocks++;
         }
@@ -1314,374 +971,21 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
 }
 
 // ============================================================================
-// Light Propagation - Full BFS with neighbor data support
+// Light Propagation (Simplified - uses Minecraft light data if available)
 // ============================================================================
 
-/**
- * Ring buffer queue for O(1) enqueue/dequeue operations.
- * Standard array.shift() is O(n) which becomes a bottleneck for BFS.
- */
-class LightQueue {
-  constructor(initialCapacity = 32768) {
-    this.capacity = initialCapacity;
-    // Packed: x (i16), y (i16), z (i16), light (i16)
-    this.data = new Int16Array(initialCapacity * 4);
-    this.head = 0;
-    this.tail = 0;
-    this.size = 0;
-  }
-  
-  get length() { return this.size; }
-  
-  push(x, y, z, light) {
-    if (this.size >= this.capacity) this._grow();
-    const idx = this.tail * 4;
-    this.data[idx] = x;
-    this.data[idx + 1] = y;
-    this.data[idx + 2] = z;
-    this.data[idx + 3] = light;
-    this.tail = (this.tail + 1) % this.capacity;
-    this.size++;
-  }
-  
-  shift() {
-    if (this.size === 0) return null;
-    const idx = this.head * 4;
-    const x = this.data[idx];
-    const y = this.data[idx + 1];
-    const z = this.data[idx + 2];
-    const light = this.data[idx + 3];
-    this.head = (this.head + 1) % this.capacity;
-    this.size--;
-    return { x, y, z, light };
-  }
-  
-  _grow() {
-    const newCapacity = this.capacity * 2;
-    const newData = new Int16Array(newCapacity * 4);
-    for (let i = 0; i < this.size; i++) {
-      const oldIdx = ((this.head + i) % this.capacity) * 4;
-      const newIdx = i * 4;
-      newData[newIdx] = this.data[oldIdx];
-      newData[newIdx + 1] = this.data[oldIdx + 1];
-      newData[newIdx + 2] = this.data[oldIdx + 2];
-      newData[newIdx + 3] = this.data[oldIdx + 3];
-    }
-    this.data = newData;
-    this.head = 0;
-    this.tail = this.size;
-    this.capacity = newCapacity;
-  }
-}
-
-/**
- * Get light opacity for a block
- */
-function getLightOpacity(blockId, isOpaque, isGlass, isFluid, isNonCube) {
-  if (blockId === 0) return 0; // Air
-  if (isNonCube[blockId]) return 0; // Transparent non-cubes
-  if (isGlass[blockId]) return 0; // Glass passes light
-  if (isFluid[blockId]) return 1; // Water/lava attenuates slightly
-  if (isOpaque[blockId]) return 15; // Fully opaque
-  return 0;
-}
-
-/**
- * Propagate sky light through the block grid using BFS flood-fill.
- * 
- * Algorithm:
- * 1. Build heightmap (highest opaque block per column)
- * 2. Set sky light = 15 for all blocks above heightmap
- * 3. BFS flood-fill light into shadowed areas
- */
 function propagateSkyLight(grid, lightGrid, registry) {
-  // Build lookup tables for fast access
-  const isOpaque = new Uint8Array(4096);
-  const isGlass = new Uint8Array(4096);
-  const isFluid = new Uint8Array(4096);
-  const isNonCube = new Uint8Array(4096);
-  
-  for (let id = 0; id < 4096; id++) {
-    const info = registry.getInfo(id);
-    if (info) {
-      isOpaque[id] = info.opaque ? 1 : 0;
-      isNonCube[id] = info.nonCube ? 1 : 0;
-      if (info.name) {
-        if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('leaves')) {
-          isGlass[id] = 1;
-        }
-        if (info.name.includes('water') || info.name.includes('lava')) {
-          isFluid[id] = 1;
-        }
-      }
-    }
-  }
-  
-  // Get bounds from grid
-  let minX = Infinity, maxX = -Infinity;
-  let minZ = Infinity, maxZ = -Infinity;
-  let minY = Infinity, maxY = -Infinity;
-  
-  for (const [key] of grid.sections) {
-    const { chunkX, chunkZ, sectionY } = parseSectionKey(key);
-    const baseX = chunkX * S;
-    const baseZ = chunkZ * S;
-    const baseY = sectionY * S + MIN_Y;
-    
-    minX = Math.min(minX, baseX);
-    maxX = Math.max(maxX, baseX + S - 1);
-    minZ = Math.min(minZ, baseZ);
-    maxZ = Math.max(maxZ, baseZ + S - 1);
-    minY = Math.min(minY, baseY);
-    maxY = Math.max(maxY, baseY + S - 1);
-  }
-  
-  if (minX === Infinity) return; // No sections
-  
-  const width = maxX - minX + 1;
-  const depth = maxZ - minZ + 1;
-  
-  // Phase 1: Build heightmap (highest Y that blocks sky light)
-  const heightmap = new Int16Array(width * depth);
-  heightmap.fill(minY - 1);
-  
-  for (const [key, section] of grid.sections) {
-    const { chunkX, chunkZ, sectionY } = parseSectionKey(key);
-    const baseX = chunkX * S;
-    const baseZ = chunkZ * S;
-    const baseY = sectionY * S + MIN_Y;
-    
-    for (let ly = S - 1; ly >= 0; ly--) {
-      const worldY = baseY + ly;
-      for (let lz = 0; lz < S; lz++) {
-        for (let lx = 0; lx < S; lx++) {
-          const worldX = baseX + lx;
-          const worldZ = baseZ + lz;
-          const hmIdx = (worldX - minX) + (worldZ - minZ) * width;
-          
-          if (heightmap[hmIdx] < worldY) {
-            const idx = ly * S2 + lz * S + lx;
-            const blockId = section[idx] & BLOCK_ID_MASK;
-            
-            // Check if this block blocks light
-            const opacity = getLightOpacity(blockId, isOpaque, isGlass, isFluid, isNonCube);
-            if (opacity >= 15) {
-              heightmap[hmIdx] = worldY;
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  // Phase 2: Set sky light and seed BFS queue
-  const queue = new LightQueue();
-  const MAX_LIGHT = 15;
-  
+  // For now, just set sky light to 15 for all air blocks at max height
+  // Full propagation would be expensive - rely on Minecraft's light data
   for (const [key, section] of grid.sections) {
     const { chunkX, chunkZ, sectionY } = parseSectionKey(key);
     const lightSection = lightGrid._getOrCreateSection(chunkX, chunkZ, sectionY);
-    const baseX = chunkX * S;
-    const baseZ = chunkZ * S;
-    const baseY = sectionY * S + MIN_Y;
     
-    for (let ly = 0; ly < S; ly++) {
-      const worldY = baseY + ly;
-      for (let lz = 0; lz < S; lz++) {
-        for (let lx = 0; lx < S; lx++) {
-          const worldX = baseX + lx;
-          const worldZ = baseZ + lz;
-          const hmIdx = (worldX - minX) + (worldZ - minZ) * width;
-          const heightmapY = heightmap[hmIdx];
-          const idx = ly * S2 + lz * S + lx;
-          const blockId = section[idx] & BLOCK_ID_MASK;
-          
-          if (worldY > heightmapY) {
-            // Above heightmap - full sunlight
-            lightSection[idx] = (lightSection[idx] & 0xF0) | MAX_LIGHT;
-            
-            // Add to queue if at shadow boundary (for spreading into caves)
-            let atBoundary = (worldY === heightmapY + 1);
-            
-            // Also check horizontal neighbors for shadow entry points
-            if (!atBoundary) {
-              for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-                const nx = worldX + dx;
-                const nz = worldZ + dz;
-                if (nx >= minX && nx <= maxX && nz >= minZ && nz <= maxZ) {
-                  const nhmIdx = (nx - minX) + (nz - minZ) * width;
-                  if (heightmap[nhmIdx] >= worldY) {
-                    atBoundary = true;
-                    break;
-                  }
-                }
-              }
-            }
-            
-            if (atBoundary) {
-              queue.push(worldX, worldY, worldZ, MAX_LIGHT);
-            }
-          } else if (blockId === 0 || isGlass[blockId] || isNonCube[blockId]) {
-            // Air or transparent below heightmap - starts dark
-            lightSection[idx] = (lightSection[idx] & 0xF0) | 0;
-          }
-        }
-      }
-    }
-  }
-  
-  // Phase 3: BFS flood-fill
-  const DX = [1, -1, 0, 0, 0, 0];
-  const DY = [0, 0, 1, -1, 0, 0];
-  const DZ = [0, 0, 0, 0, 1, -1];
-  
-  while (queue.length > 0) {
-    const { x, y, z, light } = queue.shift();
-    if (light <= 1) continue;
-    
-    for (let i = 0; i < 6; i++) {
-      const nx = x + DX[i];
-      const ny = y + DY[i];
-      const nz = z + DZ[i];
-      
-      if (ny < minY || ny > maxY) continue;
-      
-      // Get neighbor block
-      const neighborBlockId = grid.getBlockId(nx, ny, nz);
-      const opacity = getLightOpacity(neighborBlockId, isOpaque, isGlass, isFluid, isNonCube);
-      
-      if (opacity >= 15) continue; // Fully opaque
-      
-      const newLight = light - 1 - opacity;
-      if (newLight <= 0) continue;
-      
-      // Check current light at neighbor
-      const currentLight = lightGrid.getSkyLight(nx, ny, nz);
-      
-      if (newLight > currentLight) {
-        lightGrid.setSkyLight(nx, ny, nz, newLight);
-        queue.push(nx, ny, nz, newLight);
-      }
-    }
-  }
-}
-
-// ============================================================================
-// Block Light Propagator (Torches, Glowstone, etc.)
-// ============================================================================
-
-/**
- * Light emission levels for common light-emitting blocks
- */
-const LIGHT_EMISSION = {
-  'beacon': 15, 'conduit': 15, 'end_gateway': 15, 'end_portal': 15, 'fire': 15,
-  'glowstone': 15, 'jack_o_lantern': 15, 'lantern': 15, 'lava': 15, 'sea_lantern': 15,
-  'shroomlight': 15, 'campfire': 15, 'respawn_anchor': 15, 'froglight': 15,
-  'pearlescent_froglight': 15, 'verdant_froglight': 15, 'ochre_froglight': 15,
-  'torch': 14, 'wall_torch': 14, 'end_rod': 14,
-  'blast_furnace': 13, 'furnace': 13, 'smoker': 13,
-  'nether_portal': 11,
-  'soul_torch': 10, 'soul_wall_torch': 10, 'soul_lantern': 10, 'soul_fire': 10, 'crying_obsidian': 10, 'soul_campfire': 10,
-  'enchanting_table': 7, 'ender_chest': 7, 'redstone_torch': 7, 'redstone_wall_torch': 7, 'glow_lichen': 7,
-  'sculk_catalyst': 6, 'amethyst_cluster': 5, 'large_amethyst_bud': 4, 'magma_block': 3,
-  'medium_amethyst_bud': 2, 'small_amethyst_bud': 1, 'brewing_stand': 1, 'brown_mushroom': 1, 'dragon_egg': 1,
-};
-
-function getBlockLightEmission(blockName) {
-  if (!blockName) return 0;
-  if (LIGHT_EMISSION[blockName] !== undefined) return LIGHT_EMISSION[blockName];
-  for (const [pattern, level] of Object.entries(LIGHT_EMISSION)) {
-    if (blockName.includes(pattern)) return level;
-  }
-  if (blockName.includes('sea_pickle')) return 6;
-  if (blockName.includes('candle') && !blockName.includes('cake')) return 3;
-  return 0;
-}
-
-/**
- * Propagate block light from light sources (torches, glowstone, etc.)
- */
-function propagateBlockLight(grid, lightGrid, registry) {
-  // Build lookup tables
-  const isOpaque = new Uint8Array(4096);
-  const isGlass = new Uint8Array(4096);
-  const isFluid = new Uint8Array(4096);
-  const lightEmission = new Uint8Array(4096);
-  
-  for (let id = 0; id < 4096; id++) {
-    const info = registry.getInfo(id);
-    if (info) {
-      isOpaque[id] = info.opaque ? 1 : 0;
-      if (info.name) {
-        if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('leaves')) {
-          isGlass[id] = 1;
-        }
-        if (info.name.includes('water') || info.name.includes('lava')) {
-          isFluid[id] = 1;
-        }
-        lightEmission[id] = getBlockLightEmission(info.name);
-      }
-    }
-  }
-  
-  // Find all light sources
-  const queue = [];
-  
-  for (const [key, section] of grid.sections) {
-    const parts = key.split(',').map(Number);
-    const [chunkX, chunkZ, sectionY] = parts;
-    const baseX = chunkX * S;
-    const baseY = sectionY * S + MIN_Y;
-    const baseZ = chunkZ * S;
-    
-    for (let ly = 0; ly < S; ly++) {
-      for (let lz = 0; lz < S; lz++) {
-        for (let lx = 0; lx < S; lx++) {
-          const idx = ly * S2 + lz * S + lx;
-          const blockId = section[idx] & 0x0FFF;
-          const emission = lightEmission[blockId];
-          if (emission > 0) {
-            const worldX = baseX + lx;
-            const worldY = baseY + ly;
-            const worldZ = baseZ + lz;
-            lightGrid.setBlockLight(worldX, worldY, worldZ, emission);
-            queue.push({ x: worldX, y: worldY, z: worldZ, light: emission });
-          }
-        }
-      }
-    }
-  }
-  
-  // BFS propagation
-  const DX = [1, -1, 0, 0, 0, 0];
-  const DY = [0, 0, 1, -1, 0, 0];
-  const DZ = [0, 0, 0, 0, 1, -1];
-  
-  while (queue.length > 0) {
-    const { x, y, z, light } = queue.shift();
-    const newLight = light - 1;
-    if (newLight <= 0) continue;
-    
-    for (let i = 0; i < 6; i++) {
-      const nx = x + DX[i];
-      const ny = y + DY[i];
-      const nz = z + DZ[i];
-      
-      const neighborBlockId = grid.getBlockId(nx, ny, nz);
-      let opacity = 0;
-      if (isOpaque[neighborBlockId]) opacity = 15;
-      else if (isFluid[neighborBlockId]) opacity = 1;
-      else if (isGlass[neighborBlockId]) opacity = 0;
-      
-      if (opacity >= 15) continue;
-      
-      const attenuatedLight = newLight - opacity;
-      if (attenuatedLight <= 0) continue;
-      
-      const currentLight = lightGrid.getBlockLight(nx, ny, nz);
-      if (attenuatedLight > currentLight) {
-        lightGrid.setBlockLight(nx, ny, nz, attenuatedLight);
-        queue.push({ x: nx, y: ny, z: nz, light: attenuatedLight });
+    for (let i = 0; i < S3; i++) {
+      const bid = section[i] & BLOCK_ID_MASK;
+      if (bid === 0) {
+        // Air block - set full sky light
+        lightSection[i] = (lightSection[i] & 0xF0) | 0x0F;
       }
     }
   }
@@ -2599,51 +1903,31 @@ async function processSuperChunk(data) {
       maxCZ = Math.max(maxCZ, c.z);
     }
     
-    // Filter neighbors to only those adjacent to boundary (including diagonals)
-    // Diagonals are needed for water corner height calculation which samples 2x2 blocks
+    // Filter neighbors to only those adjacent to boundary
     const relevantNeighbors = neighbors.filter(n => {
       const cx = n.chunkX, cz = n.chunkZ;
-      
-      // Check if chunk is within 1-chunk extended boundary (includes diagonals)
-      const isWithinExtended = (
-        cx >= minCX - 1 && cx <= maxCX + 1 &&
-        cz >= minCZ - 1 && cz <= maxCZ + 1
+      // Only include if adjacent to our chunk area
+      const isAdjacent = (
+        (cx === minCX - 1 || cx === maxCX + 1) && cz >= minCZ && cz <= maxCZ ||
+        (cz === minCZ - 1 || cz === maxCZ + 1) && cx >= minCX && cx <= maxCX
       );
-      
-      // Must be outside main super-chunk area
-      const isOutside = cx < minCX || cx > maxCX || cz < minCZ || cz > maxCZ;
-      
-      return isWithinExtended && isOutside && !loadedChunks.has(`${cx},${cz}`);
+      return isAdjacent && !loadedChunks.has(`${cx},${cz}`);
     });
     
-    // Process relevant neighbors - handle both raw compressed and pre-parsed NBT
+    // Decompress relevant neighbors in parallel
     if (relevantNeighbors.length > 0) {
       const neighborPromises = relevantNeighbors.map(async (neighborData) => {
         try {
-          // Handle pre-parsed NBT data (from main-thread-built super-chunks)
-          if (neighborData.isParsed && neighborData.parsedData) {
-            return {
-              x: neighborData.chunkX,
-              z: neighborData.chunkZ,
-              data: neighborData.parsedData,
-            };
-          }
-          
-          // Handle raw compressed data (preferred path)
-          if (neighborData.compressedData) {
-            const decompressed = await decompressChunk(
-              new Uint8Array(neighborData.compressedData),
-              neighborData.compressionType
-            );
-            const nbt = parseNBT(decompressed.buffer);
-            return {
-              x: neighborData.chunkX,
-              z: neighborData.chunkZ,
-              data: nbt,
-            };
-          }
-          
-          return null;
+          const decompressed = await decompressChunk(
+            new Uint8Array(neighborData.compressedData),
+            neighborData.compressionType
+          );
+          const nbt = parseNBT(decompressed.buffer);
+          return {
+            x: neighborData.chunkX,
+            z: neighborData.chunkZ,
+            data: nbt,
+          };
         } catch {
           return null;
         }
@@ -2660,12 +1944,8 @@ async function processSuperChunk(data) {
   }
   
   // Propagate light if no Minecraft light data
-  // When Minecraft data is present, it already includes correct sky and block light
-  // from neighbor chunks (Minecraft pre-computes lighting during world save)
   if (!lightGrid.hasMinecraftLightData) {
     propagateSkyLight(grid, lightGrid, blockRegistry);
-    // Also propagate block light from torches/glowstone when no MC data
-    propagateBlockLight(grid, lightGrid, blockRegistry);
   }
   
   const decodeTime = performance.now() - startTime;
@@ -2677,13 +1957,9 @@ async function processSuperChunk(data) {
   let gridMeshes;
   
   // Use WASM meshing if available (includes full texture/lighting attributes)
-  // NOTE: WASM mesher does not check light values for merge decisions,
-  // which can cause blocky lighting. For now, prefer WASM for speed
-  // as light values are still per-vertex (just with larger quads).
-  // When WASM state/model registries are initialized, WASM also handles model meshing.
   if (wasmInitialized && wasmLookupsInitialized) {
     try {
-      gridMeshes = wasmMeshChunk(grid, lightGrid, stateGrid, bounds);
+      gridMeshes = wasmMeshChunk(grid, lightGrid, bounds);
     } catch (e) {
       console.warn('[SuperChunkWorker] WASM meshing failed, falling back to JS:', e.message);
       gridMeshes = buildGridMeshes(grid, blockRegistry, offset);
@@ -2693,40 +1969,30 @@ async function processSuperChunk(data) {
     gridMeshes = buildGridMeshes(grid, blockRegistry, offset);
   }
   
-  // Check if WASM handled model meshing
-  const wasmHandledModels = gridMeshes.wasmModelsIncluded || false;
+  // Serialize grids for main thread model meshing
+  // Model meshing requires full ModelGeometry infrastructure not available in worker
+  const serializedGrid = grid.serialize();
+  const serializedStateGrid = stateGrid.serialize();
+  const serializedLightGrid = lightGrid.serialize();
   
-  // Only serialize grids for main thread model meshing if WASM didn't handle it
-  let serializedGrid = null;
-  let serializedStateGrid = null;
-  let serializedLightGrid = null;
-  let serializedStates = null;
-  
-  if (!wasmHandledModels) {
-    // Model meshing requires full ModelGeometry infrastructure not available in worker
-    serializedGrid = grid.serialize();
-    serializedStateGrid = stateGrid.serialize();
-    serializedLightGrid = lightGrid.serialize();
-    
-    // Serialize state registry so main thread can map worker stateIds to its own IDs
-    // Only include states that are actually used in the stateGrid
-    const usedStateIds = new Set();
-    for (const { data } of serializedStateGrid) {
-      for (let i = 0; i < data.length; i++) {
-        if (data[i] !== 0) usedStateIds.add(data[i]);
-      }
+  // Serialize state registry so main thread can map worker stateIds to its own IDs
+  // Only include states that are actually used in the stateGrid
+  const usedStateIds = new Set();
+  for (const { data } of serializedStateGrid) {
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] !== 0) usedStateIds.add(data[i]);
     }
-    
-    serializedStates = [];
-    for (const stateId of usedStateIds) {
-      const state = stateRegistry.getState(stateId);
-      if (state) {
-        serializedStates.push({
-          workerStateId: stateId,
-          blockName: state.blockName,
-          properties: state.properties,
-        });
-      }
+  }
+  
+  const serializedStates = [];
+  for (const stateId of usedStateIds) {
+    const state = stateRegistry.getState(stateId);
+    if (state) {
+      serializedStates.push({
+        workerStateId: stateId,
+        blockName: state.blockName,
+        properties: state.properties,
+      });
     }
   }
   
@@ -2739,29 +2005,25 @@ async function processSuperChunk(data) {
     water: null,
     lava: null,
     glass: null,
-    modelOpaque: null,
-    modelTransparent: null,
-    // Only include serialized grids if WASM didn't handle model meshing
-    grids: wasmHandledModels ? null : {
+    models: null,
+    // Serialized grids for main thread model meshing
+    grids: {
       grid: serializedGrid,
       stateGrid: serializedStateGrid,
       lightGrid: serializedLightGrid,
       states: serializedStates, // Worker state ID -> blockName + properties mapping
     },
-    wasmModelsIncluded: wasmHandledModels,
   };
   
-  // Add grid section buffers to transferables (only if not using WASM models)
-  if (!wasmHandledModels && serializedGrid) {
-    for (const section of serializedGrid.sections) {
-      transferables.push(section.data.buffer);
-    }
-    for (const section of serializedStateGrid) {
-      transferables.push(section.data.buffer);
-    }
-    for (const section of serializedLightGrid.sections) {
-      transferables.push(section.data.buffer);
-    }
+  // Add grid section buffers to transferables
+  for (const section of serializedGrid.sections) {
+    transferables.push(section.data.buffer);
+  }
+  for (const section of serializedStateGrid) {
+    transferables.push(section.data.buffer);
+  }
+  for (const section of serializedLightGrid.sections) {
+    transferables.push(section.data.buffer);
   }
   
   // Add grid meshes with all attributes (texture indices, rotations, tint types, lighting)
@@ -2869,63 +2131,8 @@ async function processSuperChunk(data) {
     );
   }
   
-  // Include WASM model meshes if available (opaque models like stairs, slabs)
-  if (gridMeshes.modelOpaque && gridMeshes.modelOpaque.vertexCount > 0) {
-    result.modelOpaque = {
-      positions: gridMeshes.modelOpaque.positions,
-      normals: gridMeshes.modelOpaque.normals,
-      colors: gridMeshes.modelOpaque.colors,
-      uvs: gridMeshes.modelOpaque.uvs,
-      texIndices: gridMeshes.modelOpaque.texIndices,
-      tintTypes: gridMeshes.modelOpaque.tintTypes,
-      skyLight: gridMeshes.modelOpaque.skyLight,
-      blockLight: gridMeshes.modelOpaque.blockLight,
-      indices: gridMeshes.modelOpaque.indices,
-      vertexCount: gridMeshes.modelOpaque.vertexCount,
-      triangleCount: gridMeshes.modelOpaque.indices.length / 3,
-    };
-    transferables.push(
-      gridMeshes.modelOpaque.positions.buffer,
-      gridMeshes.modelOpaque.normals.buffer,
-      gridMeshes.modelOpaque.colors.buffer,
-      gridMeshes.modelOpaque.uvs.buffer,
-      gridMeshes.modelOpaque.texIndices.buffer,
-      gridMeshes.modelOpaque.tintTypes.buffer,
-      gridMeshes.modelOpaque.skyLight.buffer,
-      gridMeshes.modelOpaque.blockLight.buffer,
-      gridMeshes.modelOpaque.indices.buffer
-    );
-  }
-  
-  // Include WASM transparent model meshes if available (leaves, glass panes)
-  if (gridMeshes.modelTransparent && gridMeshes.modelTransparent.vertexCount > 0) {
-    result.modelTransparent = {
-      positions: gridMeshes.modelTransparent.positions,
-      normals: gridMeshes.modelTransparent.normals,
-      colors: gridMeshes.modelTransparent.colors,
-      uvs: gridMeshes.modelTransparent.uvs,
-      texIndices: gridMeshes.modelTransparent.texIndices,
-      tintTypes: gridMeshes.modelTransparent.tintTypes,
-      skyLight: gridMeshes.modelTransparent.skyLight,
-      blockLight: gridMeshes.modelTransparent.blockLight,
-      indices: gridMeshes.modelTransparent.indices,
-      vertexCount: gridMeshes.modelTransparent.vertexCount,
-      triangleCount: gridMeshes.modelTransparent.indices.length / 3,
-    };
-    transferables.push(
-      gridMeshes.modelTransparent.positions.buffer,
-      gridMeshes.modelTransparent.normals.buffer,
-      gridMeshes.modelTransparent.colors.buffer,
-      gridMeshes.modelTransparent.uvs.buffer,
-      gridMeshes.modelTransparent.texIndices.buffer,
-      gridMeshes.modelTransparent.tintTypes.buffer,
-      gridMeshes.modelTransparent.skyLight.buffer,
-      gridMeshes.modelTransparent.blockLight.buffer,
-      gridMeshes.modelTransparent.indices.buffer
-    );
-  }
-  
-  // Note: If WASM didn't handle models, they are built on main thread using the serialized grids
+  // Note: Model meshes are built on main thread using the serialized grids
+  // because the worker doesn't have access to ModelGeometry for computing geometry
   
   const totalTime = performance.now() - startTime;
   
@@ -2974,20 +2181,9 @@ self.onmessage = async function(e) {
         initWasmLookups(data.wasmLookups);
       }
       
-      // Initialize WASM state registry for model block resolution
-      if (wasmReady && data.wasmStateRegistry) {
-        initWasmStateRegistry(data.wasmStateRegistry);
-      }
-      
-      // Initialize WASM model registry with pre-baked geometry
-      if (wasmReady && data.wasmModelRegistry) {
-        initWasmModelRegistry(data.wasmModelRegistry);
-      }
-      
       workerInitialized = true;
       
-      const wasmModelsReady = wasmInitialized && wasmLookupsInitialized && wasmStateRegistryInitialized && wasmModelRegistryInitialized;
-      self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized, wasmModelsAvailable: wasmModelsReady });
+      self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized });
       break;
     }
     

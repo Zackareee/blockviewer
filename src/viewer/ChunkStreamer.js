@@ -1180,11 +1180,6 @@ export class ChunkStreamer {
     }
     this.isProcessing = true;
     
-    // Enable streaming mode for faster mesh processing during camera movement
-    if (this.superChunkManager) {
-      this.superChunkManager.setStreamingMode(true);
-    }
-    
     // Track queue generation to detect re-prioritization
     const startGeneration = this.queueGeneration;
     
@@ -1219,39 +1214,30 @@ export class ChunkStreamer {
         // Note: Meshing is still throttled separately to avoid frame drops
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
-        // Build meshes during streaming
-        // Dispatch ALL dirty super-chunks to workers for max throughput
-        const dirtyBefore = this.superChunkManager?.getStats()?.dirtyCount || 0;
-        if (dirtyBefore > 0) {
-          // Dispatch all dirty chunks at once (same as initial load)
-          await this.superChunkManager.rebuildDirty(dirtyBefore, 0);
+        // Fix boundary seams immediately for already-visible chunks
+        // This repairs water/light artifacts at chunk borders as soon as neighbor data arrives
+        // Repair up to 2 boundaries per batch to keep up with fast movement
+        if (this.superChunkManager?.hasBoundaryDirtyChunks()) {
+          await this.superChunkManager.repairBoundaries(2);
         }
         
-        // Process pending mesh uploads (frame-budgeted)
-        // This runs the queued GPU uploads from worker results
-        if (this.superChunkManager?.hasPendingUploads()) {
-          await this.superChunkManager._processUploadQueue();
+        // Schedule remaining super-chunk rebuilds for idle time
+        // This prevents stuttering during movement while ensuring new chunks get built
+        if (this.superChunkManager?.hasDirtyChunks()) {
+          this.superChunkManager.scheduleIdleRebuild(true); // Low priority during streaming
         }
         
-        // Short yield to allow rendering
-        await new Promise(r => setTimeout(r, 4));
+        // Yield to browser between batches - use requestAnimationFrame for better timing
+        // This ensures we don't block during active rendering
+        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
       }
       
-      // Build any remaining dirty super-chunks when queue is empty
-      // Don't flush - let frame-budget processing handle uploads
-      while (this.superChunkManager?.hasDirtyChunks()) {
-        const remaining = this.superChunkManager.getStats()?.dirtyCount || 4;
-        await this.superChunkManager.rebuildDirty(remaining, 0);
-        // Yield to allow frame-budget uploads
-        await new Promise(r => requestAnimationFrame(r));
+      // Schedule any remaining dirty super-chunks for idle time rebuilding
+      if (this.superChunkManager?.hasDirtyChunks()) {
+        this.superChunkManager.scheduleIdleRebuild(false); // Normal priority when queue is empty
       }
     } finally {
       this.isProcessing = false;
-      
-      // Disable streaming mode when done processing
-      if (this.superChunkManager) {
-        this.superChunkManager.setStreamingMode(false);
-      }
       
       // Check if more chunks were queued while we were processing
       // If so, schedule another processing run
@@ -1266,11 +1252,6 @@ export class ChunkStreamer {
    */
   async _processQueueUntilComplete() {
     this.isProcessing = true;
-    
-    // Enable streaming mode for deferred model optimization
-    if (this.superChunkManager) {
-      this.superChunkManager.setStreamingMode(true);
-    }
     
     try {
       while (this.loadQueue.size > 0) {
@@ -1331,14 +1312,7 @@ export class ChunkStreamer {
         
         while (this.superChunkManager.hasDirtyChunks()) {
           const beforeStats = this.superChunkManager.getStats();
-          // Process ALL dirty chunks at once for maximum throughput during initial load
-          const remaining = beforeStats.dirtyCount;
-          await this.superChunkManager.rebuildDirty(remaining);
-          
-          // Flush any pending mesh uploads immediately during initial load
-          // (don't wait for frame-budgeted processing)
-          await this.superChunkManager.flushMeshUploads();
-          
+          await this.superChunkManager.rebuildDirty(4);
           const afterStats = this.superChunkManager.getStats();
           rebuilt += beforeStats.dirtyCount - afterStats.dirtyCount;
           
@@ -1356,15 +1330,6 @@ export class ChunkStreamer {
     } finally {
       this.isProcessing = false;
       this.initialLoadComplete = true; // Mark initial load as done
-      
-      // Disable streaming mode - but DON'T wait for deferred models
-      // This allows the loading overlay to disappear faster
-      // Model meshes will be built in background
-      if (this.superChunkManager) {
-        this.superChunkManager.setStreamingMode(false);
-        // Don't await - let model processing happen in background
-        // This improves perceived load time significantly
-      }
       
       // Continue with lazy loading in background
       if (this.loadQueue.size > 0) {
@@ -1888,35 +1853,6 @@ export class ChunkStreamer {
     if (!this.isProcessing && this.loadQueue.size > 0) {
       this._processQueue();
     }
-  }
-  
-  /**
-   * Process frame-budgeted mesh uploads
-   * Call this once per frame (from useFrame or requestAnimationFrame) to upload
-   * queued meshes to the GPU without causing frame drops.
-   * @returns {number} Number of meshes processed this frame
-   */
-  processMeshUploads() {
-    if (!this.superChunkManager) return 0;
-    return this.superChunkManager._processUploadQueue();
-  }
-  
-  /**
-   * Check if there are pending mesh uploads in the queue
-   * @returns {boolean} True if there are queued uploads
-   */
-  hasPendingMeshUploads() {
-    if (!this.superChunkManager) return false;
-    return this.superChunkManager.hasPendingUploads();
-  }
-  
-  /**
-   * Get the number of pending mesh uploads
-   * @returns {number} Number of queued uploads
-   */
-  getPendingMeshUploadCount() {
-    if (!this.superChunkManager) return 0;
-    return this.superChunkManager.getUploadQueueSize();
   }
 }
 

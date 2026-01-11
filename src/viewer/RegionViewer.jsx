@@ -67,18 +67,12 @@ function DynamicFOV({ fov }) {
       window.__camera = camera;
       window.__renderer = gl;
       window.__scene = scene;
-      // Expose render info function for performance diagnostics
-      window.__renderInfo = () => gl.info;
-      console.log('[RegionViewer] Performance diagnostics available:');
-      console.log('  window.__renderInfo() - Get Three.js render stats');
-      console.log('  window.__frameCostEnabled = true - Enable per-frame logging');
     }
     return () => {
       if (typeof window !== 'undefined') {
         delete window.__camera;
         delete window.__renderer;
         delete window.__scene;
-        delete window.__renderInfo;
       }
     };
   }, [camera, gl, scene]);
@@ -90,57 +84,6 @@ function DynamicFOV({ fov }) {
       invalidate();
     }
   }, [camera, fov, invalidate]);
-  
-  return null;
-}
-
-/**
- * Frame Cost Diagnostics - Logs per-frame GPU costs for performance investigation
- * Enable via: window.__frameCostEnabled = true
- */
-function FrameCostDiagnostics() {
-  const { gl } = useThree();
-  const frameCount = useRef(0);
-  const lastLogTime = useRef(0);
-  
-  useFrame(() => {
-    // Check if diagnostics are enabled via window flag
-    if (typeof window === 'undefined' || !window.__frameCostEnabled) return;
-    
-    frameCount.current++;
-    const now = performance.now();
-    
-    // Log every second (or every 60 frames, whichever comes first)
-    if (now - lastLogTime.current >= 1000 || frameCount.current >= 60) {
-      const info = gl.info;
-      const fps = frameCount.current / ((now - lastLogTime.current) / 1000);
-      
-      console.log('[FrameCost]', {
-        fps: fps.toFixed(1),
-        drawCalls: info.render.calls,
-        triangles: info.render.triangles,
-        points: info.render.points,
-        lines: info.render.lines,
-        textures: info.memory.textures,
-        geometries: info.memory.geometries,
-        programs: info.programs?.length || 0,
-      });
-      
-      // Also log particle info if available
-      if (window.__chunkManager) {
-        const stats = window.__chunkManager.getStats();
-        if (stats.particleCount > 0 || stats.particleEmitters > 0) {
-          console.log('[FrameCost] Particles:', {
-            active: stats.particleCount,
-            emitters: stats.particleEmitters,
-          });
-        }
-      }
-      
-      frameCount.current = 0;
-      lastLogTime.current = now;
-    }
-  });
   
   return null;
 }
@@ -343,27 +286,6 @@ function AnimationUpdater({ managerRef }) {
       // Use delta from useFrame callback - this is the correct frame delta time
       const deltaTime = delta || 1/60;
       manager.updateParticles(deltaTime, time, state.camera);
-    }
-  });
-  
-  return null;
-}
-
-/**
- * Frame-budgeted mesh upload processor
- * Processes queued mesh uploads from worker results, throttled to prevent frame drops.
- * This is the key to achieving stable FPS during chunk loading.
- */
-function MeshUploadProcessor({ streamerRef }) {
-  useFrame(() => {
-    const streamer = streamerRef.current;
-    if (!streamer) return;
-    
-    // Process mesh uploads within frame budget
-    // This is called via requestAnimationFrame internally, but we also call it here
-    // to ensure uploads happen in sync with the render loop
-    if (streamer.hasPendingMeshUploads()) {
-      streamer.processMeshUploads();
     }
   });
   
@@ -1507,9 +1429,6 @@ function RegionScene({
       {/* Animated texture time updates */}
       <AnimationUpdater managerRef={managerRef} />
       
-      {/* Frame-budgeted mesh upload processing */}
-      <MeshUploadProcessor streamerRef={streamerRef} />
-      
       {/* Debug block highlight */}
       {debugMode && hoveredBlock && (
         <BlockHighlight position={hoveredBlock} />
@@ -1646,9 +1565,6 @@ export function RegionViewer({
       
       {/* Dynamic FOV updater - responds to prop changes */}
       <DynamicFOV fov={fov} />
-      
-      {/* Frame cost diagnostics - enable via window.__frameCostEnabled = true */}
-      <FrameCostDiagnostics />
       
       {/* Adaptive performance - automatically adjusts quality (only when using native resolution) */}
       {/* Disabled when chunk streaming is enabled since streaming is designed to be smooth */}

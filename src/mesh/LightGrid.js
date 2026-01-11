@@ -128,16 +128,11 @@ export class LightGrid {
     const sectionY = worldYToSection(worldY);
     
     const section = this.getSection(chunkX, chunkZ, sectionY);
-    // If section doesn't exist, use same logic as getLight()
+    // If section doesn't exist:
+    // - If we have Minecraft light data, missing sections are dark (caves, unlit areas)
+    // - If we don't have Minecraft light data (fallback mode), assume full sky light
     if (!section) {
-      const withinBounds = 
-        chunkX >= this.minChunkX && chunkX <= this.maxChunkX &&
-        chunkZ >= this.minChunkZ && chunkZ <= this.maxChunkZ;
-      
-      if (this.hasMinecraftLightData && withinBounds) {
-        return 0; // Underground with MC data
-      }
-      return MAX_LIGHT; // Outside bounds or no MC data
+      return this.hasMinecraftLightData ? 0 : MAX_LIGHT;
     }
     
     const localX = ((worldX % SECTION_SIZE) + SECTION_SIZE) % SECTION_SIZE;
@@ -207,25 +202,12 @@ export class LightGrid {
     const sectionY = worldYToSection(worldY);
     
     const section = this.getSection(chunkX, chunkZ, sectionY);
-    // If section doesn't exist, we need to determine if this is:
-    // 1. Empty air above terrain (should be bright, sky=15)
-    // 2. Underground area with missing data (should be dark, sky=0)
-    // 3. Outside loaded chunk bounds (default to sky=15 for safety)
+    // If section doesn't exist:
+    // - If we have Minecraft light data, missing sections are dark
+    // - If we don't have Minecraft light data, assume full sky light
     if (!section) {
-      // Check if this chunk position is within our loaded bounds
-      // If we have Minecraft light data and the chunk is within bounds,
-      // a missing section likely means underground (dark)
-      // If outside bounds, default to bright to avoid darkening unloaded areas
-      const withinBounds = 
-        chunkX >= this.minChunkX && chunkX <= this.maxChunkX &&
-        chunkZ >= this.minChunkZ && chunkZ <= this.maxChunkZ;
-      
-      if (this.hasMinecraftLightData && withinBounds) {
-        // Within loaded chunks with MC data - missing section = underground
-        return { skyLight: 0, blockLight: 0 };
-      }
-      // Outside bounds or no MC data - default to bright (safe fallback)
-      return { skyLight: MAX_LIGHT, blockLight: 0 };
+      const defaultSky = this.hasMinecraftLightData ? 0 : MAX_LIGHT;
+      return { skyLight: defaultSky, blockLight: 0 };
     }
     
     const localX = ((worldX % SECTION_SIZE) + SECTION_SIZE) % SECTION_SIZE;

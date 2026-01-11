@@ -2,212 +2,178 @@
 
 This document describes the end-to-end pipeline for generating model block meshes (slabs, stairs, plants, etc.) in the Block Viewer.
 
-## Architecture Overview
+## Current Architecture (JavaScript-based)
 
-Model meshing occurs in **Web Workers** using **WASM** for maximum performance. The main thread only handles GPU buffer uploads.
+Model meshing is currently handled entirely in **JavaScript on the main thread**. WASM is used only for solid cube block meshing.
 
 ```mermaid
 flowchart TB
     subgraph MainThread[Main Thread]
         Init[Initialize App]
         Registry[StateRegistry]
-        Export[Export Model Geometry]
+        Precompute[Precompute Geometry]
+        Build[ModelMesher.buildModelMeshes]
         Upload[GPU Upload]
     end
     
     subgraph Worker[Web Worker]
-        WASM[WASM Mesher]
+        WASM[WASM Mesher - Solid Blocks Only]
         Decode[Chunk Decoder]
-        StateGrid[BlockStateGrid]
+        Grids[LightGrid + BinaryGrid]
     end
     
     Init --> Registry
-    Registry --> Export
-    Export -->|"stateStrings + geometryData"| WASM
+    Registry --> Precompute
     
-    Decode -->|"FNV-1a hash"| StateGrid
-    StateGrid --> WASM
-    WASM -->|"model mesh buffers"| Upload
+    Decode --> Grids
+    Grids --> WASM
+    WASM -->|"solid mesh + grids"| MainThread
+    
+    Grids --> Build
+    Build --> Upload
 ```
 
 ## Data Flow
 
 ### 1. Initialization (Main Thread)
 
-During app startup, the main thread prepares model geometry data:
-
-1. **StateRegistry** pre-registers all non-cube block states
-2. **Geometry computation** - Resolves block models from JSON files
-3. **Export for WASM** - Serializes state strings and pre-baked geometry
+During app startup, the StateRegistry pre-registers and precomputes geometry for non-cube blocks:
 
 ```javascript
-// StateRegistry exports state strings and geometry
-const modelExport = stateRegistry.exportHashModelGeometryForWasm(textureIndexLookup);
-// Result: { stateStrings: "minecraft:oak_slab[half=bottom]\\n...", geometryData: Uint8Array }
+// StateRegistry registers block states
+stateRegistry.register(blockName, properties, geometry);
+
+// Precompute geometry for all registered states
+stateRegistry.precomputeAll();
 ```
 
-### 2. Worker Initialization
+### 2. Worker Processing
 
-Workers receive the model data and initialize the WASM hash-based registry:
+Workers decode chunks and run WASM meshing for **solid blocks only**:
 
 ```javascript
-wasmModule.init_hash_model_registry(stateStringsJoined, geometryData);
+// Worker decodes chunk NBT
+const { grid, lightGrid } = decodeChunk(chunkData);
+
+// WASM meshes only solid cubes
+const solidMesh = wasmModule.mesh_chunk(gridData, lightData);
+
+// Return grids to main thread for model meshing
+return { solidMesh, grid, lightGrid };
 ```
 
-The WASM module computes FNV-1a hashes for each state string and stores geometry indexed by hash.
+### 3. Main Thread Model Building
 
-### 3. Chunk Processing (Worker)
-
-When a chunk is decoded:
-
-1. **Parse NBT** - Extract block palette and section data
-2. **Compute state hashes** - For each non-cube block, compute FNV-1a hash
-3. **Store in BlockStateGrid** - Hash indexed by position
+When worker results arrive, the main thread builds model meshes:
 
 ```javascript
-const stateString = buildStateString(blockName, properties);
-const hash = fnv1aHash(stateString);  // e.g., 0xABCD1234...
-stateGrid.setStateHash(sectionKey, index, hash);
+// SuperChunkManager receives worker result
+const modelResult = ModelMesher.buildModelMeshes(
+  grid,           // Block grid from worker
+  lightGrid,      // Light data from worker
+  stateRegistry,  // Pre-computed geometry
+  textureAtlas,   // Texture coordinates
+  bounds          // Chunk bounds
+);
 ```
 
-### 4. WASM Model Meshing
+### 4. GPU Upload
 
-The WASM mesher iterates over the state grid:
-
-```rust
-for (key, section) in state_grid.iter_sections_with_states() {
-    for block in section {
-        let hash = section[idx];
-        let model = get_model_geometry_by_hash(hash)?;  // Hash lookup
-        emit_face_geometry(model, world_pos, light);
-    }
-}
-```
-
-### 5. Result Transfer
-
-WASM returns model mesh buffers directly:
+Both solid and model meshes are uploaded to GPU:
 
 ```javascript
-// Worker receives from WASM
-result.model_opaque_positions  // Float32Array
-result.model_opaque_normals    // Float32Array
-result.model_opaque_uvs        // Float32Array
-// ... etc
+const solidGeometry = createBufferGeometry(solidMesh);
+const modelGeometry = createBufferGeometry(modelResult);
+scene.add(new THREE.Mesh(solidGeometry, material));
+scene.add(new THREE.Mesh(modelGeometry, material));
 ```
 
-### 6. GPU Upload (Main Thread)
+## Key Files
 
-Main thread receives complete mesh buffers and uploads to GPU:
-
-```javascript
-const geometry = new THREE.BufferGeometry();
-geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-// ... other attributes
-const mesh = new THREE.Mesh(geometry, material);
-```
-
-## Hash Function Specification
-
-Both JavaScript and Rust use FNV-1a 64-bit hashing:
-
-```
-FNV_OFFSET_BASIS = 0xcbf29ce484222325
-FNV_PRIME = 0x00000100000001B3
-
-hash = FNV_OFFSET_BASIS
-for each byte in string:
-    hash = hash XOR byte
-    hash = hash * FNV_PRIME (wrapping)
-return hash
-```
-
-**Critical:** Both implementations MUST produce identical hashes for the same input.
-
-### JavaScript Implementation
-
-```javascript
-const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-
-function fnv1aHash(str) {
-  let hash = FNV_OFFSET_BASIS;
-  for (let i = 0; i < str.length; i++) {
-    hash ^= BigInt(str.charCodeAt(i));
-    hash = (hash * FNV_PRIME) & 0xFFFFFFFFFFFFFFFFn;
-  }
-  return hash;
-}
-```
-
-### Rust Implementation
-
-```rust
-const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-const FNV_PRIME: u64 = 0x00000100000001B3;
-
-pub fn hash_state_string(state: &str) -> u64 {
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in state.bytes() {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    hash
-}
-```
-
-## State String Format
-
-State strings follow Minecraft's canonical format:
-
-```
-minecraft:oak_stairs[facing=north,half=bottom,shape=straight]
-```
-
-Properties are sorted alphabetically for consistent hashing.
+| File | Purpose |
+|------|---------|
+| `src/assets/StateRegistry.js` | Block state registration and geometry storage |
+| `src/mesh/ModelMesher.js` | Main thread model mesh generation |
+| `src/mesh/workers/SuperChunkWorker.js` | Worker for chunk decode + solid meshing |
+| `src/viewer/SuperChunkManager.js` | Coordinates workers and main thread |
+| `src/wasm-mesher/` | Rust/WASM solid block meshing only |
 
 ## Performance Characteristics
 
-| Metric | Main Thread Fallback | WASM Pipeline |
-|--------|---------------------|---------------|
-| Meshing time | ~421ms | ~206ms |
-| Min FPS during nav | ~18 | ~38+ |
-| Main thread blocked | Yes | No |
+| Metric | Current JS Pipeline |
+|--------|---------------------|
+| Model meshing | ~300-500ms for initial load |
+| Main thread blocked | Yes, during model building |
+| Solid block meshing | Fast (WASM) |
+
+## Future: WASM Model Meshing
+
+A WASM-based model meshing implementation was attempted but reverted due to hash synchronization issues between JavaScript and Rust. Key challenges:
+
+1. **Hash Function Consistency** - FNV-1a hash must produce identical results in JS and Rust
+2. **State String Format** - Properties must be sorted identically
+3. **Geometry Serialization** - Pre-baked geometry must be correctly deserialized in Rust
+
+To reattempt WASM model meshing, see:
+- Commit `d953cd5` - Original WASM model meshing implementation
+- Commits `d953cd5..669aada` - Various fix attempts
+
+### WASM Model Meshing Requirements
+
+1. **Identical Hash Functions**
+   ```javascript
+   // JavaScript
+   function fnv1aHash(str) {
+     let hash = 0xcbf29ce484222325n;
+     for (const byte of str) {
+       hash ^= BigInt(byte.charCodeAt(0));
+       hash = (hash * 0x100000001b3n) & 0xFFFFFFFFFFFFFFFFn;
+     }
+     return hash;
+   }
+   ```
+   
+   ```rust
+   // Rust - MUST match exactly
+   fn hash_state_string(state: &str) -> u64 {
+       let mut hash = 0xcbf29ce484222325u64;
+       for byte in state.bytes() {
+           hash ^= byte as u64;
+           hash = hash.wrapping_mul(0x00000100000001B3);
+       }
+       hash
+   }
+   ```
+
+2. **State String Canonicalization**
+   - Always use `minecraft:` prefix
+   - Sort properties alphabetically
+   - Format: `minecraft:block_name[prop1=val1,prop2=val2]`
+
+3. **Testing Hash Consistency**
+   ```javascript
+   const testStr = 'minecraft:oak_stairs[facing=north,half=bottom,shape=straight]';
+   const jsHash = fnv1aHash(testStr);
+   const wasmHash = wasmModule.compute_state_hash(testStr);
+   console.assert(jsHash === wasmHash, 'Hash mismatch!');
+   ```
 
 ## Troubleshooting
 
 ### Models not rendering
 
-1. Check if WASM model registry initialized:
-   ```
-   [SuperChunkWorker] WASM HASH-BASED model registry initialized with N states
-   ```
+1. Check if `StateRegistry.precomputeAll()` completed
+2. Verify `ModelMesher.buildModelMeshes` is being called
+3. Check for errors in console about missing geometries
 
-2. Verify hash function match - hashes must be identical in JS and Rust
+### Slow model building
 
-### Poor performance
+1. Model building happens on main thread - expected to block
+2. Consider deferring model meshes during initial load
+3. Profile with `window.__frameCostEnabled = true`
 
-1. Check for main thread fallback:
-   - If `result.grids` is set, WASM didn't produce model vertices
-   - Main thread will build models (slow)
+### Missing block types
 
-2. Verify `wasmModelsIncluded` is `true` in mesh results
-
-### Hash mismatch debugging
-
-Add logging to compare hashes:
-```javascript
-const jsHash = fnv1aHash(stateString);
-const wasmHash = wasmModule.compute_state_hash(stateString);
-console.log(`JS=${jsHash} WASM=${wasmHash} match=${jsHash === BigInt(wasmHash)}`);
-```
-
-## Files Reference
-
-| File | Purpose |
-|------|---------|
-| `src/assets/StateRegistry.js` | State registration and geometry export |
-| `src/mesh/workers/SuperChunkWorker.js` | Worker-side hash computation |
-| `src/wasm-mesher/src/models/registry.rs` | WASM hash-based registry |
-| `src/wasm-mesher/src/models/mesher.rs` | WASM model mesh generation |
-| `src/viewer/SuperChunkManager.js` | Main thread mesh upload |
+1. Ensure block is registered in `StateRegistry`
+2. Check if block model JSON exists in texture pack
+3. Verify `BlockstateResolver` can resolve the state

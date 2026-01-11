@@ -40,44 +40,11 @@ import {
 import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
 import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
-import { getBoundaryRepairManager } from '../mesh/BoundaryRepair.js';
 import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
-import { getUnifiedMeshPipeline } from '../mesh/UnifiedMeshPipeline.js';
-import { selectMeshingPath, getCurrentMeshingPath, MeshingPath } from '../utils/CapabilityDetector.js';
 
-// Super-chunk size configuration
-// 2 = 2x2 chunks (32x32 blocks) - balanced performance
-// 1 = single chunks (16x16 blocks) - streaming mode for faster first-paint
-const DEFAULT_SUPER_CHUNK_SIZE = 2;
-
-// Global streaming mode configuration
-let streamingModeEnabled = false;
-
-/**
- * Get the current super-chunk size based on streaming mode
- */
-function getSuperChunkSize() {
-  return streamingModeEnabled ? 1 : DEFAULT_SUPER_CHUNK_SIZE;
-}
-
-/**
- * Enable or disable streaming mode (single-chunk processing)
- * @param {boolean} enabled - Whether to enable streaming mode
- */
-export function setStreamingModeEnabled(enabled) {
-  streamingModeEnabled = enabled;
-}
-
-/**
- * Check if streaming mode is enabled
- * @returns {boolean}
- */
-export function isStreamingModeEnabled() {
-  return streamingModeEnabled;
-}
-
-// Legacy constant for backward compatibility
-const SUPER_CHUNK_SIZE = DEFAULT_SUPER_CHUNK_SIZE;
+// Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
+// Smaller size = faster rebuilds, less jank, more responsive loading
+const SUPER_CHUNK_SIZE = 2;
 const BLOCKS_PER_SUPER_CHUNK = SUPER_CHUNK_SIZE * 16; // 32 blocks
 
 // Note: For neighbor block data, we use the existing decodeChunk function
@@ -157,48 +124,6 @@ class SuperChunk {
     
     // Track if we've ever been built
     this.hasBeenBuilt = false;
-    
-    // === Phase 4.1: Section-level dirty tracking ===
-    // Track which 16x16x16 sections are dirty (for incremental rebuilds)
-    // Key format: "chunkX,chunkZ,sectionY"
-    this.dirtySections = new Set();
-    
-    // Section-level mesh cache (for incremental updates)
-    // Key format: "chunkX,chunkZ,sectionY" -> mesh
-    this.sectionMeshes = new Map();
-  }
-
-  /**
-   * Mark a specific section as dirty (Phase 4.1)
-   * @param {number} chunkX - Chunk X coordinate
-   * @param {number} chunkZ - Chunk Z coordinate
-   * @param {number} sectionY - Section Y index (-4 to 19 for -64 to 319)
-   */
-  markSectionDirty(chunkX, chunkZ, sectionY) {
-    const key = `${chunkX},${chunkZ},${sectionY}`;
-    this.dirtySections.add(key);
-    this.isDirty = true;
-  }
-
-  /**
-   * Clear section dirty flags
-   */
-  clearDirtySections() {
-    this.dirtySections.clear();
-  }
-
-  /**
-   * Get dirty sections iterator
-   */
-  getDirtySections() {
-    return this.dirtySections;
-  }
-
-  /**
-   * Check if any sections are dirty
-   */
-  hasDirtySections() {
-    return this.dirtySections.size > 0;
   }
 
   /**
@@ -325,91 +250,8 @@ export class SuperChunkManager {
     this.useWorkers = false;
     
     // Meshing speed: how many super-chunks to mesh per idle callback
-    // Higher = faster chunk appearance but may cause minor frame drops
-    // Default increased to 4 for better throughput with optimized meshing
-    this.meshingSpeed = options.meshingSpeed ?? 4;
-    
-    // Frame-budgeted mesh upload queue
-    // Instead of uploading all worker results immediately (causing frame drops),
-    // we queue them and process 1-2 per frame to maintain stable FPS
-    this._meshUploadQueue = [];
-    this._isProcessingUploads = false;
-    this._uploadProcessingScheduled = false;
-    // Frame budget for mesh uploads (ms per frame to spend on GPU uploads)
-    // 16ms = 60fps target, 33ms = 30fps target
-    // We use a conservative budget to leave room for rendering
-    this._frameBudgetMs = options.frameBudgetMs ?? 8; // Half a frame at 60fps
-    this._streamingMode = false; // When true, process more aggressively
-    
-    // Boundary repair manager for streaming mode
-    this._boundaryRepairManager = getBoundaryRepairManager();
-    
-    // Whether to use streaming mode (single-chunk processing)
-    this._useStreamingMode = options.useStreamingMode ?? false;
-    
-    // Unified mesh pipeline for automatic path selection (WebGPU/WASM/JS)
-    this._unifiedPipeline = null;
-    this._unifiedPipelineInitialized = false;
-    this._meshingPath = null;
-  }
-  
-  /**
-   * Initialize the unified mesh pipeline
-   * This selects the optimal meshing path (WebGPU, WASM+Rayon, WASM, JS)
-   */
-  async initUnifiedPipeline() {
-    if (this._unifiedPipelineInitialized) return;
-    
-    try {
-      // Detect the best meshing path
-      this._meshingPath = await selectMeshingPath();
-      console.log(`[SuperChunkManager] Selected meshing path: ${this._meshingPath}`);
-      
-      // Initialize the unified pipeline
-      this._unifiedPipeline = getUnifiedMeshPipeline();
-      await this._unifiedPipeline.initialize();
-      
-      this._unifiedPipelineInitialized = true;
-    } catch (e) {
-      console.warn('[SuperChunkManager] Failed to init unified pipeline:', e);
-    }
-  }
-  
-  /**
-   * Get the current meshing path
-   * @returns {string|null}
-   */
-  getMeshingPath() {
-    return this._meshingPath;
-  }
-  
-  /**
-   * Enable or disable streaming mode
-   * In streaming mode:
-   * - Each chunk is meshed individually (no super-chunk batching)
-   * - Boundary faces render conservatively
-   * - Repairs happen when neighbors load
-   * @param {boolean} enabled
-   */
-  setStreamingMode(enabled) {
-    this._useStreamingMode = enabled;
-    setStreamingModeEnabled(enabled);
-  }
-  
-  /**
-   * Check if streaming mode is active
-   * @returns {boolean}
-   */
-  isStreamingMode() {
-    return this._useStreamingMode;
-  }
-  
-  /**
-   * Process pending boundary repairs (call once per frame)
-   * @param {number} maxRepairs - Maximum repairs to process
-   */
-  processBoundaryRepairs(maxRepairs = 4) {
-    return this._boundaryRepairManager.processRepairs(maxRepairs);
+    // 1 = smoothest camera, higher = faster chunk appearance but may cause frame drops
+    this.meshingSpeed = options.meshingSpeed ?? 1;
   }
   
   /**
@@ -417,196 +259,7 @@ export class SuperChunkManager {
    * @param {number} speed - 1-4, higher = faster but may cause frame drops
    */
   setMeshingSpeed(speed) {
-    this.meshingSpeed = Math.max(1, Math.min(8, speed));
-  }
-  
-  /**
-   * Set the frame budget for mesh uploads (ms per frame)
-   * @param {number} budgetMs - Budget in milliseconds (8-33 typical)
-   */
-  setFrameBudget(budgetMs) {
-    this._frameBudgetMs = Math.max(4, Math.min(33, budgetMs));
-  }
-  
-  /**
-   * Enable/disable streaming mode
-   * When streaming, we use a higher frame budget to keep up with camera movement
-   */
-  setStreamingMode(enabled) {
-    const wasStreaming = this._streamingMode;
-    this._streamingMode = enabled;
-    
-    // When streaming ends, process deferred model meshes
-    if (wasStreaming && !enabled) {
-      this.processDeferredModels();
-    }
-  }
-  
-  /**
-   * Queue a mesh upload job for frame-budgeted processing
-   * @param {Object} superChunk - The super-chunk to update
-   * @param {Object} result - Worker result with mesh data
-   * @param {Array} oldMeshes - Old meshes to dispose after upload
-   * @param {boolean} isFirstBuild - Whether this is the first build (for neighbor marking)
-   * @private
-   */
-  _queueMeshUpload(superChunk, result, oldMeshes, isFirstBuild = false) {
-    this._meshUploadQueue.push({
-      superChunk,
-      result,
-      oldMeshes,
-      key: `${superChunk.superX},${superChunk.superZ}`,
-      queuedAt: performance.now(),
-      isFirstBuild, // Track for neighbor marking
-    });
-    
-    // Schedule processing if not already scheduled
-    this._scheduleUploadProcessing();
-  }
-  
-  /**
-   * Schedule the upload queue processor for the next frame
-   * @private
-   */
-  _scheduleUploadProcessing() {
-    if (this._uploadProcessingScheduled) return;
-    this._uploadProcessingScheduled = true;
-    
-    // Use requestAnimationFrame to process uploads in sync with rendering
-    requestAnimationFrame(() => {
-      this._uploadProcessingScheduled = false;
-      this._processUploadQueue();
-    });
-  }
-  
-  /**
-   * Process queued mesh uploads with frame budget
-   * Called once per frame, processes as many uploads as fit within budget
-   * @returns {Promise<number>} Number of uploads processed
-   */
-  async _processUploadQueue() {
-    if (this._meshUploadQueue.length === 0) return 0;
-    if (this._isProcessingUploads) return 0;
-    
-    this._isProcessingUploads = true;
-    const startTime = performance.now();
-    
-    // Game engine approach: limit meshes per frame based on mode
-    // During streaming (camera moving): 1 mesh per frame for stable FPS
-    // During initial load: multiple meshes per frame for fast loading
-    const maxMeshesPerFrame = this._streamingMode ? 1 : 4;
-    const budget = this._streamingMode ? 8 : this._frameBudgetMs;
-    let processedCount = 0;
-    
-    try {
-      while (this._meshUploadQueue.length > 0 && processedCount < maxMeshesPerFrame) {
-        // Check time budget (but always process at least one during initial load)
-        const elapsed = performance.now() - startTime;
-        if (elapsed >= budget && processedCount > 0) {
-          break;
-        }
-        
-        const job = this._meshUploadQueue.shift();
-        
-        // Create Three.js meshes from worker result (GPU upload happens here)
-        // This is async because model mesh building needs to precompute geometry
-        await this._createMeshesFromWorkerResult(job.superChunk, job.result);
-        
-        // Dispose old meshes
-        this._disposeOldMeshes(job.oldMeshes);
-        
-        // Mark as no longer dirty
-        this.dirtySet.delete(job.key);
-        this.boundaryDirtySet.delete(job.key);
-        
-        // Update dirty state
-        job.superChunk.isDirty = false;
-        
-        // Mark neighbors as potentially needing rebuild (only on first build)
-        this._markNeighborsDirtyAfterBuild(job.superChunk, job.isFirstBuild);
-        
-        // Notify callback
-        this.onSuperChunkRebuilt?.(job.superChunk);
-        
-        processedCount++;
-      }
-    } finally {
-      this._isProcessingUploads = false;
-    }
-    
-    // If more work remains, schedule for next frame
-    if (this._meshUploadQueue.length > 0) {
-      this._scheduleUploadProcessing();
-    }
-    
-    return processedCount;
-  }
-  
-  /**
-   * Get the current upload queue size
-   * Useful for progress tracking
-   */
-  getUploadQueueSize() {
-    return this._meshUploadQueue.length;
-  }
-  
-  /**
-   * Check if there are pending uploads
-   */
-  hasPendingUploads() {
-    return this._meshUploadQueue.length > 0;
-  }
-  
-  /**
-   * Force-process all pending mesh uploads immediately (blocking)
-   * Use during initial load when you want to wait for all meshes to complete
-   * rather than spreading across multiple frames.
-   * @returns {Promise<number>} Total number of uploads processed
-   */
-  async flushMeshUploads() {
-    let totalProcessed = 0;
-    
-    while (this._meshUploadQueue.length > 0) {
-      // Process without budget limit (force immediate processing)
-      const processed = await this._processUploadQueueImmediate();
-      totalProcessed += processed;
-    }
-    
-    return totalProcessed;
-  }
-  
-  /**
-   * Process all queued uploads immediately without frame budget
-   * @private
-   */
-  async _processUploadQueueImmediate() {
-    if (this._meshUploadQueue.length === 0) return 0;
-    if (this._isProcessingUploads) return 0;
-    
-    this._isProcessingUploads = true;
-    let processedCount = 0;
-    
-    try {
-      while (this._meshUploadQueue.length > 0) {
-        const job = this._meshUploadQueue.shift();
-        
-        await this._createMeshesFromWorkerResult(job.superChunk, job.result);
-        this._disposeOldMeshes(job.oldMeshes);
-        
-        this.dirtySet.delete(job.key);
-        this.boundaryDirtySet.delete(job.key);
-        
-        job.superChunk.isDirty = false;
-        this._markNeighborsDirtyAfterBuild(job.superChunk, job.isFirstBuild);
-        this.onSuperChunkRebuilt?.(job.superChunk);
-        
-        processedCount++;
-      }
-    } finally {
-      this._isProcessingUploads = false;
-    }
-    
-    return processedCount;
+    this.meshingSpeed = Math.max(1, Math.min(4, speed));
   }
 
   /**
@@ -757,37 +410,10 @@ export class SuperChunkManager {
       
       // Ensure state registry geometries are pre-computed before export
       let stateRegistryData = null;
-      let wasmStateRegistry = null;
-      let wasmModelRegistry = null;
-      
       if (this.stateRegistry) {
-        // CRITICAL: Pre-register ALL non-cube blocks BEFORE exporting to WASM
-        // States are normally registered during chunk decoding (which happens AFTER worker init)
-        // By pre-registering, we ensure WASM has model geometry data from the start
-        const preregisterStart = performance.now();
-        const registeredCount = await this.stateRegistry.preregisterNonCubeBlocks(this.registry);
-        console.log(`[SuperChunkManager] Pre-registered ${registeredCount} non-cube block states in ${(performance.now() - preregisterStart).toFixed(1)}ms`);
-        
-        // Now precompute geometry for all registered states
         await this.stateRegistry.precomputeAll();
-        
         const exported = this.stateRegistry.exportForWorker();
         stateRegistryData = exported.data;
-        
-        // Export WASM-specific state registry data (for WASM model meshing)
-        wasmStateRegistry = this.stateRegistry.exportStateStringsForWasm();
-        
-        // Export WASM model geometry data using HASH-BASED lookup
-        // This eliminates the need for synchronized state IDs between main thread and workers
-        const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
-        if (textureIndexLookup) {
-          const modelExport = this.stateRegistry.exportHashModelGeometryForWasm(textureIndexLookup);
-          wasmModelRegistry = {
-            stateStrings: modelExport.stateStrings,  // Use state strings for hash-based lookup
-            geometryData: modelExport.geometryData,
-          };
-          console.log(`[SuperChunkManager] Exported ${modelExport.stateStrings.length} model states with ${modelExport.faceCount} faces for WASM hash-based lookup (${(modelExport.geometryData.length / 1024).toFixed(1)}KB)`);
-        }
       }
       
       // Build WASM lookup tables for workers
@@ -797,8 +423,8 @@ export class SuperChunkManager {
       // Get or create the worker pool
       this.superChunkWorkerPool = getSuperChunkWorkerPool();
       
-      // Initialize with registry data including WASM lookups and model registry
-      await this.superChunkWorkerPool.initialize(blockRegistryData, stateRegistryData, wasmLookups, wasmStateRegistry, wasmModelRegistry);
+      // Initialize with registry data including WASM lookups
+      await this.superChunkWorkerPool.initialize(blockRegistryData, stateRegistryData, wasmLookups);
       
       this.superChunkWorkerPoolInitialized = true;
       console.log('[SuperChunkManager] SuperChunkWorkerPool initialized successfully');
@@ -1281,7 +907,7 @@ export class SuperChunkManager {
       if (!neighborSuperChunk) continue;
       
       for (const [, chunkInfo] of neighborSuperChunk.loadedChunks) {
-        if (!chunkInfo.data) continue;
+        if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
         
         // Only include chunks that are adjacent to this super-chunk's boundary
         const isAdjacent = this._isChunkAdjacentToBoundary(
@@ -1290,34 +916,14 @@ export class SuperChunkManager {
         );
         
         if (isAdjacent) {
-          // Handle raw compressed data (preferred - worker can decompress)
-          if (chunkInfo.isRawCompressed && chunkInfo.data.compressedData) {
-            const originalBuffer = chunkInfo.data.compressedData;
-            neighbors.push({
-              chunkX: chunkInfo.chunkX,
-              chunkZ: chunkInfo.chunkZ,
-              // Clone buffer when needed for parallel dispatch to avoid detached buffer errors
-              compressedData: cloneBuffers ? originalBuffer.slice(0) : originalBuffer,
-              compressionType: chunkInfo.data.compressionType,
-            });
-          }
-          // Handle pre-parsed NBT data - re-compress for worker
-          // This ensures neighbors from main-thread-built super-chunks are included
-          else if (chunkInfo.data && !chunkInfo.isRawCompressed) {
-            try {
-              // The data is already parsed NBT, encode it as JSON for the worker
-              // Worker will detect this and handle accordingly
-              neighbors.push({
-                chunkX: chunkInfo.chunkX,
-                chunkZ: chunkInfo.chunkZ,
-                parsedData: chunkInfo.data, // Worker will handle parsed NBT directly
-                isParsed: true,
-              });
-            } catch (e) {
-              // Skip this neighbor if serialization fails
-              console.warn(`[SuperChunkManager] Failed to serialize neighbor ${chunkInfo.chunkX},${chunkInfo.chunkZ}:`, e.message);
-            }
-          }
+          const originalBuffer = chunkInfo.data.compressedData;
+          neighbors.push({
+            chunkX: chunkInfo.chunkX,
+            chunkZ: chunkInfo.chunkZ,
+            // Clone buffer when needed for parallel dispatch to avoid detached buffer errors
+            compressedData: cloneBuffers ? originalBuffer.slice(0) : originalBuffer,
+            compressionType: chunkInfo.data.compressionType,
+          });
         }
       }
     }
@@ -1388,100 +994,51 @@ export class SuperChunkManager {
       }
     }
     
-    // Check if WASM already handled model meshing
-    if (result.wasmModelsIncluded) {
-      // WASM provided model meshes directly - use them
-      if (result.modelOpaque && result.modelOpaque.positions?.length > 0) {
-        const mesh = this._createMesh(result.modelOpaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
-        if (mesh) {
-          superChunk.meshes.push(mesh);
-          this.chunkManager.modelMeshes.push(mesh);
-        }
-      }
-      
-      if (result.modelTransparent && result.modelTransparent.positions?.length > 0) {
-        const mesh = this._createMesh(result.modelTransparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
-        if (mesh) {
-          mesh.renderOrder = 0.5;
-          superChunk.meshes.push(mesh);
-          this.chunkManager.transparentModelMeshes.push(mesh);
-        }
-      }
-    } else if (result.grids) {
-      // Fallback: Build model meshes on main thread when WASM didn't produce vertices
-      // This can happen if hash lookup fails or state grid was empty
+    // Build model meshes on main thread from serialized grids
+    if (result.grids) {
       const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
-      this._applyModelMeshResult(superChunk, modelResult);
-    }
-  }
-  
-  /**
-   * Apply model mesh result to super-chunk
-   */
-  _applyModelMeshResult(superChunk, modelResult) {
-    if (!modelResult) return;
-    
-    // Opaque models
-    if (modelResult.opaque && modelResult.opaque.positions?.length > 0) {
-      const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
-      if (mesh) {
-        superChunk.meshes.push(mesh);
-        this.chunkManager.modelMeshes.push(mesh);
-      }
-    }
-    
-    // Transparent models
-    if (modelResult.transparent && modelResult.transparent.positions?.length > 0) {
-      const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
-      if (mesh) {
-        mesh.renderOrder = 0.5;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.transparentModelMeshes.push(mesh);
-      }
-    }
-    
-    // Overlay models (grass side overlays)
-    if (modelResult.overlay && modelResult.overlay.positions?.length > 0) {
-      const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
-      if (mesh) {
-        mesh.renderOrder = 0.1;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.overlayMeshes?.push(mesh);
-      }
-    }
-    
-    // Register particle emitters
-    if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
-      const emitterManager = this.chunkManager.particleEmitterManager;
-      if (emitterManager) {
-        for (const emitter of modelResult.particleEmitters) {
-          emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
+      if (modelResult) {
+        // Opaque models
+        if (modelResult.opaque && modelResult.opaque.positions?.length > 0) {
+          const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+          if (mesh) {
+            superChunk.meshes.push(mesh);
+            this.chunkManager.modelMeshes.push(mesh);
+          }
+        }
+        
+        // Transparent models
+        if (modelResult.transparent && modelResult.transparent.positions?.length > 0) {
+          const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.5;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.transparentModelMeshes.push(mesh);
+          }
+        }
+        
+        // Overlay models (grass side overlays)
+        if (modelResult.overlay && modelResult.overlay.positions?.length > 0) {
+          const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.1;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.overlayMeshes?.push(mesh);
+          }
+        }
+        
+        // Register particle emitters
+        if (modelResult.particleEmitters && modelResult.particleEmitters.length > 0) {
+          const emitterManager = this.chunkManager.particleEmitterManager;
+          if (emitterManager) {
+            for (const emitter of modelResult.particleEmitters) {
+              emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
+            }
+          }
         }
       }
     }
   }
-  
-  /**
-   * Process deferred model meshes (call when camera stops moving)
-   */
-  async processDeferredModels() {
-    if (!this._deferredModelQueue || this._deferredModelQueue.length === 0) return 0;
-    
-    const count = this._deferredModelQueue.length;
-    console.log(`[SuperChunkManager] Processing ${count} deferred model meshes`);
-    
-    for (const { superChunk, grids } of this._deferredModelQueue) {
-      const modelResult = await this._buildModelMeshesFromWorkerGrids(grids);
-      this._applyModelMeshResult(superChunk, modelResult);
-      
-      // Yield to prevent blocking
-      await new Promise(r => setTimeout(r, 0));
-    }
-    
-    this._deferredModelQueue = [];
-    return count;
-  }
-  
   
   /**
    * Deserialize grids from worker and build model meshes on main thread
@@ -2618,9 +2175,8 @@ export class SuperChunkManager {
     // Wait for all jobs to complete
     const results = await Promise.all(jobPromises);
     
-    // Queue all results for frame-budgeted processing instead of immediate GPU upload
-    // This prevents frame drops when multiple workers complete around the same time
-    let queuedCount = 0;
+    // Process all results - create meshes and dispose old ones
+    let rebuiltCount = 0;
     for (const { job, result, error } of results) {
       if (error) {
         console.warn(`[SuperChunkManager] Parallel build failed for ${job.key}:`, error.message);
@@ -2629,95 +2185,25 @@ export class SuperChunkManager {
         continue;
       }
       
-      // Check if this is the first build before we set hasBeenBuilt
-      const isFirstBuild = !job.superChunk.hasBeenBuilt;
+      // Create meshes from worker result (async for model mesh precomputation)
+      await this._createMeshesFromWorkerResult(job.superChunk, result.result);
       
-      // Queue for frame-budgeted GPU upload instead of processing immediately
-      this._queueMeshUpload(job.superChunk, result.result, job.oldMeshes, isFirstBuild);
+      // Dispose old meshes
+      this._disposeOldMeshes(job.oldMeshes);
       
-      // Mark as built (but meshes haven't been created yet - they're queued)
+      // Mark as built
+      job.superChunk.isDirty = false;
       job.superChunk.hasBeenBuilt = true;
       
-      queuedCount++;
+      rebuiltCount++;
     }
     
-    // Process urgent boundary repairs immediately to minimize visible artifacts
-    // This catches super-chunks that were just marked dirty by the above loop
-    if (this.boundaryDirtySet.size > 0) {
-      const urgentRepairs = Math.min(this.boundaryDirtySet.size, 2);
-      if (urgentRepairs > 0) {
-        await this._processBoundaryRepairsImmediate(urgentRepairs);
-      }
+    // Single yield after all work is done
+    if (rebuiltCount > 0) {
+      this.onSuperChunkRebuilt?.();
     }
     
-    // Return count of jobs queued (they'll be processed over subsequent frames)
-    return queuedCount;
-  }
-  
-  /**
-   * Immediately process boundary repairs to minimize visible artifacts
-   * @param {number} maxRepairs - Maximum number of repairs to process
-   */
-  async _processBoundaryRepairsImmediate(maxRepairs) {
-    const keysToRepair = [...this.boundaryDirtySet].slice(0, maxRepairs);
-    
-    for (const key of keysToRepair) {
-      const superChunk = this.superChunks.get(key);
-      if (!superChunk || !superChunk.hasBeenBuilt) {
-        this.boundaryDirtySet.delete(key);
-        this.dirtySet.delete(key);
-        continue;
-      }
-      
-      // Check if we can use worker pool
-      const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
-      if (!hasRawCompressed || !this.useSuperChunkWorkerPool) {
-        continue; // Skip - let normal rebuild handle it
-      }
-      
-      // Collect chunks and neighbors
-      const chunks = [];
-      for (const [, chunkInfo] of superChunk.loadedChunks) {
-        if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
-        chunks.push({
-          chunkX: chunkInfo.chunkX,
-          chunkZ: chunkInfo.chunkZ,
-          compressedData: chunkInfo.data.compressedData.slice(0),
-          compressionType: chunkInfo.data.compressionType,
-        });
-      }
-      
-      if (chunks.length === 0) continue;
-      
-      const neighbors = this._collectNeighborDataForWorker(superChunk, true);
-      const bounds = {
-        minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
-        minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
-        maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
-        maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
-      };
-      
-      const oldMeshes = [...superChunk.meshes];
-      
-      try {
-        const { result } = await this.superChunkWorkerPool.process({
-          chunks, neighbors, bounds,
-          priority: 100, // High priority for boundary repairs
-          superChunkKey: key,
-        });
-        
-        await this._createMeshesFromWorkerResult(superChunk, result);
-        this._disposeOldMeshes(oldMeshes);
-        
-        superChunk.isDirty = false;
-        // Don't mark neighbors dirty again - this is a repair, not first build
-      } catch (error) {
-        console.warn(`[SuperChunkManager] Boundary repair failed for ${key}:`, error.message);
-      }
-      
-      this.boundaryDirtySet.delete(key);
-      this.dirtySet.delete(key);
-    }
+    return rebuiltCount;
   }
 
   /**
@@ -2768,7 +2254,7 @@ export class SuperChunkManager {
       // When using parallel worker pool, we can process many more chunks at once
       // since the main thread just dispatches and waits
       const canUseParallel = this.useSuperChunkWorkerPool && this.superChunkWorkerPoolInitialized;
-      const parallelMultiplier = canUseParallel ? 8 : 1; // Process 8x more with parallel
+      const parallelMultiplier = canUseParallel ? 4 : 1; // Process 4x more with parallel
       
       if (hasBoundaryDirty) {
         // High priority for visible artifacts - fix seams quickly
@@ -2776,10 +2262,10 @@ export class SuperChunkManager {
         chunksToMesh = Math.max(4, this.meshingSpeed * parallelMultiplier);
         nextDelay = 4;  // Fast follow-up
       } else if (lowPriority) {
-        // Low priority during streaming - use full parallelism for throughput
+        // Low priority during streaming - but still batch multiple with parallel
         budgetMs = canUseParallel ? 0 : 8;
-        chunksToMesh = canUseParallel ? Math.max(8, this.meshingSpeed * parallelMultiplier) : 1;
-        nextDelay = canUseParallel ? 4 : 24;
+        chunksToMesh = canUseParallel ? Math.max(4, this.meshingSpeed * 2) : 1;
+        nextDelay = canUseParallel ? 8 : 24;
       } else {
         // Normal priority when queue is stable
         budgetMs = canUseParallel ? 0 : 12;
@@ -2788,10 +2274,6 @@ export class SuperChunkManager {
       }
       
       await this.rebuildDirty(chunksToMesh, budgetMs);
-      
-      // Also process any pending mesh uploads immediately after rebuild
-      // This ensures we don't leave uploads sitting in the queue
-      await this.flushMeshUploads();
       
       // Schedule another callback if more rebuilds needed
       if (this.dirtySet.size > 0 || this.boundaryDirtySet.size > 0) {
@@ -2921,11 +2403,10 @@ export class SuperChunkManager {
 
   /**
    * Check if there are any dirty super-chunks needing rebuild
-   * Includes queued mesh uploads that haven't been processed yet
-   * @returns {boolean} true if any chunks need rebuilding or uploading
+   * @returns {boolean} true if any chunks need rebuilding
    */
   hasDirtyChunks() {
-    return this.dirtySet.size > 0 || this.boundaryDirtySet.size > 0 || this._meshUploadQueue.length > 0;
+    return this.dirtySet.size > 0 || this.boundaryDirtySet.size > 0;
   }
   
   /**
@@ -3002,8 +2483,7 @@ export class SuperChunkManager {
       totalChunks,
       totalMeshes,
       dirtyCount: this.dirtySet.size,
-      boundaryDirtyCount: this.boundaryDirtySet.size,
-      pendingUploads: this._meshUploadQueue.length,
+      boundaryDirtyCount: this.boundaryDirtySet.size
     };
   }
 

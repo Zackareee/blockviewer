@@ -1,0 +1,272 @@
+ChunkStreamer] ✅ WASM mesher initialized - using high-performance mode ChunkStreamer.js:507:17
+[WASM] Block registry initialized with 1165 blocks wasm_mesher.js:2396:17
+[WasmMesher] Block registry initialized with 1165 blocks WasmMesher.js:94:13
+[ChunkStreamer] ✅ Block registry initialized - unified pipeline ready ChunkStreamer.js:514:19
+[ChunkStreamer] ✅ Unified pipeline ready - WASM greedy + JS model meshing ChunkStreamer.js:518:19
+[ChunkStreamer] Cleared 0 cached regions to enable unified pipeline ChunkStreamer.js:525:21
+[ChunkManager] Render distance culling: 0 visible, 1 hidden (terrain: 8 chunks, detail: 8 chunks) ChunkManager.js:984:15
+[StateRegistry] precomputeAll: 64 need computation, 7155 already done, total 7219 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 7218 states now have geometry StateRegistry.js:291:15
+THREE.WebGLProgram: Program Info Log: WARNING: Output of vertex shader 'webgl_d63a0821229be6c6' not read by fragment shader three.core.js:1838:11
+[SuperChunkWorker] WASM module initialized SuperChunkWorker.js:152:13
+[SuperChunkWorker] WASM lookups initialized SuperChunkWorker.js:187:13
+[SuperChunkWorker] WASM module initialized SuperChunkWorker.js:152:13
+[SuperChunkWorker] WASM lookups initialized SuperChunkWorker.js:187:13
+[WASM] State registry initialized with 7155 states wasm_mesher.js:2396:17
+[SuperChunkWorker] WASM state registry initialized with 7155 states SuperChunkWorker.js:221:13
+[WASM] State registry initialized with 7155 states wasm_mesher.js:2396:17
+[SuperChunkWorker] WASM state registry initialized with 7155 states SuperChunkWorker.js:221:13
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_left]" -> 0xe3c1603683ebe992 wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_right]" -> 0x36616ddde425dd4f wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=outer_left]" -> 0xfe61d6ca45571253 wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=bottom]" -> 0x7310c9823d659e3f wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=double]" -> 0x6df1af61d45e751d wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=top]" -> 0xe563b56267fad8d7 wasm_mesher.js:2396:17
+[WASM] Hash-based model registry initialized with 7029 models wasm_mesher.js:2396:17
+[SuperChunkWorker] Hash comparison: SuperChunkWorker.js:261:15
+  - JS hash:   ab7aad86ebcd82f1 SuperChunkWorker.js:262:15
+  - WASM hash: ab7aad86ebcd82f1 SuperChunkWorker.js:263:15
+  - Match: ✅ YES SuperChunkWorker.js:264:15
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_left]" -> 0xe3c1603683ebe992 wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_right]" -> 0x36616ddde425dd4f wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=outer_left]" -> 0xfe61d6ca45571253 wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=bottom]" -> 0x7310c9823d659e3f wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=double]" -> 0x6df1af61d45e751d wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=top]" -> 0xe563b56267fad8d7 wasm_mesher.js:2396:17
+[WASM] Hash-based model registry initialized with 7029 models wasm_mesher.js:2396:17
+[SuperChunkWorker] Hash comparison: SuperChunkWorker.js:261:15
+  - JS hash:   ab7aad86ebcd82f1 SuperChunkWorker.js:262:15
+  - WASM hash: ab7aad86ebcd82f1 SuperChunkWorker.js:263:15
+  - Match: ✅ YES
+  [SuperChunkWorker] WASM module initialized SuperChunkWorker.js:152:13
+[SuperChunkWorker] WASM lookups initialized SuperChunkWorker.js:187:13
+[SuperChunkWorker] WASM module initialized SuperChunkWorker.js:152:13
+[SuperChunkWorker] WASM lookups initialized SuperChunkWorker.js:187:13
+[WASM] State registry initialized with 7155 states wasm_mesher.js:2396:17
+[SuperChunkWorker] WASM state registry initialized with 7155 states SuperChunkWorker.js:221:13
+[SuperChunkWorker] WASM module initialized SuperChunkWorker.js:152:13
+[SuperChunkWorker] WASM lookups initialized SuperChunkWorker.js:187:13
+[WASM] State registry initialized with 7155 states wasm_mesher.js:2396:17
+[SuperChunkWorker] WASM state registry initialized with 7155 states SuperChunkWorker.js:221:13
+[WASM] State registry initialized with 7155 states wasm_mesher.js:2396:17
+[SuperChunkWorker] WASM state registry initialized with 7155 states SuperChunkWorker.js:221:13
+[SuperChunkWorker] WASM module initialized 2 SuperChunkWorker.js:152:13
+[SuperChunkWorker] WASM lookups initialized 2 SuperChunkWorker.js:187:13
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_left]" -> 0xe3c1603683ebe992 wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_right]" -> 0x36616ddde425dd4f wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=outer_left]" -> 0xfe61d6ca45571253 wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=bottom]" -> 0x7310c9823d659e3f wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=double]" -> 0x6df1af61d45e751d wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=top]" -> 0xe563b56267fad8d7 wasm_mesher.js:2396:17
+[WASM] Hash-based model registry initialized with 7029 models wasm_mesher.js:2396:17
+[SuperChunkWorker] Hash comparison: SuperChunkWorker.js:261:15
+  - JS hash:   ab7aad86ebcd82f1 SuperChunkWorker.js:262:15
+  - WASM hash: ab7aad86ebcd82f1 SuperChunkWorker.js:263:15
+  - Match: ✅ YES SuperChunkWorker.js:264:15
+[WASM] State registry initialized with 7155 states wasm_mesher.js:2396:17
+[SuperChunkWorker] WASM state registry initialized with 7155 states SuperChunkWorker.js:221:13
+[WASM] State registry initialized with 7155 states wasm_mesher.js:2396:17
+[SuperChunkWorker] WASM state registry initialized with 7155 states SuperChunkWorker.js:221:13
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_left]" -> 0xe3c1603683ebe992 wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_right]" -> 0x36616ddde425dd4f wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=outer_left]" -> 0xfe61d6ca45571253 wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=bottom]" -> 0x7310c9823d659e3f wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=double]" -> 0x6df1af61d45e751d wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=top]" -> 0xe563b56267fad8d7 wasm_mesher.js:2396:17
+[WASM] Hash-based model registry initialized with 7029 models wasm_mesher.js:2396:17
+[SuperChunkWorker] Hash comparison: SuperChunkWorker.js:261:15
+  - JS hash:   ab7aad86ebcd82f1 SuperChunkWorker.js:262:15
+  - WASM hash: ab7aad86ebcd82f1 SuperChunkWorker.js:263:15
+  - Match: ✅ YES SuperChunkWorker.js:264:15
+  [WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_left]" -> 0xe3c1603683ebe992 wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_right]" -> 0x36616ddde425dd4f wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=outer_left]" -> 0xfe61d6ca45571253 wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=bottom]" -> 0x7310c9823d659e3f wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=double]" -> 0x6df1af61d45e751d wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=top]" -> 0xe563b56267fad8d7 wasm_mesher.js:2396:17
+[WASM] Hash-based model registry initialized with 7029 models wasm_mesher.js:2396:17
+[SuperChunkWorker] Hash comparison: SuperChunkWorker.js:261:15
+  - JS hash:   ab7aad86ebcd82f1 SuperChunkWorker.js:262:15
+  - WASM hash: ab7aad86ebcd82f1 SuperChunkWorker.js:263:15
+  - Match: ✅ YES SuperChunkWorker.js:264:15
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_left]" -> 0xe3c1603683ebe992 wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_right]" -> 0x36616ddde425dd4f wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=outer_left]" -> 0xfe61d6ca45571253 wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=bottom]" -> 0x7310c9823d659e3f wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=double]" -> 0x6df1af61d45e751d wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=top]" -> 0xe563b56267fad8d7 wasm_mesher.js:2396:17
+[WASM] Hash-based model registry initialized with 7029 models wasm_mesher.js:2396:17
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_left]" -> 0xe3c1603683ebe992 wasm_mesher.js:2396:17
+[SuperChunkWorker] Hash comparison: SuperChunkWorker.js:261:15
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=inner_right]" -> 0x36616ddde425dd4f wasm_mesher.js:2396:17
+  - JS hash:   ab7aad86ebcd82f1 SuperChunkWorker.js:262:15
+[WASM Registry] Stairs registered: "minecraft:stone_stairs[facing=east,half=bottom,shape=outer_left]" -> 0xfe61d6ca45571253 wasm_mesher.js:2396:17
+  - WASM hash: ab7aad86ebcd82f1 SuperChunkWorker.js:263:15
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=bottom]" -> 0x7310c9823d659e3f wasm_mesher.js:2396:17
+  - Match: ✅ YES SuperChunkWorker.js:264:15
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=double]" -> 0x6df1af61d45e751d wasm_mesher.js:2396:17
+[WASM Registry] Slab registered: "minecraft:stone_slab[type=top]" -> 0xe563b56267fad8d7 wasm_mesher.js:2396:17
+[WASM] Hash-based model registry initialized with 7029 models wasm_mesher.js:2396:17
+[SuperChunkWorker] Hash comparison: SuperChunkWorker.js:261:15
+  - JS hash:   ab7aad86ebcd82f1 SuperChunkWorker.js:262:15
+  - WASM hash: ab7aad86ebcd82f1 SuperChunkWorker.js:263:15
+  - Match: ✅ YES SuperChunkWorker.js:264:15
+[SuperChunkWorkerPool] All 7 workers ready SuperChunkWorkerPool.js:158:13
+[SuperChunkManager] SuperChunkWorkerPool initialized successfully SuperChunkManager.js:804:15
+[ChunkStreamer] ✅ SuperChunkWorkerPool initialized - maximum performance mode ChunkStreamer.js:553:17
+[StateRegistry] precomputeAll: 68 need computation, 7218 already done, total 7286 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 7285 states now have geometry StateRegistry.js:291:15
+[WASM ModelMesher] Registry: 7029 models, initialized=true. State grid: 24 sections. bounds=Some((2, 0, 3, 1)) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #1: 0xa186f1ad077f4044 at (49, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #2: 0xff5901be5436b927 at (51, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #3: 0x04dbda4688fbe894 at (53, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #4: 0x81a20c293b9c474d at (55, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #5: 0x88afcb6f0e0f334c at (57, 70, 1)
+[WASM ModelMesher] Hashes looked up: 1280, Models found: 0 (0% hit rate), Faces emitted: 0, culled: 0 wasm_mesher.js:2396:17
+[SuperChunkWorker] First WASM mesh: SuperChunkWorker.js:469:13
+  - solid=1320, modelOpaque=0, modelTransparent=0 SuperChunkWorker.js:470:13
+  - hasWasmModels=false (fallback to main thread) SuperChunkWorker.js:471:13
+[StateRegistry] precomputeAll: 660 need computation, 7285 already done, total 7945 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 7944 states now have geometry StateRegistry.js:291:15
+[SuperChunkManager] Model mesh result: 
+Object { hasOpaque: true, opaqueVerts: 25856, hasTransparent: false, transparentVerts: 0, hasParticles: true }
+SuperChunkManager.js:1561:15
+[SuperChunkManager] 🚀 SuperChunkWorkerPool active: 82.7ms per super-chunk SuperChunkManager.js:1245:17
+[StateRegistry] precomputeAll: 481 need computation, 7944 already done, total 8425 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 8424 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 484 need computation, 8424 already done, total 8908 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 8907 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 471 need computation, 8907 already done, total 9378 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 9377 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 481 need computation, 9377 already done, total 9858 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 9857 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 455 need computation, 9857 already done, total 10312 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10311 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 1 need computation, 10311 already done, total 10312 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10311 states now have geometry StateRegistry.js:291:15
+[WASM ModelMesher] Registry: 7029 models, initialized=true. State grid: 24 sections. bounds=Some((0, 2, 1, 3)) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #1: 0x8da352003a0a2949 at (1, 70, 33) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #2: 0x0dede0abc6b31cd2 at (3, 70, 33) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #3: 0xd3bdb05308a52eb3 at (5, 70, 33) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #4: 0xf32d5a99bd3aacc1 at (7, 70, 33) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #5: 0xc5dcd991d7e037a1 at (9, 70, 33) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hashes looked up: 1280, Models found: 17 (1% hit rate), Faces emitted: 186, culled: 0 wasm_mesher.js:2396:17
+[SuperChunkWorker] First WASM mesh: SuperChunkWorker.js:469:13
+  - solid=4168, modelOpaque=744, modelTransparent=0 SuperChunkWorker.js:470:13
+  - hasWasmModels=true (OFF main thread) SuperChunkWorker.js:471:13
+[WASM ModelMesher] Registry: 7029 models, initialized=true. State grid: 24 sections. bounds=Some((2, 0, 3, 1)) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #1: 0xa186f1ad077f4044 at (49, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #2: 0xff5901be5436b927 at (51, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #3: 0x04dbda4688fbe894 at (53, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #4: 0x81a20c293b9c474d at (55, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #5: 0x88afcb6f0e0f334c at (57, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hashes looked up: 1280, Models found: 0 (0% hit rate), Faces emitted: 0, culled: 0 wasm_mesher.js:2396:17
+[WASM ModelMesher] Registry: 7029 models, initialized=true. State grid: 24 sections. bounds=Some((0, 4, 1, 5)) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #1: 0xe48fbbd8488f0829 at (0, 60, 80) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #2: 0xe48fbbd8488f0829 at (1, 60, 80) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #3: 0xe48fbbd8488f0829 at (2, 60, 80) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #4: 0xe48fbbd8488f0829 at (3, 60, 80) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #5: 0xe48fbbd8488f0829 at (4, 60, 80) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hashes looked up: 1280, Models found: 19 (1% hit rate), Faces emitted: 188, culled: 0 wasm_mesher.js:2396:17
+[SuperChunkWorker] First WASM mesh: SuperChunkWorker.js:469:13
+  - solid=3928, modelOpaque=752, modelTransparent=0 SuperChunkWorker.js:470:13
+  - hasWasmModels=true (OFF main thread) SuperChunkWorker.js:471:13
+[SuperChunkWorker] First WASM mesh: SuperChunkWorker.js:469:13
+  - solid=1320, modelOpaque=0, modelTransparent=0 SuperChunkWorker.js:470:13
+  - hasWasmModels=false (fallback to main thread) SuperChunkWorker.js:471:13
+[WASM ModelMesher] Registry: 7029 models, initialized=true. State grid: 24 sections. bounds=Some((4, 0, 5, 1)) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #1: 0x8b34313ea1da846f at (65, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #2: 0xaee36d7f56d00ac3 at (67, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #3: 0x1ba53fd6c41752ed at (69, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #4: 0xf2ff19c275a7b30b at (71, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #5: 0xcf61bfce8e4da69c at (73, 70, 1) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hashes looked up: 1280, Models found: 30 (2% hit rate), Faces emitted: 248, culled: 0 wasm_mesher.js:2396:17
+[SuperChunkWorker] First WASM mesh: SuperChunkWorker.js:469:13
+  - solid=496, modelOpaque=992, modelTransparent=0 SuperChunkWorker.js:470:13
+  - hasWasmModels=true (OFF main thread) SuperChunkWorker.js:471:13
+[WASM ModelMesher] Registry: 7029 models, initialized=true. State grid: 32 sections. bounds=Some((2, 2, 3, 3)) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #1: 0xe48fbbd8488f0829 at (48, 60, 48) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #2: 0xe48fbbd8488f0829 at (49, 60, 48) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #3: 0xe48fbbd8488f0829 at (50, 60, 48) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #4: 0xe48fbbd8488f0829 at (51, 60, 48) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #5: 0xe48fbbd8488f0829 at (52, 60, 48) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hashes looked up: 1280, Models found: 0 (0% hit rate), Faces emitted: 0, culled: 0 wasm_mesher.js:2396:17
+[SuperChunkWorker] First WASM mesh: SuperChunkWorker.js:469:13
+  - solid=1312, modelOpaque=0, modelTransparent=0 SuperChunkWorker.js:470:13
+  - hasWasmModels=false (fallback to main thread) SuperChunkWorker.js:471:13
+[WASM ModelMesher] Registry: 7029 models, initialized=true. State grid: 32 sections. bounds=Some((2, 4, 3, 5)) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #1: 0x1ee47e063df11d8d at (49, 70, 81) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #2: 0x714ee78c4eb7a988 at (51, 70, 81) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #3: 0x429fdf089bc38090 at (53, 70, 81) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #4: 0x778a18a3a73fff5e at (55, 70, 81) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hash miss #5: 0xc7317265b74ed76f at (57, 70, 81) wasm_mesher.js:2396:17
+[WASM ModelMesher] Hashes looked up: 1280, Models found: 0 (0% hit rate), Faces emitted: 0, culled: 0 wasm_mesher.js:2396:17
+[SuperChunkWorker] First WASM mesh: SuperChunkWorker.js:469:13
+  - solid=1312, modelOpaque=0, modelTransparent=0 SuperChunkWorker.js:470:13
+  - hasWasmModels=false (fallback to main thread) SuperChunkWorker.js:471:13
+[StateRegistry] precomputeAll: 1 need computation, 10311 already done, total 10312 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10311 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 1 need computation, 10311 already done, total 10312 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10311 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 1 need computation, 10311 already done, total 10312 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10311 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 1 need computation, 10311 already done, total 10312 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10311 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 1 need computation, 10311 already done, total 10312 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10311 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 1 need computation, 10311 already done, total 10312 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10311 states now have geometry StateRegistry.js:291:15
+[RegionViewer] ChunkStreamer initial load: 81 chunks RegionViewer.jsx:1319:15
+[ChunkStreamer] Surface height at (0, 0): 61 (minecraft:barrier) ChunkStreamer.js:848:23
+[RegionViewer] Calculated spawn height: surface=61, camera=62.6 RegionViewer.jsx:1335:17
+[RegionViewer] Load complete RegionViewer.jsx:1673:35
+[ParticleSystem] First particle spawned: type=tinted_leaves at 5.3,69.9,31.7 size=0.13244889233925594 sprite=77 ParticleSystem.js:497:15
+[ParticleSystem] Active: 10 normal, 12 additive, mesh counts: 10/12 ParticleSystem.js:549:15
+[StateRegistry] precomputeAll: 113 need computation, 10311 already done, total 10424 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10423 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 113 need computation, 10423 already done, total 10536 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10535 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 188 need computation, 10535 already done, total 10723 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10722 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 1 need computation, 10722 already done, total 10723 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10722 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 1 need computation, 10722 already done, total 10723 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10722 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 55 need computation, 10722 already done, total 10777 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10776 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 152 need computation, 10776 already done, total 10928 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 10925 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 171 need computation, 10927 already done, total 11098 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 11095 states now have geometry StateRegistry.js:291:15
+[ModelMesher] Found 1 beacons ModelMesher.js:1854:13
+[StateRegistry] precomputeAll: 1 need computation, 11097 already done, total 11098 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 11095 states now have geometry StateRegistry.js:291:15
+THREE.WebGLProgram: Program Info Log: WARNING: Output of vertex shader 'webgl_d63a0821229be6c6' not read by fragment shader
+[StateRegistry] precomputeAll: 286 need computation, 11097 already done, total 11383 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 11380 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 65 need computation, 11382 already done, total 11447 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 11444 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 129 need computation, 11446 already done, total 11575 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 11572 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 57 need computation, 11574 already done, total 11631 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 11628 states now have geometry StateRegistry.js:291:15
+[ModelMesher] Found 1 beacons ModelMesher.js:1854:13
+[StateRegistry] precomputeAll: 239 need computation, 11630 already done, total 11869 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 11866 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 319 need computation, 11868 already done, total 12187 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 12184 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 55 need computation, 12186 already done, total 12241 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 12238 states now have geometry StateRegistry.js:291:15
+[StateRegistry] precomputeAll: 207 need computation, 12240 already done, total 12447 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 12442 states now have geometry StateRegistry.js:291:15
+[ModelMesher] Found 1 beacons ModelMesher.js:1854:13
+[StateRegistry] precomputeAll: 129 need computation, 12446 already done, total 12575 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 12570 states now have geometry StateRegistry.js:291:15
+[ModelMesher] Found 1 beacons ModelMesher.js:1854:13
+[StateRegistry] precomputeAll: 161 need computation, 12574 already done, total 12735 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 12730 states now have geometry StateRegistry.js:291:15
+[ModelMesher] Found 1 beacons ModelMesher.js:1854:13
+[StateRegistry] precomputeAll: 54 need computation, 12734 already done, total 12788 states StateRegistry.js:278:13
+[StateRegistry] precomputeAll complete: 12783 states now have geometry StateRegistry.js:291:15
+[ModelMesher] Found 1 beacons ModelMesher.js:1854:13
+[ParticleSystem] Active: 153 normal, 82 additive, mesh counts: 153/80
