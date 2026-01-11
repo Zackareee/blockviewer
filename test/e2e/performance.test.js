@@ -264,8 +264,8 @@ async function measureNavigationPerformance(driver, durationMs = 10000) {
   const moveDirZ = Math.sin(moveAngle);
   
   // Convert angle to yaw (degrees) for camera rotation
-  // Camera looks FORWARD in movement direction (add 180 to face forward not backward)
-  const yawDegrees = (-moveAngle * 180 / Math.PI) + 90 + 180;
+  // Camera looks FORWARD in movement direction (not backwards)
+  const yawDegrees = (moveAngle * 180 / Math.PI) + 180;
   
   while (Date.now() - startTime < durationMs) {
     // Calculate position along a straight line
