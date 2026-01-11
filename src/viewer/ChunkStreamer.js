@@ -361,9 +361,11 @@ export class ChunkStreamer {
       console.warn('[ChunkStreamer] WASM init failed, using JS fallback:', err);
     });
     
-    // Initialize SuperChunkWorkerPool for fully off-thread processing (async, non-blocking)
-    // This is the most efficient mode - enables 4+ chunks/sec without FPS drops
-    this._superChunkWorkerPoolPromise = this.initializeSuperChunkWorkerPool().catch(err => {
+    // Initialize SuperChunkWorkerPool AFTER WASM init completes
+    // This ensures model geometry is pre-registered and can be sent to workers
+    this._superChunkWorkerPoolPromise = this._wasmInitPromise.then(() => {
+      return this.initializeSuperChunkWorkerPool();
+    }).catch(err => {
       console.warn('[ChunkStreamer] SuperChunkWorkerPool init failed, using WASM/JS fallback:', err);
     });
     

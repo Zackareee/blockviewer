@@ -153,6 +153,13 @@ impl BinaryGrid {
         );
         self.get_section(&neighbor_key)
     }
+
+    /// Merge another grid into this one (copies all sections)
+    pub fn merge_from(&mut self, other: &BinaryGrid) {
+        for (packed, section) in &other.sections {
+            self.sections.insert(*packed, section.clone());
+        }
+    }
 }
 
 impl Default for BinaryGrid {

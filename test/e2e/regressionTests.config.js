@@ -77,6 +77,15 @@ export const testCases = [
     z: 203.5,
     yaw: 90,
     pitch: -90,
+  }, {
+    name: 'partial_block_cross_model',
+    description: '319.5, 71.6, 194.0',
+    x: 319.5,
+    y: 71.5,
+    z: 194.5,
+    yaw: 180,
+    pitch: -45,
+    waitMs: 4000, // Extra wait for distant chunks to load
   }
   
   

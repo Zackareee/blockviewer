@@ -123,17 +123,18 @@ export class SuperChunkWorkerPool {
    * @param {Object} blockRegistryData - Block registry export data
    * @param {Object} stateRegistryData - State registry export data (from exportForWorker)
    * @param {Object} wasmLookups - WASM lookup tables for meshing
+   * @param {Object} modelGeometryData - Serialized model geometry for WASM model meshing
    */
-  async initialize(blockRegistryData, stateRegistryData, wasmLookups = null) {
+  async initialize(blockRegistryData, stateRegistryData, wasmLookups = null, modelGeometryData = null) {
     if (this.initPromise) {
       return this.initPromise;
     }
     
-    this.initPromise = this._doInitialize(blockRegistryData, stateRegistryData, wasmLookups);
+    this.initPromise = this._doInitialize(blockRegistryData, stateRegistryData, wasmLookups, modelGeometryData);
     return this.initPromise;
   }
   
-  async _doInitialize(blockRegistryData, stateRegistryData, wasmLookups) {
+  async _doInitialize(blockRegistryData, stateRegistryData, wasmLookups, modelGeometryData) {
     console.log(`[SuperChunkWorkerPool] Initializing ${this.workerCount} workers...`);
     
     // Store init data for late-joined workers
@@ -141,6 +142,7 @@ export class SuperChunkWorkerPool {
       blockRegistry: blockRegistryData,
       stateRegistry: stateRegistryData?.data || stateRegistryData,
       wasmLookups: wasmLookups,
+      modelGeometry: modelGeometryData,
     };
     
     // Create workers

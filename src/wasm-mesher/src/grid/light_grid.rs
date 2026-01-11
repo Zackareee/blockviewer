@@ -188,6 +188,19 @@ impl LightGrid {
             .or_insert_with(|| Box::new([0u8; SECTION_VOLUME]))
             .as_mut()
     }
+
+    /// Merge another grid into this one (copies all sections)
+    pub fn merge_from(&mut self, other: &LightGrid) {
+        for (packed, section) in &other.sections {
+            self.sections.insert(*packed, section.clone());
+        }
+        if other.has_minecraft_data {
+            self.has_minecraft_data = true;
+        }
+        if other.has_minecraft_light_data {
+            self.has_minecraft_light_data = true;
+        }
+    }
 }
 
 impl Default for LightGrid {

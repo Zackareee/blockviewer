@@ -19,7 +19,7 @@ use wasm_bindgen::prelude::*;
 
 // Re-export registry init functions
 pub use registry::init_block_registry;
-pub use models::registry::{init_state_registry, init_model_registry};
+pub use models::registry::{init_state_registry, init_model_registry, init_model_registry_v2, is_hash_model_registry_initialized};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global allocator.
 #[cfg(feature = "wee_alloc")]
@@ -32,6 +32,25 @@ pub fn init() {
     // Set up better panic messages in debug mode
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
+}
+
+/// Initialize Rayon thread pool for parallel meshing
+/// Only available when built with the "parallel" feature
+/// Must be called before any parallel meshing operations
+/// Returns a Promise that resolves when the pool is ready
+#[cfg(feature = "parallel")]
+#[wasm_bindgen]
+pub fn init_thread_pool(num_threads: usize) -> js_sys::Promise {
+    wasm_bindgen_rayon::init_thread_pool(num_threads)
+}
+
+/// Check if parallel meshing is available
+#[wasm_bindgen]
+pub fn is_parallel_available() -> bool {
+    #[cfg(feature = "parallel")]
+    { true }
+    #[cfg(not(feature = "parallel"))]
+    { false }
 }
 
 /// Main entry point for meshing a chunk
@@ -72,6 +91,19 @@ pub fn mesh_chunk_bounded(
     mesh_chunk_with_bounds(grid_data, light_data, state_data, lookup_ptr, lookup_len, bounds)
 }
 
+/// Mesh a single chunk in streaming mode (for deferred boundary repair)
+/// NOTE: Streaming mode is deprecated - use mesh_chunk_bounded instead
+#[wasm_bindgen]
+pub fn mesh_chunk_streaming(
+    _grid_data: &[u8],
+    _light_data: &[u8],
+    _chunk_x: i32,
+    _chunk_z: i32,
+) -> StreamingMeshResultWasm {
+    // Streaming mode is no longer supported - return empty result
+    StreamingMeshResultWasm::empty()
+}
+
 fn mesh_chunk_with_bounds(
     grid_data: &[u8],
     light_data: &[u8],
@@ -87,7 +119,7 @@ fn mesh_chunk_with_bounds(
     } else {
         None
     };
-    let _state_grid = if !state_data.is_empty() {
+    let state_grid = if !state_data.is_empty() {
         Some(grid::BlockStateGrid::from_bytes(state_data))
     } else {
         None
@@ -105,6 +137,7 @@ fn mesh_chunk_with_bounds(
                 glass: mesher::MeshData::new(),
                 model_opaque: models::geometry::ModelMeshData::new(),
                 model_transparent: models::geometry::ModelMeshData::new(),
+                model_overlay: models::geometry::ModelMeshData::new(),
             };
         }
     };
@@ -113,16 +146,344 @@ fn mesh_chunk_with_bounds(
     let solid_result = mesher::greedy::mesh_solid_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
     let fluid_result = mesher::fluid::mesh_fluids_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
     let glass_result = mesher::greedy::mesh_glass_bounded(&grid, light_grid.as_ref(), &lookups, bounds.as_ref());
+    
+    // Model meshing using hash-based registry (if state grid provided and registry initialized)
+    let (model_opaque, model_transparent, model_overlay) = if let Some(ref sg) = state_grid {
+        if models::registry::is_hash_model_registry_initialized() {
+            let model_result = models::mesher::mesh_models_bounded(&grid, sg, light_grid.as_ref(), &lookups, bounds.as_ref());
+            (model_result.opaque, model_result.transparent, model_result.overlay)
+        } else {
+            (models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new())
+        }
+    } else {
+        (models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new())
+    };
 
     MeshResult {
         solid: solid_result,
         water: fluid_result.water,
         lava: fluid_result.lava,
         glass: glass_result,
-        // No model meshes from raw grids (requires state grid)
-        model_opaque: models::geometry::ModelMeshData::new(),
-        model_transparent: models::geometry::ModelMeshData::new(),
+        model_opaque,
+        model_transparent,
+        model_overlay,
     }
+}
+
+// ============================================================================
+// Zero-Copy Meshing API (Phase 4: SharedArrayBuffer)
+// ============================================================================
+
+/// Metadata for zero-copy mesh result - only counts, no data copying
+#[wasm_bindgen]
+pub struct MeshSizes {
+    // Solid mesh sizes
+    pub solid_position_count: u32,
+    pub solid_index_count: u32,
+    pub solid_vertex_count: u32,
+    // Water mesh sizes
+    pub water_position_count: u32,
+    pub water_index_count: u32,
+    pub water_vertex_count: u32,
+    // Lava mesh sizes  
+    pub lava_position_count: u32,
+    pub lava_index_count: u32,
+    pub lava_vertex_count: u32,
+    // Glass mesh sizes
+    pub glass_position_count: u32,
+    pub glass_index_count: u32,
+    pub glass_vertex_count: u32,
+    // Model opaque sizes
+    pub model_opaque_position_count: u32,
+    pub model_opaque_index_count: u32,
+    pub model_opaque_vertex_count: u32,
+    // Model transparent sizes
+    pub model_transparent_position_count: u32,
+    pub model_transparent_index_count: u32,
+    pub model_transparent_vertex_count: u32,
+}
+
+/// Pre-compute mesh sizes before allocating buffers
+#[wasm_bindgen]
+pub fn compute_mesh_sizes(
+    grid_data: &[u8],
+    light_data: &[u8],
+    state_data: &[u8],
+    min_chunk_x: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_z: i32,
+) -> MeshSizes {
+    let bounds = Some(mesher::MeshBounds {
+        min_chunk_x,
+        min_chunk_z,
+        max_chunk_x,
+        max_chunk_z,
+    });
+    
+    // Run meshing to get sizes (we'll cache the result for write_mesh_data)
+    let result = mesh_chunk_with_bounds(grid_data, light_data, state_data, std::ptr::null(), 0, bounds);
+    
+    // Store result in thread-local for subsequent write call
+    CACHED_RESULT.with(|cache| {
+        *cache.borrow_mut() = Some(result);
+    });
+    
+    // Get sizes from cached result
+    CACHED_RESULT.with(|cache| {
+        let cache = cache.borrow();
+        let result = cache.as_ref().unwrap();
+        
+        MeshSizes {
+            solid_position_count: result.solid.positions.len() as u32,
+            solid_index_count: result.solid.indices.len() as u32,
+            solid_vertex_count: result.solid.vertex_count,
+            water_position_count: result.water.positions.len() as u32,
+            water_index_count: result.water.indices.len() as u32,
+            water_vertex_count: result.water.vertex_count,
+            lava_position_count: result.lava.positions.len() as u32,
+            lava_index_count: result.lava.indices.len() as u32,
+            lava_vertex_count: result.lava.vertex_count,
+            glass_position_count: result.glass.positions.len() as u32,
+            glass_index_count: result.glass.indices.len() as u32,
+            glass_vertex_count: result.glass.vertex_count,
+            model_opaque_position_count: result.model_opaque.positions.len() as u32,
+            model_opaque_index_count: result.model_opaque.indices.len() as u32,
+            model_opaque_vertex_count: result.model_opaque.vertex_count,
+            model_transparent_position_count: result.model_transparent.positions.len() as u32,
+            model_transparent_index_count: result.model_transparent.indices.len() as u32,
+            model_transparent_vertex_count: result.model_transparent.vertex_count,
+        }
+    })
+}
+
+// Thread-local cache for mesh result between compute_mesh_sizes and write_mesh_data calls
+std::thread_local! {
+    static CACHED_RESULT: std::cell::RefCell<Option<MeshResult>> = std::cell::RefCell::new(None);
+}
+
+/// Write cached mesh data to pre-allocated JS typed arrays (zero-copy path)
+/// Call this immediately after compute_mesh_sizes with appropriately sized arrays.
+/// 
+/// Buffer layout per mesh type:
+/// - positions: Float32Array (vertex_count * 3)
+/// - normals: Float32Array (vertex_count * 3)
+/// - colors: Float32Array (vertex_count * 3)
+/// - tex_indices: Float32Array (vertex_count)
+/// - tex_rotations: Float32Array (vertex_count) 
+/// - tint_types: Float32Array (vertex_count)
+/// - packed_light: Uint8Array (vertex_count)
+/// - indices: Uint32Array (index_count)
+#[wasm_bindgen]
+pub fn write_mesh_to_buffers(
+    // Solid buffers
+    solid_positions: &mut [f32],
+    solid_normals: &mut [f32],
+    solid_colors: &mut [f32],
+    solid_tex_indices: &mut [f32],
+    solid_tex_rotations: &mut [f32],
+    solid_tint_types: &mut [f32],
+    solid_packed_light: &mut [u8],
+    solid_indices: &mut [u32],
+    // Water buffers
+    water_positions: &mut [f32],
+    water_normals: &mut [f32],
+    water_colors: &mut [f32],
+    water_uvs: &mut [f32],
+    water_tex_indices: &mut [f32],
+    water_packed_light: &mut [u8],
+    water_indices: &mut [u32],
+    // Lava buffers
+    lava_positions: &mut [f32],
+    lava_normals: &mut [f32],
+    lava_colors: &mut [f32],
+    lava_uvs: &mut [f32],
+    lava_tex_indices: &mut [f32],
+    lava_packed_light: &mut [u8],
+    lava_indices: &mut [u32],
+    // Glass buffers
+    glass_positions: &mut [f32],
+    glass_normals: &mut [f32],
+    glass_colors: &mut [f32],
+    glass_tex_indices: &mut [f32],
+    glass_tex_rotations: &mut [f32],
+    glass_tint_types: &mut [f32],
+    glass_packed_light: &mut [u8],
+    glass_indices: &mut [u32],
+) -> bool {
+    CACHED_RESULT.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(result) = cache.take() {
+            // Copy solid mesh data
+            if !result.solid.positions.is_empty() {
+                solid_positions[..result.solid.positions.len()].copy_from_slice(&result.solid.positions);
+                solid_normals[..result.solid.normals.len()].copy_from_slice(&result.solid.normals);
+                solid_colors[..result.solid.colors.len()].copy_from_slice(&result.solid.colors);
+                solid_tex_indices[..result.solid.tex_indices.len()].copy_from_slice(&result.solid.tex_indices);
+                solid_tex_rotations[..result.solid.tex_rotations.len()].copy_from_slice(&result.solid.tex_rotations);
+                solid_tint_types[..result.solid.tint_types.len()].copy_from_slice(&result.solid.tint_types);
+                solid_packed_light[..result.solid.packed_light.len()].copy_from_slice(&result.solid.packed_light);
+                solid_indices[..result.solid.indices.len()].copy_from_slice(&result.solid.indices);
+            }
+            
+            // Copy water mesh data
+            if !result.water.positions.is_empty() {
+                water_positions[..result.water.positions.len()].copy_from_slice(&result.water.positions);
+                water_normals[..result.water.normals.len()].copy_from_slice(&result.water.normals);
+                water_colors[..result.water.colors.len()].copy_from_slice(&result.water.colors);
+                water_uvs[..result.water.uvs.len()].copy_from_slice(&result.water.uvs);
+                water_tex_indices[..result.water.tex_indices.len()].copy_from_slice(&result.water.tex_indices);
+                water_packed_light[..result.water.packed_light.len()].copy_from_slice(&result.water.packed_light);
+                water_indices[..result.water.indices.len()].copy_from_slice(&result.water.indices);
+            }
+            
+            // Copy lava mesh data
+            if !result.lava.positions.is_empty() {
+                lava_positions[..result.lava.positions.len()].copy_from_slice(&result.lava.positions);
+                lava_normals[..result.lava.normals.len()].copy_from_slice(&result.lava.normals);
+                lava_colors[..result.lava.colors.len()].copy_from_slice(&result.lava.colors);
+                lava_uvs[..result.lava.uvs.len()].copy_from_slice(&result.lava.uvs);
+                lava_tex_indices[..result.lava.tex_indices.len()].copy_from_slice(&result.lava.tex_indices);
+                lava_packed_light[..result.lava.packed_light.len()].copy_from_slice(&result.lava.packed_light);
+                lava_indices[..result.lava.indices.len()].copy_from_slice(&result.lava.indices);
+            }
+            
+            // Copy glass mesh data
+            if !result.glass.positions.is_empty() {
+                glass_positions[..result.glass.positions.len()].copy_from_slice(&result.glass.positions);
+                glass_normals[..result.glass.normals.len()].copy_from_slice(&result.glass.normals);
+                glass_colors[..result.glass.colors.len()].copy_from_slice(&result.glass.colors);
+                glass_tex_indices[..result.glass.tex_indices.len()].copy_from_slice(&result.glass.tex_indices);
+                glass_tex_rotations[..result.glass.tex_rotations.len()].copy_from_slice(&result.glass.tex_rotations);
+                glass_tint_types[..result.glass.tint_types.len()].copy_from_slice(&result.glass.tint_types);
+                glass_packed_light[..result.glass.packed_light.len()].copy_from_slice(&result.glass.packed_light);
+                glass_indices[..result.glass.indices.len()].copy_from_slice(&result.glass.indices);
+            }
+            
+            true
+        } else {
+            false
+        }
+    })
+}
+
+/// Write model mesh data to pre-allocated buffers
+#[wasm_bindgen]
+pub fn write_model_mesh_to_buffers(
+    // Opaque model buffers
+    opaque_positions: &mut [f32],
+    opaque_normals: &mut [f32],
+    opaque_colors: &mut [f32],
+    opaque_uvs: &mut [f32],
+    opaque_tex_indices: &mut [f32],
+    opaque_packed_light: &mut [u8],
+    opaque_indices: &mut [u32],
+    // Transparent model buffers
+    transparent_positions: &mut [f32],
+    transparent_normals: &mut [f32],
+    transparent_colors: &mut [f32],
+    transparent_uvs: &mut [f32],
+    transparent_tex_indices: &mut [f32],
+    transparent_packed_light: &mut [u8],
+    transparent_indices: &mut [u32],
+) -> bool {
+    // Model data is written during the main write_mesh_to_buffers call
+    // This is a placeholder for future model-specific zero-copy path
+    CACHED_RESULT.with(|cache| {
+        let cache = cache.borrow();
+        if let Some(result) = cache.as_ref() {
+            // Copy opaque model mesh data
+            if !result.model_opaque.positions.is_empty() {
+                opaque_positions[..result.model_opaque.positions.len()].copy_from_slice(&result.model_opaque.positions);
+                opaque_normals[..result.model_opaque.normals.len()].copy_from_slice(&result.model_opaque.normals);
+                opaque_colors[..result.model_opaque.colors.len()].copy_from_slice(&result.model_opaque.colors);
+                opaque_uvs[..result.model_opaque.uvs.len()].copy_from_slice(&result.model_opaque.uvs);
+                opaque_tex_indices[..result.model_opaque.tex_indices.len()].copy_from_slice(&result.model_opaque.tex_indices);
+                opaque_packed_light[..result.model_opaque.packed_light.len()].copy_from_slice(&result.model_opaque.packed_light);
+                opaque_indices[..result.model_opaque.indices.len()].copy_from_slice(&result.model_opaque.indices);
+            }
+            
+            // Copy transparent model mesh data
+            if !result.model_transparent.positions.is_empty() {
+                transparent_positions[..result.model_transparent.positions.len()].copy_from_slice(&result.model_transparent.positions);
+                transparent_normals[..result.model_transparent.normals.len()].copy_from_slice(&result.model_transparent.normals);
+                transparent_colors[..result.model_transparent.colors.len()].copy_from_slice(&result.model_transparent.colors);
+                transparent_uvs[..result.model_transparent.uvs.len()].copy_from_slice(&result.model_transparent.uvs);
+                transparent_tex_indices[..result.model_transparent.tex_indices.len()].copy_from_slice(&result.model_transparent.tex_indices);
+                transparent_packed_light[..result.model_transparent.packed_light.len()].copy_from_slice(&result.model_transparent.packed_light);
+                transparent_indices[..result.model_transparent.indices.len()].copy_from_slice(&result.model_transparent.indices);
+            }
+            
+            true
+        } else {
+            false
+        }
+    })
+}
+
+/// Clear the cached mesh result (call if you don't need to write it)
+#[wasm_bindgen]
+pub fn clear_cached_result() {
+    CACHED_RESULT.with(|cache| {
+        *cache.borrow_mut() = None;
+    });
+}
+
+// ============================================================================
+// Streaming Mode Result
+// ============================================================================
+
+/// Result from streaming mesh - includes boundary face info
+#[wasm_bindgen]
+pub struct StreamingMeshResultWasm {
+    mesh: mesher::MeshData,
+    boundary_neg_x_count: u32,
+    boundary_pos_x_count: u32,
+    boundary_neg_z_count: u32,
+    boundary_pos_z_count: u32,
+}
+
+impl StreamingMeshResultWasm {
+    pub fn empty() -> Self {
+        Self {
+            mesh: mesher::MeshData::new(),
+            boundary_neg_x_count: 0,
+            boundary_pos_x_count: 0,
+            boundary_neg_z_count: 0,
+            boundary_pos_z_count: 0,
+        }
+    }
+    
+}
+
+#[wasm_bindgen]
+impl StreamingMeshResultWasm {
+    #[wasm_bindgen(getter)]
+    pub fn positions(&self) -> Vec<f32> { self.mesh.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn normals(&self) -> Vec<f32> { self.mesh.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn colors(&self) -> Vec<f32> { self.mesh.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn tex_indices(&self) -> Vec<f32> { self.mesh.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn tex_rotations(&self) -> Vec<f32> { self.mesh.tex_rotations.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn tint_types(&self) -> Vec<f32> { self.mesh.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn packed_light(&self) -> Vec<u8> { self.mesh.packed_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn indices(&self) -> Vec<u32> { self.mesh.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn vertex_count(&self) -> u32 { self.mesh.vertex_count }
+    #[wasm_bindgen(getter)]
+    pub fn boundary_neg_x_count(&self) -> u32 { self.boundary_neg_x_count }
+    #[wasm_bindgen(getter)]
+    pub fn boundary_pos_x_count(&self) -> u32 { self.boundary_pos_x_count }
+    #[wasm_bindgen(getter)]
+    pub fn boundary_neg_z_count(&self) -> u32 { self.boundary_neg_z_count }
+    #[wasm_bindgen(getter)]
+    pub fn boundary_pos_z_count(&self) -> u32 { self.boundary_pos_z_count }
 }
 
 /// Result containing all mesh buffers
@@ -135,6 +496,7 @@ pub struct MeshResult {
     // Model meshes
     model_opaque: models::geometry::ModelMeshData,
     model_transparent: models::geometry::ModelMeshData,
+    model_overlay: models::geometry::ModelMeshData,
 }
 
 #[wasm_bindgen]
@@ -464,6 +826,62 @@ impl MeshResult {
     pub fn model_transparent_vertex_count(&self) -> u32 {
         self.model_transparent.vertex_count
     }
+
+    // Model overlay getters
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_positions(&self) -> Vec<f32> {
+        self.model_overlay.positions.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_normals(&self) -> Vec<f32> {
+        self.model_overlay.normals.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_colors(&self) -> Vec<f32> {
+        self.model_overlay.colors.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_uvs(&self) -> Vec<f32> {
+        self.model_overlay.uvs.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_tex_indices(&self) -> Vec<f32> {
+        self.model_overlay.tex_indices.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_tint_types(&self) -> Vec<f32> {
+        self.model_overlay.tint_types.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_sky_light(&self) -> Vec<f32> {
+        self.model_overlay.sky_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_block_light(&self) -> Vec<f32> {
+        self.model_overlay.block_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_packed_light(&self) -> Vec<u8> {
+        self.model_overlay.packed_light.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_indices(&self) -> Vec<u32> {
+        self.model_overlay.indices.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_vertex_count(&self) -> u32 {
+        self.model_overlay.vertex_count
+    }
 }
 
 /// Initialize lookup tables from JS
@@ -599,6 +1017,7 @@ pub fn process_chunk(
             glass: glass_result,
             model_opaque: model_result.opaque,
             model_transparent: model_result.transparent,
+            model_overlay: model_result.overlay,
         },
         particle_emitters,
     }
@@ -687,6 +1106,7 @@ impl ProcessedChunk {
                 glass: mesher::MeshData::new(),
                 model_opaque: models::geometry::ModelMeshData::new(),
                 model_transparent: models::geometry::ModelMeshData::new(),
+                model_overlay: models::geometry::ModelMeshData::new(),
             },
             particle_emitters: Vec::new(),
         }
@@ -1048,6 +1468,62 @@ impl ProcessedChunk {
         self.mesh.model_transparent_vertex_count()
     }
 
+    // Model overlay getters
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_positions(&self) -> Vec<f32> {
+        self.mesh.model_overlay_positions()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_normals(&self) -> Vec<f32> {
+        self.mesh.model_overlay_normals()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_colors(&self) -> Vec<f32> {
+        self.mesh.model_overlay_colors()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_uvs(&self) -> Vec<f32> {
+        self.mesh.model_overlay_uvs()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_tex_indices(&self) -> Vec<f32> {
+        self.mesh.model_overlay_tex_indices()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_tint_types(&self) -> Vec<f32> {
+        self.mesh.model_overlay_tint_types()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_sky_light(&self) -> Vec<f32> {
+        self.mesh.model_overlay_sky_light()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_block_light(&self) -> Vec<f32> {
+        self.mesh.model_overlay_block_light()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_packed_light(&self) -> Vec<u8> {
+        self.mesh.model_overlay_packed_light()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_indices(&self) -> Vec<u32> {
+        self.mesh.model_overlay_indices()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_vertex_count(&self) -> u32 {
+        self.mesh.model_overlay_vertex_count()
+    }
+
     // Particle emitter getters
     #[wasm_bindgen(getter)]
     pub fn particle_emitter_count(&self) -> u32 {
@@ -1068,3 +1544,640 @@ impl ProcessedChunk {
     }
 }
 
+// ============================================================================
+// FUSED PIPELINE - Process compressed chunk to mesh in one WASM call
+// ============================================================================
+
+/// Process a compressed chunk directly to mesh data
+/// 
+/// This eliminates JS↔WASM boundary crossings by doing:
+/// 1. Decompression (zlib/gzip)
+/// 2. NBT parsing
+/// 3. Chunk decoding to grids
+/// 4. Meshing (solid, fluid, glass, models)
+/// 
+/// All in a single WASM function call.
+/// 
+/// compression_type: 1=gzip, 2=zlib, 3=uncompressed
+#[wasm_bindgen]
+pub fn process_chunk_complete(
+    compressed_data: &[u8],
+    compression_type: u8,
+    chunk_x: i32,
+    chunk_z: i32,
+) -> FusedChunkResult {
+    // Step 1: Decompress
+    let comp_type = match decode::CompressionType::from_u8(compression_type) {
+        Some(ct) => ct,
+        None => return FusedChunkResult::error("Invalid compression type"),
+    };
+    
+    let decompressed = match decode::decompress(compressed_data, comp_type) {
+        Ok(data) => data,
+        Err(e) => return FusedChunkResult::error(&format!("Decompression failed: {}", e)),
+    };
+    
+    // Step 2: Parse NBT
+    let chunk_data = match decode::parse_nbt(&decompressed) {
+        Ok(data) => data,
+        Err(e) => return FusedChunkResult::error(&format!("NBT parse failed: {}", e)),
+    };
+    
+    // Step 3: Decode chunk to grids
+    let (blocks_decoded, grid, light_grid, state_grid) = 
+        decode::decode_chunk_with_states(&chunk_data, chunk_x, chunk_z);
+    
+    // Step 4: Get lookups
+    let lookups = match lookup::Lookups::get() {
+        Some(l) => l,
+        None => return FusedChunkResult::error("Lookups not initialized"),
+    };
+    
+    // Create bounds for single chunk
+    let bounds = Some(mesher::MeshBounds {
+        min_chunk_x: chunk_x,
+        min_chunk_z: chunk_z,
+        max_chunk_x: chunk_x,
+        max_chunk_z: chunk_z,
+    });
+    
+    // Step 5: Run all meshers
+    let solid_result = mesher::greedy::mesh_solid_bounded(&grid, Some(&light_grid), &lookups, bounds.as_ref());
+    let fluid_result = mesher::fluid::mesh_fluids_bounded(&grid, Some(&light_grid), &lookups, bounds.as_ref());
+    let glass_result = mesher::greedy::mesh_glass_bounded(&grid, Some(&light_grid), &lookups, bounds.as_ref());
+    
+    // Model meshing
+    let (model_opaque, model_transparent, model_overlay) = if models::registry::is_hash_model_registry_initialized() {
+        let model_result = models::mesher::mesh_models_bounded(&grid, &state_grid, Some(&light_grid), &lookups, bounds.as_ref());
+        (model_result.opaque, model_result.transparent, model_result.overlay)
+    } else {
+        (models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new())
+    };
+    
+    FusedChunkResult {
+        success: true,
+        error_message: String::new(),
+        blocks_decoded,
+        chunk_x,
+        chunk_z,
+        solid: solid_result,
+        water: fluid_result.water,
+        lava: fluid_result.lava,
+        glass: glass_result,
+        model_opaque,
+        model_transparent,
+        model_overlay,
+    }
+}
+
+/// Process multiple compressed chunks for a super-chunk in a single call
+/// 
+/// This is the ultimate fused pipeline - processes 4 chunks together
+/// with proper neighbor handling for greedy meshing.
+/// 
+/// Input format: chunks as Vec of (compressed_data, compression_type, chunk_x, chunk_z)
+#[wasm_bindgen]
+pub fn process_super_chunk_complete(
+    chunk_data_flat: &[u8],
+    chunk_count: usize,
+) -> FusedSuperChunkResult {
+    // Parse the flat data format:
+    // For each chunk: [4 bytes len][compressed_data...][1 byte compression][4 bytes x][4 bytes z]
+    let mut offset = 0;
+    let mut grids = Vec::with_capacity(chunk_count);
+    let mut light_grids = Vec::with_capacity(chunk_count);
+    let mut state_grids = Vec::with_capacity(chunk_count);
+    let mut chunk_coords = Vec::with_capacity(chunk_count);
+    let mut total_blocks = 0u32;
+    
+    for _ in 0..chunk_count {
+        if offset + 4 > chunk_data_flat.len() {
+            return FusedSuperChunkResult::error("Invalid chunk data format: truncated length");
+        }
+        
+        // Read length (little-endian)
+        let len = u32::from_le_bytes([
+            chunk_data_flat[offset],
+            chunk_data_flat[offset + 1],
+            chunk_data_flat[offset + 2],
+            chunk_data_flat[offset + 3],
+        ]) as usize;
+        offset += 4;
+        
+        if offset + len + 9 > chunk_data_flat.len() {
+            return FusedSuperChunkResult::error("Invalid chunk data format: truncated data");
+        }
+        
+        let compressed = &chunk_data_flat[offset..offset + len];
+        offset += len;
+        
+        let compression_type = chunk_data_flat[offset];
+        offset += 1;
+        
+        let chunk_x = i32::from_le_bytes([
+            chunk_data_flat[offset],
+            chunk_data_flat[offset + 1],
+            chunk_data_flat[offset + 2],
+            chunk_data_flat[offset + 3],
+        ]);
+        offset += 4;
+        
+        let chunk_z = i32::from_le_bytes([
+            chunk_data_flat[offset],
+            chunk_data_flat[offset + 1],
+            chunk_data_flat[offset + 2],
+            chunk_data_flat[offset + 3],
+        ]);
+        offset += 4;
+        
+        // Decompress
+        let comp_type = match decode::CompressionType::from_u8(compression_type) {
+            Some(ct) => ct,
+            None => return FusedSuperChunkResult::error("Invalid compression type"),
+        };
+        
+        let decompressed = match decode::decompress(compressed, comp_type) {
+            Ok(data) => data,
+            Err(e) => return FusedSuperChunkResult::error(&format!("Decompression failed: {}", e)),
+        };
+        
+        // Parse NBT
+        let chunk_nbt = match decode::parse_nbt(&decompressed) {
+            Ok(data) => data,
+            Err(e) => return FusedSuperChunkResult::error(&format!("NBT parse failed: {}", e)),
+        };
+        
+        // Decode to grids
+        let (blocks, grid, light_grid, state_grid) = 
+            decode::decode_chunk_with_states(&chunk_nbt, chunk_x, chunk_z);
+        
+        total_blocks += blocks;
+        grids.push(grid);
+        light_grids.push(light_grid);
+        state_grids.push(state_grid);
+        chunk_coords.push((chunk_x, chunk_z));
+    }
+    
+    // Merge grids
+    let mut merged_grid = grid::BinaryGrid::new();
+    let mut merged_light = grid::LightGrid::new();
+    let mut merged_state = grid::BlockStateGrid::new();
+    
+    for (i, grid) in grids.into_iter().enumerate() {
+        merged_grid.merge_from(&grid);
+        merged_light.merge_from(&light_grids[i]);
+        merged_state.merge_from(&state_grids[i]);
+    }
+    
+    // Calculate bounds from chunk coords
+    let min_x = chunk_coords.iter().map(|(x, _)| *x).min().unwrap_or(0);
+    let max_x = chunk_coords.iter().map(|(x, _)| *x).max().unwrap_or(0);
+    let min_z = chunk_coords.iter().map(|(_, z)| *z).min().unwrap_or(0);
+    let max_z = chunk_coords.iter().map(|(_, z)| *z).max().unwrap_or(0);
+    
+    let bounds = Some(mesher::MeshBounds {
+        min_chunk_x: min_x,
+        min_chunk_z: min_z,
+        max_chunk_x: max_x,
+        max_chunk_z: max_z,
+    });
+    
+    // Get lookups
+    let lookups = match lookup::Lookups::get() {
+        Some(l) => l,
+        None => return FusedSuperChunkResult::error("Lookups not initialized"),
+    };
+    
+    // Run meshers
+    let solid_result = mesher::greedy::mesh_solid_bounded(&merged_grid, Some(&merged_light), &lookups, bounds.as_ref());
+    let fluid_result = mesher::fluid::mesh_fluids_bounded(&merged_grid, Some(&merged_light), &lookups, bounds.as_ref());
+    let glass_result = mesher::greedy::mesh_glass_bounded(&merged_grid, Some(&merged_light), &lookups, bounds.as_ref());
+    
+    let (model_opaque, model_transparent, model_overlay) = if models::registry::is_hash_model_registry_initialized() {
+        let model_result = models::mesher::mesh_models_bounded(&merged_grid, &merged_state, Some(&merged_light), &lookups, bounds.as_ref());
+        (model_result.opaque, model_result.transparent, model_result.overlay)
+    } else {
+        (models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new())
+    };
+    
+    FusedSuperChunkResult {
+        success: true,
+        error_message: String::new(),
+        blocks_decoded: total_blocks,
+        chunk_count: chunk_count as u32,
+        solid: solid_result,
+        water: fluid_result.water,
+        lava: fluid_result.lava,
+        glass: glass_result,
+        model_opaque,
+        model_transparent,
+        model_overlay,
+    }
+}
+
+/// Result of fused single-chunk processing
+#[wasm_bindgen]
+pub struct FusedChunkResult {
+    success: bool,
+    error_message: String,
+    blocks_decoded: u32,
+    chunk_x: i32,
+    chunk_z: i32,
+    solid: mesher::MeshData,
+    water: mesher::MeshData,
+    lava: mesher::MeshData,
+    glass: mesher::MeshData,
+    model_opaque: models::geometry::ModelMeshData,
+    model_transparent: models::geometry::ModelMeshData,
+    model_overlay: models::geometry::ModelMeshData,
+}
+
+impl FusedChunkResult {
+    fn error(msg: &str) -> Self {
+        Self {
+            success: false,
+            error_message: msg.to_string(),
+            blocks_decoded: 0,
+            chunk_x: 0,
+            chunk_z: 0,
+            solid: mesher::MeshData::new(),
+            water: mesher::MeshData::new(),
+            lava: mesher::MeshData::new(),
+            glass: mesher::MeshData::new(),
+            model_opaque: models::geometry::ModelMeshData::new(),
+            model_transparent: models::geometry::ModelMeshData::new(),
+            model_overlay: models::geometry::ModelMeshData::new(),
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl FusedChunkResult {
+    #[wasm_bindgen(getter)]
+    pub fn success(&self) -> bool { self.success }
+    
+    #[wasm_bindgen(getter)]
+    pub fn error_message(&self) -> String { self.error_message.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn blocks_decoded(&self) -> u32 { self.blocks_decoded }
+    
+    #[wasm_bindgen(getter)]
+    pub fn chunk_x(&self) -> i32 { self.chunk_x }
+    
+    #[wasm_bindgen(getter)]
+    pub fn chunk_z(&self) -> i32 { self.chunk_z }
+    
+    // Solid mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn solid_positions(&self) -> Vec<f32> { self.solid.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_normals(&self) -> Vec<f32> { self.solid.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_colors(&self) -> Vec<f32> { self.solid.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_uvs(&self) -> Vec<f32> { self.solid.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_tex_indices(&self) -> Vec<f32> { self.solid.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_tex_rotations(&self) -> Vec<f32> { self.solid.tex_rotations.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_tint_types(&self) -> Vec<f32> { self.solid.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_sky_light(&self) -> Vec<f32> { self.solid.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_block_light(&self) -> Vec<f32> { self.solid.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_indices(&self) -> Vec<u32> { self.solid.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_vertex_count(&self) -> u32 { self.solid.vertex_count }
+    
+    // Water mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn water_positions(&self) -> Vec<f32> { self.water.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_normals(&self) -> Vec<f32> { self.water.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_colors(&self) -> Vec<f32> { self.water.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_uvs(&self) -> Vec<f32> { self.water.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_tex_indices(&self) -> Vec<f32> { self.water.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_sky_light(&self) -> Vec<f32> { self.water.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_block_light(&self) -> Vec<f32> { self.water.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_indices(&self) -> Vec<u32> { self.water.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_vertex_count(&self) -> u32 { self.water.vertex_count }
+    
+    // Lava mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn lava_positions(&self) -> Vec<f32> { self.lava.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_normals(&self) -> Vec<f32> { self.lava.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_colors(&self) -> Vec<f32> { self.lava.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_uvs(&self) -> Vec<f32> { self.lava.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_tex_indices(&self) -> Vec<f32> { self.lava.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_sky_light(&self) -> Vec<f32> { self.lava.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_block_light(&self) -> Vec<f32> { self.lava.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_indices(&self) -> Vec<u32> { self.lava.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_vertex_count(&self) -> u32 { self.lava.vertex_count }
+    
+    // Glass mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn glass_positions(&self) -> Vec<f32> { self.glass.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_normals(&self) -> Vec<f32> { self.glass.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_colors(&self) -> Vec<f32> { self.glass.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_tex_indices(&self) -> Vec<f32> { self.glass.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_tex_rotations(&self) -> Vec<f32> { self.glass.tex_rotations.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_tint_types(&self) -> Vec<f32> { self.glass.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_sky_light(&self) -> Vec<f32> { self.glass.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_block_light(&self) -> Vec<f32> { self.glass.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_indices(&self) -> Vec<u32> { self.glass.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_vertex_count(&self) -> u32 { self.glass.vertex_count }
+    
+    // Model opaque mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_positions(&self) -> Vec<f32> { self.model_opaque.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_normals(&self) -> Vec<f32> { self.model_opaque.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_colors(&self) -> Vec<f32> { self.model_opaque.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_uvs(&self) -> Vec<f32> { self.model_opaque.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_tex_indices(&self) -> Vec<f32> { self.model_opaque.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_tint_types(&self) -> Vec<f32> { self.model_opaque.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_sky_light(&self) -> Vec<f32> { self.model_opaque.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_block_light(&self) -> Vec<f32> { self.model_opaque.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_indices(&self) -> Vec<u32> { self.model_opaque.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_vertex_count(&self) -> u32 { self.model_opaque.vertex_count }
+    
+    // Model transparent mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_positions(&self) -> Vec<f32> { self.model_transparent.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_normals(&self) -> Vec<f32> { self.model_transparent.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_colors(&self) -> Vec<f32> { self.model_transparent.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_uvs(&self) -> Vec<f32> { self.model_transparent.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_tex_indices(&self) -> Vec<f32> { self.model_transparent.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_tint_types(&self) -> Vec<f32> { self.model_transparent.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_sky_light(&self) -> Vec<f32> { self.model_transparent.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_block_light(&self) -> Vec<f32> { self.model_transparent.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_indices(&self) -> Vec<u32> { self.model_transparent.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_vertex_count(&self) -> u32 { self.model_transparent.vertex_count }
+    
+    // Model overlay mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_positions(&self) -> Vec<f32> { self.model_overlay.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_normals(&self) -> Vec<f32> { self.model_overlay.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_colors(&self) -> Vec<f32> { self.model_overlay.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_uvs(&self) -> Vec<f32> { self.model_overlay.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_tex_indices(&self) -> Vec<f32> { self.model_overlay.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_tint_types(&self) -> Vec<f32> { self.model_overlay.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_sky_light(&self) -> Vec<f32> { self.model_overlay.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_block_light(&self) -> Vec<f32> { self.model_overlay.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_indices(&self) -> Vec<u32> { self.model_overlay.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_vertex_count(&self) -> u32 { self.model_overlay.vertex_count }
+}
+
+/// Result of fused super-chunk processing
+#[wasm_bindgen]
+pub struct FusedSuperChunkResult {
+    success: bool,
+    error_message: String,
+    blocks_decoded: u32,
+    chunk_count: u32,
+    solid: mesher::MeshData,
+    water: mesher::MeshData,
+    lava: mesher::MeshData,
+    glass: mesher::MeshData,
+    model_opaque: models::geometry::ModelMeshData,
+    model_transparent: models::geometry::ModelMeshData,
+    model_overlay: models::geometry::ModelMeshData,
+}
+
+impl FusedSuperChunkResult {
+    fn error(msg: &str) -> Self {
+        Self {
+            success: false,
+            error_message: msg.to_string(),
+            blocks_decoded: 0,
+            chunk_count: 0,
+            solid: mesher::MeshData::new(),
+            water: mesher::MeshData::new(),
+            lava: mesher::MeshData::new(),
+            glass: mesher::MeshData::new(),
+            model_opaque: models::geometry::ModelMeshData::new(),
+            model_transparent: models::geometry::ModelMeshData::new(),
+            model_overlay: models::geometry::ModelMeshData::new(),
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl FusedSuperChunkResult {
+    #[wasm_bindgen(getter)]
+    pub fn success(&self) -> bool { self.success }
+    
+    #[wasm_bindgen(getter)]
+    pub fn error_message(&self) -> String { self.error_message.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn blocks_decoded(&self) -> u32 { self.blocks_decoded }
+    
+    #[wasm_bindgen(getter)]
+    pub fn chunk_count(&self) -> u32 { self.chunk_count }
+    
+    // Solid mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn solid_positions(&self) -> Vec<f32> { self.solid.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_normals(&self) -> Vec<f32> { self.solid.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_colors(&self) -> Vec<f32> { self.solid.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_uvs(&self) -> Vec<f32> { self.solid.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_tex_indices(&self) -> Vec<f32> { self.solid.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_tex_rotations(&self) -> Vec<f32> { self.solid.tex_rotations.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_tint_types(&self) -> Vec<f32> { self.solid.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_sky_light(&self) -> Vec<f32> { self.solid.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_block_light(&self) -> Vec<f32> { self.solid.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_indices(&self) -> Vec<u32> { self.solid.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn solid_vertex_count(&self) -> u32 { self.solid.vertex_count }
+    
+    // Water mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn water_positions(&self) -> Vec<f32> { self.water.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_normals(&self) -> Vec<f32> { self.water.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_colors(&self) -> Vec<f32> { self.water.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_uvs(&self) -> Vec<f32> { self.water.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_tex_indices(&self) -> Vec<f32> { self.water.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_sky_light(&self) -> Vec<f32> { self.water.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_block_light(&self) -> Vec<f32> { self.water.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_indices(&self) -> Vec<u32> { self.water.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn water_vertex_count(&self) -> u32 { self.water.vertex_count }
+    
+    // Lava mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn lava_positions(&self) -> Vec<f32> { self.lava.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_normals(&self) -> Vec<f32> { self.lava.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_colors(&self) -> Vec<f32> { self.lava.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_uvs(&self) -> Vec<f32> { self.lava.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_tex_indices(&self) -> Vec<f32> { self.lava.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_sky_light(&self) -> Vec<f32> { self.lava.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_block_light(&self) -> Vec<f32> { self.lava.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_indices(&self) -> Vec<u32> { self.lava.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn lava_vertex_count(&self) -> u32 { self.lava.vertex_count }
+    
+    // Glass mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn glass_positions(&self) -> Vec<f32> { self.glass.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_normals(&self) -> Vec<f32> { self.glass.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_colors(&self) -> Vec<f32> { self.glass.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_tex_indices(&self) -> Vec<f32> { self.glass.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_tex_rotations(&self) -> Vec<f32> { self.glass.tex_rotations.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_tint_types(&self) -> Vec<f32> { self.glass.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_sky_light(&self) -> Vec<f32> { self.glass.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_block_light(&self) -> Vec<f32> { self.glass.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_indices(&self) -> Vec<u32> { self.glass.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn glass_vertex_count(&self) -> u32 { self.glass.vertex_count }
+    
+    // Model opaque mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_positions(&self) -> Vec<f32> { self.model_opaque.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_normals(&self) -> Vec<f32> { self.model_opaque.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_colors(&self) -> Vec<f32> { self.model_opaque.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_uvs(&self) -> Vec<f32> { self.model_opaque.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_tex_indices(&self) -> Vec<f32> { self.model_opaque.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_tint_types(&self) -> Vec<f32> { self.model_opaque.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_sky_light(&self) -> Vec<f32> { self.model_opaque.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_block_light(&self) -> Vec<f32> { self.model_opaque.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_indices(&self) -> Vec<u32> { self.model_opaque.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_opaque_vertex_count(&self) -> u32 { self.model_opaque.vertex_count }
+    
+    // Model transparent mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_positions(&self) -> Vec<f32> { self.model_transparent.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_normals(&self) -> Vec<f32> { self.model_transparent.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_colors(&self) -> Vec<f32> { self.model_transparent.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_uvs(&self) -> Vec<f32> { self.model_transparent.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_tex_indices(&self) -> Vec<f32> { self.model_transparent.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_tint_types(&self) -> Vec<f32> { self.model_transparent.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_sky_light(&self) -> Vec<f32> { self.model_transparent.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_block_light(&self) -> Vec<f32> { self.model_transparent.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_indices(&self) -> Vec<u32> { self.model_transparent.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_transparent_vertex_count(&self) -> u32 { self.model_transparent.vertex_count }
+    
+    // Model overlay mesh getters
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_positions(&self) -> Vec<f32> { self.model_overlay.positions.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_normals(&self) -> Vec<f32> { self.model_overlay.normals.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_colors(&self) -> Vec<f32> { self.model_overlay.colors.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_uvs(&self) -> Vec<f32> { self.model_overlay.uvs.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_tex_indices(&self) -> Vec<f32> { self.model_overlay.tex_indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_tint_types(&self) -> Vec<f32> { self.model_overlay.tint_types.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_sky_light(&self) -> Vec<f32> { self.model_overlay.sky_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_block_light(&self) -> Vec<f32> { self.model_overlay.block_light.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_indices(&self) -> Vec<u32> { self.model_overlay.indices.clone() }
+    #[wasm_bindgen(getter)]
+    pub fn model_overlay_vertex_count(&self) -> u32 { self.model_overlay.vertex_count }
+}

@@ -229,6 +229,38 @@ export function processChunk(compressedData, compressionType, chunkX, chunkZ) {
 // Track if state registry has been initialized
 let stateRegistryInitialized = false;
 let modelRegistryInitialized = false;
+let modelRegistryV2Initialized = false;
+
+// Block name sets for special handling - must match ModelMesher.js exactly
+const MODEL_ROTATION_BLOCKS = new Set([
+  'short_grass', 'tall_grass', 'fern', 'large_fern',
+  'nether_sprouts', 'crimson_roots', 'warped_roots',
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower', 'pink_petals', 'eyeblossom',
+  'dead_bush',
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'mangrove_propagule',
+  'pale_oak_sapling',
+  'hanging_roots', 'spore_blossom',
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  'sea_pickle',
+  'dirt_path', 'farmland',
+]);
+
+const POSITION_OFFSET_BLOCKS = new Set([
+  'short_grass', 'fern',
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower',
+  'nether_sprouts', 'crimson_roots', 'warped_roots',
+  'hanging_roots',
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
+]);
 
 /**
  * Initialize state registry in WASM for model block resolution
@@ -359,7 +391,7 @@ function serializeModelGeometry(stateRegistry) {
     totalFaces += faces.length;
     
     // Serialize: [num_faces: u16][face data...]
-    const faceDataSize = faces.length * 84; // 84 bytes per face
+    const faceDataSize = faces.length * 85; // 85 bytes per face: direction(1) + vertices(48) + uvs(32) + texIndex(2) + tintType(1) + cullFace(1)
     const chunkSize = 2 + faceDataSize;
     const chunk = new Uint8Array(chunkSize);
     const view = new DataView(chunk.buffer);
@@ -425,16 +457,28 @@ function serializeModelGeometry(stateRegistry) {
 function extractFacesFromGeometry(geom) {
   const faces = [];
   
-  if (!geom.faces || !geom.positions) return faces;
+  // Use cullFaces (ModelGeometry output) or faces (exported format)
+  const faceInfoArray = geom.cullFaces || geom.faces;
+  if (!faceInfoArray || !geom.positions) return faces;
   
-  let vertexOffset = 0;
-  
-  for (const faceInfo of geom.faces) {
-    const vertexCount = faceInfo.vertexCount || 4;
-    if (vertexCount < 4) {
-      vertexOffset += vertexCount;
-      continue;
+  for (const faceInfo of faceInfoArray) {
+    // Handle both cullFaces format (indexCount, indexStart) and faces format (vertexCount)
+    let vertexCount, vertexOffset;
+    
+    if (faceInfo.indexCount !== undefined) {
+      // cullFaces format: indexCount is number of indices (6 for a quad = 2 triangles)
+      // indexStart is the starting index in the indices array
+      // Each quad has 4 vertices, 6 indices
+      vertexCount = 4; // Quads always have 4 vertices
+      // Calculate vertex offset from index start (each face uses vertices sequentially)
+      vertexOffset = faceInfo.faceIndex * 4;
+    } else {
+      // faces format
+      vertexCount = faceInfo.vertexCount || 4;
+      vertexOffset = faceInfo.vertexOffset || 0;
     }
+    
+    if (vertexCount < 4) continue;
     
     // Extract 4 vertices for this face
     const vertices = [];
@@ -458,21 +502,32 @@ function extractFacesFromGeometry(geom) {
       }
     }
     
-    // Convert normal to direction
-    const normal = faceInfo.normal || [0, 1, 0];
+    // Calculate normal from vertices (cross product of two edges)
+    const v0 = vertices[0], v1 = vertices[1], v2 = vertices[2];
+    const edge1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+    const edge2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+    const normal = [
+      edge1[1] * edge2[2] - edge1[2] * edge2[1],
+      edge1[2] * edge2[0] - edge1[0] * edge2[2],
+      edge1[0] * edge2[1] - edge1[1] * edge2[0],
+    ];
     const direction = normalToDirection(normal);
     
-    // Convert cullFace to direction byte
+    // Convert cullface to direction byte
+    // Handle both cullFaces format (lowercase) and faces format (camelCase)
     let cullFace = 255; // 255 = never cull
-    if (faceInfo.cullFace) {
-      cullFace = cullFaceToDirection(faceInfo.cullFace);
+    const cullFaceValue = faceInfo.cullface ?? faceInfo.cullFace;
+    if (cullFaceValue) {
+      cullFace = cullFaceToDirection(cullFaceValue);
     }
     
-    // Texture index
+    // Texture index - not available in cullFaces format, will be set by shader
     const textureIndex = faceInfo.textureIndex || 0;
     
     // Tint type (0=none, 1=grass, 2=foliage, 3=water, etc.)
-    const tintType = faceInfo.tintIndex >= 0 ? (faceInfo.tintIndex + 1) : 0;
+    // Handle both lowercase (tintindex) and camelCase (tintIndex)
+    const tintIndex = faceInfo.tintindex ?? faceInfo.tintIndex ?? -1;
+    const tintType = tintIndex >= 0 ? (tintIndex + 1) : 0;
     
     faces.push({
       direction,
@@ -482,8 +537,6 @@ function extractFacesFromGeometry(geom) {
       tintType,
       cullFace,
     });
-    
-    vertexOffset += vertexCount;
   }
   
   return faces;
@@ -520,6 +573,185 @@ function cullFaceToDirection(cullFace) {
     case 'east': return 5;
     default: return 255; // Never cull
   }
+}
+
+/**
+ * Initialize model registry V2 with enhanced metadata for full WASM model meshing
+ * This version includes block name and flags for rotation/offset handling.
+ * 
+ * @param {StateRegistry} stateRegistry - The state registry with geometry data
+ * @returns {boolean} True if initialization succeeded
+ */
+export function initModelRegistryV2(stateRegistry) {
+  if (!isWasmAvailable()) {
+    console.warn('[WasmMesher] Cannot init model registry v2 - WASM not available');
+    return false;
+  }
+  
+  if (modelRegistryV2Initialized) {
+    console.log('[WasmMesher] Model registry v2 already initialized');
+    return true;
+  }
+  
+  try {
+    const startTime = performance.now();
+    
+    // Serialize geometry with enhanced metadata
+    const { stateIds, blockNames, flags, geometryData, faceCount } = serializeModelGeometryV2(stateRegistry);
+    
+    if (stateIds.length === 0) {
+      console.warn('[WasmMesher] No model geometry to initialize');
+      return false;
+    }
+    
+    // Pass to WASM with metadata
+    wasmModule.init_model_registry_v2(
+      new Uint16Array(stateIds),
+      blockNames,  // Newline-separated block names
+      flags,       // Uint8Array of flags per state
+      geometryData
+    );
+    modelRegistryV2Initialized = true;
+    
+    const elapsed = (performance.now() - startTime).toFixed(1);
+    console.log(`[WasmMesher] Model registry v2 initialized: ${stateIds.length} states, ${faceCount} faces, ${(geometryData.length / 1024).toFixed(1)}KB in ${elapsed}ms`);
+    
+    return true;
+  } catch (error) {
+    console.error('[WasmMesher] Failed to init model registry v2:', error);
+    return false;
+  }
+}
+
+/**
+ * Check if model registry V2 is initialized
+ */
+export function isModelRegistryV2Initialized() {
+  return modelRegistryV2Initialized;
+}
+
+/**
+ * Serialize model geometry with enhanced metadata for V2 registry
+ * 
+ * Format:
+ * - stateIds: array of state IDs
+ * - blockNames: newline-separated block names (one per state)
+ * - flags: Uint8Array with bit flags per state:
+ *   - bit 0: MODEL_ROTATION (apply position-based rotation)
+ *   - bit 1: POSITION_OFFSET (apply position-based XZ offset)
+ *   - bit 2: IS_TRANSPARENT (render in transparent pass)
+ *   - bit 3: IS_OVERLAY (render in overlay pass)
+ * - geometryData: same face format as serializeModelGeometry
+ * 
+ * @param {StateRegistry} stateRegistry - The state registry with geometry
+ * @returns {{ stateIds: number[], blockNames: string, flags: Uint8Array, geometryData: Uint8Array, faceCount: number }}
+ */
+function serializeModelGeometryV2(stateRegistry) {
+  const stateIds = [];
+  const blockNamesList = [];
+  const flagsList = [];
+  const chunks = [];
+  let totalFaces = 0;
+  
+  for (const state of stateRegistry.states) {
+    if (!state || !state.geometry || state.geometry.length === 0) continue;
+    
+    // Use first geometry variant (most models have only one)
+    const geom = state.geometry[0];
+    
+    if (!geom || !geom.positions || geom.positions.length === 0) continue;
+    // Use cullFaces (ModelGeometry output) or faces (exported format)
+    const faceInfo = geom.cullFaces || geom.faces;
+    if (!faceInfo || faceInfo.length === 0) continue;
+    
+    const blockName = state.blockName;
+    stateIds.push(state.id);
+    blockNamesList.push(blockName);
+    
+    // Build flags byte
+    let flags = 0;
+    if (MODEL_ROTATION_BLOCKS.has(blockName)) {
+      flags |= 0x01; // bit 0: MODEL_ROTATION
+    }
+    if (POSITION_OFFSET_BLOCKS.has(blockName)) {
+      flags |= 0x02; // bit 1: POSITION_OFFSET
+    }
+    if (geom.isTransparent) {
+      flags |= 0x04; // bit 2: IS_TRANSPARENT
+    }
+    if (geom.isOverlay) {
+      flags |= 0x08; // bit 3: IS_OVERLAY
+    }
+    flagsList.push(flags);
+    
+    // Build face data from the geometry
+    const faces = extractFacesFromGeometry(geom);
+    totalFaces += faces.length;
+    
+    // Serialize: [num_faces: u16][face data...]
+    const faceDataSize = faces.length * 85; // 85 bytes per face: direction(1) + vertices(48) + uvs(32) + texIndex(2) + tintType(1) + cullFace(1)
+    const chunkSize = 2 + faceDataSize;
+    const chunk = new Uint8Array(chunkSize);
+    const view = new DataView(chunk.buffer);
+    
+    // Write face count
+    view.setUint16(0, faces.length, true);
+    
+    // Write each face
+    let offset = 2;
+    for (const face of faces) {
+      // Direction (0-6)
+      chunk[offset] = face.direction;
+      offset += 1;
+      
+      // 4 vertices, 3 floats each
+      for (let v = 0; v < 4; v++) {
+        for (let c = 0; c < 3; c++) {
+          view.setFloat32(offset, face.vertices[v][c], true);
+          offset += 4;
+        }
+      }
+      
+      // 4 UVs, 2 floats each
+      for (let v = 0; v < 4; v++) {
+        for (let c = 0; c < 2; c++) {
+          view.setFloat32(offset, face.uvs[v][c], true);
+          offset += 4;
+        }
+      }
+      
+      // Texture index
+      view.setUint16(offset, face.textureIndex, true);
+      offset += 2;
+      
+      // Tint type
+      chunk[offset] = face.tintType;
+      offset += 1;
+      
+      // Cull face
+      chunk[offset] = face.cullFace;
+      offset += 1;
+    }
+    
+    chunks.push(chunk);
+  }
+  
+  // Concatenate all geometry chunks
+  const totalSize = chunks.reduce((sum, c) => sum + c.length, 0);
+  const geometryData = new Uint8Array(totalSize);
+  let writeOffset = 0;
+  for (const chunk of chunks) {
+    geometryData.set(chunk, writeOffset);
+    writeOffset += chunk.length;
+  }
+  
+  return {
+    stateIds,
+    blockNames: blockNamesList.join('\n'),
+    flags: new Uint8Array(flagsList),
+    geometryData,
+    faceCount: totalFaces
+  };
 }
 
 /**
@@ -782,6 +1014,43 @@ export function meshChunk(grid, lightGrid, stateGrid, bounds = null) {
       indices: new Uint32Array(result.glass_indices),
       vertexCount: result.glass_vertex_count,
     },
+    // Model meshes from WASM (when model registry V2 is initialized)
+    modelOpaque: {
+      positions: new Float32Array(result.model_opaque_positions || []),
+      normals: new Float32Array(result.model_opaque_normals || []),
+      colors: new Float32Array(result.model_opaque_colors || []),
+      uvs: new Float32Array(result.model_opaque_uvs || []),
+      texIndices: new Float32Array(result.model_opaque_tex_indices || []),
+      tintTypes: new Float32Array(result.model_opaque_tint_types || []),
+      skyLight: new Float32Array(result.model_opaque_sky_light || []),
+      blockLight: new Float32Array(result.model_opaque_block_light || []),
+      indices: new Uint32Array(result.model_opaque_indices || []),
+      vertexCount: result.model_opaque_vertex_count || 0,
+    },
+    modelTransparent: {
+      positions: new Float32Array(result.model_transparent_positions || []),
+      normals: new Float32Array(result.model_transparent_normals || []),
+      colors: new Float32Array(result.model_transparent_colors || []),
+      uvs: new Float32Array(result.model_transparent_uvs || []),
+      texIndices: new Float32Array(result.model_transparent_tex_indices || []),
+      tintTypes: new Float32Array(result.model_transparent_tint_types || []),
+      skyLight: new Float32Array(result.model_transparent_sky_light || []),
+      blockLight: new Float32Array(result.model_transparent_block_light || []),
+      indices: new Uint32Array(result.model_transparent_indices || []),
+      vertexCount: result.model_transparent_vertex_count || 0,
+    },
+    modelOverlay: {
+      positions: new Float32Array(result.model_overlay_positions || []),
+      normals: new Float32Array(result.model_overlay_normals || []),
+      colors: new Float32Array(result.model_overlay_colors || []),
+      uvs: new Float32Array(result.model_overlay_uvs || []),
+      texIndices: new Float32Array(result.model_overlay_tex_indices || []),
+      tintTypes: new Float32Array(result.model_overlay_tint_types || []),
+      skyLight: new Float32Array(result.model_overlay_sky_light || []),
+      blockLight: new Float32Array(result.model_overlay_block_light || []),
+      indices: new Uint32Array(result.model_overlay_indices || []),
+      vertexCount: result.model_overlay_vertex_count || 0,
+    },
   };
 }
 
@@ -912,6 +1181,36 @@ export function buildLookupTables(registry, textureIndexLookup) {
   };
 }
 
+/**
+ * Get serialized model geometry data for passing to workers
+ * Workers can use this to initialize their own WASM model registry
+ * 
+ * @param {StateRegistry} stateRegistry - The state registry with geometry data
+ * @returns {Object|null} Serialized data or null if no geometry
+ */
+export function getSerializedModelGeometry(stateRegistry) {
+  if (!stateRegistry) return null;
+  
+  try {
+    const { stateIds, blockNames, flags, geometryData, faceCount } = serializeModelGeometryV2(stateRegistry);
+    
+    if (stateIds.length === 0) {
+      return null;
+    }
+    
+    return {
+      stateIds: new Uint16Array(stateIds),
+      blockNames,
+      flags,
+      geometryData,
+      faceCount,
+    };
+  } catch (error) {
+    console.warn('[WasmMesher] Failed to serialize model geometry:', error);
+    return null;
+  }
+}
+
 export default {
   initWasmMesher,
   isWasmAvailable,
@@ -919,6 +1218,9 @@ export default {
   initBlockRegistry,
   initStateRegistry,
   initModelRegistry,
+  initModelRegistryV2,
+  isModelRegistryV2Initialized,
+  getSerializedModelGeometry,
   processChunk,
   initLookups,
   meshChunk,

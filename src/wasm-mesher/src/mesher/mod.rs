@@ -3,9 +3,13 @@
 pub mod ao;
 pub mod ao_simd;
 pub mod binary_cull;
+pub mod fast_greedy;
 pub mod fluid;
 pub mod greedy;
 pub mod model;
+
+// Re-export fast greedy meshing with pre-allocated scratch
+pub use fast_greedy::{MeshScratch, mesh_solid_fast};
 
 /// Common mesh data output
 #[derive(Debug, Clone, Default)]
@@ -179,3 +183,20 @@ impl MeshBounds {
     }
 }
 
+/// Section range for parallel processing
+/// Limits meshing to specific Y sections for work distribution across workers
+#[derive(Debug, Clone, Copy)]
+pub struct SectionRange {
+    /// Minimum section Y (e.g., -4 for Y=-64)
+    pub min_section_y: i32,
+    /// Maximum section Y (e.g., 19 for Y=319)
+    pub max_section_y: i32,
+}
+
+impl SectionRange {
+    /// Check if a section Y is within this range
+    #[inline]
+    pub fn contains(&self, section_y: i32) -> bool {
+        section_y >= self.min_section_y && section_y <= self.max_section_y
+    }
+}

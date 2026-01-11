@@ -151,6 +151,16 @@ impl BlockStateGrid {
             (SectionKey::from_packed(*packed), section.as_ref())
         })
     }
+
+    /// Merge another grid into this one (copies all sections)
+    pub fn merge_from(&mut self, other: &BlockStateGrid) {
+        for (packed, section) in &other.sections {
+            self.sections.insert(*packed, section.clone());
+            if other.has_states.contains(packed) {
+                self.has_states.insert(*packed);
+            }
+        }
+    }
 }
 
 impl Default for BlockStateGrid {

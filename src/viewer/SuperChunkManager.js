@@ -36,6 +36,9 @@ import {
   meshChunk as wasmMeshChunk,
   serializeGrid,
   serializeLightGrid,
+  isModelRegistryV2Initialized,
+  initModelRegistryV2,
+  getSerializedModelGeometry,
 } from '../mesh/wasm/WasmMesher.js';
 import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
@@ -322,6 +325,24 @@ export class SuperChunkManager {
       // This OVERWRITES any previous lookup data (essential for texture pack changes)
       initWasmLookups(lookups);
       
+      // Initialize model registry V2 for WASM model meshing
+      // Pre-register all non-cube blocks to populate the StateRegistry BEFORE chunk loading
+      if (this.stateRegistry && this.registry && !isModelRegistryV2Initialized()) {
+        try {
+          // Pre-register all non-cube blocks (slabs, stairs, plants, etc.)
+          // This populates the StateRegistry so WASM can use it for model meshing
+          const preregCount = await this.stateRegistry.preregisterNonCubeBlocks(this.registry);
+          console.log(`[SuperChunkManager] Pre-registered ${preregCount} non-cube block states for WASM`);
+          
+          const success = initModelRegistryV2(this.stateRegistry);
+          if (success) {
+            console.log('[SuperChunkManager] WASM model registry V2 initialized - model meshing moved to WASM');
+          }
+        } catch (err) {
+          console.warn('[SuperChunkManager] Failed to initialize model registry V2, using JS fallback:', err);
+        }
+      }
+      
       this.wasmInitialized = true;
       console.log('[SuperChunkManager] WASM mesher initialized successfully');
       return true;
@@ -420,11 +441,14 @@ export class SuperChunkManager {
       const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
       const wasmLookups = this._buildWasmLookupsForWorker(textureIndexLookup);
       
+      // Get serialized model geometry for worker WASM model registry
+      const modelGeometryData = getSerializedModelGeometry(this.stateRegistry);
+      
       // Get or create the worker pool
       this.superChunkWorkerPool = getSuperChunkWorkerPool();
       
-      // Initialize with registry data including WASM lookups
-      await this.superChunkWorkerPool.initialize(blockRegistryData, stateRegistryData, wasmLookups);
+      // Initialize with registry data including WASM lookups and model geometry
+      await this.superChunkWorkerPool.initialize(blockRegistryData, stateRegistryData, wasmLookups, modelGeometryData);
       
       this.superChunkWorkerPoolInitialized = true;
       console.log('[SuperChunkManager] SuperChunkWorkerPool initialized successfully');
@@ -1678,6 +1702,21 @@ export class SuperChunkManager {
         maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
       };
       
+      // Try to lazy-init model registry V2 if we have states but registry isn't initialized yet
+      // This handles edge cases where preregisterNonCubeBlocks wasn't called
+      if (this.stateRegistry && !isModelRegistryV2Initialized() && !this._modelRegistryV2InitAttempted) {
+        this._modelRegistryV2InitAttempted = true;
+        try {
+          await this.stateRegistry.precomputeAll();
+          const success = initModelRegistryV2(this.stateRegistry);
+          if (success) {
+            console.log('[SuperChunkManager] WASM model registry V2 lazy-initialized');
+          }
+        } catch (err) {
+          // Silent - will use JS fallback
+        }
+      }
+      
       // Run WASM mesher for solid/fluid/glass with bounds
       // When smooth lighting is disabled, pass null to skip per-vertex light calculation
       const effectiveLightGrid = this.chunkManager.smoothLightingEnabled ? lightGrid : null;
@@ -1721,9 +1760,39 @@ export class SuperChunkManager {
         }
       }
       
-      // Model meshes still use JS (WASM model meshing is a placeholder)
-      // This is because model geometry requires complex JSON data
-      if (this.enableModelMeshes && stateGrid && this.stateRegistry) {
+      // Try WASM model meshing first if model registry V2 is initialized
+      const useWasmModels = isModelRegistryV2Initialized() && 
+        meshResult.modelOpaque && meshResult.modelOpaque.vertexCount > 0;
+      
+      if (useWasmModels) {
+        // Use WASM model mesh results
+        if (meshResult.modelOpaque && meshResult.modelOpaque.positions.length > 0) {
+          const mesh = this._createMesh(meshResult.modelOpaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+          if (mesh) {
+            superChunk.meshes.push(mesh);
+            this.chunkManager.modelMeshes.push(mesh);
+          }
+        }
+        
+        if (meshResult.modelTransparent && meshResult.modelTransparent.positions.length > 0) {
+          const mesh = this._createMesh(meshResult.modelTransparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 0.5;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.transparentModelMeshes.push(mesh);
+          }
+        }
+        
+        if (meshResult.modelOverlay && meshResult.modelOverlay.positions.length > 0) {
+          const mesh = this._createMesh(meshResult.modelOverlay, this.chunkManager.overlayModelMaterial, this.chunkManager.overlayModelGroup);
+          if (mesh) {
+            mesh.renderOrder = 4;
+            superChunk.meshes.push(mesh);
+            this.chunkManager.overlayModelMeshes.push(mesh);
+          }
+        }
+      } else if (this.enableModelMeshes && stateGrid && this.stateRegistry) {
+        // Fall back to JS model meshing
         await this.stateRegistry.precomputeAll();
         
         const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;

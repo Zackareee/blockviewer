@@ -2624,9 +2624,27 @@ self.onmessage = async function(e) {
         initWasmLookups(data.wasmLookups);
       }
       
+      // Initialize WASM model registry if model geometry data is provided
+      let modelRegistryReady = false;
+      if (wasmReady && data.modelGeometry && wasmModule) {
+        try {
+          const mg = data.modelGeometry;
+          wasmModule.init_model_registry_v2(
+            mg.stateIds,
+            mg.blockNames,
+            mg.flags,
+            mg.geometryData
+          );
+          modelRegistryReady = true;
+          console.log(`[SuperChunkWorker] WASM model registry initialized: ${mg.stateIds.length} states, ${mg.faceCount} faces`);
+        } catch (err) {
+          console.warn('[SuperChunkWorker] Failed to init model registry:', err);
+        }
+      }
+      
       workerInitialized = true;
       
-      self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized });
+      self.postMessage({ type: 'ready', id, wasmAvailable: wasmInitialized && wasmLookupsInitialized, modelRegistryReady });
       break;
     }
     
