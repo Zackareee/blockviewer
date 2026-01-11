@@ -50,36 +50,58 @@ pub struct ModelFace {
     pub cull_face: u8,
 }
 
+/// Pre-defined face normals matching JS FACE_NORMALS
+/// Must match: 'up': 0, 'down': 1, 'north': 2, 'south': 3, 'east': 4, 'west': 5
+const FACE_NORMALS: [[f32; 3]; 6] = [
+    [0.0, 1.0, 0.0],   // 0 = up
+    [0.0, -1.0, 0.0],  // 1 = down
+    [0.0, 0.0, -1.0],  // 2 = north
+    [0.0, 0.0, 1.0],   // 3 = south
+    [1.0, 0.0, 0.0],   // 4 = east
+    [-1.0, 0.0, 0.0],  // 5 = west
+];
+
 impl ModelFace {
     /// Convert direction byte to Face enum
+    /// Must match JavaScript DIRECTION_MAP: 'up': 0, 'down': 1, 'north': 2, 'south': 3, 'east': 4, 'west': 5
     pub fn get_face_direction(&self) -> Option<Face> {
         match self.direction {
-            0 => Some(Face::Down),
-            1 => Some(Face::Up),
+            0 => Some(Face::Up),
+            1 => Some(Face::Down),
             2 => Some(Face::North),
             3 => Some(Face::South),
-            4 => Some(Face::West),
-            5 => Some(Face::East),
-            _ => None, // Interior face
+            4 => Some(Face::East),
+            5 => Some(Face::West),
+            _ => None, // Interior face (6) or invalid
         }
     }
 
     /// Get the cull face direction
     pub fn get_cull_face(&self) -> Option<Face> {
+        // Must match Face enum: Up=0, Down=1, North=2, South=3, East=4, West=5
+        // And JavaScript DIRECTION_MAP: 'up': 0, 'down': 1, 'north': 2, 'south': 3, 'east': 4, 'west': 5
         match self.cull_face {
-            0 => Some(Face::Down),
-            1 => Some(Face::Up),
+            0 => Some(Face::Up),
+            1 => Some(Face::Down),
             2 => Some(Face::North),
             3 => Some(Face::South),
-            4 => Some(Face::West),
-            5 => Some(Face::East),
-            _ => None, // Never cull
+            4 => Some(Face::East),
+            5 => Some(Face::West),
+            _ => None, // 255 = never cull
         }
     }
 
-    /// Calculate face normal from vertices
+    /// Get normal based on face direction
+    /// 
+    /// Uses pre-defined normals matching JS FACE_NORMALS for consistent rendering.
+    /// Falls back to computed normal for interior faces (direction=6).
     pub fn calculate_normal(&self) -> [f32; 3] {
-        // Use first 3 vertices to calculate normal
+        // Use pre-defined normal if we have a valid face direction
+        if self.direction < 6 {
+            return FACE_NORMALS[self.direction as usize];
+        }
+        
+        // Interior face or unknown direction - compute from vertices
         let v0 = self.vertices[0];
         let v1 = self.vertices[1];
         let v2 = self.vertices[2];

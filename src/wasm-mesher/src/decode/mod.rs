@@ -636,6 +636,10 @@ fn preprocess_palette(palette: &[nbt::PaletteEntry]) -> ProcessedPalette {
 
 /// Preprocess palette entries with state ID resolution for model blocks
 fn preprocess_palette_with_states(palette: &[nbt::PaletteEntry]) -> ProcessedPaletteWithStates {
+    // Debug: track if we've logged sample hashes
+    static LOGGED_STAIRS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    static LOGGED_SLABS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    
     let len = palette.len();
     let mut block_ids = Vec::with_capacity(len);
     let mut is_air = Vec::with_capacity(len);
@@ -691,7 +695,25 @@ fn preprocess_palette_with_states(palette: &[nbt::PaletteEntry]) -> ProcessedPal
             if lookups.is_non_cube(block_id) {
                 // Build state string and compute hash for model lookup
                 let state_string = build_state_string(name, entry.properties.as_ref());
-                crate::models::registry::hash_state_string(&state_string)
+                let hash = crate::models::registry::hash_state_string(&state_string);
+                
+                // Debug: Log first few stairs and slabs state strings for hash verification
+                if name.contains("stairs") && LOGGED_STAIRS.load(std::sync::atomic::Ordering::Relaxed) < 3 {
+                    LOGGED_STAIRS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    web_sys::console::log_1(&format!(
+                        "[WASM Decode] Stairs lookup: \"{}\" -> 0x{:016x}",
+                        state_string, hash
+                    ).into());
+                }
+                if name.contains("_slab") && LOGGED_SLABS.load(std::sync::atomic::Ordering::Relaxed) < 3 {
+                    LOGGED_SLABS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    web_sys::console::log_1(&format!(
+                        "[WASM Decode] Slab lookup: \"{}\" -> 0x{:016x}",
+                        state_string, hash
+                    ).into());
+                }
+                
+                hash
             } else {
                 0
             }
@@ -711,55 +733,100 @@ fn preprocess_palette_with_states(palette: &[nbt::PaletteEntry]) -> ProcessedPal
 }
 
 /// Build a state string from block name and properties
+/// MUST capture ALL properties defined in BlockProperties struct to match JS hash computation
 fn build_state_string(name: &str, properties: Option<&nbt::BlockProperties>) -> String {
     match properties {
         Some(props) => {
             let mut prop_strs: Vec<String> = Vec::new();
             
-            // Collect all properties (must match BlockProperties fields)
-            if let Some(v) = &props.facing { prop_strs.push(format!("facing={}", v)); }
-            if let Some(v) = &props.half { prop_strs.push(format!("half={}", v)); }
-            if let Some(v) = &props.shape { prop_strs.push(format!("shape={}", v)); }
-            if let Some(v) = &props.axis { prop_strs.push(format!("axis={}", v)); }
-            if let Some(v) = &props.slab_type { prop_strs.push(format!("type={}", v)); }
-            if let Some(v) = &props.waterlogged { prop_strs.push(format!("waterlogged={}", v)); }
-            if let Some(v) = &props.open { prop_strs.push(format!("open={}", v)); }
-            if let Some(v) = &props.lit { prop_strs.push(format!("lit={}", v)); }
-            if let Some(v) = &props.powered { prop_strs.push(format!("powered={}", v)); }
-            if let Some(v) = &props.attached { prop_strs.push(format!("attached={}", v)); }
-            if let Some(v) = &props.rotation { prop_strs.push(format!("rotation={}", v)); }
-            if let Some(v) = &props.level { prop_strs.push(format!("level={}", v)); }
-            if let Some(v) = &props.north { prop_strs.push(format!("north={}", v)); }
-            if let Some(v) = &props.south { prop_strs.push(format!("south={}", v)); }
-            if let Some(v) = &props.east { prop_strs.push(format!("east={}", v)); }
-            if let Some(v) = &props.west { prop_strs.push(format!("west={}", v)); }
-            if let Some(v) = &props.up { prop_strs.push(format!("up={}", v)); }
-            if let Some(v) = &props.down { prop_strs.push(format!("down={}", v)); }
-            if let Some(v) = &props.snowy { prop_strs.push(format!("snowy={}", v)); }
+            // Collect ALL properties from BlockProperties struct
+            // Order doesn't matter here since we sort at the end
             if let Some(v) = &props.age { prop_strs.push(format!("age={}", v)); }
-            if let Some(v) = &props.hinge { prop_strs.push(format!("hinge={}", v)); }
-            if let Some(v) = &props.extended { prop_strs.push(format!("extended={}", v)); }
+            if let Some(v) = &props.attached { prop_strs.push(format!("attached={}", v)); }
             if let Some(v) = &props.attachment { prop_strs.push(format!("attachment={}", v)); }
-            if let Some(v) = &props.mode { prop_strs.push(format!("mode={}", v)); }
-            if let Some(v) = &props.part { prop_strs.push(format!("part={}", v)); }
-            if let Some(v) = &props.in_wall { prop_strs.push(format!("in_wall={}", v)); }
-            if let Some(v) = &props.persistent { prop_strs.push(format!("persistent={}", v)); }
-            if let Some(v) = &props.distance { prop_strs.push(format!("distance={}", v)); }
-            if let Some(v) = &props.layers { prop_strs.push(format!("layers={}", v)); }
-            if let Some(v) = &props.hanging { prop_strs.push(format!("hanging={}", v)); }
-            if let Some(v) = &props.candles { prop_strs.push(format!("candles={}", v)); }
-            if let Some(v) = &props.eggs { prop_strs.push(format!("eggs={}", v)); }
-            if let Some(v) = &props.pickles { prop_strs.push(format!("pickles={}", v)); }
+            if let Some(v) = &props.axis { prop_strs.push(format!("axis={}", v)); }
+            if let Some(v) = &props.berries { prop_strs.push(format!("berries={}", v)); }
             if let Some(v) = &props.bites { prop_strs.push(format!("bites={}", v)); }
+            if let Some(v) = &props.bloom { prop_strs.push(format!("bloom={}", v)); }
+            if let Some(v) = &props.bottom { prop_strs.push(format!("bottom={}", v)); }
+            if let Some(v) = &props.can_summon { prop_strs.push(format!("can_summon={}", v)); }
+            if let Some(v) = &props.candles { prop_strs.push(format!("candles={}", v)); }
+            if let Some(v) = &props.charges { prop_strs.push(format!("charges={}", v)); }
+            if let Some(v) = &props.conditional { prop_strs.push(format!("conditional={}", v)); }
+            if let Some(v) = &props.cracked { prop_strs.push(format!("cracked={}", v)); }
+            if let Some(v) = &props.crafting { prop_strs.push(format!("crafting={}", v)); }
             if let Some(v) = &props.delay { prop_strs.push(format!("delay={}", v)); }
+            if let Some(v) = &props.disarmed { prop_strs.push(format!("disarmed={}", v)); }
+            if let Some(v) = &props.distance { prop_strs.push(format!("distance={}", v)); }
+            if let Some(v) = &props.down { prop_strs.push(format!("down={}", v)); }
+            if let Some(v) = &props.drag { prop_strs.push(format!("drag={}", v)); }
+            if let Some(v) = &props.dusted { prop_strs.push(format!("dusted={}", v)); }
+            if let Some(v) = &props.east { prop_strs.push(format!("east={}", v)); }
+            if let Some(v) = &props.eggs { prop_strs.push(format!("eggs={}", v)); }
+            if let Some(v) = &props.enabled { prop_strs.push(format!("enabled={}", v)); }
+            if let Some(v) = &props.extended { prop_strs.push(format!("extended={}", v)); }
+            if let Some(v) = &props.eye { prop_strs.push(format!("eye={}", v)); }
+            if let Some(v) = &props.facing { prop_strs.push(format!("facing={}", v)); }
+            if let Some(v) = &props.flower_amount { prop_strs.push(format!("flower_amount={}", v)); }
+            if let Some(v) = &props.half { prop_strs.push(format!("half={}", v)); }
+            if let Some(v) = &props.hanging { prop_strs.push(format!("hanging={}", v)); }
+            if let Some(v) = &props.has_book { prop_strs.push(format!("has_book={}", v)); }
+            if let Some(v) = &props.has_bottle_0 { prop_strs.push(format!("has_bottle_0={}", v)); }
+            if let Some(v) = &props.has_bottle_1 { prop_strs.push(format!("has_bottle_1={}", v)); }
+            if let Some(v) = &props.has_bottle_2 { prop_strs.push(format!("has_bottle_2={}", v)); }
+            if let Some(v) = &props.hatch { prop_strs.push(format!("hatch={}", v)); }
+            if let Some(v) = &props.hinge { prop_strs.push(format!("hinge={}", v)); }
+            if let Some(v) = &props.honey_level { prop_strs.push(format!("honey_level={}", v)); }
+            if let Some(v) = &props.in_wall { prop_strs.push(format!("in_wall={}", v)); }
+            if let Some(v) = &props.instrument { prop_strs.push(format!("instrument={}", v)); }
+            if let Some(v) = &props.last_interaction_book_slot { prop_strs.push(format!("last_interaction_book_slot={}", v)); }
+            if let Some(v) = &props.layers { prop_strs.push(format!("layers={}", v)); }
+            if let Some(v) = &props.level { prop_strs.push(format!("level={}", v)); }
+            if let Some(v) = &props.lit { prop_strs.push(format!("lit={}", v)); }
             if let Some(v) = &props.locked { prop_strs.push(format!("locked={}", v)); }
-            if let Some(v) = &props.power { prop_strs.push(format!("power={}", v)); }
+            if let Some(v) = &props.mode { prop_strs.push(format!("mode={}", v)); }
             if let Some(v) = &props.moisture { prop_strs.push(format!("moisture={}", v)); }
+            if let Some(v) = &props.north { prop_strs.push(format!("north={}", v)); }
+            if let Some(v) = &props.note { prop_strs.push(format!("note={}", v)); }
+            if let Some(v) = &props.ominous { prop_strs.push(format!("ominous={}", v)); }
+            if let Some(v) = &props.open { prop_strs.push(format!("open={}", v)); }
+            if let Some(v) = &props.orientation { prop_strs.push(format!("orientation={}", v)); }
+            if let Some(v) = &props.part { prop_strs.push(format!("part={}", v)); }
+            if let Some(v) = &props.persistent { prop_strs.push(format!("persistent={}", v)); }
+            if let Some(v) = &props.pickles { prop_strs.push(format!("pickles={}", v)); }
+            if let Some(v) = &props.power { prop_strs.push(format!("power={}", v)); }
+            if let Some(v) = &props.powered { prop_strs.push(format!("powered={}", v)); }
+            if let Some(v) = &props.rotation { prop_strs.push(format!("rotation={}", v)); }
+            if let Some(v) = &props.sculk_sensor_phase { prop_strs.push(format!("sculk_sensor_phase={}", v)); }
+            if let Some(v) = &props.shape { prop_strs.push(format!("shape={}", v)); }
+            if let Some(v) = &props.short { prop_strs.push(format!("short={}", v)); }
+            if let Some(v) = &props.shrieking { prop_strs.push(format!("shrieking={}", v)); }
+            if let Some(v) = &props.signal_fire { prop_strs.push(format!("signal_fire={}", v)); }
+            if let Some(v) = &props.slot_0_occupied { prop_strs.push(format!("slot_0_occupied={}", v)); }
+            if let Some(v) = &props.slot_1_occupied { prop_strs.push(format!("slot_1_occupied={}", v)); }
+            if let Some(v) = &props.slot_2_occupied { prop_strs.push(format!("slot_2_occupied={}", v)); }
+            if let Some(v) = &props.slot_3_occupied { prop_strs.push(format!("slot_3_occupied={}", v)); }
+            if let Some(v) = &props.slot_4_occupied { prop_strs.push(format!("slot_4_occupied={}", v)); }
+            if let Some(v) = &props.slot_5_occupied { prop_strs.push(format!("slot_5_occupied={}", v)); }
+            if let Some(v) = &props.snowy { prop_strs.push(format!("snowy={}", v)); }
+            if let Some(v) = &props.south { prop_strs.push(format!("south={}", v)); }
+            if let Some(v) = &props.thickness { prop_strs.push(format!("thickness={}", v)); }
+            if let Some(v) = &props.tilt { prop_strs.push(format!("tilt={}", v)); }
+            if let Some(v) = &props.tip { prop_strs.push(format!("tip={}", v)); }
+            if let Some(v) = &props.trial_spawner_state { prop_strs.push(format!("trial_spawner_state={}", v)); }
+            if let Some(v) = &props.triggered { prop_strs.push(format!("triggered={}", v)); }
+            if let Some(v) = &props.slab_type { prop_strs.push(format!("type={}", v)); }
+            if let Some(v) = &props.unstable { prop_strs.push(format!("unstable={}", v)); }
+            if let Some(v) = &props.up { prop_strs.push(format!("up={}", v)); }
+            if let Some(v) = &props.vault_state { prop_strs.push(format!("vault_state={}", v)); }
+            if let Some(v) = &props.vertical_direction { prop_strs.push(format!("vertical_direction={}", v)); }
+            if let Some(v) = &props.waterlogged { prop_strs.push(format!("waterlogged={}", v)); }
+            if let Some(v) = &props.west { prop_strs.push(format!("west={}", v)); }
             
             if prop_strs.is_empty() {
                 name.to_string()
             } else {
-                // Sort for consistent ordering
+                // Sort for consistent ordering (matches JS Object.keys().sort())
                 prop_strs.sort();
                 format!("{}[{}]", name, prop_strs.join(","))
             }
