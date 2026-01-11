@@ -494,7 +494,13 @@ export class ChunkStreamer {
     
     // Set up mesh queue processor for per-frame mesh creation
     // This spreads mesh creation across frames to avoid lag spikes
+    // Also processes completed worker results (super-chunk mesh creation)
     this.chunkManager.setMeshQueueProcessor(() => {
+      // Process completion queue (creates meshes for completed super-chunks)
+      // This is async but we don't await - fires in background per frame
+      this.superChunkManager.processCompletedChunks();
+      
+      // Process individual mesh queue
       return this.superChunkManager.processQueuedMeshes();
     });
   }
@@ -1822,13 +1828,23 @@ export class ChunkStreamer {
    * Flush all pending mesh creation immediately
    * Used for tests or when immediate completion is required
    * 
-   * @returns {number} Number of meshes created
+   * @returns {Promise<number>} Number of meshes/chunks processed
    */
-  flushMeshQueue() {
-    if (this.superChunkManager) {
-      return this.superChunkManager.flushMeshQueue();
+  async flushMeshQueue() {
+    if (!this.superChunkManager) return 0;
+    
+    // Wait for any pending worker jobs to complete
+    let waitAttempts = 0;
+    while (this.superChunkManager.hasPendingWork() && waitAttempts < 100) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      waitAttempts++;
     }
-    return 0;
+    
+    // Flush completion queue (super-chunk mesh creation)
+    await this.superChunkManager.flushCompletionQueue();
+    
+    // Flush individual mesh queue
+    return this.superChunkManager.flushMeshQueue();
   }
   
   /**

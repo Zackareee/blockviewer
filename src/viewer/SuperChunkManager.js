@@ -211,6 +211,93 @@ class MeshCreationQueue {
   }
 }
 
+/**
+ * SuperChunkCompletionQueue - Spreads super-chunk mesh creation across frames
+ * 
+ * When multiple workers complete at once, we queue their results and process
+ * 1-2 super-chunks per frame to avoid lag spikes. Each super-chunk creates
+ * all its meshes together (no visual popping).
+ */
+class SuperChunkCompletionQueue {
+  constructor() {
+    this.queue = [];
+    this.isProcessing = false;
+    this.maxPerFrame = 2; // Max super-chunks to process per frame
+    this.onComplete = null; // Callback when a super-chunk is processed
+  }
+  
+  /**
+   * Add a completed worker result to the queue
+   */
+  add(job, result) {
+    this.queue.push({ job, result });
+  }
+  
+  /**
+   * Process queued super-chunks with a per-frame limit
+   * @param {Function} processFn - Function to process a single result: (job, result) => Promise<void>
+   * @returns {Promise<number>} Number of super-chunks processed
+   */
+  async process(processFn) {
+    if (this.queue.length === 0) return 0;
+    
+    this.isProcessing = true;
+    let processed = 0;
+    
+    while (this.queue.length > 0 && processed < this.maxPerFrame) {
+      const { job, result } = this.queue.shift();
+      await processFn(job, result);
+      processed++;
+      this.onComplete?.(job, result);
+    }
+    
+    this.isProcessing = false;
+    return processed;
+  }
+  
+  /**
+   * Process all queued super-chunks immediately (no limit)
+   * Use for tests or when immediate completion is needed
+   */
+  async processAll(processFn) {
+    if (this.queue.length === 0) return 0;
+    
+    this.isProcessing = true;
+    let processed = 0;
+    
+    while (this.queue.length > 0) {
+      const { job, result } = this.queue.shift();
+      await processFn(job, result);
+      processed++;
+      this.onComplete?.(job, result);
+    }
+    
+    this.isProcessing = false;
+    return processed;
+  }
+  
+  /**
+   * Get queue length
+   */
+  get length() {
+    return this.queue.length;
+  }
+  
+  /**
+   * Check if queue is empty
+   */
+  get isEmpty() {
+    return this.queue.length === 0;
+  }
+  
+  /**
+   * Clear the queue
+   */
+  clear() {
+    this.queue = [];
+  }
+}
+
 // Note: For neighbor block data, we use the existing decodeChunk function
 // which correctly handles all Minecraft format versions and unpacking
 
@@ -419,6 +506,11 @@ export class SuperChunkManager {
     
     // Mesh creation queue - spreads mesh creation across frames to avoid spikes
     this.meshCreationQueue = new MeshCreationQueue();
+    
+    // Super-chunk completion queue - spreads worker result processing across frames
+    // When multiple workers complete at once, we queue results and process 1-2 per frame
+    this.completionQueue = new SuperChunkCompletionQueue();
+    this._pendingWorkerJobs = 0;
   }
   
   /**
@@ -462,6 +554,64 @@ export class SuperChunkManager {
     return this.meshCreationQueue.processAll(
       (meshData, material, group) => this._createMesh(meshData, material, group)
     );
+  }
+  
+  /**
+   * Process completed worker results with per-frame limit
+   * Call this each frame to spread super-chunk mesh creation across frames
+   * 
+   * @returns {Promise<number>} Number of super-chunks processed
+   */
+  async processCompletedChunks() {
+    if (this.completionQueue.isEmpty) return 0;
+    
+    return await this.completionQueue.process(async (job, result) => {
+      await this._finalizeWorkerResult(job, result);
+    });
+  }
+  
+  /**
+   * Process all completed worker results immediately (no limit)
+   * Use for tests or when immediate completion is required
+   * 
+   * @returns {Promise<number>} Number of super-chunks processed
+   */
+  async flushCompletionQueue() {
+    if (this.completionQueue.isEmpty) return 0;
+    
+    return await this.completionQueue.processAll(async (job, result) => {
+      await this._finalizeWorkerResult(job, result);
+    });
+  }
+  
+  /**
+   * Finalize a worker result - create meshes, dispose old, mark as built
+   * @private
+   */
+  async _finalizeWorkerResult(job, result) {
+    // Create meshes from worker result
+    await this._createMeshesFromWorkerResult(job.superChunk, result.result);
+    
+    // Dispose old meshes
+    this._disposeOldMeshes(job.oldMeshes);
+    
+    // Mark as built and handle neighbor marking
+    const isFirstBuild = !job.superChunk.hasBeenBuilt;
+    job.superChunk.isDirty = false;
+    job.superChunk.hasBeenBuilt = true;
+    
+    // Mark neighbors for rebuild on first build
+    this._markNeighborsDirtyAfterBuild(job.superChunk, isFirstBuild);
+    
+    this._pendingWorkerJobs--;
+    this.onSuperChunkRebuilt?.(job.superChunk);
+  }
+  
+  /**
+   * Check if there are pending worker jobs or queued completions
+   */
+  hasPendingWork() {
+    return this._pendingWorkerJobs > 0 || !this.completionQueue.isEmpty;
   }
 
   /**
@@ -2395,7 +2545,10 @@ export class SuperChunkManager {
 
   /**
    * Parallel rebuild using worker pool - dispatches all jobs at once
-   * This maximizes worker utilization for much higher throughput
+   * 
+   * Jobs are dispatched to workers in parallel. As results arrive, they are
+   * queued to the completion queue which processes 1-2 super-chunks per frame.
+   * This spreads mesh creation across frames to avoid lag spikes.
    */
   async _rebuildDirtyParallel(keysToRebuild) {
     // Collect all super-chunks and their old meshes
@@ -2414,9 +2567,6 @@ export class SuperChunkManager {
       superChunk.meshes = [];
       
       // Collect job data - IMPORTANT: clone ArrayBuffers for parallel dispatch
-      // When multiple jobs are dispatched in parallel, they may share neighbor data.
-      // Transferring an ArrayBuffer detaches it, so we must clone to avoid the
-      // "attempting to access detached ArrayBuffer" error on subsequent jobs.
       const chunks = [];
       for (const [, chunkInfo] of superChunk.loadedChunks) {
         if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
@@ -2424,7 +2574,6 @@ export class SuperChunkManager {
         chunks.push({
           chunkX: chunkInfo.chunkX,
           chunkZ: chunkInfo.chunkZ,
-          // Clone the buffer so transfer doesn't affect other jobs
           compressedData: originalBuffer.slice(0),
           compressionType: chunkInfo.data.compressionType,
         });
@@ -2432,8 +2581,8 @@ export class SuperChunkManager {
       
       if (chunks.length === 0) continue;
       
-      // Clone neighbor buffers too - they may be shared between multiple super-chunk jobs
-      const neighbors = this._collectNeighborDataForWorker(superChunk, true /* cloneBuffers */);
+      // Clone neighbor buffers too
+      const neighbors = this._collectNeighborDataForWorker(superChunk, true);
       const bounds = {
         minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
         minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
@@ -2455,58 +2604,26 @@ export class SuperChunkManager {
     
     if (buildJobs.length === 0) return 0;
     
-    // Dispatch ALL jobs to worker pool in parallel
-    const jobPromises = buildJobs.map(job => 
+    // Track pending jobs
+    this._pendingWorkerJobs += buildJobs.length;
+    
+    // Dispatch ALL jobs to workers in parallel, queue results as they complete
+    for (const job of buildJobs) {
       this.superChunkWorkerPool.process(job.jobData)
-        .then(result => ({ job, result }))
-        .catch(error => ({ job, error }))
-    );
-    
-    // Wait for all jobs to complete
-    const results = await Promise.all(jobPromises);
-    
-    // Process all results - create meshes and dispose old ones
-    let rebuiltCount = 0;
-    for (const { job, result, error } of results) {
-      if (error) {
-        console.warn(`[SuperChunkManager] Parallel build failed for ${job.key}:`, error.message);
-        // Re-add to dirty set for retry
-        this.dirtySet.add(job.key);
-        continue;
-      }
-      
-      // Create meshes from worker result (async for model mesh precomputation)
-      await this._createMeshesFromWorkerResult(job.superChunk, result.result);
-      
-      // Dispose old meshes
-      this._disposeOldMeshes(job.oldMeshes);
-      
-      // Mark as built and handle neighbor marking
-      const isFirstBuild = !job.superChunk.hasBeenBuilt;
-      job.superChunk.isDirty = false;
-      job.superChunk.hasBeenBuilt = true;
-      
-      // Mark neighbors for rebuild on first build
-      this._markNeighborsDirtyAfterBuild(job.superChunk, isFirstBuild);
-      
-      rebuiltCount++;
+        .then(result => {
+          // Queue successful result for processing across frames
+          this.completionQueue.add(job, result);
+        })
+        .catch(error => {
+          console.warn(`[SuperChunkManager] Worker failed for ${job.key}:`, error.message);
+          // Re-add to dirty set for retry
+          this.dirtySet.add(job.key);
+          this._pendingWorkerJobs--;
+        });
     }
     
-    // Process urgent boundary repairs immediately to minimize visible artifacts
-    // This catches super-chunks that were just marked dirty by the above loop
-    if (this.boundaryDirtySet.size > 0) {
-      const urgentRepairs = Math.min(this.boundaryDirtySet.size, 2);
-      if (urgentRepairs > 0) {
-        await this._processBoundaryRepairsImmediate(urgentRepairs);
-      }
-    }
-    
-    // Single yield after all work is done
-    if (rebuiltCount > 0) {
-      this.onSuperChunkRebuilt?.();
-    }
-    
-    return rebuiltCount;
+    // Return number of jobs dispatched (not yet completed)
+    return buildJobs.length;
   }
   
   /**
