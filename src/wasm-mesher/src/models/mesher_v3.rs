@@ -1,0 +1,674 @@
+//! V3 Model Mesher - Uses block-name-based registry
+//!
+//! This mesher uses the BlockModelRegistry and ModelStateGrid to render
+//! model blocks without requiring state ID matching between workers and main thread.
+
+use crate::grid::{BinaryGrid, LightGrid, ModelStateGrid, ModelState};
+use crate::lookup::Lookups;
+use crate::mesher::MeshBounds;
+use crate::types::{SECTION_SIZE, block_index_in_section};
+use super::block_registry::{
+    get_block_model_registry, BakedFace, FaceDirection,
+};
+use super::geometry::ModelMeshData;
+use super::mesher::{ModelMeshResult, BlockPosition};
+use super::position_hash::{get_position_rotation, get_position_offset};
+
+/// Per-vertex lighting data
+#[derive(Clone, Copy, Default)]
+struct VertexLight {
+    sky: u8,
+    block: u8,
+    ao: f32,
+}
+
+/// Mesh all model blocks using V3 registry (block-name based)
+/// 
+/// This is the preferred meshing function for worker-based rendering.
+pub fn mesh_models_v3(
+    grid: &BinaryGrid,
+    model_state_grid: &ModelStateGrid,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
+    bounds: Option<&MeshBounds>,
+) -> ModelMeshResult {
+    let registry = match get_block_model_registry() {
+        Some(r) => r,
+        None => {
+            web_sys::console::warn_1(&"[WASM] Block model registry not initialized".into());
+            return ModelMeshResult::default();
+        }
+    };
+    
+    let mut result = ModelMeshResult::new();
+    
+    // Iterate over sections with model states
+    for (key, section) in model_state_grid.iter_sections_with_states() {
+        // Check bounds
+        if let Some(b) = bounds {
+            if key.chunk_x < b.min_chunk_x || key.chunk_x > b.max_chunk_x ||
+               key.chunk_z < b.min_chunk_z || key.chunk_z > b.max_chunk_z {
+                continue;
+            }
+        }
+        
+        let base_x = key.chunk_x * SECTION_SIZE as i32;
+        let base_y = key.section_y * SECTION_SIZE as i32 - 64;
+        let base_z = key.chunk_z * SECTION_SIZE as i32;
+        
+        // Process each block in the section
+        for local_y in 0..SECTION_SIZE {
+            for local_z in 0..SECTION_SIZE {
+                for local_x in 0..SECTION_SIZE {
+                    let idx = block_index_in_section(local_x, local_y, local_z);
+                    let state = section[idx];
+                    
+                    if state.is_empty() {
+                        continue;
+                    }
+                    
+                    let block_idx = state.block_index();
+                    let variant_idx = state.variant_index();
+                    let rotation = state.rotation();
+                    let is_flipped = state.is_flipped();
+                    
+                    // Get block data from registry
+                    let block = match registry.get_by_index(block_idx) {
+                        Some(b) => b,
+                        None => continue,
+                    };
+                    
+                    // Get variant
+                    let variant = match block.get_variant_by_index(variant_idx) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    
+                    let world_x = base_x + local_x as i32;
+                    let world_y = base_y + local_y as i32;
+                    let world_z = base_z + local_z as i32;
+                    
+                    // Check for beacon
+                    if block.name == "beacon" {
+                        result.beacon_positions.push(BlockPosition {
+                            x: world_x,
+                            y: world_y,
+                            z: world_z,
+                        });
+                    }
+                    
+                    // Get additional rotation for random-rotation blocks
+                    let total_rotation = if block.has_random_rotation() {
+                        let pos_rot = get_position_rotation(world_x, world_y, world_z);
+                        (rotation + pos_rot) % 4
+                    } else {
+                        rotation
+                    };
+                    
+                    // Get position offset for offset blocks
+                    let (offset_x, offset_z) = if block.has_position_offset() {
+                        get_position_offset(world_x, world_y, world_z)
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    
+                    // Get light at this position
+                    let (sky_light, block_light) = if let Some(lg) = light_grid {
+                        let light = lg.get_light(world_x, world_y, world_z);
+                        (light.sky_light, light.block_light)
+                    } else {
+                        (15, 0)
+                    };
+                    
+                    // Select target mesh
+                    let target = if block.is_transparent() {
+                        &mut result.transparent
+                    } else {
+                        &mut result.opaque
+                    };
+                    
+                    // Process each face
+                    for face in &variant.faces {
+                        // Check if face should be culled
+                        if should_cull_face_v3(grid, lookups, world_x, world_y, world_z, face, total_rotation, is_flipped) {
+                            continue;
+                        }
+                        
+                        // Calculate per-vertex AO for this face
+                        let vertex_ao = calculate_face_ao_v3(
+                            grid, lookups, light_grid,
+                            world_x, world_y, world_z,
+                            face, total_rotation, is_flipped,
+                        );
+                        
+                        // Emit face with rotation/flip applied
+                        emit_face_v3_with_ao(
+                            target,
+                            face,
+                            world_x as f32 + offset_x,
+                            world_y as f32,
+                            world_z as f32 + offset_z,
+                            total_rotation,
+                            is_flipped,
+                            &vertex_ao,
+                        );
+                    }
+                    
+                    // Check for particle emitters
+                    // TODO: Add particle emitter detection based on block name
+                }
+            }
+        }
+    }
+    
+    result
+}
+
+/// Check if a face should be culled based on neighbor blocks
+fn should_cull_face_v3(
+    grid: &BinaryGrid,
+    lookups: &Lookups,
+    world_x: i32,
+    world_y: i32,
+    world_z: i32,
+    face: &BakedFace,
+    rotation: u8,
+    is_flipped: bool,
+) -> bool {
+    // If no cullface, never cull
+    let cullface = match face.cullface {
+        Some(cf) => cf,
+        None => return false,
+    };
+    
+    // Transform cullface by rotation and flip
+    let transformed = transform_direction(cullface, rotation, is_flipped);
+    
+    // Get neighbor position
+    let (nx, ny, nz) = direction_offset(transformed);
+    let neighbor_x = world_x + nx;
+    let neighbor_y = world_y + ny;
+    let neighbor_z = world_z + nz;
+    
+    // Check if neighbor is solid opaque cube
+    let neighbor_id = grid.get_block(neighbor_x, neighbor_y, neighbor_z);
+    if neighbor_id == 0 {
+        return false;
+    }
+    
+    // Check if neighbor is a full opaque cube (opaque and not a non-cube)
+    let block_id = neighbor_id & 0xFFF;
+    lookups.is_opaque(block_id) && !lookups.is_non_cube(block_id)
+}
+
+/// Transform a direction by rotation and vertical flip
+fn transform_direction(dir: FaceDirection, rotation: u8, is_flipped: bool) -> FaceDirection {
+    use FaceDirection::*;
+    
+    // Vertical flip swaps up/down
+    let after_flip = if is_flipped {
+        match dir {
+            Up => Down,
+            Down => Up,
+            other => other,
+        }
+    } else {
+        dir
+    };
+    
+    // Horizontal rotation (Y-axis)
+    if rotation == 0 {
+        return after_flip;
+    }
+    
+    match after_flip {
+        North => {
+            match rotation {
+                1 => East,
+                2 => South,
+                3 => West,
+                _ => North,
+            }
+        }
+        East => {
+            match rotation {
+                1 => South,
+                2 => West,
+                3 => North,
+                _ => East,
+            }
+        }
+        South => {
+            match rotation {
+                1 => West,
+                2 => North,
+                3 => East,
+                _ => South,
+            }
+        }
+        West => {
+            match rotation {
+                1 => North,
+                2 => East,
+                3 => South,
+                _ => West,
+            }
+        }
+        other => other, // Up/Down/None unaffected by Y rotation
+    }
+}
+
+/// Get offset for a direction
+fn direction_offset(dir: FaceDirection) -> (i32, i32, i32) {
+    use FaceDirection::*;
+    match dir {
+        Down => (0, -1, 0),
+        Up => (0, 1, 0),
+        North => (0, 0, -1),
+        South => (0, 0, 1),
+        West => (-1, 0, 0),
+        East => (1, 0, 0),
+        None => (0, 0, 0),
+    }
+}
+
+/// Emit a face to the mesh data with rotation/flip applied
+fn emit_face_v3(
+    mesh: &mut ModelMeshData,
+    face: &BakedFace,
+    world_x: f32,
+    world_y: f32,
+    world_z: f32,
+    rotation: u8,
+    is_flipped: bool,
+    sky_light: u8,
+    block_light: u8,
+) {
+    let base_idx = mesh.positions.len() as u32 / 3;
+    
+    // Transform and emit vertices
+    for i in 0..4 {
+        let v = face.vertices[i];
+        
+        // Apply rotation around center (0.5, 0.5, 0.5)
+        let (mut vx, mut vy, mut vz) = rotate_vertex(v, rotation);
+        
+        // Apply vertical flip around center
+        if is_flipped {
+            vy = 1.0 - vy;
+        }
+        
+        // Translate to world position
+        mesh.positions.push(world_x + vx);
+        mesh.positions.push(world_y + vy);
+        mesh.positions.push(world_z + vz);
+        
+        // Transform and emit normal
+        let n = face.normal;
+        let (nx, ny, nz) = rotate_normal(n, rotation);
+        let (nx, ny, nz) = if is_flipped { (nx, -ny, nz) } else { (nx, ny, nz) };
+        
+        mesh.normals.push(nx);
+        mesh.normals.push(ny);
+        mesh.normals.push(nz);
+        
+        // Emit UV
+        mesh.uvs.push(face.uvs[i][0]);
+        mesh.uvs.push(face.uvs[i][1]);
+        
+        // Emit color (white, will be tinted by shader)
+        mesh.colors.push(1.0);
+        mesh.colors.push(1.0);
+        mesh.colors.push(1.0);
+        mesh.colors.push(1.0);
+        
+        // Emit texture index
+        mesh.tex_indices.push(face.texture_index as f32);
+        
+        // Emit tint type
+        mesh.tint_types.push(face.tint_type as f32);
+        
+        // Emit light
+        mesh.sky_light.push(sky_light as f32);
+        mesh.block_light.push(block_light as f32);
+    }
+    
+    // Emit indices (two triangles per face)
+    // CCW winding: 0-1-2, 0-2-3
+    mesh.indices.push(base_idx);
+    mesh.indices.push(base_idx + 1);
+    mesh.indices.push(base_idx + 2);
+    mesh.indices.push(base_idx);
+    mesh.indices.push(base_idx + 2);
+    mesh.indices.push(base_idx + 3);
+}
+
+/// Rotate a vertex around Y axis (center at 0.5, 0.5, 0.5)
+fn rotate_vertex(v: [f32; 3], rotation: u8) -> (f32, f32, f32) {
+    let (x, y, z) = (v[0] - 0.5, v[1], v[2] - 0.5);
+    
+    let (rx, rz) = match rotation {
+        0 => (x, z),
+        1 => (-z, x),  // 90° CW
+        2 => (-x, -z), // 180°
+        3 => (z, -x),  // 270° CW
+        _ => (x, z),
+    };
+    
+    (rx + 0.5, y, rz + 0.5)
+}
+
+/// Rotate a normal vector around Y axis
+fn rotate_normal(n: [f32; 3], rotation: u8) -> (f32, f32, f32) {
+    let (x, y, z) = (n[0], n[1], n[2]);
+    
+    match rotation {
+        0 => (x, y, z),
+        1 => (-z, y, x),  // 90° CW
+        2 => (-x, y, -z), // 180°
+        3 => (z, y, -x),  // 270° CW
+        _ => (x, y, z),
+    }
+}
+
+/// Check if block is solid for AO calculation
+#[inline]
+fn is_solid_for_ao(grid: &BinaryGrid, lookups: &Lookups, x: i32, y: i32, z: i32) -> bool {
+    let block_id = grid.get_block_id(x, y, z);
+    block_id != 0 && !lookups.is_ao_transparent(block_id) && lookups.is_opaque(block_id)
+}
+
+/// Calculate single vertex AO from 3 neighbors
+#[inline]
+fn vertex_ao_value(side1: bool, side2: bool, corner: bool) -> u8 {
+    if side1 && side2 {
+        0 // Both sides solid = maximum occlusion
+    } else {
+        3 - (side1 as u8 + side2 as u8 + corner as u8)
+    }
+}
+
+/// AO brightness levels
+const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
+
+/// Calculate per-vertex AO and lighting for a model face
+fn calculate_face_ao_v3(
+    grid: &BinaryGrid,
+    lookups: &Lookups,
+    light_grid: Option<&LightGrid>,
+    world_x: i32,
+    world_y: i32,
+    world_z: i32,
+    face: &BakedFace,
+    rotation: u8,
+    is_flipped: bool,
+) -> [VertexLight; 4] {
+    // Transform face direction to get sampling direction
+    let face_dir = transform_direction(face.direction, rotation, is_flipped);
+    let (dx, dy, dz) = direction_offset(face_dir);
+    
+    // Sample position is in the direction the face is pointing
+    let sample_x = world_x + dx;
+    let sample_y = world_y + dy;
+    let sample_z = world_z + dz;
+    
+    // Get base light at the sample position
+    let (base_sky, base_block) = if let Some(lg) = light_grid {
+        let light = lg.get_light(sample_x, sample_y, sample_z);
+        (light.sky_light, light.block_light)
+    } else {
+        (15, 0)
+    };
+    
+    // For simple model blocks, use face-based AO similar to solid blocks
+    // Calculate AO based on neighbors adjacent to this face
+    let ao_values = calculate_face_ao_neighbors(
+        grid, lookups, world_x, world_y, world_z, face_dir
+    );
+    
+    [
+        VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[0] as usize] },
+        VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[1] as usize] },
+        VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[2] as usize] },
+        VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[3] as usize] },
+    ]
+}
+
+/// Calculate AO values for 4 vertices of a face based on direction
+fn calculate_face_ao_neighbors(
+    grid: &BinaryGrid,
+    lookups: &Lookups,
+    x: i32,
+    y: i32,
+    z: i32,
+    face_dir: FaceDirection,
+) -> [u8; 4] {
+    use FaceDirection::*;
+    
+    // Offset to the face position
+    let (dx, dy, dz) = direction_offset(face_dir);
+    let fx = x + dx;
+    let fy = y + dy;
+    let fz = z + dz;
+    
+    match face_dir {
+        Up => {
+            // Check neighbors above
+            let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
+            let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
+            let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
+            let south = is_solid_for_ao(grid, lookups, fx, fy, fz + 1);
+            let nw = is_solid_for_ao(grid, lookups, fx - 1, fy, fz - 1);
+            let ne = is_solid_for_ao(grid, lookups, fx + 1, fy, fz - 1);
+            let sw = is_solid_for_ao(grid, lookups, fx - 1, fy, fz + 1);
+            let se = is_solid_for_ao(grid, lookups, fx + 1, fy, fz + 1);
+            
+            [
+                vertex_ao_value(west, south, sw),  // V0 (SW)
+                vertex_ao_value(east, south, se),  // V1 (SE)
+                vertex_ao_value(east, north, ne),  // V2 (NE)
+                vertex_ao_value(west, north, nw),  // V3 (NW)
+            ]
+        }
+        Down => {
+            let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
+            let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
+            let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
+            let south = is_solid_for_ao(grid, lookups, fx, fy, fz + 1);
+            let nw = is_solid_for_ao(grid, lookups, fx - 1, fy, fz - 1);
+            let ne = is_solid_for_ao(grid, lookups, fx + 1, fy, fz - 1);
+            let sw = is_solid_for_ao(grid, lookups, fx - 1, fy, fz + 1);
+            let se = is_solid_for_ao(grid, lookups, fx + 1, fy, fz + 1);
+            
+            [
+                vertex_ao_value(west, north, nw),  // V0 (NW)
+                vertex_ao_value(east, north, ne),  // V1 (NE)
+                vertex_ao_value(east, south, se),  // V2 (SE)
+                vertex_ao_value(west, south, sw),  // V3 (SW)
+            ]
+        }
+        North => {
+            let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
+            let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
+            let up = is_solid_for_ao(grid, lookups, fx, fy + 1, fz);
+            let down = is_solid_for_ao(grid, lookups, fx, fy - 1, fz);
+            let uw = is_solid_for_ao(grid, lookups, fx - 1, fy + 1, fz);
+            let ue = is_solid_for_ao(grid, lookups, fx + 1, fy + 1, fz);
+            let dw = is_solid_for_ao(grid, lookups, fx - 1, fy - 1, fz);
+            let de = is_solid_for_ao(grid, lookups, fx + 1, fy - 1, fz);
+            
+            [
+                vertex_ao_value(east, down, de),
+                vertex_ao_value(west, down, dw),
+                vertex_ao_value(west, up, uw),
+                vertex_ao_value(east, up, ue),
+            ]
+        }
+        South => {
+            let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
+            let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
+            let up = is_solid_for_ao(grid, lookups, fx, fy + 1, fz);
+            let down = is_solid_for_ao(grid, lookups, fx, fy - 1, fz);
+            let uw = is_solid_for_ao(grid, lookups, fx - 1, fy + 1, fz);
+            let ue = is_solid_for_ao(grid, lookups, fx + 1, fy + 1, fz);
+            let dw = is_solid_for_ao(grid, lookups, fx - 1, fy - 1, fz);
+            let de = is_solid_for_ao(grid, lookups, fx + 1, fy - 1, fz);
+            
+            [
+                vertex_ao_value(west, down, dw),
+                vertex_ao_value(east, down, de),
+                vertex_ao_value(east, up, ue),
+                vertex_ao_value(west, up, uw),
+            ]
+        }
+        East => {
+            let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
+            let south = is_solid_for_ao(grid, lookups, fx, fy, fz + 1);
+            let up = is_solid_for_ao(grid, lookups, fx, fy + 1, fz);
+            let down = is_solid_for_ao(grid, lookups, fx, fy - 1, fz);
+            let un = is_solid_for_ao(grid, lookups, fx, fy + 1, fz - 1);
+            let us = is_solid_for_ao(grid, lookups, fx, fy + 1, fz + 1);
+            let dn = is_solid_for_ao(grid, lookups, fx, fy - 1, fz - 1);
+            let ds = is_solid_for_ao(grid, lookups, fx, fy - 1, fz + 1);
+            
+            [
+                vertex_ao_value(south, down, ds),
+                vertex_ao_value(north, down, dn),
+                vertex_ao_value(north, up, un),
+                vertex_ao_value(south, up, us),
+            ]
+        }
+        West => {
+            let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
+            let south = is_solid_for_ao(grid, lookups, fx, fy, fz + 1);
+            let up = is_solid_for_ao(grid, lookups, fx, fy + 1, fz);
+            let down = is_solid_for_ao(grid, lookups, fx, fy - 1, fz);
+            let un = is_solid_for_ao(grid, lookups, fx, fy + 1, fz - 1);
+            let us = is_solid_for_ao(grid, lookups, fx, fy + 1, fz + 1);
+            let dn = is_solid_for_ao(grid, lookups, fx, fy - 1, fz - 1);
+            let ds = is_solid_for_ao(grid, lookups, fx, fy - 1, fz + 1);
+            
+            [
+                vertex_ao_value(north, down, dn),
+                vertex_ao_value(south, down, ds),
+                vertex_ao_value(south, up, us),
+                vertex_ao_value(north, up, un),
+            ]
+        }
+        None => {
+            // No specific direction (cross-model), use uniform lighting
+            [3, 3, 3, 3]
+        }
+    }
+}
+
+/// Emit a face with per-vertex AO and lighting
+fn emit_face_v3_with_ao(
+    mesh: &mut ModelMeshData,
+    face: &BakedFace,
+    world_x: f32,
+    world_y: f32,
+    world_z: f32,
+    rotation: u8,
+    is_flipped: bool,
+    vertex_lights: &[VertexLight; 4],
+) {
+    let base_idx = mesh.positions.len() as u32 / 3;
+    
+    // Check if we need to flip winding for better AO interpolation
+    let ao_sum_02 = vertex_lights[0].ao + vertex_lights[2].ao;
+    let ao_sum_13 = vertex_lights[1].ao + vertex_lights[3].ao;
+    let flip_winding = ao_sum_02 < ao_sum_13;
+    
+    // Transform and emit vertices
+    for i in 0..4 {
+        let v = face.vertices[i];
+        
+        // Apply rotation around center (0.5, 0.5, 0.5)
+        let (vx, mut vy, vz) = rotate_vertex(v, rotation);
+        
+        // Apply vertical flip around center
+        if is_flipped {
+            vy = 1.0 - vy;
+        }
+        
+        // Translate to world position
+        mesh.positions.push(world_x + vx);
+        mesh.positions.push(world_y + vy);
+        mesh.positions.push(world_z + vz);
+        
+        // Transform and emit normal
+        let n = face.normal;
+        let (nx, ny, nz) = rotate_normal(n, rotation);
+        let (nx, ny, nz) = if is_flipped { (nx, -ny, nz) } else { (nx, ny, nz) };
+        
+        mesh.normals.push(nx);
+        mesh.normals.push(ny);
+        mesh.normals.push(nz);
+        
+        // Emit UV
+        mesh.uvs.push(face.uvs[i][0]);
+        mesh.uvs.push(face.uvs[i][1]);
+        
+        // Emit color with AO applied
+        let ao = vertex_lights[i].ao;
+        mesh.colors.push(ao);
+        mesh.colors.push(ao);
+        mesh.colors.push(ao);
+        mesh.colors.push(1.0);
+        
+        // Emit texture index
+        mesh.tex_indices.push(face.texture_index as f32);
+        
+        // Emit tint type
+        mesh.tint_types.push(face.tint_type as f32);
+        
+        // Emit light
+        mesh.sky_light.push(vertex_lights[i].sky as f32);
+        mesh.block_light.push(vertex_lights[i].block as f32);
+    }
+    
+    // Emit indices with optional winding flip for better AO interpolation
+    if flip_winding {
+        // Flipped: 1-2-3, 1-3-0
+        mesh.indices.push(base_idx + 1);
+        mesh.indices.push(base_idx + 2);
+        mesh.indices.push(base_idx + 3);
+        mesh.indices.push(base_idx + 1);
+        mesh.indices.push(base_idx + 3);
+        mesh.indices.push(base_idx);
+    } else {
+        // Normal: 0-1-2, 0-2-3
+        mesh.indices.push(base_idx);
+        mesh.indices.push(base_idx + 1);
+        mesh.indices.push(base_idx + 2);
+        mesh.indices.push(base_idx);
+        mesh.indices.push(base_idx + 2);
+        mesh.indices.push(base_idx + 3);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_rotate_vertex() {
+        // Vertex at (1, 0, 0) should rotate to (0, 0, 1) after 90° CW
+        let v = [1.0, 0.0, 0.0];
+        let (rx, ry, rz) = rotate_vertex(v, 1);
+        assert!((rx - 1.0).abs() < 0.001);
+        assert!((rz - 0.0).abs() < 0.001);
+    }
+    
+    #[test]
+    fn test_transform_direction() {
+        use FaceDirection::*;
+        
+        // North + 90° rotation = East
+        assert_eq!(transform_direction(North, 1, false), East);
+        
+        // Up + flip = Down
+        assert_eq!(transform_direction(Up, 0, true), Down);
+    }
+}

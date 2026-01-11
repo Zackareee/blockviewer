@@ -170,6 +170,143 @@ fn mesh_chunk_with_bounds(
     }
 }
 
+/// V3 Model meshing - uses block-name-based registry with ModelStateGrid
+/// This is the preferred API for worker-based rendering
+#[wasm_bindgen]
+pub fn mesh_models_v3(
+    grid_data: &[u8],
+    light_data: &[u8],
+    model_state_data: &[u8],
+    min_chunk_x: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_z: i32,
+) -> ModelMeshResultWasm {
+    // Import grids from serialized data
+    let grid = grid::BinaryGrid::from_bytes(grid_data);
+    let light_grid = if !light_data.is_empty() {
+        Some(grid::LightGrid::from_bytes(light_data))
+    } else {
+        None
+    };
+    
+    // Parse model state grid
+    let model_state_grid = match grid::ModelStateGrid::from_bytes(model_state_data) {
+        Ok(g) => g,
+        Err(e) => {
+            web_sys::console::error_1(&format!("[WASM] Failed to parse model state grid: {}", e).into());
+            return ModelMeshResultWasm::empty();
+        }
+    };
+    
+    // Get lookup tables
+    let lookups = match lookup::Lookups::get() {
+        Some(l) => l,
+        None => {
+            web_sys::console::error_1(&"[WASM] Lookup tables not initialized".into());
+            return ModelMeshResultWasm::empty();
+        }
+    };
+    
+    let bounds = Some(mesher::MeshBounds {
+        min_chunk_x,
+        min_chunk_z,
+        max_chunk_x,
+        max_chunk_z,
+    });
+    
+    // Run V3 model mesher
+    let result = models::mesher_v3::mesh_models_v3(
+        &grid,
+        &model_state_grid,
+        light_grid.as_ref(),
+        &lookups,
+        bounds.as_ref(),
+    );
+    
+    ModelMeshResultWasm::from_result(result)
+}
+
+/// Model mesh result for V3 API
+#[wasm_bindgen]
+pub struct ModelMeshResultWasm {
+    opaque: models::geometry::ModelMeshData,
+    transparent: models::geometry::ModelMeshData,
+    overlay: models::geometry::ModelMeshData,
+    beacon_positions: Vec<i32>, // Packed as [x, y, z, x, y, z, ...]
+}
+
+#[wasm_bindgen]
+impl ModelMeshResultWasm {
+    pub fn empty() -> Self {
+        Self {
+            opaque: models::geometry::ModelMeshData::new(),
+            transparent: models::geometry::ModelMeshData::new(),
+            overlay: models::geometry::ModelMeshData::new(),
+            beacon_positions: Vec::new(),
+        }
+    }
+    
+    fn from_result(result: models::mesher::ModelMeshResult) -> Self {
+        let beacon_positions: Vec<i32> = result.beacon_positions.iter()
+            .flat_map(|bp| vec![bp.x, bp.y, bp.z])
+            .collect();
+        
+        Self {
+            opaque: result.opaque,
+            transparent: result.transparent,
+            overlay: result.overlay,
+            beacon_positions,
+        }
+    }
+    
+    // Opaque mesh accessors
+    pub fn opaque_positions(&self) -> Vec<f32> { self.opaque.positions.clone() }
+    pub fn opaque_normals(&self) -> Vec<f32> { self.opaque.normals.clone() }
+    pub fn opaque_uvs(&self) -> Vec<f32> { self.opaque.uvs.clone() }
+    pub fn opaque_colors(&self) -> Vec<f32> { self.opaque.colors.clone() }
+    pub fn opaque_indices(&self) -> Vec<u32> { self.opaque.indices.clone() }
+    pub fn opaque_tex_indices(&self) -> Vec<f32> { self.opaque.tex_indices.clone() }
+    pub fn opaque_tint_types(&self) -> Vec<f32> { self.opaque.tint_types.clone() }
+    pub fn opaque_sky_light(&self) -> Vec<f32> { self.opaque.sky_light.clone() }
+    pub fn opaque_block_light(&self) -> Vec<f32> { self.opaque.block_light.clone() }
+    pub fn opaque_position_count(&self) -> u32 { self.opaque.positions.len() as u32 }
+    pub fn opaque_index_count(&self) -> u32 { self.opaque.indices.len() as u32 }
+    pub fn opaque_vertex_count(&self) -> u32 { (self.opaque.positions.len() / 3) as u32 }
+    
+    // Transparent mesh accessors
+    pub fn transparent_positions(&self) -> Vec<f32> { self.transparent.positions.clone() }
+    pub fn transparent_normals(&self) -> Vec<f32> { self.transparent.normals.clone() }
+    pub fn transparent_uvs(&self) -> Vec<f32> { self.transparent.uvs.clone() }
+    pub fn transparent_colors(&self) -> Vec<f32> { self.transparent.colors.clone() }
+    pub fn transparent_indices(&self) -> Vec<u32> { self.transparent.indices.clone() }
+    pub fn transparent_tex_indices(&self) -> Vec<f32> { self.transparent.tex_indices.clone() }
+    pub fn transparent_tint_types(&self) -> Vec<f32> { self.transparent.tint_types.clone() }
+    pub fn transparent_sky_light(&self) -> Vec<f32> { self.transparent.sky_light.clone() }
+    pub fn transparent_block_light(&self) -> Vec<f32> { self.transparent.block_light.clone() }
+    pub fn transparent_position_count(&self) -> u32 { self.transparent.positions.len() as u32 }
+    pub fn transparent_index_count(&self) -> u32 { self.transparent.indices.len() as u32 }
+    pub fn transparent_vertex_count(&self) -> u32 { (self.transparent.positions.len() / 3) as u32 }
+    
+    // Overlay mesh accessors
+    pub fn overlay_positions(&self) -> Vec<f32> { self.overlay.positions.clone() }
+    pub fn overlay_normals(&self) -> Vec<f32> { self.overlay.normals.clone() }
+    pub fn overlay_uvs(&self) -> Vec<f32> { self.overlay.uvs.clone() }
+    pub fn overlay_colors(&self) -> Vec<f32> { self.overlay.colors.clone() }
+    pub fn overlay_indices(&self) -> Vec<u32> { self.overlay.indices.clone() }
+    pub fn overlay_tex_indices(&self) -> Vec<f32> { self.overlay.tex_indices.clone() }
+    pub fn overlay_tint_types(&self) -> Vec<f32> { self.overlay.tint_types.clone() }
+    pub fn overlay_sky_light(&self) -> Vec<f32> { self.overlay.sky_light.clone() }
+    pub fn overlay_block_light(&self) -> Vec<f32> { self.overlay.block_light.clone() }
+    pub fn overlay_position_count(&self) -> u32 { self.overlay.positions.len() as u32 }
+    pub fn overlay_index_count(&self) -> u32 { self.overlay.indices.len() as u32 }
+    pub fn overlay_vertex_count(&self) -> u32 { (self.overlay.positions.len() / 3) as u32 }
+    
+    // Beacon positions
+    pub fn beacon_positions(&self) -> Vec<i32> { self.beacon_positions.clone() }
+    pub fn beacon_count(&self) -> u32 { (self.beacon_positions.len() / 3) as u32 }
+}
+
 // ============================================================================
 // Zero-Copy Meshing API (Phase 4: SharedArrayBuffer)
 // ============================================================================

@@ -1211,6 +1211,168 @@ export function getSerializedModelGeometry(stateRegistry) {
   }
 }
 
+// ============================================================================
+// V3 Block Model Registry - Block-name-based geometry lookup
+// ============================================================================
+
+let blockModelRegistryInitialized = false;
+
+/**
+ * Check if V3 block model registry is initialized
+ */
+export function isBlockModelRegistryV3Initialized() {
+  return blockModelRegistryInitialized;
+}
+
+/**
+ * Initialize V3 block model registry from baked binary data
+ * Call this after loading baked-models.bin
+ * 
+ * @param {Uint8Array} bakedData - Binary data from baked-models.bin
+ * @returns {boolean} True if initialization succeeded
+ */
+export function initBlockModelRegistryV3(bakedData) {
+  if (!isWasmAvailable()) {
+    console.warn('[WasmMesher] Cannot init block model registry V3 - WASM not available');
+    return false;
+  }
+  
+  if (blockModelRegistryInitialized) {
+    console.log('[WasmMesher] Block model registry V3 already initialized');
+    return true;
+  }
+  
+  try {
+    const result = wasmModule.init_block_model_registry(bakedData);
+    if (result) {
+      blockModelRegistryInitialized = true;
+      console.log('[WasmMesher] Block model registry V3 initialized successfully');
+    }
+    return result;
+  } catch (error) {
+    console.error('[WasmMesher] Failed to init block model registry V3:', error);
+    return false;
+  }
+}
+
+/**
+ * Load baked models from the server and initialize V3 registry
+ * 
+ * @returns {Promise<boolean>} True if successful
+ */
+export async function loadBakedModelsV3() {
+  if (!isWasmAvailable()) {
+    console.warn('[WasmMesher] Cannot load baked models - WASM not available');
+    return false;
+  }
+  
+  if (blockModelRegistryInitialized) {
+    return true;
+  }
+  
+  try {
+    const response = await fetch('/assets/baked-models.bin');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch: ${response.status}`);
+    }
+    
+    const buffer = await response.arrayBuffer();
+    const data = new Uint8Array(buffer);
+    
+    console.log(`[WasmMesher] Loaded baked-models.bin: ${(data.length / 1024).toFixed(1)} KB`);
+    
+    return initBlockModelRegistryV3(data);
+  } catch (error) {
+    console.error('[WasmMesher] Failed to load baked models:', error);
+    return false;
+  }
+}
+
+/**
+ * Get block model index by name (for V3 registry)
+ * 
+ * @param {string} blockName - Block name without minecraft: prefix
+ * @returns {number} Block index or -1 if not found
+ */
+export function getBlockModelIndex(blockName) {
+  if (!isWasmAvailable() || !blockModelRegistryInitialized) {
+    return -1;
+  }
+  return wasmModule.get_block_model_index(blockName);
+}
+
+/**
+ * Mesh models using V3 block-name-based registry
+ * 
+ * @param {Uint8Array} gridData - Serialized BinaryGrid
+ * @param {Uint8Array} lightData - Serialized LightGrid
+ * @param {Uint8Array} modelStateData - Serialized ModelStateGrid
+ * @param {Object} bounds - { minChunkX, minChunkZ, maxChunkX, maxChunkZ }
+ * @returns {Object|null} Model mesh data
+ */
+export function meshModelsV3(gridData, lightData, modelStateData, bounds) {
+  if (!isWasmAvailable() || !blockModelRegistryInitialized) {
+    console.warn('[WasmMesher] V3 meshing not available');
+    return null;
+  }
+  
+  try {
+    const result = wasmModule.mesh_models_v3(
+      gridData,
+      lightData,
+      modelStateData,
+      bounds.minChunkX,
+      bounds.minChunkZ,
+      bounds.maxChunkX,
+      bounds.maxChunkZ
+    );
+    
+    return {
+      modelOpaque: {
+        positions: new Float32Array(result.opaque_positions()),
+        normals: new Float32Array(result.opaque_normals()),
+        uvs: new Float32Array(result.opaque_uvs()),
+        colors: new Float32Array(result.opaque_colors()),
+        texIndices: new Float32Array(result.opaque_tex_indices()),
+        tintTypes: new Float32Array(result.opaque_tint_types()),
+        skyLight: new Float32Array(result.opaque_sky_light()),
+        blockLight: new Float32Array(result.opaque_block_light()),
+        indices: new Uint32Array(result.opaque_indices()),
+        vertexCount: result.opaque_vertex_count(),
+      },
+      modelTransparent: {
+        positions: new Float32Array(result.transparent_positions()),
+        normals: new Float32Array(result.transparent_normals()),
+        uvs: new Float32Array(result.transparent_uvs()),
+        colors: new Float32Array(result.transparent_colors()),
+        texIndices: new Float32Array(result.transparent_tex_indices()),
+        tintTypes: new Float32Array(result.transparent_tint_types()),
+        skyLight: new Float32Array(result.transparent_sky_light()),
+        blockLight: new Float32Array(result.transparent_block_light()),
+        indices: new Uint32Array(result.transparent_indices()),
+        vertexCount: result.transparent_vertex_count(),
+      },
+      modelOverlay: {
+        positions: new Float32Array(result.overlay_positions()),
+        normals: new Float32Array(result.overlay_normals()),
+        uvs: new Float32Array(result.overlay_uvs()),
+        colors: new Float32Array(result.overlay_colors()),
+        texIndices: new Float32Array(result.overlay_tex_indices()),
+        tintTypes: new Float32Array(result.overlay_tint_types()),
+        skyLight: new Float32Array(result.overlay_sky_light()),
+        blockLight: new Float32Array(result.overlay_block_light()),
+        indices: new Uint32Array(result.overlay_indices()),
+        vertexCount: result.overlay_vertex_count(),
+      },
+      beaconPositions: result.beacon_positions(),
+      beaconCount: result.beacon_count(),
+    };
+  } catch (error) {
+    console.error('[WasmMesher] meshModelsV3 error:', error);
+    return null;
+  }
+}
+
 export default {
   initWasmMesher,
   isWasmAvailable,
@@ -1228,5 +1390,11 @@ export default {
   serializeGrid,
   serializeLightGrid,
   serializeStateGrid,
+  // V3 block model registry
+  isBlockModelRegistryV3Initialized,
+  initBlockModelRegistryV3,
+  loadBakedModelsV3,
+  getBlockModelIndex,
+  meshModelsV3,
 };
 
