@@ -41,6 +41,12 @@ pub fn mesh_models_v3(
     };
     
     let mut result = ModelMeshResult::new();
+    let mut blocks_found = 0u32;
+    let mut blocks_meshed = 0u32;
+    let mut faces_emitted = 0u32;
+    
+    web_sys::console::log_1(&format!("[WASM mesh_models_v3] Registry has {} blocks", registry.len()).into());
+    web_sys::console::log_1(&format!("[WASM mesh_models_v3] ModelStateGrid has {} sections", model_state_grid.section_count()).into());
     
     // Iterate over sections with model states
     for (key, section) in model_state_grid.iter_sections_with_states() {
@@ -67,6 +73,8 @@ pub fn mesh_models_v3(
                         continue;
                     }
                     
+                    blocks_found += 1;
+                    
                     let block_idx = state.block_index();
                     let variant_idx = state.variant_index();
                     let rotation = state.rotation();
@@ -75,14 +83,26 @@ pub fn mesh_models_v3(
                     // Get block data from registry
                     let block = match registry.get_by_index(block_idx) {
                         Some(b) => b,
-                        None => continue,
+                        None => {
+                            if blocks_found <= 3 {
+                                web_sys::console::warn_1(&format!("[WASM] No block at index {}", block_idx).into());
+                            }
+                            continue;
+                        }
                     };
                     
                     // Get variant
                     let variant = match block.get_variant_by_index(variant_idx) {
                         Some(v) => v,
-                        None => continue,
+                        None => {
+                            if blocks_found <= 3 {
+                                web_sys::console::warn_1(&format!("[WASM] No variant {} for block {}", variant_idx, block.name).into());
+                            }
+                            continue;
+                        }
                     };
+                    
+                    blocks_meshed += 1;
                     
                     let world_x = base_x + local_x as i32;
                     let world_y = base_y + local_y as i32;
@@ -160,6 +180,13 @@ pub fn mesh_models_v3(
             }
         }
     }
+    
+    web_sys::console::log_1(&format!(
+        "[WASM mesh_models_v3] Found {} blocks, meshed {}, opaque verts={}, trans verts={}",
+        blocks_found, blocks_meshed,
+        result.opaque.positions.len() / 3,
+        result.transparent.positions.len() / 3
+    ).into());
     
     result
 }

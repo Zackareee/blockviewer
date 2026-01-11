@@ -854,6 +854,10 @@ class WorkerModelStateGrid {
     return sec[ly * S2 + lz * S + lx];
   }
   
+  get size() {
+    return this.sections.size;
+  }
+  
   // Serialize for WASM consumption
   // Format: [sectionCount: u32][sections...]
   // Section: [key: u64][data: u32 × 4096]
@@ -2789,17 +2793,14 @@ async function processSuperChunk(data) {
     );
   }
   
-  // V3 Model Meshing - DISABLED until fully debugged
-  // The V3 mesh_models_v3 function is not producing correct geometry yet.
-  // The infrastructure is in place but needs debugging of:
-  // 1. ModelStateGrid serialization/deserialization
-  // 2. WASM mesh_models_v3 geometry output
-  // 3. Texture indices mapping
-  // For now, use the working fallback (grids returned to main thread)
+  // V3 Model Meshing - DISABLED pending mesh_models_v3 debugging
+  // The registry initializes correctly but mesh_models_v3 returns no geometry
+  // See docs/v3-model-meshing-debug-plan.md for next steps
   const v3Enabled = false; // v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0;
   if (v3Enabled) {
     try {
       const modelMeshes = wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds);
+      console.log(`[V3] Result: opaque=${modelMeshes.modelOpaque?.vertexCount ?? 0}, trans=${modelMeshes.modelTransparent?.vertexCount ?? 0}`);
       
       // Add model opaque mesh
       if (modelMeshes.modelOpaque && modelMeshes.modelOpaque.vertexCount > 0) {

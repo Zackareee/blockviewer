@@ -473,11 +473,12 @@ function writeBinary(manifest) {
       bakedFaces += geometry.faces.length;
     }
     
-    if (variants.length === 0) continue;
-    
+    // CRITICAL: Include ALL blocks, even with 0 variants, to keep indices aligned
+    // with ModelStateLookup which assigns indices to all manifest blocks.
+    // Blocks with 0 variants simply won't render any geometry.
     blockDataList.push({
       name: blockName,
-      flags: blockInfo.flags,
+      flags: blockInfo.flags || {},
       variants,
     });
   }

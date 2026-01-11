@@ -859,7 +859,7 @@ export class SuperChunkManager {
         if (bakedResponse.ok && manifestResponse.ok) {
           bakedModelsData = await bakedResponse.arrayBuffer();
           manifestData = await manifestResponse.json();
-          console.log(`[SuperChunkManager] V3 baked models loaded: ${(bakedModelsData.byteLength / 1024).toFixed(1)} KB`);
+          console.log(`[SuperChunkManager] V3 baked models loaded: ${(bakedModelsData.byteLength / 1024).toFixed(1)} KB, manifest has ${Object.keys(manifestData.blocks || {}).length} blocks`);
         } else {
           console.warn('[SuperChunkManager] Failed to load V3 baked models, falling back to main-thread model meshing');
         }

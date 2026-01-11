@@ -4,6 +4,37 @@
 
 The V3 model meshing infrastructure is complete but not producing correct geometry. This document outlines a systematic debugging plan to identify and fix the issues.
 
+## Progress Summary (Updated)
+
+### Completed
+1. **Phase 5: Block Index Alignment** - FIXED
+   - Root cause identified: Baking script skipped blocks with 0 variants
+   - This caused manifest (1163 blocks) and baked binary (907 blocks) to be misaligned
+   - Fix: Modified `bake-model-geometry.js` to include ALL blocks
+   - Validation script created: `scripts/validate-v3-alignment.js`
+
+2. **Phase 1: Build-time Data** - VERIFIED
+   - `baked-models.bin`: 1163 blocks, magic=0x424B4D44, version=1
+   - `block-model-manifest.json`: 1163 blocks with variants
+
+3. **Phase 4: WASM Logging** - ADDED
+   - Logging added to `mesher_v3.rs` to track blocks found/meshed
+
+### Bugs Fixed
+1. Added missing `isModelBlock()` method to `ModelStateLookup.js`
+2. Added missing `size` getter to `WorkerModelStateGrid`
+3. Fixed WASM file not being synced to worker-accessible path
+4. Fixed duplicate `section_count` method in Rust `model_state_grid.rs`
+5. Updated build script to sync WASM to all required locations
+
+### Outstanding Issue
+**V3 meshing produces 0 vertices** despite:
+- Registry initializing correctly (1163 blocks)
+- Build-time data verified correct
+- Block indices now aligned
+
+**Next Debug Steps:** Continue with Phase 3 (serialization verification)
+
 ## Current Architecture
 
 ```

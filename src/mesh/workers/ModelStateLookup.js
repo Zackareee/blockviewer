@@ -101,6 +101,16 @@ export class ModelStateLookup {
   }
   
   /**
+   * Check if a block is a model block (has pre-baked geometry)
+   * @param {string} blockName - Block name (without minecraft:)
+   * @returns {boolean} True if this is a model block
+   */
+  isModelBlock(blockName) {
+    const normalized = blockName.replace('minecraft:', '');
+    return this.blockNameToIndex.has(normalized);
+  }
+  
+  /**
    * Get packed ModelState for a block
    * @param {string} blockName - Block name (without minecraft:)
    * @param {Object} properties - Block properties
