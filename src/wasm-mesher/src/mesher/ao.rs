@@ -397,8 +397,8 @@ pub fn light_matches(
 }
 
 /// Tolerance for light merging in greedy meshing
-/// 0 = exact match required for smooth lighting, prevents blocky appearance
-const LIGHT_TOLERANCE: u8 = 0;
+/// 1 = allow 1 level difference for better greedy merging with acceptable visual quality
+const LIGHT_TOLERANCE: u8 = 1;
 
 /// Check if two light values are within tolerance for merging
 #[inline]
@@ -406,5 +406,29 @@ pub fn light_within_tolerance(sky1: u8, block1: u8, sky2: u8, block2: u8) -> boo
     let sky_diff = (sky1 as i16 - sky2 as i16).unsigned_abs() as u8;
     let block_diff = (block1 as i16 - block2 as i16).unsigned_abs() as u8;
     sky_diff <= LIGHT_TOLERANCE && block_diff <= LIGHT_TOLERANCE
+}
+
+/// Apply per-face flat lighting with AO per vertex
+/// This is much faster than per-vertex smooth sampling (1 light sample vs 16)
+/// Returns (sky_lights[4], block_lights[4]) for the 4 vertices
+#[inline]
+pub fn apply_flat_lighting_with_ao(
+    base_sky: f32,
+    base_block: f32,
+    ao: &FaceAO,
+) -> ([f32; 4], [f32; 4]) {
+    let sky = [
+        base_sky * AO_BRIGHTNESS[ao.v0 as usize],
+        base_sky * AO_BRIGHTNESS[ao.v1 as usize],
+        base_sky * AO_BRIGHTNESS[ao.v2 as usize],
+        base_sky * AO_BRIGHTNESS[ao.v3 as usize],
+    ];
+    let block = [
+        base_block * AO_BRIGHTNESS[ao.v0 as usize],
+        base_block * AO_BRIGHTNESS[ao.v1 as usize],
+        base_block * AO_BRIGHTNESS[ao.v2 as usize],
+        base_block * AO_BRIGHTNESS[ao.v3 as usize],
+    ];
+    (sky, block)
 }
 

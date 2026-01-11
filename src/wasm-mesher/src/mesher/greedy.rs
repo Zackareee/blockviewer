@@ -320,31 +320,10 @@ fn mesh_face_top(
                     (x, y, z),           // V3 (NW)
                 ];
 
-                // Sample smooth light with AO at each vertex corner
-                // Vertex positions in world coords: (world_x, block_y+1, world_z+h), etc.
-                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
-                let vertex_coords = [
-                    (world_x, world_z + h as i32),      // V0 (SW)
-                    (world_x + w as i32, world_z + h as i32), // V1 (SE)
-                    (world_x + w as i32, world_z),      // V2 (NE)
-                    (world_x, world_z),                 // V3 (NW)
-                ];
-                
-                let mut sky = [15.0f32; 4];
-                let mut block_light = [0.0f32; 4];
-                
-                let face_y = block_y + 1;
-                for i in 0..4 {
-                    let (vx, vz) = vertex_coords[i];
-                    let (s, b) = ao::sample_smooth_vertex_light(
-                        grid, light_grid, lookups,
-                        vx, face_y, vz,
-                        ao_levels[i],
-                        ao::Plane::XZ,
-                    );
-                    sky[i] = s;
-                    block_light[i] = b;
-                }
+                // Per-face flat lighting with AO per vertex (much faster than per-vertex smooth sampling)
+                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
+                    start_sky as f32, start_block as f32, &start_ao
+                );
 
                 let color = lookups.color(block_id);
                 
@@ -499,30 +478,10 @@ fn mesh_face_bottom(
                     (x, y, z + hf),      // V3 (SW)
                 ];
 
-                // Sample smooth light with AO at each vertex corner
-                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
-                let vertex_coords = [
-                    (world_x, world_z),                 // V0 (NW)
-                    (world_x + w as i32, world_z),      // V1 (NE)
-                    (world_x + w as i32, world_z + h as i32), // V2 (SE)
-                    (world_x, world_z + h as i32),      // V3 (SW)
-                ];
-                
-                let mut sky = [15.0f32; 4];
-                let mut block_light = [0.0f32; 4];
-                
-                let face_y = block_y - 1;
-                for i in 0..4 {
-                    let (vx, vz) = vertex_coords[i];
-                    let (s, b) = ao::sample_smooth_vertex_light(
-                        grid, light_grid, lookups,
-                        vx, face_y, vz,
-                        ao_levels[i],
-                        ao::Plane::XZ,
-                    );
-                    sky[i] = s;
-                    block_light[i] = b;
-                }
+                // Per-face flat lighting with AO per vertex
+                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
+                    start_sky as f32, start_block as f32, &start_ao
+                );
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -676,33 +635,14 @@ fn mesh_face_north(
                     (x + wf, y + hf, z), // V3: top-RIGHT
                 ];
 
-                // Sample smooth light with AO at each vertex corner
+                // Per-face flat lighting with AO per vertex
                 // FaceAO: v0=bottom-left, v1=bottom-right, v2=top-right, v3=top-left
                 // Position: V0=bottom-right, V1=bottom-left, V2=top-left, V3=top-right
                 // So: pos[0]→ao.v1, pos[1]→ao.v0, pos[2]→ao.v3, pos[3]→ao.v2
-                let ao_levels = [start_ao.v1, start_ao.v0, start_ao.v3, start_ao.v2];
-                let vertex_coords = [
-                    (world_x + w as i32, block_y),      // V0: bottom-right
-                    (world_x, block_y),                 // V1: bottom-left
-                    (world_x, block_y + h as i32),      // V2: top-left
-                    (world_x + w as i32, block_y + h as i32), // V3: top-right
-                ];
-                
-                let mut sky = [15.0f32; 4];
-                let mut block_light = [0.0f32; 4];
-                
-                let face_z = world_z - 1;
-                for i in 0..4 {
-                    let (vx, vy) = vertex_coords[i];
-                    let (s, b) = ao::sample_smooth_vertex_light(
-                        grid, light_grid, lookups,
-                        vx, vy, face_z,
-                        ao_levels[i],
-                        ao::Plane::XY,
-                    );
-                    sky[i] = s;
-                    block_light[i] = b;
-                }
+                let remapped_ao = ao::FaceAO { v0: start_ao.v1, v1: start_ao.v0, v2: start_ao.v3, v3: start_ao.v2 };
+                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
+                    start_sky as f32, start_block as f32, &remapped_ao
+                );
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -856,33 +796,14 @@ fn mesh_face_south(
                     (x, y + hf, z),      // V3: top-LEFT
                 ];
 
-                // Sample smooth light with AO at each vertex corner
+                // Per-face flat lighting with AO per vertex
                 // FaceAO: v0=bottom-right, v1=bottom-left, v2=top-left, v3=top-right
                 // Position: V0=bottom-left, V1=bottom-right, V2=top-right, V3=top-left
                 // So: pos[0]→ao.v1, pos[1]→ao.v0, pos[2]→ao.v3, pos[3]→ao.v2
-                let ao_levels = [start_ao.v1, start_ao.v0, start_ao.v3, start_ao.v2];
-                let vertex_coords = [
-                    (world_x, block_y),                 // V0: bottom-left
-                    (world_x + w as i32, block_y),      // V1: bottom-right
-                    (world_x + w as i32, block_y + h as i32), // V2: top-right
-                    (world_x, block_y + h as i32),      // V3: top-left
-                ];
-                
-                let mut sky = [15.0f32; 4];
-                let mut block_light = [0.0f32; 4];
-                
-                let face_z = world_z + 1;
-                for i in 0..4 {
-                    let (vx, vy) = vertex_coords[i];
-                    let (s, b) = ao::sample_smooth_vertex_light(
-                        grid, light_grid, lookups,
-                        vx, vy, face_z,
-                        ao_levels[i],
-                        ao::Plane::XY,
-                    );
-                    sky[i] = s;
-                    block_light[i] = b;
-                }
+                let remapped_ao = ao::FaceAO { v0: start_ao.v1, v1: start_ao.v0, v2: start_ao.v3, v3: start_ao.v2 };
+                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
+                    start_sky as f32, start_block as f32, &remapped_ao
+                );
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -1036,30 +957,10 @@ fn mesh_face_east(
                     (x, y + hf, z + wf), // V3
                 ];
 
-                // Sample smooth light with AO at each vertex corner
-                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
-                let vertex_coords = [
-                    (block_y, world_z + w as i32),      // V0
-                    (block_y, world_z),                 // V1
-                    (block_y + h as i32, world_z),      // V2
-                    (block_y + h as i32, world_z + w as i32), // V3
-                ];
-                
-                let mut sky = [15.0f32; 4];
-                let mut block_light = [0.0f32; 4];
-                
-                let face_x = world_x + 1;
-                for i in 0..4 {
-                    let (vy, vz) = vertex_coords[i];
-                    let (s, b) = ao::sample_smooth_vertex_light(
-                        grid, light_grid, lookups,
-                        face_x, vy, vz,
-                        ao_levels[i],
-                        ao::Plane::YZ,
-                    );
-                    sky[i] = s;
-                    block_light[i] = b;
-                }
+                // Per-face flat lighting with AO per vertex
+                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
+                    start_sky as f32, start_block as f32, &start_ao
+                );
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -1213,30 +1114,10 @@ fn mesh_face_west(
                     (x, y + hf, z),      // V3
                 ];
 
-                // Sample smooth light with AO at each vertex corner
-                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
-                let vertex_coords = [
-                    (block_y, world_z),                 // V0
-                    (block_y, world_z + w as i32),      // V1
-                    (block_y + h as i32, world_z + w as i32), // V2
-                    (block_y + h as i32, world_z),      // V3
-                ];
-                
-                let mut sky = [15.0f32; 4];
-                let mut block_light = [0.0f32; 4];
-                
-                let face_x = world_x - 1;
-                for i in 0..4 {
-                    let (vy, vz) = vertex_coords[i];
-                    let (s, b) = ao::sample_smooth_vertex_light(
-                        grid, light_grid, lookups,
-                        face_x, vy, vz,
-                        ao_levels[i],
-                        ao::Plane::YZ,
-                    );
-                    sky[i] = s;
-                    block_light[i] = b;
-                }
+                // Per-face flat lighting with AO per vertex
+                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
+                    start_sky as f32, start_block as f32, &start_ao
+                );
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {

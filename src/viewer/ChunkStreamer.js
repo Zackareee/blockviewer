@@ -1220,11 +1220,11 @@ export class ChunkStreamer {
         await Promise.all(batch.map(item => this._loadChunk(item)));
         
         // Build meshes during streaming
-        // Dispatch multiple super-chunks to workers in parallel
+        // Dispatch ALL dirty super-chunks to workers for max throughput
         const dirtyBefore = this.superChunkManager?.getStats()?.dirtyCount || 0;
         if (dirtyBefore > 0) {
-          // Dispatch up to 4 super-chunks to workers
-          await this.superChunkManager.rebuildDirty(4, 0);
+          // Dispatch all dirty chunks at once (same as initial load)
+          await this.superChunkManager.rebuildDirty(dirtyBefore, 0);
         }
         
         // Process pending mesh uploads (frame-budgeted)
@@ -1240,7 +1240,8 @@ export class ChunkStreamer {
       // Build any remaining dirty super-chunks when queue is empty
       // Don't flush - let frame-budget processing handle uploads
       while (this.superChunkManager?.hasDirtyChunks()) {
-        await this.superChunkManager.rebuildDirty(4, 0);
+        const remaining = this.superChunkManager.getStats()?.dirtyCount || 4;
+        await this.superChunkManager.rebuildDirty(remaining, 0);
         // Yield to allow frame-budget uploads
         await new Promise(r => requestAnimationFrame(r));
       }
@@ -1265,6 +1266,11 @@ export class ChunkStreamer {
    */
   async _processQueueUntilComplete() {
     this.isProcessing = true;
+    
+    // Enable streaming mode for deferred model optimization
+    if (this.superChunkManager) {
+      this.superChunkManager.setStreamingMode(true);
+    }
     
     try {
       while (this.loadQueue.size > 0) {
@@ -1325,7 +1331,9 @@ export class ChunkStreamer {
         
         while (this.superChunkManager.hasDirtyChunks()) {
           const beforeStats = this.superChunkManager.getStats();
-          await this.superChunkManager.rebuildDirty(4);
+          // Process ALL dirty chunks at once for maximum throughput during initial load
+          const remaining = beforeStats.dirtyCount;
+          await this.superChunkManager.rebuildDirty(remaining);
           
           // Flush any pending mesh uploads immediately during initial load
           // (don't wait for frame-budgeted processing)
@@ -1348,6 +1356,15 @@ export class ChunkStreamer {
     } finally {
       this.isProcessing = false;
       this.initialLoadComplete = true; // Mark initial load as done
+      
+      // Disable streaming mode - but DON'T wait for deferred models
+      // This allows the loading overlay to disappear faster
+      // Model meshes will be built in background
+      if (this.superChunkManager) {
+        this.superChunkManager.setStreamingMode(false);
+        // Don't await - let model processing happen in background
+        // This improves perceived load time significantly
+      }
       
       // Continue with lazy loading in background
       if (this.loadQueue.size > 0) {

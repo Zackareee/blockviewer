@@ -237,8 +237,6 @@ export function compute_state_hashes(state_strings: string): BigUint64Array;
  */
 export function init(): void;
 
-export function initThreadPool(num_threads: number): Promise<any>;
-
 /**
  * Initialize the block registry from JavaScript
  * 
@@ -304,14 +302,6 @@ export function init_model_registry(state_ids: Uint16Array, geometry_data: Uint8
 export function init_state_registry(state_strings: string, state_ids: Uint16Array): void;
 
 /**
- * Initialize Rayon thread pool for parallel meshing
- * Only available when built with the "parallel" feature
- * Must be called before any parallel meshing operations
- * Returns a Promise that resolves when the pool is ready
- */
-export function init_thread_pool(num_threads: number): Promise<any>;
-
-/**
  * Check if parallel meshing is available
  */
 export function is_parallel_available(): boolean;
@@ -354,17 +344,6 @@ export function mesh_chunk_streaming(grid_data: Uint8Array, light_data: Uint8Arr
  * ProcessedChunk containing mesh buffers and metadata
  */
 export function process_chunk(compressed_data: Uint8Array, compression_type: number, chunk_x: number, chunk_z: number): ProcessedChunk;
-
-export class wbg_rayon_PoolBuilder {
-  private constructor();
-  free(): void;
-  [Symbol.dispose](): void;
-  numThreads(): number;
-  build(): void;
-  receiver(): number;
-}
-
-export function wbg_rayon_start_worker(receiver: number): void;
 
 /**
  * Write cached mesh data to pre-allocated JS typed arrays (zero-copy path)
@@ -590,26 +569,18 @@ export interface InitOutput {
   readonly clear_cached_result: () => void;
   readonly streamingmeshresultwasm_boundary_neg_z_count: (a: number) => number;
   readonly streamingmeshresultwasm_vertex_count: (a: number) => number;
-  readonly init_thread_pool: (a: number) => any;
+  readonly init_block_registry: (a: number, b: number, c: number, d: number) => void;
   readonly compute_state_hash: (a: number, b: number) => bigint;
   readonly compute_state_hashes: (a: number, b: number) => [number, number];
   readonly init_hash_model_registry: (a: number, b: number, c: number, d: number) => void;
   readonly init_hash_model_registry_precomputed: (a: number, b: number, c: number, d: number) => void;
   readonly init_model_registry: (a: number, b: number, c: number, d: number) => void;
   readonly init_state_registry: (a: number, b: number, c: number, d: number) => void;
-  readonly init_block_registry: (a: number, b: number, c: number, d: number) => void;
-  readonly __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
-  readonly initThreadPool: (a: number) => any;
-  readonly wbg_rayon_poolbuilder_build: (a: number) => void;
-  readonly wbg_rayon_poolbuilder_numThreads: (a: number) => number;
-  readonly wbg_rayon_poolbuilder_receiver: (a: number) => number;
-  readonly wbg_rayon_start_worker: (a: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-  readonly __wbindgen_exn_store: (a: number) => void;
-  readonly __externref_table_alloc: () => number;
-  readonly __wbindgen_externrefs: WebAssembly.Table;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+  readonly __wbindgen_externrefs: WebAssembly.Table;
+  readonly __externref_table_alloc: () => number;
   readonly __wbindgen_start: () => void;
 }
 

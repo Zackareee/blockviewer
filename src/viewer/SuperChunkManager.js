@@ -325,8 +325,9 @@ export class SuperChunkManager {
     this.useWorkers = false;
     
     // Meshing speed: how many super-chunks to mesh per idle callback
-    // 1 = smoothest camera, higher = faster chunk appearance but may cause frame drops
-    this.meshingSpeed = options.meshingSpeed ?? 1;
+    // Higher = faster chunk appearance but may cause minor frame drops
+    // Default increased to 4 for better throughput with optimized meshing
+    this.meshingSpeed = options.meshingSpeed ?? 4;
     
     // Frame-budgeted mesh upload queue
     // Instead of uploading all worker results immediately (causing frame drops),
@@ -416,7 +417,7 @@ export class SuperChunkManager {
    * @param {number} speed - 1-4, higher = faster but may cause frame drops
    */
   setMeshingSpeed(speed) {
-    this.meshingSpeed = Math.max(1, Math.min(4, speed));
+    this.meshingSpeed = Math.max(1, Math.min(8, speed));
   }
   
   /**
@@ -1406,26 +1407,9 @@ export class SuperChunkManager {
         }
       }
     } else if (result.grids) {
-      // OPTIMIZATION: During streaming mode with queue backlog, defer model meshing
-      // This prioritizes getting solid blocks visible quickly during camera movement
-      const queueBacklog = this._meshUploadQueue.length > 3;
-      const shouldDeferModels = this._streamingMode && queueBacklog;
-      
-      if (shouldDeferModels) {
-        // Defer model meshing - store grids for later processing
-        if (!this._deferredModelQueue) {
-          this._deferredModelQueue = [];
-        }
-        this._deferredModelQueue.push({ superChunk, grids: result.grids });
-        // Log first deferral
-        if (this._deferredModelQueue.length === 1) {
-          console.log('[SuperChunkManager] Deferring model meshing during streaming');
-        }
-      } else {
-        // Build model meshes immediately
-        const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
-        this._applyModelMeshResult(superChunk, modelResult);
-      }
+      // Build model meshes immediately (no deferral - prevents pop-in)
+      const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
+      this._applyModelMeshResult(superChunk, modelResult);
     }
   }
   
@@ -2781,7 +2765,7 @@ export class SuperChunkManager {
       // When using parallel worker pool, we can process many more chunks at once
       // since the main thread just dispatches and waits
       const canUseParallel = this.useSuperChunkWorkerPool && this.superChunkWorkerPoolInitialized;
-      const parallelMultiplier = canUseParallel ? 4 : 1; // Process 4x more with parallel
+      const parallelMultiplier = canUseParallel ? 8 : 1; // Process 8x more with parallel
       
       if (hasBoundaryDirty) {
         // High priority for visible artifacts - fix seams quickly
@@ -2789,10 +2773,10 @@ export class SuperChunkManager {
         chunksToMesh = Math.max(4, this.meshingSpeed * parallelMultiplier);
         nextDelay = 4;  // Fast follow-up
       } else if (lowPriority) {
-        // Low priority during streaming - but still batch multiple with parallel
+        // Low priority during streaming - use full parallelism for throughput
         budgetMs = canUseParallel ? 0 : 8;
-        chunksToMesh = canUseParallel ? Math.max(4, this.meshingSpeed * 2) : 1;
-        nextDelay = canUseParallel ? 8 : 24;
+        chunksToMesh = canUseParallel ? Math.max(8, this.meshingSpeed * parallelMultiplier) : 1;
+        nextDelay = canUseParallel ? 4 : 24;
       } else {
         // Normal priority when queue is stable
         budgetMs = canUseParallel ? 0 : 12;

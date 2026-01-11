@@ -252,9 +252,10 @@ async function measureNavigationPerformance(driver, durationMs = 10000) {
   console.log(`${colors.dim}    Initial camera: (${initialPos.x.toFixed(0)}, ${initialPos.y.toFixed(0)}, ${initialPos.z.toFixed(0)})${colors.reset}`);
   
   // Move camera in a STRAIGHT LINE to force loading new chunks
-  // Use walking speed (4.3 blocks/sec) which is more realistic for exploration
+  // Movement speed affects how many new chunks are exposed vs how many can be loaded
+  // Slower = fewer exposed but higher load rate, Faster = more exposed but lower load rate
   const startTime = Date.now();
-  const movementSpeed = 8; // Blocks per second (brisk walking)
+  const movementSpeed = 16; // Blocks per second (1 chunk/sec) - tests steady-state loading
   const moveInterval = 50; // ms between moves (more frequent updates)
   let moveCount = 0;
   

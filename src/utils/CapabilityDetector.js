@@ -174,11 +174,12 @@ export function getOptimalConfig(capabilities) {
       
     case 'mid':
       // Balanced: good performance without overwhelming the system
+      // Increased worker count for better parallelism
       config = {
-        workers: Math.max(2, Math.min(4, cores - 2)),
-        batchSize: 2,
+        workers: Math.max(4, Math.min(8, cores - 1)),
+        batchSize: 4,
         yieldFrequency: 'batch',
-        maxMemoryMB: 512,
+        maxMemoryMB: 768,
         useNativeDecompress: hasNativeDecompress,
         cacheNeighborData: true,
       };
