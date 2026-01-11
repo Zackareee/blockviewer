@@ -102,12 +102,19 @@ export class ModelStateLookup {
   
   /**
    * Check if a block is a model block (has pre-baked geometry)
+   * Returns true only if the block has variants in the manifest.
+   * Blocks with 0 variants (full cubes) should be rendered by greedy mesher.
    * @param {string} blockName - Block name (without minecraft:)
-   * @returns {boolean} True if this is a model block
+   * @returns {boolean} True if this is a model block with geometry
    */
   isModelBlock(blockName) {
     const normalized = blockName.replace('minecraft:', '');
-    return this.blockNameToIndex.has(normalized);
+    if (!this.blockNameToIndex.has(normalized)) {
+      return false;
+    }
+    // Only return true if the block has variants (geometry)
+    const variants = this.blockVariants.get(normalized);
+    return variants && variants.size > 0;
   }
   
   /**

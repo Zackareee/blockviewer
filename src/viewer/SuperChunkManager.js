@@ -1431,6 +1431,11 @@ export class SuperChunkManager {
    * All meshes for a super-chunk are created together to avoid visual popping.
    */
   async _createMeshesFromWorkerResult(superChunk, result) {
+    // Log V3 debug info if present (for debugging model meshing)
+    if (result.v3Debug) {
+      console.log(`[V3 Debug] Worker result:`, result.v3Debug);
+    }
+    
     // Solid mesh
     if (result.solid && result.solid.positions.length > 0) {
       const mesh = this._createMesh(result.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);

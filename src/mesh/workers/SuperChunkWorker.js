@@ -864,18 +864,23 @@ class WorkerModelStateGrid {
   serializeForWasm() {
     // Count non-empty sections
     const nonEmptySections = [];
+    let totalNonZeroStates = 0;
     for (const [key, section] of this.sections) {
       let hasData = false;
+      let nonZeroCount = 0;
       for (let i = 0; i < section.length; i++) {
         if (section[i] !== 0) {
           hasData = true;
-          break;
+          nonZeroCount++;
         }
       }
       if (hasData) {
-        nonEmptySections.push({ key, section });
+        nonEmptySections.push({ key, section, nonZeroCount });
+        totalNonZeroStates += nonZeroCount;
       }
     }
+    
+    console.log(`[V3 Debug] serializeForWasm: ${nonEmptySections.length} sections, ${totalNonZeroStates} total non-zero states`);
     
     const sectionCount = nonEmptySections.length;
     const totalSize = 4 + sectionCount * (8 + S3 * 4);
@@ -1163,7 +1168,12 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
         
         // V3: Get model state for model blocks
         if (modelStates && !isAir[i] && modelStateLookup.isModelBlock(shortName)) {
-          modelStates[i] = modelStateLookup.getModelState(shortName, props);
+          const ms = modelStateLookup.getModelState(shortName, props);
+          modelStates[i] = ms;
+          // Debug: Log first few model states found
+          if (ms !== 0 && totalBlocks < 5) {
+            console.log(`[V3 Debug] Found model block: ${shortName}, state=0x${ms.toString(16)}`);
+          }
         }
         
         if (name.includes('water') || name.includes('lava')) {
@@ -2793,14 +2803,26 @@ async function processSuperChunk(data) {
     );
   }
   
-  // V3 Model Meshing - DISABLED pending mesh_models_v3 debugging
-  // The registry initializes correctly but mesh_models_v3 returns no geometry
-  // See docs/v3-model-meshing-debug-plan.md for next steps
+  // V3 Model Meshing - DISABLED for now, needs further debugging
+  // See docs/v3-model-meshing-debug-plan.md
   const v3Enabled = false; // v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0;
+  
+  // Debug info for testing
+  result.v3Debug = {
+    enabled: v3Enabled,
+    registryInit: v3RegistryInitialized,
+    gridSections: modelStateGrid?.size ?? 0,
+    modelStateLookupReady: !!modelStateLookup,
+  };
+  
   if (v3Enabled) {
     try {
+      const serialized = modelStateGrid.serializeForWasm();
+      result.v3Debug.serializedBytes = serialized.byteLength;
+      
       const modelMeshes = wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds);
-      console.log(`[V3] Result: opaque=${modelMeshes.modelOpaque?.vertexCount ?? 0}, trans=${modelMeshes.modelTransparent?.vertexCount ?? 0}`);
+      result.v3Debug.opaqueVerts = modelMeshes.modelOpaque?.vertexCount ?? 0;
+      result.v3Debug.transVerts = modelMeshes.modelTransparent?.vertexCount ?? 0;
       
       // Add model opaque mesh
       if (modelMeshes.modelOpaque && modelMeshes.modelOpaque.vertexCount > 0) {

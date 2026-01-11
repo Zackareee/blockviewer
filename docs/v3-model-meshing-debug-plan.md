@@ -30,10 +30,24 @@ The V3 model meshing infrastructure is complete but not producing correct geomet
 ### Outstanding Issue
 **V3 meshing produces 0 vertices** despite:
 - Registry initializing correctly (1163 blocks)
-- Build-time data verified correct
+- Build-time data verified correct (907 blocks with faces)
 - Block indices now aligned
+- `isModelBlock()` now correctly filters blocks with 0 variants
 
-**Next Debug Steps:** Continue with Phase 3 (serialization verification)
+**Verified Working:**
+- Baked models binary is correct (validated with test script)
+- 907 blocks have geometry with total of 20,027 faces
+- Key blocks verified: stone_slab (18 faces), oak_stairs (63 faces), torch (6 faces)
+
+**Possible Remaining Issues:**
+1. ModelStateGrid not being populated during decode
+2. ModelStateGrid serialization format mismatch with WASM
+3. mesh_models_v3 internal issue (variant lookup, face emission, culling)
+
+**Next Debug Steps:** 
+1. Add more debug logging to worker to verify ModelStateGrid population
+2. Verify serialized bytes are non-empty before calling WASM
+3. Add Rust logging to verify ModelStateGrid is parsed correctly
 
 ## Current Architecture
 
