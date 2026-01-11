@@ -490,18 +490,19 @@ export class SuperChunkManager {
     
     this._isProcessingUploads = true;
     const startTime = performance.now();
-    // Use higher budget during streaming to keep up with camera movement
-    // During streaming: 16ms budget (targeting 30fps during heavy load)
-    // Normal: 8ms budget (targeting 60fps)
-    const budget = this._streamingMode ? 16 : this._frameBudgetMs;
+    
+    // Game engine approach: limit meshes per frame based on mode
+    // During streaming (camera moving): 1 mesh per frame for stable FPS
+    // During initial load: multiple meshes per frame for fast loading
+    const maxMeshesPerFrame = this._streamingMode ? 1 : 4;
+    const budget = this._streamingMode ? 8 : this._frameBudgetMs;
     let processedCount = 0;
     
     try {
-      while (this._meshUploadQueue.length > 0) {
-        // Check if we've exceeded the frame budget
+      while (this._meshUploadQueue.length > 0 && processedCount < maxMeshesPerFrame) {
+        // Check time budget (but always process at least one during initial load)
         const elapsed = performance.now() - startTime;
         if (elapsed >= budget && processedCount > 0) {
-          // Processed at least one, but out of budget - defer rest to next frame
           break;
         }
         
@@ -1407,18 +1408,9 @@ export class SuperChunkManager {
         }
       }
     } else if (result.grids) {
-      // Queue model mesh building for idle processing to prevent frame drops
-      // This allows solid meshes to render while models build incrementally
-      if (!this._modelBuildQueue) {
-        this._modelBuildQueue = [];
-      }
-      this._modelBuildQueue.push({ superChunk, grids: result.grids });
-      
-      // Schedule idle model processing if not already running
-      if (!this._modelBuildScheduled) {
-        this._modelBuildScheduled = true;
-        this._scheduleModelBuildProcessing();
-      }
+      // Build model meshes immediately (no deferral - prevents pop-in)
+      const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
+      this._applyModelMeshResult(superChunk, modelResult);
     }
   }
   
@@ -1489,54 +1481,6 @@ export class SuperChunkManager {
     return count;
   }
   
-  /**
-   * Schedule incremental model mesh building during idle time
-   * Uses requestIdleCallback when available, falls back to setTimeout
-   * Processes one model mesh per idle callback to avoid frame drops
-   */
-  _scheduleModelBuildProcessing() {
-    const processOne = async (deadline) => {
-      // Check if we have work and time
-      if (!this._modelBuildQueue || this._modelBuildQueue.length === 0) {
-        this._modelBuildScheduled = false;
-        return;
-      }
-      
-      // Process one model mesh if we have at least 5ms of idle time
-      // or if using setTimeout fallback
-      const hasTime = !deadline || deadline.timeRemaining() > 5;
-      
-      if (hasTime) {
-        const job = this._modelBuildQueue.shift();
-        if (job) {
-          try {
-            const modelResult = await this._buildModelMeshesFromWorkerGrids(job.grids);
-            this._applyModelMeshResult(job.superChunk, modelResult);
-          } catch (e) {
-            console.warn('[SuperChunkManager] Model mesh build failed:', e);
-          }
-        }
-      }
-      
-      // Schedule next if more work remains
-      if (this._modelBuildQueue.length > 0) {
-        if (typeof requestIdleCallback === 'function') {
-          requestIdleCallback(processOne, { timeout: 100 });
-        } else {
-          setTimeout(() => processOne(null), 16);
-        }
-      } else {
-        this._modelBuildScheduled = false;
-      }
-    };
-    
-    // Start processing with requestIdleCallback or setTimeout fallback
-    if (typeof requestIdleCallback === 'function') {
-      requestIdleCallback(processOne, { timeout: 100 });
-    } else {
-      setTimeout(() => processOne(null), 16);
-    }
-  }
   
   /**
    * Deserialize grids from worker and build model meshes on main thread
