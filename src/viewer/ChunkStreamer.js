@@ -1843,6 +1843,9 @@ export class ChunkStreamer {
     // Flush completion queue (super-chunk mesh creation)
     await this.superChunkManager.flushCompletionQueue();
     
+    // Flush model mesh queue (deferred model mesh building)
+    await this.superChunkManager.flushModelMeshQueue();
+    
     // Flush individual mesh queue
     return this.superChunkManager.flushMeshQueue();
   }

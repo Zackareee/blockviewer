@@ -215,14 +215,14 @@ class MeshCreationQueue {
  * SuperChunkCompletionQueue - Spreads super-chunk mesh creation across frames
  * 
  * When multiple workers complete at once, we queue their results and process
- * 1-2 super-chunks per frame to avoid lag spikes. Each super-chunk creates
+ * 1 super-chunk per frame to avoid lag spikes. Each super-chunk creates
  * all its meshes together (no visual popping).
  */
 class SuperChunkCompletionQueue {
   constructor() {
     this.queue = [];
     this.isProcessing = false;
-    this.maxPerFrame = 2; // Max super-chunks to process per frame
+    this.maxPerFrame = 1; // Max super-chunks to process per frame (keep low - each is expensive)
     this.onComplete = null; // Callback when a super-chunk is processed
   }
   
@@ -582,6 +582,60 @@ export class SuperChunkManager {
     return await this.completionQueue.processAll(async (job, result) => {
       await this._finalizeWorkerResult(job, result);
     });
+  }
+  
+  /**
+   * Flush all pending model mesh builds immediately
+   * Used for tests to ensure all model meshes are created
+   */
+  async flushModelMeshQueue() {
+    if (!this._modelMeshQueue || this._modelMeshQueue.length === 0) return 0;
+    
+    let processed = 0;
+    while (this._modelMeshQueue.length > 0) {
+      const { superChunk, gridsData } = this._modelMeshQueue.shift();
+      try {
+        const modelResult = await this._buildModelMeshesFromWorkerGrids(gridsData);
+        if (modelResult) {
+          if (modelResult.opaque?.positions?.length > 0) {
+            const mesh = this._createMesh(modelResult.opaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+            if (mesh) {
+              superChunk.meshes.push(mesh);
+              this.chunkManager.modelMeshes.push(mesh);
+            }
+          }
+          if (modelResult.transparent?.positions?.length > 0) {
+            const mesh = this._createMesh(modelResult.transparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+            if (mesh) {
+              mesh.renderOrder = 0.5;
+              superChunk.meshes.push(mesh);
+              this.chunkManager.transparentModelMeshes.push(mesh);
+            }
+          }
+          if (modelResult.overlay?.positions?.length > 0) {
+            const mesh = this._createMesh(modelResult.overlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
+            if (mesh) {
+              mesh.renderOrder = 0.1;
+              superChunk.meshes.push(mesh);
+              this.chunkManager.overlayMeshes?.push(mesh);
+            }
+          }
+          if (modelResult.particleEmitters?.length > 0) {
+            const emitterManager = this.chunkManager.particleEmitterManager;
+            if (emitterManager) {
+              for (const emitter of modelResult.particleEmitters) {
+                emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
+              }
+            }
+          }
+        }
+        processed++;
+      } catch (error) {
+        console.warn('[SuperChunkManager] Model mesh build failed:', error.message);
+      }
+    }
+    this._modelMeshScheduled = false;
+    return processed;
   }
   
   /**
@@ -1389,9 +1443,46 @@ export class SuperChunkManager {
       }
     }
     
-    // Build model meshes on main thread from serialized grids
+    // Build model meshes from grids (deferred to not block the frame)
     if (result.grids) {
-      const modelResult = await this._buildModelMeshesFromWorkerGrids(result.grids);
+      // Queue model mesh building for next idle callback to avoid blocking this frame
+      this._queueModelMeshBuild(superChunk, result.grids);
+    }
+  }
+  
+  /**
+   * Queue model mesh building to happen in idle time
+   * This prevents model meshing from blocking chunk appearance
+   */
+  _queueModelMeshBuild(superChunk, gridsData) {
+    if (!this._modelMeshQueue) {
+      this._modelMeshQueue = [];
+    }
+    
+    this._modelMeshQueue.push({ superChunk, gridsData });
+    
+    // Schedule processing if not already scheduled
+    if (!this._modelMeshScheduled) {
+      this._modelMeshScheduled = true;
+      // Use setTimeout with 0 to defer to next tick
+      setTimeout(() => this._processModelMeshQueue(), 0);
+    }
+  }
+  
+  /**
+   * Process queued model mesh builds in idle time
+   * Processes one at a time to avoid frame spikes
+   */
+  async _processModelMeshQueue() {
+    this._modelMeshScheduled = false;
+    
+    if (!this._modelMeshQueue || this._modelMeshQueue.length === 0) return;
+    
+    // Process one model mesh per idle callback
+    const { superChunk, gridsData } = this._modelMeshQueue.shift();
+    
+    try {
+      const modelResult = await this._buildModelMeshesFromWorkerGrids(gridsData);
       if (modelResult) {
         // Opaque models
         if (modelResult.opaque && modelResult.opaque.positions?.length > 0) {
@@ -1432,6 +1523,14 @@ export class SuperChunkManager {
           }
         }
       }
+    } catch (error) {
+      console.warn('[SuperChunkManager] Model mesh build failed:', error.message);
+    }
+    
+    // Schedule next if more in queue
+    if (this._modelMeshQueue.length > 0) {
+      this._modelMeshScheduled = true;
+      setTimeout(() => this._processModelMeshQueue(), 16); // ~60fps timing
     }
   }
   
