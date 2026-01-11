@@ -1,11 +1,7 @@
 //! State and Model Registry
 //!
 //! Maps block state strings to state IDs and stores model geometry.
-//! Supports both:
-//! 1. State ID based lookup (legacy, requires synchronized IDs)
-//! 2. String hash based lookup (new, works across threads without sync)
-//!
-//! The hash-based approach uses FNV-1a hashing for deterministic lookups.
+//! Initialized once from JavaScript at startup.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -15,57 +11,8 @@ use super::geometry::ModelGeometry;
 /// State registry: maps state strings to state IDs
 static STATE_REGISTRY: OnceLock<StateRegistry> = OnceLock::new();
 
-/// Model registry: maps state IDs to model geometry (legacy)
+/// Model registry: maps state IDs to model geometry
 static MODEL_REGISTRY: OnceLock<ModelRegistry> = OnceLock::new();
-
-/// Hash-based model registry: maps state string hashes to model geometry
-static HASH_MODEL_REGISTRY: OnceLock<HashModelRegistry> = OnceLock::new();
-
-// ============================================================================
-// FNV-1a Hash Function
-// ============================================================================
-
-// FNV-1a 64-bit constants - MUST match JavaScript implementation exactly
-const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-const FNV_PRIME: u64 = 0x00000100000001B3;
-
-/// Compute FNV-1a 64-bit hash of a state string
-/// 
-/// CRITICAL: This MUST match the JavaScript fnv1aHash() implementation exactly!
-/// JavaScript hashes raw character codes (bytes), so we hash raw bytes here.
-/// Do NOT use Rust's Hash trait as it includes string length in the hash.
-#[inline]
-pub fn hash_state_string(state: &str) -> u64 {
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in state.bytes() {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    hash
-}
-
-/// Build a canonical state string from block name and sorted properties
-/// Format: "minecraft:oak_stairs[facing=north,half=bottom,shape=straight]"
-pub fn build_canonical_state_string(name: &str, properties: &[(String, String)]) -> String {
-    if properties.is_empty() {
-        return name.to_string();
-    }
-    
-    // Sort properties alphabetically for consistent ordering
-    let mut sorted_props: Vec<_> = properties.iter().collect();
-    sorted_props.sort_by(|a, b| a.0.cmp(&b.0));
-    
-    let props_str: Vec<String> = sorted_props
-        .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
-        .collect();
-    
-    format!("{}[{}]", name, props_str.join(","))
-}
-
-// ============================================================================
-// State Registry (legacy - state string to ID mapping)
-// ============================================================================
 
 /// State registry containing state string → ID mappings
 pub struct StateRegistry {
@@ -118,10 +65,6 @@ impl Default for StateRegistry {
     }
 }
 
-// ============================================================================
-// Model Registry (legacy - state ID to geometry)
-// ============================================================================
-
 /// Model registry containing state ID → geometry mappings
 pub struct ModelRegistry {
     /// State ID to model geometry
@@ -154,69 +97,6 @@ impl Default for ModelRegistry {
     }
 }
 
-// ============================================================================
-// Hash-based Model Registry (new - hash to geometry)
-// ============================================================================
-
-/// Hash-based model registry using FNV-1a hashed state strings
-pub struct HashModelRegistry {
-    /// State string hash → model geometry
-    models: HashMap<u64, ModelGeometry>,
-    /// For debugging: track which state strings we have
-    debug_states: Vec<String>,
-}
-
-impl HashModelRegistry {
-    pub fn new() -> Self {
-        Self {
-            models: HashMap::with_capacity(8192),
-            debug_states: Vec::new(),
-        }
-    }
-
-    /// Add geometry by state string (computes hash internally)
-    pub fn add_by_string(&mut self, state_string: &str, geometry: ModelGeometry) {
-        let hash = hash_state_string(state_string);
-        self.models.insert(hash, geometry);
-        #[cfg(debug_assertions)]
-        self.debug_states.push(state_string.to_string());
-    }
-
-    /// Add geometry by pre-computed hash
-    pub fn add_by_hash(&mut self, hash: u64, geometry: ModelGeometry) {
-        self.models.insert(hash, geometry);
-    }
-
-    /// Look up geometry by state string
-    pub fn get_by_string(&self, state_string: &str) -> Option<&ModelGeometry> {
-        let hash = hash_state_string(state_string);
-        self.models.get(&hash)
-    }
-
-    /// Look up geometry by pre-computed hash
-    pub fn get_by_hash(&self, hash: u64) -> Option<&ModelGeometry> {
-        self.models.get(&hash)
-    }
-
-    pub fn len(&self) -> usize {
-        self.models.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.models.is_empty()
-    }
-}
-
-impl Default for HashModelRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ============================================================================
-// WASM Bindings - Legacy State Registry
-// ============================================================================
-
 /// Initialize state registry from JavaScript
 /// 
 /// Called once at startup with all state strings and their IDs.
@@ -247,19 +127,28 @@ pub fn get_state_id(state_string: &str) -> u16 {
         .unwrap_or(0)
 }
 
-/// Build state string from block name and properties (legacy alias)
+/// Build state string from block name and properties
 pub fn build_state_string(name: &str, properties: &[(String, String)]) -> String {
-    build_canonical_state_string(name, properties)
+    if properties.is_empty() {
+        return name.to_string();
+    }
+    
+    // Sort properties alphabetically for consistent ordering
+    let mut sorted_props: Vec<_> = properties.iter().collect();
+    sorted_props.sort_by(|a, b| a.0.cmp(&b.0));
+    
+    let props_str: Vec<String> = sorted_props
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect();
+    
+    format!("{}[{}]", name, props_str.join(","))
 }
 
 /// Check if state registry is initialized
 pub fn is_state_registry_initialized() -> bool {
     STATE_REGISTRY.get().is_some()
 }
-
-// ============================================================================
-// WASM Bindings - Legacy Model Registry (by state ID)
-// ============================================================================
 
 /// Initialize model registry from JavaScript
 /// 
@@ -354,7 +243,7 @@ pub fn init_model_registry(state_ids: Vec<u16>, geometry_data: Vec<u8>) {
         
         registry.add(state_id, ModelGeometry {
             faces,
-            is_full_cube: false,
+            is_full_cube: false, // Will be computed from faces
             is_transparent: false,
         });
     }
@@ -365,7 +254,7 @@ pub fn init_model_registry(state_ids: Vec<u16>, geometry_data: Vec<u8>) {
     web_sys::console::log_1(&format!("[WASM] Model registry initialized with {} models", count).into());
 }
 
-/// Get model geometry for a state ID (legacy)
+/// Get model geometry for a state ID
 pub fn get_model_geometry(state_id: u16) -> Option<&'static ModelGeometry> {
     MODEL_REGISTRY.get().and_then(|r| r.get(state_id))
 }
@@ -375,217 +264,3 @@ pub fn is_model_registry_initialized() -> bool {
     MODEL_REGISTRY.get().is_some()
 }
 
-// ============================================================================
-// WASM Bindings - Hash-based Model Registry (new)
-// ============================================================================
-
-/// Initialize hash-based model registry from JavaScript
-/// 
-/// This uses state string hashes for lookup, eliminating the need for
-/// synchronized state IDs between main thread and workers.
-/// 
-/// # Arguments
-/// * `state_strings` - Newline-separated state strings
-/// * `geometry_data` - Serialized model geometry (binary format, same as init_model_registry)
-#[wasm_bindgen]
-pub fn init_hash_model_registry(state_strings: String, geometry_data: Vec<u8>) {
-    let mut registry = HashModelRegistry::new();
-    let state_lines: Vec<&str> = state_strings.lines().collect();
-    
-    // Deserialize geometry data (same format as init_model_registry)
-    let mut offset = 0;
-    let mut state_idx = 0;
-    
-    while offset + 2 <= geometry_data.len() && state_idx < state_lines.len() {
-        let state_string = state_lines[state_idx];
-        state_idx += 1;
-        
-        let num_faces = u16::from_le_bytes([geometry_data[offset], geometry_data[offset + 1]]) as usize;
-        offset += 2;
-        
-        let mut faces = Vec::with_capacity(num_faces);
-        
-        for _ in 0..num_faces {
-            if offset + 84 > geometry_data.len() {
-                break;
-            }
-            
-            let direction = geometry_data[offset];
-            offset += 1;
-            
-            // Read 4 vertices (each 3 f32s)
-            let mut vertices = [[0.0f32; 3]; 4];
-            for v in 0..4 {
-                for c in 0..3 {
-                    vertices[v][c] = f32::from_le_bytes([
-                        geometry_data[offset],
-                        geometry_data[offset + 1],
-                        geometry_data[offset + 2],
-                        geometry_data[offset + 3],
-                    ]);
-                    offset += 4;
-                }
-            }
-            
-            // Read 4 UVs (each 2 f32s)
-            let mut uvs = [[0.0f32; 2]; 4];
-            for v in 0..4 {
-                for c in 0..2 {
-                    uvs[v][c] = f32::from_le_bytes([
-                        geometry_data[offset],
-                        geometry_data[offset + 1],
-                        geometry_data[offset + 2],
-                        geometry_data[offset + 3],
-                    ]);
-                    offset += 4;
-                }
-            }
-            
-            let texture_index = u16::from_le_bytes([geometry_data[offset], geometry_data[offset + 1]]);
-            offset += 2;
-            
-            let tint_type = geometry_data[offset];
-            offset += 1;
-            
-            let cull_face = geometry_data[offset];
-            offset += 1;
-            
-            faces.push(super::geometry::ModelFace {
-                direction,
-                vertices,
-                uvs,
-                texture_index,
-                tint_type,
-                cull_face,
-            });
-        }
-        
-        registry.add_by_string(state_string, ModelGeometry {
-            faces,
-            is_full_cube: false,
-            is_transparent: false,
-        });
-    }
-    
-    let count = registry.len();
-    let _ = HASH_MODEL_REGISTRY.set(registry);
-    
-    web_sys::console::log_1(&format!("[WASM] Hash-based model registry initialized with {} models", count).into());
-}
-
-/// Initialize hash-based model registry with pre-computed hashes
-/// 
-/// More efficient than init_hash_model_registry as hashes are pre-computed
-/// on the JavaScript side.
-/// 
-/// # Arguments
-/// * `state_hashes` - Array of 64-bit FNV-1a hashes of state strings
-/// * `geometry_data` - Serialized model geometry (binary format)
-#[wasm_bindgen]
-pub fn init_hash_model_registry_precomputed(state_hashes: Vec<u64>, geometry_data: Vec<u8>) {
-    let mut registry = HashModelRegistry::new();
-    
-    let mut offset = 0;
-    let mut hash_idx = 0;
-    
-    while offset + 2 <= geometry_data.len() && hash_idx < state_hashes.len() {
-        let state_hash = state_hashes[hash_idx];
-        hash_idx += 1;
-        
-        let num_faces = u16::from_le_bytes([geometry_data[offset], geometry_data[offset + 1]]) as usize;
-        offset += 2;
-        
-        let mut faces = Vec::with_capacity(num_faces);
-        
-        for _ in 0..num_faces {
-            if offset + 84 > geometry_data.len() {
-                break;
-            }
-            
-            let direction = geometry_data[offset];
-            offset += 1;
-            
-            let mut vertices = [[0.0f32; 3]; 4];
-            for v in 0..4 {
-                for c in 0..3 {
-                    vertices[v][c] = f32::from_le_bytes([
-                        geometry_data[offset],
-                        geometry_data[offset + 1],
-                        geometry_data[offset + 2],
-                        geometry_data[offset + 3],
-                    ]);
-                    offset += 4;
-                }
-            }
-            
-            let mut uvs = [[0.0f32; 2]; 4];
-            for v in 0..4 {
-                for c in 0..2 {
-                    uvs[v][c] = f32::from_le_bytes([
-                        geometry_data[offset],
-                        geometry_data[offset + 1],
-                        geometry_data[offset + 2],
-                        geometry_data[offset + 3],
-                    ]);
-                    offset += 4;
-                }
-            }
-            
-            let texture_index = u16::from_le_bytes([geometry_data[offset], geometry_data[offset + 1]]);
-            offset += 2;
-            
-            let tint_type = geometry_data[offset];
-            offset += 1;
-            
-            let cull_face = geometry_data[offset];
-            offset += 1;
-            
-            faces.push(super::geometry::ModelFace {
-                direction,
-                vertices,
-                uvs,
-                texture_index,
-                tint_type,
-                cull_face,
-            });
-        }
-        
-        registry.add_by_hash(state_hash, ModelGeometry {
-            faces,
-            is_full_cube: false,
-            is_transparent: false,
-        });
-    }
-    
-    let count = registry.len();
-    let _ = HASH_MODEL_REGISTRY.set(registry);
-    
-    web_sys::console::log_1(&format!("[WASM] Hash-based model registry initialized with {} models (precomputed hashes)", count).into());
-}
-
-/// Get model geometry by state string hash
-pub fn get_model_geometry_by_hash(hash: u64) -> Option<&'static ModelGeometry> {
-    HASH_MODEL_REGISTRY.get().and_then(|r| r.get_by_hash(hash))
-}
-
-/// Get model geometry by state string (computes hash internally)
-pub fn get_model_geometry_by_string(state_string: &str) -> Option<&'static ModelGeometry> {
-    HASH_MODEL_REGISTRY.get().and_then(|r| r.get_by_string(state_string))
-}
-
-/// Check if hash-based model registry is initialized
-pub fn is_hash_model_registry_initialized() -> bool {
-    HASH_MODEL_REGISTRY.get().map(|r| !r.is_empty()).unwrap_or(false)
-}
-
-/// Expose hash function to JavaScript for pre-computing hashes
-#[wasm_bindgen]
-pub fn compute_state_hash(state_string: &str) -> u64 {
-    hash_state_string(state_string)
-}
-
-/// Compute multiple state hashes at once (more efficient for bulk operations)
-#[wasm_bindgen]
-pub fn compute_state_hashes(state_strings: String) -> Vec<u64> {
-    state_strings.lines().map(hash_state_string).collect()
-}

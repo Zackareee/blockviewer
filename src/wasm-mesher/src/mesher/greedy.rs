@@ -320,10 +320,31 @@ fn mesh_face_top(
                     (x, y, z),           // V3 (NW)
                 ];
 
-                // Per-face flat lighting with AO per vertex (much faster than per-vertex smooth sampling)
-                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
-                    start_sky as f32, start_block as f32, &start_ao
-                );
+                // Sample smooth light with AO at each vertex corner
+                // Vertex positions in world coords: (world_x, block_y+1, world_z+h), etc.
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (world_x, world_z + h as i32),      // V0 (SW)
+                    (world_x + w as i32, world_z + h as i32), // V1 (SE)
+                    (world_x + w as i32, world_z),      // V2 (NE)
+                    (world_x, world_z),                 // V3 (NW)
+                ];
+                
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                
+                let face_y = block_y + 1;
+                for i in 0..4 {
+                    let (vx, vz) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        vx, face_y, vz,
+                        ao_levels[i],
+                        ao::Plane::XZ,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
+                }
 
                 let color = lookups.color(block_id);
                 
@@ -478,10 +499,30 @@ fn mesh_face_bottom(
                     (x, y, z + hf),      // V3 (SW)
                 ];
 
-                // Per-face flat lighting with AO per vertex
-                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
-                    start_sky as f32, start_block as f32, &start_ao
-                );
+                // Sample smooth light with AO at each vertex corner
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (world_x, world_z),                 // V0 (NW)
+                    (world_x + w as i32, world_z),      // V1 (NE)
+                    (world_x + w as i32, world_z + h as i32), // V2 (SE)
+                    (world_x, world_z + h as i32),      // V3 (SW)
+                ];
+                
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                
+                let face_y = block_y - 1;
+                for i in 0..4 {
+                    let (vx, vz) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        vx, face_y, vz,
+                        ao_levels[i],
+                        ao::Plane::XZ,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
+                }
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -635,14 +676,33 @@ fn mesh_face_north(
                     (x + wf, y + hf, z), // V3: top-RIGHT
                 ];
 
-                // Per-face flat lighting with AO per vertex
+                // Sample smooth light with AO at each vertex corner
                 // FaceAO: v0=bottom-left, v1=bottom-right, v2=top-right, v3=top-left
                 // Position: V0=bottom-right, V1=bottom-left, V2=top-left, V3=top-right
                 // So: pos[0]→ao.v1, pos[1]→ao.v0, pos[2]→ao.v3, pos[3]→ao.v2
-                let remapped_ao = ao::FaceAO { v0: start_ao.v1, v1: start_ao.v0, v2: start_ao.v3, v3: start_ao.v2 };
-                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
-                    start_sky as f32, start_block as f32, &remapped_ao
-                );
+                let ao_levels = [start_ao.v1, start_ao.v0, start_ao.v3, start_ao.v2];
+                let vertex_coords = [
+                    (world_x + w as i32, block_y),      // V0: bottom-right
+                    (world_x, block_y),                 // V1: bottom-left
+                    (world_x, block_y + h as i32),      // V2: top-left
+                    (world_x + w as i32, block_y + h as i32), // V3: top-right
+                ];
+                
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                
+                let face_z = world_z - 1;
+                for i in 0..4 {
+                    let (vx, vy) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        vx, vy, face_z,
+                        ao_levels[i],
+                        ao::Plane::XY,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
+                }
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -796,14 +856,33 @@ fn mesh_face_south(
                     (x, y + hf, z),      // V3: top-LEFT
                 ];
 
-                // Per-face flat lighting with AO per vertex
+                // Sample smooth light with AO at each vertex corner
                 // FaceAO: v0=bottom-right, v1=bottom-left, v2=top-left, v3=top-right
                 // Position: V0=bottom-left, V1=bottom-right, V2=top-right, V3=top-left
                 // So: pos[0]→ao.v1, pos[1]→ao.v0, pos[2]→ao.v3, pos[3]→ao.v2
-                let remapped_ao = ao::FaceAO { v0: start_ao.v1, v1: start_ao.v0, v2: start_ao.v3, v3: start_ao.v2 };
-                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
-                    start_sky as f32, start_block as f32, &remapped_ao
-                );
+                let ao_levels = [start_ao.v1, start_ao.v0, start_ao.v3, start_ao.v2];
+                let vertex_coords = [
+                    (world_x, block_y),                 // V0: bottom-left
+                    (world_x + w as i32, block_y),      // V1: bottom-right
+                    (world_x + w as i32, block_y + h as i32), // V2: top-right
+                    (world_x, block_y + h as i32),      // V3: top-left
+                ];
+                
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                
+                let face_z = world_z + 1;
+                for i in 0..4 {
+                    let (vx, vy) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        vx, vy, face_z,
+                        ao_levels[i],
+                        ao::Plane::XY,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
+                }
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -957,10 +1036,30 @@ fn mesh_face_east(
                     (x, y + hf, z + wf), // V3
                 ];
 
-                // Per-face flat lighting with AO per vertex
-                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
-                    start_sky as f32, start_block as f32, &start_ao
-                );
+                // Sample smooth light with AO at each vertex corner
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (block_y, world_z + w as i32),      // V0
+                    (block_y, world_z),                 // V1
+                    (block_y + h as i32, world_z),      // V2
+                    (block_y + h as i32, world_z + w as i32), // V3
+                ];
+                
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                
+                let face_x = world_x + 1;
+                for i in 0..4 {
+                    let (vy, vz) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        face_x, vy, vz,
+                        ao_levels[i],
+                        ao::Plane::YZ,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
+                }
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -1114,10 +1213,30 @@ fn mesh_face_west(
                     (x, y + hf, z),      // V3
                 ];
 
-                // Per-face flat lighting with AO per vertex
-                let (sky, block_light) = ao::apply_flat_lighting_with_ao(
-                    start_sky as f32, start_block as f32, &start_ao
-                );
+                // Sample smooth light with AO at each vertex corner
+                let ao_levels = [start_ao.v0, start_ao.v1, start_ao.v2, start_ao.v3];
+                let vertex_coords = [
+                    (block_y, world_z),                 // V0
+                    (block_y, world_z + w as i32),      // V1
+                    (block_y + h as i32, world_z + w as i32), // V2
+                    (block_y + h as i32, world_z),      // V3
+                ];
+                
+                let mut sky = [15.0f32; 4];
+                let mut block_light = [0.0f32; 4];
+                
+                let face_x = world_x - 1;
+                for i in 0..4 {
+                    let (vy, vz) = vertex_coords[i];
+                    let (s, b) = ao::sample_smooth_vertex_light(
+                        grid, light_grid, lookups,
+                        face_x, vy, vz,
+                        ao_levels[i],
+                        ao::Plane::YZ,
+                    );
+                    sky[i] = s;
+                    block_light[i] = b;
+                }
 
                 let color = lookups.color(block_id);
                 let (tex_idx, tex_rot) = if lookups.is_rotatable(block_id) && axis != AXIS_Y {
@@ -1632,188 +1751,3 @@ fn mesh_glass_face_west(
     }
 }
 
-
-// ============================================================================
-// Streaming Mode: Single-Chunk Meshing
-// ============================================================================
-
-/// Boundary face data for deferred culling/repair
-#[derive(Debug, Clone, Default)]
-pub struct BoundaryFaces {
-    pub neg_x: Vec<BoundaryFace>,
-    pub pos_x: Vec<BoundaryFace>,
-    pub neg_z: Vec<BoundaryFace>,
-    pub pos_z: Vec<BoundaryFace>,
-}
-
-/// Single boundary face that may need culling
-#[derive(Debug, Clone)]
-pub struct BoundaryFace {
-    pub local_y: u16,
-    pub edge_pos: u16,
-    pub section_y: u8,
-    pub block_id: u16,
-    pub index_offset: u32,
-    pub index_count: u16,
-}
-
-impl BoundaryFaces {
-    pub fn new() -> Self { Self::default() }
-    pub fn is_empty(&self) -> bool {
-        self.neg_x.is_empty() && self.pos_x.is_empty() && 
-        self.neg_z.is_empty() && self.pos_z.is_empty()
-    }
-}
-
-/// Result from streaming mesh
-#[derive(Debug, Clone)]
-pub struct StreamingMeshResult {
-    pub mesh: MeshData,
-    pub boundary_faces: BoundaryFaces,
-}
-
-/// Mesh a single chunk in streaming mode
-pub fn mesh_solid_streaming(
-    grid: &BinaryGrid,
-    light_grid: Option<&LightGrid>,
-    lookups: &Lookups,
-    chunk_x: i32,
-    chunk_z: i32,
-) -> StreamingMeshResult {
-    let bounds = super::MeshBounds {
-        min_chunk_x: chunk_x,
-        min_chunk_z: chunk_z,
-        max_chunk_x: chunk_x,
-        max_chunk_z: chunk_z,
-    };
-    let mesh = mesh_solid_bounded(grid, light_grid, lookups, Some(&bounds));
-    StreamingMeshResult { mesh, boundary_faces: BoundaryFaces::new() }
-}
-
-// ============================================================================
-// Parallel Meshing with Rayon (optional feature)
-// ============================================================================
-
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-
-/// Section mesh result for parallel collection
-#[derive(Debug, Clone)]
-pub struct SectionMeshResult {
-    pub mesh: MeshData,
-    pub section_key: crate::types::SectionKey,
-}
-
-/// Mesh solid blocks with parallel section processing
-#[cfg(feature = "parallel")]
-pub fn mesh_solid_parallel(
-    grid: &BinaryGrid,
-    light_grid: Option<&LightGrid>,
-    lookups: &Lookups,
-    bounds: Option<&super::MeshBounds>,
-) -> MeshData {
-    // Collect all sections that need processing
-    let sections: Vec<_> = grid.iter_sections()
-        .filter(|(key, _)| {
-            if let Some(b) = bounds {
-                b.contains_chunk(key.chunk_x, key.chunk_z)
-            } else {
-                true
-            }
-        })
-        .collect();
-    
-    // Process sections in parallel
-    let section_meshes: Vec<MeshData> = sections
-        .par_iter()
-        .map(|(key, section)| {
-            mesh_single_section(grid, light_grid, lookups, key, section)
-        })
-        .collect();
-    
-    // Merge all section meshes
-    merge_section_meshes(section_meshes)
-}
-
-/// Mesh a single section (for parallel processing)
-#[cfg(feature = "parallel")]
-fn mesh_single_section(
-    grid: &BinaryGrid,
-    light_grid: Option<&LightGrid>,
-    lookups: &Lookups,
-    key: &crate::types::SectionKey,
-    section: &[u16; S3],
-) -> MeshData {
-    let mut mesh = MeshData::with_capacity(1024, 1024 * 6 / 4);
-    let mut mask = vec![0u16; S2];
-    let mut visited = vec![false; S2];
-    
-    let base_x = key.chunk_x * S as i32;
-    let base_y = section_to_world_y(key.section_y);
-    let base_z = key.chunk_z * S as i32;
-
-    let non_air: usize = section.iter().filter(|&&v| v != 0).count();
-    if non_air == 0 {
-        return mesh;
-    }
-
-    let sec_top = grid.get_neighbor_section(key, 0, 1, 0);
-    let sec_bot = grid.get_neighbor_section(key, 0, -1, 0);
-    let sec_east = grid.get_neighbor_section(key, 1, 0, 0);
-    let sec_west = grid.get_neighbor_section(key, -1, 0, 0);
-    let sec_south = grid.get_neighbor_section(key, 0, 0, 1);
-    let sec_north = grid.get_neighbor_section(key, 0, 0, -1);
-
-    mesh_face_top(section, sec_top, base_x, base_y, base_z, grid, light_grid, lookups, &mut mask, &mut visited, &mut mesh);
-    mesh_face_bottom(section, sec_bot, base_x, base_y, base_z, grid, light_grid, lookups, &mut mask, &mut visited, &mut mesh);
-    mesh_face_north(section, sec_north, base_x, base_y, base_z, grid, light_grid, lookups, &mut mask, &mut visited, &mut mesh);
-    mesh_face_south(section, sec_south, base_x, base_y, base_z, grid, light_grid, lookups, &mut mask, &mut visited, &mut mesh);
-    mesh_face_east(section, sec_east, base_x, base_y, base_z, grid, light_grid, lookups, &mut mask, &mut visited, &mut mesh);
-    mesh_face_west(section, sec_west, base_x, base_y, base_z, grid, light_grid, lookups, &mut mask, &mut visited, &mut mesh);
-
-    mesh
-}
-
-/// Merge multiple section meshes into a single mesh
-fn merge_section_meshes(meshes: Vec<MeshData>) -> MeshData {
-    let total_vertices: usize = meshes.iter().map(|m| m.vertex_count as usize).sum();
-    let total_indices: usize = meshes.iter().map(|m| m.indices.len()).sum();
-    
-    let mut result = MeshData::with_capacity(total_vertices, total_indices);
-    
-    for mesh in meshes {
-        let base_vertex = result.vertex_count;
-        
-        // Append vertex data
-        result.positions.extend(&mesh.positions);
-        result.normals.extend(&mesh.normals);
-        result.colors.extend(&mesh.colors);
-        result.uvs.extend(&mesh.uvs);
-        result.tex_indices.extend(&mesh.tex_indices);
-        result.tex_rotations.extend(&mesh.tex_rotations);
-        result.tint_types.extend(&mesh.tint_types);
-        result.sky_light.extend(&mesh.sky_light);
-        result.block_light.extend(&mesh.block_light);
-        result.packed_light.extend(&mesh.packed_light);
-        
-        // Append indices with offset
-        for idx in &mesh.indices {
-            result.indices.push(idx + base_vertex);
-        }
-        
-        result.vertex_count += mesh.vertex_count;
-    }
-    
-    result
-}
-
-/// Fallback to sequential meshing when parallel feature is not enabled
-#[cfg(not(feature = "parallel"))]
-pub fn mesh_solid_parallel(
-    grid: &BinaryGrid,
-    light_grid: Option<&LightGrid>,
-    lookups: &Lookups,
-    bounds: Option<&super::MeshBounds>,
-) -> MeshData {
-    mesh_solid_bounded(grid, light_grid, lookups, bounds)
-}

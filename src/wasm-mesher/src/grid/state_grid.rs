@@ -1,18 +1,17 @@
-//! BlockStateGrid - Sparse storage for block state hashes
+//! BlockStateGrid - Sparse storage for block state IDs
 //!
-//! Uses u64 FNV-1a hashes for state identification instead of u16 IDs.
-//! This allows WASM workers to look up model geometry without needing
-//! synchronized state IDs from the main thread.
+//! Used for non-cube blocks that need full state information
+//! (slabs, stairs, fences, etc.)
 
 use std::collections::{HashMap, HashSet};
 use crate::types::{
     SectionKey, SECTION_SIZE, SECTION_VOLUME, block_index_in_section, world_y_to_section,
 };
 
-/// Sparse state grid storing u64 hashes
+/// Sparse state grid
 pub struct BlockStateGrid {
     /// Sections stored by packed key
-    sections: HashMap<u64, Box<[u64; SECTION_VOLUME]>>,
+    sections: HashMap<u64, Box<[u16; SECTION_VOLUME]>>,
     /// Track which sections have any states
     has_states: HashSet<u64>,
 }
@@ -25,63 +24,9 @@ impl BlockStateGrid {
         }
     }
 
-    /// Import from serialized byte data (u64 hashes)
-    /// Format: [num_sections: u32][section_key: u64, data: [u64; 4096]]...
-    pub fn from_bytes(data: &[u8]) -> Self {
-        let mut grid = Self::new();
-        
-        if data.len() < 4 {
-            return grid;
-        }
-
-        let num_sections = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
-        let mut offset = 4;
-
-        for _ in 0..num_sections {
-            if offset + 8 + SECTION_VOLUME * 8 > data.len() {
-                break;
-            }
-
-            // Read section key (packed u64)
-            let key = u64::from_le_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
-                data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
-            ]);
-            offset += 8;
-
-            // Read section data (u64 hashes)
-            let mut section = Box::new([0u64; SECTION_VOLUME]);
-            let mut has_any = false;
-            for i in 0..SECTION_VOLUME {
-                let val = u64::from_le_bytes([
-                    data[offset + i * 8],
-                    data[offset + i * 8 + 1],
-                    data[offset + i * 8 + 2],
-                    data[offset + i * 8 + 3],
-                    data[offset + i * 8 + 4],
-                    data[offset + i * 8 + 5],
-                    data[offset + i * 8 + 6],
-                    data[offset + i * 8 + 7],
-                ]);
-                section[i] = val;
-                if val != 0 {
-                    has_any = true;
-                }
-            }
-            offset += SECTION_VOLUME * 8;
-
-            grid.sections.insert(key, section);
-            if has_any {
-                grid.has_states.insert(key);
-            }
-        }
-
-        grid
-    }
-
-    /// Import from serialized byte data (legacy u16 format - converts to u64)
+    /// Import from serialized byte data
     /// Format: [num_sections: u32][section_key: u64, data: [u16; 4096]]...
-    pub fn from_bytes_legacy_u16(data: &[u8]) -> Self {
+    pub fn from_bytes(data: &[u8]) -> Self {
         let mut grid = Self::new();
         
         if data.len() < 4 {
@@ -103,14 +48,14 @@ impl BlockStateGrid {
             ]);
             offset += 8;
 
-            // Read section data (u16, store as u64)
-            let mut section = Box::new([0u64; SECTION_VOLUME]);
+            // Read section data
+            let mut section = Box::new([0u16; SECTION_VOLUME]);
             let mut has_any = false;
             for i in 0..SECTION_VOLUME {
                 let val = u16::from_le_bytes([
                     data[offset + i * 2],
                     data[offset + i * 2 + 1],
-                ]) as u64;
+                ]);
                 section[i] = val;
                 if val != 0 {
                     has_any = true;
@@ -129,13 +74,13 @@ impl BlockStateGrid {
 
     /// Get a section by key
     #[inline]
-    pub fn get_section(&self, key: &SectionKey) -> Option<&[u64; SECTION_VOLUME]> {
+    pub fn get_section(&self, key: &SectionKey) -> Option<&[u16; SECTION_VOLUME]> {
         self.sections.get(&key.to_packed()).map(|s| s.as_ref())
     }
 
-    /// Get state hash at world coordinates
+    /// Get state ID at world coordinates
     #[inline]
-    pub fn get_state(&self, world_x: i32, world_y: i32, world_z: i32) -> u64 {
+    pub fn get_state(&self, world_x: i32, world_y: i32, world_z: i32) -> u16 {
         let chunk_x = world_x.div_euclid(SECTION_SIZE as i32);
         let chunk_z = world_z.div_euclid(SECTION_SIZE as i32);
         let section_y = world_y_to_section(world_y);
@@ -160,7 +105,7 @@ impl BlockStateGrid {
     }
 
     /// Iterate over sections that have states
-    pub fn iter_sections_with_states(&self) -> impl Iterator<Item = (SectionKey, &[u64; SECTION_VOLUME])> {
+    pub fn iter_sections_with_states(&self) -> impl Iterator<Item = (SectionKey, &[u16; SECTION_VOLUME])> {
         self.has_states.iter().filter_map(|packed| {
             self.sections.get(packed).map(|section| {
                 (SectionKey::from_packed(*packed), section.as_ref())
@@ -175,53 +120,36 @@ impl BlockStateGrid {
 
     /// Get or create a section for writing
     /// Returns a mutable reference to the section data
-    pub fn get_or_create_section(&mut self, chunk_x: i32, chunk_z: i32, section_y: i32) -> &mut [u64; SECTION_VOLUME] {
+    pub fn get_or_create_section(&mut self, chunk_x: i32, chunk_z: i32, section_y: i32) -> &mut [u16; SECTION_VOLUME] {
         let key = SectionKey::new(chunk_x, chunk_z, section_y);
         let packed = key.to_packed();
         
         self.sections.entry(packed)
-            .or_insert_with(|| Box::new([0u64; SECTION_VOLUME]))
+            .or_insert_with(|| Box::new([0u16; SECTION_VOLUME]))
             .as_mut()
     }
 
     /// Set state at a specific position in the section
     /// Also marks the section as having states if value is non-zero
     #[inline]
-    pub fn set_state(&mut self, chunk_x: i32, chunk_z: i32, section_y: i32, index: usize, state_hash: u64) {
+    pub fn set_state(&mut self, chunk_x: i32, chunk_z: i32, section_y: i32, index: usize, state_id: u16) {
         let key = SectionKey::new(chunk_x, chunk_z, section_y);
         let packed = key.to_packed();
         
         let section = self.sections.entry(packed)
-            .or_insert_with(|| Box::new([0u64; SECTION_VOLUME]));
-        section[index] = state_hash;
+            .or_insert_with(|| Box::new([0u16; SECTION_VOLUME]));
+        section[index] = state_id;
         
-        if state_hash != 0 {
+        if state_id != 0 {
             self.has_states.insert(packed);
         }
     }
 
     /// Iterate over all sections (not just those with states)
-    pub fn iter_sections(&self) -> impl Iterator<Item = (SectionKey, &[u64; SECTION_VOLUME])> {
+    pub fn iter_sections(&self) -> impl Iterator<Item = (SectionKey, &[u16; SECTION_VOLUME])> {
         self.sections.iter().map(|(packed, section)| {
             (SectionKey::from_packed(*packed), section.as_ref())
         })
-    }
-    
-    /// Export to bytes (u64 format)
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let num_sections = self.sections.len() as u32;
-        let mut data = Vec::with_capacity(4 + self.sections.len() * (8 + SECTION_VOLUME * 8));
-        
-        data.extend_from_slice(&num_sections.to_le_bytes());
-        
-        for (key, section) in &self.sections {
-            data.extend_from_slice(&key.to_le_bytes());
-            for val in section.iter() {
-                data.extend_from_slice(&val.to_le_bytes());
-            }
-        }
-        
-        data
     }
 }
 
@@ -230,3 +158,4 @@ impl Default for BlockStateGrid {
         Self::new()
     }
 }
+

@@ -21,22 +21,9 @@ function getArrayU32FromWasm0(ptr, len) {
     return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
-function getArrayU64FromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    return getBigUint64ArrayMemory0().subarray(ptr / 8, ptr / 8 + len);
-}
-
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
-}
-
-let cachedBigUint64ArrayMemory0 = null;
-function getBigUint64ArrayMemory0() {
-    if (cachedBigUint64ArrayMemory0 === null || cachedBigUint64ArrayMemory0.byteLength === 0) {
-        cachedBigUint64ArrayMemory0 = new BigUint64Array(wasm.memory.buffer);
-    }
-    return cachedBigUint64ArrayMemory0;
 }
 
 let cachedDataViewMemory0 = null;
@@ -99,20 +86,6 @@ function isLikeNone(x) {
 function passArray16ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 2, 2) >>> 0;
     getUint16ArrayMemory0().set(arg, ptr / 2);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-
-function passArray32ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 4, 4) >>> 0;
-    getUint32ArrayMemory0().set(arg, ptr / 4);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-
-function passArray64ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 8, 8) >>> 0;
-    getBigUint64ArrayMemory0().set(arg, ptr / 8);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -211,17 +184,9 @@ const MeshResultFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_meshresult_free(ptr >>> 0, 1));
 
-const MeshSizesFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_meshsizes_free(ptr >>> 0, 1));
-
 const ProcessedChunkFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_processedchunk_free(ptr >>> 0, 1));
-
-const StreamingMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_streamingmeshresultwasm_free(ptr >>> 0, 1));
 
 /**
  * Result containing all mesh buffers
@@ -811,264 +776,6 @@ export class MeshResult {
     }
 }
 if (Symbol.dispose) MeshResult.prototype[Symbol.dispose] = MeshResult.prototype.free;
-
-/**
- * Metadata for zero-copy mesh result - only counts, no data copying
- */
-export class MeshSizes {
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(MeshSizes.prototype);
-        obj.__wbg_ptr = ptr;
-        MeshSizesFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        MeshSizesFinalization.unregister(this);
-        return ptr;
-    }
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_meshsizes_free(ptr, 0);
-    }
-    /**
-     * @returns {number}
-     */
-    get solid_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_solid_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set solid_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_solid_position_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get solid_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_solid_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set solid_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_solid_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get solid_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_solid_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set solid_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_solid_vertex_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get water_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_water_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set water_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_water_position_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get water_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_water_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set water_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_water_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get water_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_water_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set water_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_water_vertex_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get lava_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_lava_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set lava_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_lava_position_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get lava_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_lava_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set lava_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_lava_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get lava_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_lava_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set lava_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_lava_vertex_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_glass_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set glass_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_glass_position_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_glass_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set glass_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_glass_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_glass_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set glass_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_glass_vertex_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get model_opaque_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_opaque_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set model_opaque_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_model_opaque_position_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get model_opaque_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_opaque_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set model_opaque_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_model_opaque_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get model_opaque_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_opaque_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set model_opaque_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_model_opaque_vertex_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get model_transparent_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_transparent_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set model_transparent_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_model_transparent_position_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get model_transparent_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_transparent_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set model_transparent_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_model_transparent_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get model_transparent_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_transparent_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set model_transparent_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_model_transparent_vertex_count(this.__wbg_ptr, arg0);
-    }
-}
-if (Symbol.dispose) MeshSizes.prototype[Symbol.dispose] = MeshSizes.prototype.free;
 
 /**
  * Result of processing a compressed chunk
@@ -1724,192 +1431,6 @@ export class ProcessedChunk {
 if (Symbol.dispose) ProcessedChunk.prototype[Symbol.dispose] = ProcessedChunk.prototype.free;
 
 /**
- * Result from streaming mesh - includes boundary face info
- */
-export class StreamingMeshResultWasm {
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(StreamingMeshResultWasm.prototype);
-        obj.__wbg_ptr = ptr;
-        StreamingMeshResultWasmFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        StreamingMeshResultWasmFinalization.unregister(this);
-        return ptr;
-    }
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_streamingmeshresultwasm_free(ptr, 0);
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get tint_types() {
-        const ret = wasm.streamingmeshresultwasm_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get tex_indices() {
-        const ret = wasm.streamingmeshresultwasm_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get packed_light() {
-        const ret = wasm.streamingmeshresultwasm_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get vertex_count() {
-        const ret = wasm.meshresult_solid_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get tex_rotations() {
-        const ret = wasm.streamingmeshresultwasm_tex_rotations(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get boundary_neg_x_count() {
-        const ret = wasm.streamingmeshresultwasm_boundary_neg_x_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get boundary_neg_z_count() {
-        const ret = wasm.processedchunk_solid_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get boundary_pos_x_count() {
-        const ret = wasm.streamingmeshresultwasm_boundary_pos_x_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get boundary_pos_z_count() {
-        const ret = wasm.streamingmeshresultwasm_boundary_pos_z_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get colors() {
-        const ret = wasm.streamingmeshresultwasm_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    get indices() {
-        const ret = wasm.streamingmeshresultwasm_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get normals() {
-        const ret = wasm.streamingmeshresultwasm_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get positions() {
-        const ret = wasm.streamingmeshresultwasm_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-}
-if (Symbol.dispose) StreamingMeshResultWasm.prototype[Symbol.dispose] = StreamingMeshResultWasm.prototype.free;
-
-/**
- * Clear the cached mesh result (call if you don't need to write it)
- */
-export function clear_cached_result() {
-    wasm.clear_cached_result();
-}
-
-/**
- * Pre-compute mesh sizes before allocating buffers
- * @param {Uint8Array} grid_data
- * @param {Uint8Array} light_data
- * @param {Uint8Array} state_data
- * @param {number} min_chunk_x
- * @param {number} min_chunk_z
- * @param {number} max_chunk_x
- * @param {number} max_chunk_z
- * @returns {MeshSizes}
- */
-export function compute_mesh_sizes(grid_data, light_data, state_data, min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z) {
-    const ptr0 = passArray8ToWasm0(grid_data, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(light_data, wasm.__wbindgen_malloc);
-    const len1 = WASM_VECTOR_LEN;
-    const ptr2 = passArray8ToWasm0(state_data, wasm.__wbindgen_malloc);
-    const len2 = WASM_VECTOR_LEN;
-    const ret = wasm.compute_mesh_sizes(ptr0, len0, ptr1, len1, ptr2, len2, min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z);
-    return MeshSizes.__wrap(ret);
-}
-
-/**
- * Expose hash function to JavaScript for pre-computing hashes
- * @param {string} state_string
- * @returns {bigint}
- */
-export function compute_state_hash(state_string) {
-    const ptr0 = passStringToWasm0(state_string, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.compute_state_hash(ptr0, len0);
-    return BigInt.asUintN(64, ret);
-}
-
-/**
- * Compute multiple state hashes at once (more efficient for bulk operations)
- * @param {string} state_strings
- * @returns {BigUint64Array}
- */
-export function compute_state_hashes(state_strings) {
-    const ptr0 = passStringToWasm0(state_strings, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.compute_state_hashes(ptr0, len0);
-    var v2 = getArrayU64FromWasm0(ret[0], ret[1]).slice();
-    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
-    return v2;
-}
-
-/**
  * Initialize the WASM module (call once on startup)
  */
 export function init() {
@@ -1934,46 +1455,6 @@ export function init_block_registry(names, ids) {
     const ptr1 = passArray16ToWasm0(ids, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
     wasm.init_block_registry(ptr0, len0, ptr1, len1);
-}
-
-/**
- * Initialize hash-based model registry from JavaScript
- *
- * This uses state string hashes for lookup, eliminating the need for
- * synchronized state IDs between main thread and workers.
- *
- * # Arguments
- * * `state_strings` - Newline-separated state strings
- * * `geometry_data` - Serialized model geometry (binary format, same as init_model_registry)
- * @param {string} state_strings
- * @param {Uint8Array} geometry_data
- */
-export function init_hash_model_registry(state_strings, geometry_data) {
-    const ptr0 = passStringToWasm0(state_strings, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(geometry_data, wasm.__wbindgen_malloc);
-    const len1 = WASM_VECTOR_LEN;
-    wasm.init_hash_model_registry(ptr0, len0, ptr1, len1);
-}
-
-/**
- * Initialize hash-based model registry with pre-computed hashes
- *
- * More efficient than init_hash_model_registry as hashes are pre-computed
- * on the JavaScript side.
- *
- * # Arguments
- * * `state_hashes` - Array of 64-bit FNV-1a hashes of state strings
- * * `geometry_data` - Serialized model geometry (binary format)
- * @param {BigUint64Array} state_hashes
- * @param {Uint8Array} geometry_data
- */
-export function init_hash_model_registry_precomputed(state_hashes, geometry_data) {
-    const ptr0 = passArray64ToWasm0(state_hashes, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(geometry_data, wasm.__wbindgen_malloc);
-    const len1 = WASM_VECTOR_LEN;
-    wasm.init_hash_model_registry_precomputed(ptr0, len0, ptr1, len1);
 }
 
 /**
@@ -2068,15 +1549,6 @@ export function init_state_registry(state_strings, state_ids) {
 }
 
 /**
- * Check if parallel meshing is available
- * @returns {boolean}
- */
-export function is_parallel_available() {
-    const ret = wasm.is_parallel_available();
-    return ret !== 0;
-}
-
-/**
  * Main entry point for meshing a chunk
  *
  * Takes serialized grid data and returns mesh buffers
@@ -2125,23 +1597,6 @@ export function mesh_chunk_bounded(grid_data, light_data, state_data, lookup_ptr
 }
 
 /**
- * Mesh a single chunk in streaming mode (for deferred boundary repair)
- * @param {Uint8Array} grid_data
- * @param {Uint8Array} light_data
- * @param {number} chunk_x
- * @param {number} chunk_z
- * @returns {StreamingMeshResultWasm}
- */
-export function mesh_chunk_streaming(grid_data, light_data, chunk_x, chunk_z) {
-    const ptr0 = passArray8ToWasm0(grid_data, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(light_data, wasm.__wbindgen_malloc);
-    const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.mesh_chunk_streaming(ptr0, len0, ptr1, len1, chunk_x, chunk_z);
-    return StreamingMeshResultWasm.__wrap(ret);
-}
-
-/**
  * Process a compressed chunk directly to mesh buffers
  *
  * This is the unified pipeline entry point that handles:
@@ -2169,167 +1624,6 @@ export function process_chunk(compressed_data, compression_type, chunk_x, chunk_
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.process_chunk(ptr0, len0, compression_type, chunk_x, chunk_z);
     return ProcessedChunk.__wrap(ret);
-}
-
-/**
- * Write cached mesh data to pre-allocated JS typed arrays (zero-copy path)
- * Call this immediately after compute_mesh_sizes with appropriately sized arrays.
- *
- * Buffer layout per mesh type:
- * - positions: Float32Array (vertex_count * 3)
- * - normals: Float32Array (vertex_count * 3)
- * - colors: Float32Array (vertex_count * 3)
- * - tex_indices: Float32Array (vertex_count)
- * - tex_rotations: Float32Array (vertex_count)
- * - tint_types: Float32Array (vertex_count)
- * - packed_light: Uint8Array (vertex_count)
- * - indices: Uint32Array (index_count)
- * @param {Float32Array} solid_positions
- * @param {Float32Array} solid_normals
- * @param {Float32Array} solid_colors
- * @param {Float32Array} solid_tex_indices
- * @param {Float32Array} solid_tex_rotations
- * @param {Float32Array} solid_tint_types
- * @param {Uint8Array} solid_packed_light
- * @param {Uint32Array} solid_indices
- * @param {Float32Array} water_positions
- * @param {Float32Array} water_normals
- * @param {Float32Array} water_colors
- * @param {Float32Array} water_uvs
- * @param {Float32Array} water_tex_indices
- * @param {Uint8Array} water_packed_light
- * @param {Uint32Array} water_indices
- * @param {Float32Array} lava_positions
- * @param {Float32Array} lava_normals
- * @param {Float32Array} lava_colors
- * @param {Float32Array} lava_uvs
- * @param {Float32Array} lava_tex_indices
- * @param {Uint8Array} lava_packed_light
- * @param {Uint32Array} lava_indices
- * @param {Float32Array} glass_positions
- * @param {Float32Array} glass_normals
- * @param {Float32Array} glass_colors
- * @param {Float32Array} glass_tex_indices
- * @param {Float32Array} glass_tex_rotations
- * @param {Float32Array} glass_tint_types
- * @param {Uint8Array} glass_packed_light
- * @param {Uint32Array} glass_indices
- * @returns {boolean}
- */
-export function write_mesh_to_buffers(solid_positions, solid_normals, solid_colors, solid_tex_indices, solid_tex_rotations, solid_tint_types, solid_packed_light, solid_indices, water_positions, water_normals, water_colors, water_uvs, water_tex_indices, water_packed_light, water_indices, lava_positions, lava_normals, lava_colors, lava_uvs, lava_tex_indices, lava_packed_light, lava_indices, glass_positions, glass_normals, glass_colors, glass_tex_indices, glass_tex_rotations, glass_tint_types, glass_packed_light, glass_indices) {
-    var ptr0 = passArrayF32ToWasm0(solid_positions, wasm.__wbindgen_malloc);
-    var len0 = WASM_VECTOR_LEN;
-    var ptr1 = passArrayF32ToWasm0(solid_normals, wasm.__wbindgen_malloc);
-    var len1 = WASM_VECTOR_LEN;
-    var ptr2 = passArrayF32ToWasm0(solid_colors, wasm.__wbindgen_malloc);
-    var len2 = WASM_VECTOR_LEN;
-    var ptr3 = passArrayF32ToWasm0(solid_tex_indices, wasm.__wbindgen_malloc);
-    var len3 = WASM_VECTOR_LEN;
-    var ptr4 = passArrayF32ToWasm0(solid_tex_rotations, wasm.__wbindgen_malloc);
-    var len4 = WASM_VECTOR_LEN;
-    var ptr5 = passArrayF32ToWasm0(solid_tint_types, wasm.__wbindgen_malloc);
-    var len5 = WASM_VECTOR_LEN;
-    var ptr6 = passArray8ToWasm0(solid_packed_light, wasm.__wbindgen_malloc);
-    var len6 = WASM_VECTOR_LEN;
-    var ptr7 = passArray32ToWasm0(solid_indices, wasm.__wbindgen_malloc);
-    var len7 = WASM_VECTOR_LEN;
-    var ptr8 = passArrayF32ToWasm0(water_positions, wasm.__wbindgen_malloc);
-    var len8 = WASM_VECTOR_LEN;
-    var ptr9 = passArrayF32ToWasm0(water_normals, wasm.__wbindgen_malloc);
-    var len9 = WASM_VECTOR_LEN;
-    var ptr10 = passArrayF32ToWasm0(water_colors, wasm.__wbindgen_malloc);
-    var len10 = WASM_VECTOR_LEN;
-    var ptr11 = passArrayF32ToWasm0(water_uvs, wasm.__wbindgen_malloc);
-    var len11 = WASM_VECTOR_LEN;
-    var ptr12 = passArrayF32ToWasm0(water_tex_indices, wasm.__wbindgen_malloc);
-    var len12 = WASM_VECTOR_LEN;
-    var ptr13 = passArray8ToWasm0(water_packed_light, wasm.__wbindgen_malloc);
-    var len13 = WASM_VECTOR_LEN;
-    var ptr14 = passArray32ToWasm0(water_indices, wasm.__wbindgen_malloc);
-    var len14 = WASM_VECTOR_LEN;
-    var ptr15 = passArrayF32ToWasm0(lava_positions, wasm.__wbindgen_malloc);
-    var len15 = WASM_VECTOR_LEN;
-    var ptr16 = passArrayF32ToWasm0(lava_normals, wasm.__wbindgen_malloc);
-    var len16 = WASM_VECTOR_LEN;
-    var ptr17 = passArrayF32ToWasm0(lava_colors, wasm.__wbindgen_malloc);
-    var len17 = WASM_VECTOR_LEN;
-    var ptr18 = passArrayF32ToWasm0(lava_uvs, wasm.__wbindgen_malloc);
-    var len18 = WASM_VECTOR_LEN;
-    var ptr19 = passArrayF32ToWasm0(lava_tex_indices, wasm.__wbindgen_malloc);
-    var len19 = WASM_VECTOR_LEN;
-    var ptr20 = passArray8ToWasm0(lava_packed_light, wasm.__wbindgen_malloc);
-    var len20 = WASM_VECTOR_LEN;
-    var ptr21 = passArray32ToWasm0(lava_indices, wasm.__wbindgen_malloc);
-    var len21 = WASM_VECTOR_LEN;
-    var ptr22 = passArrayF32ToWasm0(glass_positions, wasm.__wbindgen_malloc);
-    var len22 = WASM_VECTOR_LEN;
-    var ptr23 = passArrayF32ToWasm0(glass_normals, wasm.__wbindgen_malloc);
-    var len23 = WASM_VECTOR_LEN;
-    var ptr24 = passArrayF32ToWasm0(glass_colors, wasm.__wbindgen_malloc);
-    var len24 = WASM_VECTOR_LEN;
-    var ptr25 = passArrayF32ToWasm0(glass_tex_indices, wasm.__wbindgen_malloc);
-    var len25 = WASM_VECTOR_LEN;
-    var ptr26 = passArrayF32ToWasm0(glass_tex_rotations, wasm.__wbindgen_malloc);
-    var len26 = WASM_VECTOR_LEN;
-    var ptr27 = passArrayF32ToWasm0(glass_tint_types, wasm.__wbindgen_malloc);
-    var len27 = WASM_VECTOR_LEN;
-    var ptr28 = passArray8ToWasm0(glass_packed_light, wasm.__wbindgen_malloc);
-    var len28 = WASM_VECTOR_LEN;
-    var ptr29 = passArray32ToWasm0(glass_indices, wasm.__wbindgen_malloc);
-    var len29 = WASM_VECTOR_LEN;
-    const ret = wasm.write_mesh_to_buffers(ptr0, len0, solid_positions, ptr1, len1, solid_normals, ptr2, len2, solid_colors, ptr3, len3, solid_tex_indices, ptr4, len4, solid_tex_rotations, ptr5, len5, solid_tint_types, ptr6, len6, solid_packed_light, ptr7, len7, solid_indices, ptr8, len8, water_positions, ptr9, len9, water_normals, ptr10, len10, water_colors, ptr11, len11, water_uvs, ptr12, len12, water_tex_indices, ptr13, len13, water_packed_light, ptr14, len14, water_indices, ptr15, len15, lava_positions, ptr16, len16, lava_normals, ptr17, len17, lava_colors, ptr18, len18, lava_uvs, ptr19, len19, lava_tex_indices, ptr20, len20, lava_packed_light, ptr21, len21, lava_indices, ptr22, len22, glass_positions, ptr23, len23, glass_normals, ptr24, len24, glass_colors, ptr25, len25, glass_tex_indices, ptr26, len26, glass_tex_rotations, ptr27, len27, glass_tint_types, ptr28, len28, glass_packed_light, ptr29, len29, glass_indices);
-    return ret !== 0;
-}
-
-/**
- * Write model mesh data to pre-allocated buffers
- * @param {Float32Array} opaque_positions
- * @param {Float32Array} opaque_normals
- * @param {Float32Array} opaque_colors
- * @param {Float32Array} opaque_uvs
- * @param {Float32Array} opaque_tex_indices
- * @param {Uint8Array} opaque_packed_light
- * @param {Uint32Array} opaque_indices
- * @param {Float32Array} transparent_positions
- * @param {Float32Array} transparent_normals
- * @param {Float32Array} transparent_colors
- * @param {Float32Array} transparent_uvs
- * @param {Float32Array} transparent_tex_indices
- * @param {Uint8Array} transparent_packed_light
- * @param {Uint32Array} transparent_indices
- * @returns {boolean}
- */
-export function write_model_mesh_to_buffers(opaque_positions, opaque_normals, opaque_colors, opaque_uvs, opaque_tex_indices, opaque_packed_light, opaque_indices, transparent_positions, transparent_normals, transparent_colors, transparent_uvs, transparent_tex_indices, transparent_packed_light, transparent_indices) {
-    var ptr0 = passArrayF32ToWasm0(opaque_positions, wasm.__wbindgen_malloc);
-    var len0 = WASM_VECTOR_LEN;
-    var ptr1 = passArrayF32ToWasm0(opaque_normals, wasm.__wbindgen_malloc);
-    var len1 = WASM_VECTOR_LEN;
-    var ptr2 = passArrayF32ToWasm0(opaque_colors, wasm.__wbindgen_malloc);
-    var len2 = WASM_VECTOR_LEN;
-    var ptr3 = passArrayF32ToWasm0(opaque_uvs, wasm.__wbindgen_malloc);
-    var len3 = WASM_VECTOR_LEN;
-    var ptr4 = passArrayF32ToWasm0(opaque_tex_indices, wasm.__wbindgen_malloc);
-    var len4 = WASM_VECTOR_LEN;
-    var ptr5 = passArray8ToWasm0(opaque_packed_light, wasm.__wbindgen_malloc);
-    var len5 = WASM_VECTOR_LEN;
-    var ptr6 = passArray32ToWasm0(opaque_indices, wasm.__wbindgen_malloc);
-    var len6 = WASM_VECTOR_LEN;
-    var ptr7 = passArrayF32ToWasm0(transparent_positions, wasm.__wbindgen_malloc);
-    var len7 = WASM_VECTOR_LEN;
-    var ptr8 = passArrayF32ToWasm0(transparent_normals, wasm.__wbindgen_malloc);
-    var len8 = WASM_VECTOR_LEN;
-    var ptr9 = passArrayF32ToWasm0(transparent_colors, wasm.__wbindgen_malloc);
-    var len9 = WASM_VECTOR_LEN;
-    var ptr10 = passArrayF32ToWasm0(transparent_uvs, wasm.__wbindgen_malloc);
-    var len10 = WASM_VECTOR_LEN;
-    var ptr11 = passArrayF32ToWasm0(transparent_tex_indices, wasm.__wbindgen_malloc);
-    var len11 = WASM_VECTOR_LEN;
-    var ptr12 = passArray8ToWasm0(transparent_packed_light, wasm.__wbindgen_malloc);
-    var len12 = WASM_VECTOR_LEN;
-    var ptr13 = passArray32ToWasm0(transparent_indices, wasm.__wbindgen_malloc);
-    var len13 = WASM_VECTOR_LEN;
-    const ret = wasm.write_model_mesh_to_buffers(ptr0, len0, opaque_positions, ptr1, len1, opaque_normals, ptr2, len2, opaque_colors, ptr3, len3, opaque_uvs, ptr4, len4, opaque_tex_indices, ptr5, len5, opaque_packed_light, ptr6, len6, opaque_indices, ptr7, len7, transparent_positions, ptr8, len8, transparent_normals, ptr9, len9, transparent_colors, ptr10, len10, transparent_uvs, ptr11, len11, transparent_tex_indices, ptr12, len12, transparent_packed_light, ptr13, len13, transparent_indices);
-    return ret !== 0;
 }
 
 const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);
@@ -2367,9 +1661,6 @@ async function __wbg_load(module, imports) {
 function __wbg_get_imports() {
     const imports = {};
     imports.wbg = {};
-    imports.wbg.__wbg___wbindgen_copy_to_typed_array_db832bc4df7216c1 = function(arg0, arg1, arg2) {
-        new Uint8Array(arg2.buffer, arg2.byteOffset, arg2.byteLength).set(getArrayU8FromWasm0(arg0, arg1));
-    };
     imports.wbg.__wbg___wbindgen_string_get_a2a31e16edf96e42 = function(arg0, arg1) {
         const obj = arg1;
         const ret = typeof(obj) === 'string' ? obj : undefined;
@@ -2427,7 +1718,6 @@ function __wbg_get_imports() {
 function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     __wbg_init.__wbindgen_wasm_module = module;
-    cachedBigUint64ArrayMemory0 = null;
     cachedDataViewMemory0 = null;
     cachedFloat32ArrayMemory0 = null;
     cachedInt32ArrayMemory0 = null;

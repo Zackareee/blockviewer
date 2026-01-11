@@ -676,6 +676,10 @@ class WorkerBinaryGrid {
     return sec[ly * S2 + lz * S + lx];
   }
   
+  getBlockId(x, y, z) {
+    return this.getBlock(x, y, z) & BLOCK_ID_MASK;
+  }
+  
   // Serialize for transfer to main thread
   serialize() {
     const serialized = [];
@@ -746,6 +750,11 @@ class WorkerLightGrid {
   constructor() {
     this.sections = new Map();
     this.hasMinecraftLightData = false;
+    // Track bounds for smart missing section handling
+    this.minChunkX = Infinity;
+    this.maxChunkX = -Infinity;
+    this.minChunkZ = Infinity;
+    this.maxChunkZ = -Infinity;
   }
   
   _getOrCreateSection(cx, cz, sy) {
@@ -753,9 +762,15 @@ class WorkerLightGrid {
     let sec = this.sections.get(key);
     if (!sec) {
       // Each byte: high nibble = block light, low nibble = sky light
+      // Default to 0 (dark) - propagation will fill in correct values
       sec = new Uint8Array(S3);
-      sec.fill(0x0F); // Default: sky 15, block 0
+      sec.fill(0x00);
       this.sections.set(key, sec);
+      // Update bounds
+      if (cx < this.minChunkX) this.minChunkX = cx;
+      if (cx > this.maxChunkX) this.maxChunkX = cx;
+      if (cz < this.minChunkZ) this.minChunkZ = cz;
+      if (cz > this.maxChunkZ) this.maxChunkZ = cz;
     }
     return sec;
   }
@@ -769,12 +784,59 @@ class WorkerLightGrid {
     const cz = Math.floor(z / S);
     const sy = Math.floor((y - MIN_Y) / S);
     const sec = this.getSection(cx, cz, sy);
-    if (!sec) return { sky: 15, block: 0 };
+    if (!sec) {
+      // Smart default: check if position is within loaded bounds
+      const withinBounds = 
+        cx >= this.minChunkX && cx <= this.maxChunkX &&
+        cz >= this.minChunkZ && cz <= this.maxChunkZ;
+      
+      if (this.hasMinecraftLightData && withinBounds) {
+        // Within loaded chunks with MC data - missing section = underground
+        return { sky: 0, block: 0 };
+      }
+      // Outside bounds or no MC data - default to bright (safe fallback)
+      return { sky: 15, block: 0 };
+    }
     const lx = ((x % S) + S) % S;
     const ly = ((y - MIN_Y) % S + S) % S;
     const lz = ((z % S) + S) % S;
     const val = sec[ly * S2 + lz * S + lx];
     return { sky: val & 0x0F, block: (val >> 4) & 0x0F };
+  }
+  
+  getSkyLight(x, y, z) {
+    const light = this.getLight(x, y, z);
+    return light.sky;
+  }
+  
+  setSkyLight(x, y, z, level) {
+    const cx = Math.floor(x / S);
+    const cz = Math.floor(z / S);
+    const sy = Math.floor((y - MIN_Y) / S);
+    const sec = this._getOrCreateSection(cx, cz, sy);
+    const lx = ((x % S) + S) % S;
+    const ly = ((y - MIN_Y) % S + S) % S;
+    const lz = ((z % S) + S) % S;
+    const idx = ly * S2 + lz * S + lx;
+    sec[idx] = (sec[idx] & 0xF0) | (level & 0x0F);
+  }
+  
+  getBlockLight(x, y, z) {
+    const light = this.getLight(x, y, z);
+    return light.block;
+  }
+  
+  setBlockLight(x, y, z, level) {
+    const cx = Math.floor(x / S);
+    const cz = Math.floor(z / S);
+    const sy = Math.floor((y - MIN_Y) / S);
+    const sec = this._getOrCreateSection(cx, cz, sy);
+    const lx = ((x % S) + S) % S;
+    const ly = ((y - MIN_Y) % S + S) % S;
+    const lz = ((z % S) + S) % S;
+    const idx = ly * S2 + lz * S + lx;
+    // Block light is stored in high nibble
+    sec[idx] = (sec[idx] & 0x0F) | ((level & 0x0F) << 4);
   }
   
   // Serialize for transfer to main thread
@@ -971,21 +1033,374 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid)
 }
 
 // ============================================================================
-// Light Propagation (Simplified - uses Minecraft light data if available)
+// Light Propagation - Full BFS with neighbor data support
 // ============================================================================
 
+/**
+ * Ring buffer queue for O(1) enqueue/dequeue operations.
+ * Standard array.shift() is O(n) which becomes a bottleneck for BFS.
+ */
+class LightQueue {
+  constructor(initialCapacity = 32768) {
+    this.capacity = initialCapacity;
+    // Packed: x (i16), y (i16), z (i16), light (i16)
+    this.data = new Int16Array(initialCapacity * 4);
+    this.head = 0;
+    this.tail = 0;
+    this.size = 0;
+  }
+  
+  get length() { return this.size; }
+  
+  push(x, y, z, light) {
+    if (this.size >= this.capacity) this._grow();
+    const idx = this.tail * 4;
+    this.data[idx] = x;
+    this.data[idx + 1] = y;
+    this.data[idx + 2] = z;
+    this.data[idx + 3] = light;
+    this.tail = (this.tail + 1) % this.capacity;
+    this.size++;
+  }
+  
+  shift() {
+    if (this.size === 0) return null;
+    const idx = this.head * 4;
+    const x = this.data[idx];
+    const y = this.data[idx + 1];
+    const z = this.data[idx + 2];
+    const light = this.data[idx + 3];
+    this.head = (this.head + 1) % this.capacity;
+    this.size--;
+    return { x, y, z, light };
+  }
+  
+  _grow() {
+    const newCapacity = this.capacity * 2;
+    const newData = new Int16Array(newCapacity * 4);
+    for (let i = 0; i < this.size; i++) {
+      const oldIdx = ((this.head + i) % this.capacity) * 4;
+      const newIdx = i * 4;
+      newData[newIdx] = this.data[oldIdx];
+      newData[newIdx + 1] = this.data[oldIdx + 1];
+      newData[newIdx + 2] = this.data[oldIdx + 2];
+      newData[newIdx + 3] = this.data[oldIdx + 3];
+    }
+    this.data = newData;
+    this.head = 0;
+    this.tail = this.size;
+    this.capacity = newCapacity;
+  }
+}
+
+/**
+ * Get light opacity for a block
+ */
+function getLightOpacity(blockId, isOpaque, isGlass, isFluid, isNonCube) {
+  if (blockId === 0) return 0; // Air
+  if (isNonCube[blockId]) return 0; // Transparent non-cubes
+  if (isGlass[blockId]) return 0; // Glass passes light
+  if (isFluid[blockId]) return 1; // Water/lava attenuates slightly
+  if (isOpaque[blockId]) return 15; // Fully opaque
+  return 0;
+}
+
+/**
+ * Propagate sky light through the block grid using BFS flood-fill.
+ * 
+ * Algorithm:
+ * 1. Build heightmap (highest opaque block per column)
+ * 2. Set sky light = 15 for all blocks above heightmap
+ * 3. BFS flood-fill light into shadowed areas
+ */
 function propagateSkyLight(grid, lightGrid, registry) {
-  // For now, just set sky light to 15 for all air blocks at max height
-  // Full propagation would be expensive - rely on Minecraft's light data
+  // Build lookup tables for fast access
+  const isOpaque = new Uint8Array(4096);
+  const isGlass = new Uint8Array(4096);
+  const isFluid = new Uint8Array(4096);
+  const isNonCube = new Uint8Array(4096);
+  
+  for (let id = 0; id < 4096; id++) {
+    const info = registry.getInfo(id);
+    if (info) {
+      isOpaque[id] = info.opaque ? 1 : 0;
+      isNonCube[id] = info.nonCube ? 1 : 0;
+      if (info.name) {
+        if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('leaves')) {
+          isGlass[id] = 1;
+        }
+        if (info.name.includes('water') || info.name.includes('lava')) {
+          isFluid[id] = 1;
+        }
+      }
+    }
+  }
+  
+  // Get bounds from grid
+  let minX = Infinity, maxX = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  
+  for (const [key] of grid.sections) {
+    const { chunkX, chunkZ, sectionY } = parseSectionKey(key);
+    const baseX = chunkX * S;
+    const baseZ = chunkZ * S;
+    const baseY = sectionY * S + MIN_Y;
+    
+    minX = Math.min(minX, baseX);
+    maxX = Math.max(maxX, baseX + S - 1);
+    minZ = Math.min(minZ, baseZ);
+    maxZ = Math.max(maxZ, baseZ + S - 1);
+    minY = Math.min(minY, baseY);
+    maxY = Math.max(maxY, baseY + S - 1);
+  }
+  
+  if (minX === Infinity) return; // No sections
+  
+  const width = maxX - minX + 1;
+  const depth = maxZ - minZ + 1;
+  
+  // Phase 1: Build heightmap (highest Y that blocks sky light)
+  const heightmap = new Int16Array(width * depth);
+  heightmap.fill(minY - 1);
+  
+  for (const [key, section] of grid.sections) {
+    const { chunkX, chunkZ, sectionY } = parseSectionKey(key);
+    const baseX = chunkX * S;
+    const baseZ = chunkZ * S;
+    const baseY = sectionY * S + MIN_Y;
+    
+    for (let ly = S - 1; ly >= 0; ly--) {
+      const worldY = baseY + ly;
+      for (let lz = 0; lz < S; lz++) {
+        for (let lx = 0; lx < S; lx++) {
+          const worldX = baseX + lx;
+          const worldZ = baseZ + lz;
+          const hmIdx = (worldX - minX) + (worldZ - minZ) * width;
+          
+          if (heightmap[hmIdx] < worldY) {
+            const idx = ly * S2 + lz * S + lx;
+            const blockId = section[idx] & BLOCK_ID_MASK;
+            
+            // Check if this block blocks light
+            const opacity = getLightOpacity(blockId, isOpaque, isGlass, isFluid, isNonCube);
+            if (opacity >= 15) {
+              heightmap[hmIdx] = worldY;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // Phase 2: Set sky light and seed BFS queue
+  const queue = new LightQueue();
+  const MAX_LIGHT = 15;
+  
   for (const [key, section] of grid.sections) {
     const { chunkX, chunkZ, sectionY } = parseSectionKey(key);
     const lightSection = lightGrid._getOrCreateSection(chunkX, chunkZ, sectionY);
+    const baseX = chunkX * S;
+    const baseZ = chunkZ * S;
+    const baseY = sectionY * S + MIN_Y;
     
-    for (let i = 0; i < S3; i++) {
-      const bid = section[i] & BLOCK_ID_MASK;
-      if (bid === 0) {
-        // Air block - set full sky light
-        lightSection[i] = (lightSection[i] & 0xF0) | 0x0F;
+    for (let ly = 0; ly < S; ly++) {
+      const worldY = baseY + ly;
+      for (let lz = 0; lz < S; lz++) {
+        for (let lx = 0; lx < S; lx++) {
+          const worldX = baseX + lx;
+          const worldZ = baseZ + lz;
+          const hmIdx = (worldX - minX) + (worldZ - minZ) * width;
+          const heightmapY = heightmap[hmIdx];
+          const idx = ly * S2 + lz * S + lx;
+          const blockId = section[idx] & BLOCK_ID_MASK;
+          
+          if (worldY > heightmapY) {
+            // Above heightmap - full sunlight
+            lightSection[idx] = (lightSection[idx] & 0xF0) | MAX_LIGHT;
+            
+            // Add to queue if at shadow boundary (for spreading into caves)
+            let atBoundary = (worldY === heightmapY + 1);
+            
+            // Also check horizontal neighbors for shadow entry points
+            if (!atBoundary) {
+              for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nx = worldX + dx;
+                const nz = worldZ + dz;
+                if (nx >= minX && nx <= maxX && nz >= minZ && nz <= maxZ) {
+                  const nhmIdx = (nx - minX) + (nz - minZ) * width;
+                  if (heightmap[nhmIdx] >= worldY) {
+                    atBoundary = true;
+                    break;
+                  }
+                }
+              }
+            }
+            
+            if (atBoundary) {
+              queue.push(worldX, worldY, worldZ, MAX_LIGHT);
+            }
+          } else if (blockId === 0 || isGlass[blockId] || isNonCube[blockId]) {
+            // Air or transparent below heightmap - starts dark
+            lightSection[idx] = (lightSection[idx] & 0xF0) | 0;
+          }
+        }
+      }
+    }
+  }
+  
+  // Phase 3: BFS flood-fill
+  const DX = [1, -1, 0, 0, 0, 0];
+  const DY = [0, 0, 1, -1, 0, 0];
+  const DZ = [0, 0, 0, 0, 1, -1];
+  
+  while (queue.length > 0) {
+    const { x, y, z, light } = queue.shift();
+    if (light <= 1) continue;
+    
+    for (let i = 0; i < 6; i++) {
+      const nx = x + DX[i];
+      const ny = y + DY[i];
+      const nz = z + DZ[i];
+      
+      if (ny < minY || ny > maxY) continue;
+      
+      // Get neighbor block
+      const neighborBlockId = grid.getBlockId(nx, ny, nz);
+      const opacity = getLightOpacity(neighborBlockId, isOpaque, isGlass, isFluid, isNonCube);
+      
+      if (opacity >= 15) continue; // Fully opaque
+      
+      const newLight = light - 1 - opacity;
+      if (newLight <= 0) continue;
+      
+      // Check current light at neighbor
+      const currentLight = lightGrid.getSkyLight(nx, ny, nz);
+      
+      if (newLight > currentLight) {
+        lightGrid.setSkyLight(nx, ny, nz, newLight);
+        queue.push(nx, ny, nz, newLight);
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Block Light Propagator (Torches, Glowstone, etc.)
+// ============================================================================
+
+/**
+ * Light emission levels for common light-emitting blocks
+ */
+const LIGHT_EMISSION = {
+  'beacon': 15, 'conduit': 15, 'end_gateway': 15, 'end_portal': 15, 'fire': 15,
+  'glowstone': 15, 'jack_o_lantern': 15, 'lantern': 15, 'lava': 15, 'sea_lantern': 15,
+  'shroomlight': 15, 'campfire': 15, 'respawn_anchor': 15, 'froglight': 15,
+  'pearlescent_froglight': 15, 'verdant_froglight': 15, 'ochre_froglight': 15,
+  'torch': 14, 'wall_torch': 14, 'end_rod': 14,
+  'blast_furnace': 13, 'furnace': 13, 'smoker': 13,
+  'nether_portal': 11,
+  'soul_torch': 10, 'soul_wall_torch': 10, 'soul_lantern': 10, 'soul_fire': 10, 'crying_obsidian': 10, 'soul_campfire': 10,
+  'enchanting_table': 7, 'ender_chest': 7, 'redstone_torch': 7, 'redstone_wall_torch': 7, 'glow_lichen': 7,
+  'sculk_catalyst': 6, 'amethyst_cluster': 5, 'large_amethyst_bud': 4, 'magma_block': 3,
+  'medium_amethyst_bud': 2, 'small_amethyst_bud': 1, 'brewing_stand': 1, 'brown_mushroom': 1, 'dragon_egg': 1,
+};
+
+function getBlockLightEmission(blockName) {
+  if (!blockName) return 0;
+  if (LIGHT_EMISSION[blockName] !== undefined) return LIGHT_EMISSION[blockName];
+  for (const [pattern, level] of Object.entries(LIGHT_EMISSION)) {
+    if (blockName.includes(pattern)) return level;
+  }
+  if (blockName.includes('sea_pickle')) return 6;
+  if (blockName.includes('candle') && !blockName.includes('cake')) return 3;
+  return 0;
+}
+
+/**
+ * Propagate block light from light sources (torches, glowstone, etc.)
+ */
+function propagateBlockLight(grid, lightGrid, registry) {
+  // Build lookup tables
+  const isOpaque = new Uint8Array(4096);
+  const isGlass = new Uint8Array(4096);
+  const isFluid = new Uint8Array(4096);
+  const lightEmission = new Uint8Array(4096);
+  
+  for (let id = 0; id < 4096; id++) {
+    const info = registry.getInfo(id);
+    if (info) {
+      isOpaque[id] = info.opaque ? 1 : 0;
+      if (info.name) {
+        if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('leaves')) {
+          isGlass[id] = 1;
+        }
+        if (info.name.includes('water') || info.name.includes('lava')) {
+          isFluid[id] = 1;
+        }
+        lightEmission[id] = getBlockLightEmission(info.name);
+      }
+    }
+  }
+  
+  // Find all light sources
+  const queue = [];
+  
+  for (const [key, section] of grid.sections) {
+    const parts = key.split(',').map(Number);
+    const [chunkX, chunkZ, sectionY] = parts;
+    const baseX = chunkX * S;
+    const baseY = sectionY * S + MIN_Y;
+    const baseZ = chunkZ * S;
+    
+    for (let ly = 0; ly < S; ly++) {
+      for (let lz = 0; lz < S; lz++) {
+        for (let lx = 0; lx < S; lx++) {
+          const idx = ly * S2 + lz * S + lx;
+          const blockId = section[idx] & 0x0FFF;
+          const emission = lightEmission[blockId];
+          if (emission > 0) {
+            const worldX = baseX + lx;
+            const worldY = baseY + ly;
+            const worldZ = baseZ + lz;
+            lightGrid.setBlockLight(worldX, worldY, worldZ, emission);
+            queue.push({ x: worldX, y: worldY, z: worldZ, light: emission });
+          }
+        }
+      }
+    }
+  }
+  
+  // BFS propagation
+  const DX = [1, -1, 0, 0, 0, 0];
+  const DY = [0, 0, 1, -1, 0, 0];
+  const DZ = [0, 0, 0, 0, 1, -1];
+  
+  while (queue.length > 0) {
+    const { x, y, z, light } = queue.shift();
+    const newLight = light - 1;
+    if (newLight <= 0) continue;
+    
+    for (let i = 0; i < 6; i++) {
+      const nx = x + DX[i];
+      const ny = y + DY[i];
+      const nz = z + DZ[i];
+      
+      const neighborBlockId = grid.getBlockId(nx, ny, nz);
+      let opacity = 0;
+      if (isOpaque[neighborBlockId]) opacity = 15;
+      else if (isFluid[neighborBlockId]) opacity = 1;
+      else if (isGlass[neighborBlockId]) opacity = 0;
+      
+      if (opacity >= 15) continue;
+      
+      const attenuatedLight = newLight - opacity;
+      if (attenuatedLight <= 0) continue;
+      
+      const currentLight = lightGrid.getBlockLight(nx, ny, nz);
+      if (attenuatedLight > currentLight) {
+        lightGrid.setBlockLight(nx, ny, nz, attenuatedLight);
+        queue.push({ x: nx, y: ny, z: nz, light: attenuatedLight });
       }
     }
   }
@@ -1903,31 +2318,51 @@ async function processSuperChunk(data) {
       maxCZ = Math.max(maxCZ, c.z);
     }
     
-    // Filter neighbors to only those adjacent to boundary
+    // Filter neighbors to only those adjacent to boundary (including diagonals)
+    // Diagonals are needed for water corner height calculation which samples 2x2 blocks
     const relevantNeighbors = neighbors.filter(n => {
       const cx = n.chunkX, cz = n.chunkZ;
-      // Only include if adjacent to our chunk area
-      const isAdjacent = (
-        (cx === minCX - 1 || cx === maxCX + 1) && cz >= minCZ && cz <= maxCZ ||
-        (cz === minCZ - 1 || cz === maxCZ + 1) && cx >= minCX && cx <= maxCX
+      
+      // Check if chunk is within 1-chunk extended boundary (includes diagonals)
+      const isWithinExtended = (
+        cx >= minCX - 1 && cx <= maxCX + 1 &&
+        cz >= minCZ - 1 && cz <= maxCZ + 1
       );
-      return isAdjacent && !loadedChunks.has(`${cx},${cz}`);
+      
+      // Must be outside main super-chunk area
+      const isOutside = cx < minCX || cx > maxCX || cz < minCZ || cz > maxCZ;
+      
+      return isWithinExtended && isOutside && !loadedChunks.has(`${cx},${cz}`);
     });
     
-    // Decompress relevant neighbors in parallel
+    // Process relevant neighbors - handle both raw compressed and pre-parsed NBT
     if (relevantNeighbors.length > 0) {
       const neighborPromises = relevantNeighbors.map(async (neighborData) => {
         try {
-          const decompressed = await decompressChunk(
-            new Uint8Array(neighborData.compressedData),
-            neighborData.compressionType
-          );
-          const nbt = parseNBT(decompressed.buffer);
-          return {
-            x: neighborData.chunkX,
-            z: neighborData.chunkZ,
-            data: nbt,
-          };
+          // Handle pre-parsed NBT data (from main-thread-built super-chunks)
+          if (neighborData.isParsed && neighborData.parsedData) {
+            return {
+              x: neighborData.chunkX,
+              z: neighborData.chunkZ,
+              data: neighborData.parsedData,
+            };
+          }
+          
+          // Handle raw compressed data (preferred path)
+          if (neighborData.compressedData) {
+            const decompressed = await decompressChunk(
+              new Uint8Array(neighborData.compressedData),
+              neighborData.compressionType
+            );
+            const nbt = parseNBT(decompressed.buffer);
+            return {
+              x: neighborData.chunkX,
+              z: neighborData.chunkZ,
+              data: nbt,
+            };
+          }
+          
+          return null;
         } catch {
           return null;
         }
@@ -1944,8 +2379,12 @@ async function processSuperChunk(data) {
   }
   
   // Propagate light if no Minecraft light data
+  // When Minecraft data is present, it already includes correct sky and block light
+  // from neighbor chunks (Minecraft pre-computes lighting during world save)
   if (!lightGrid.hasMinecraftLightData) {
     propagateSkyLight(grid, lightGrid, blockRegistry);
+    // Also propagate block light from torches/glowstone when no MC data
+    propagateBlockLight(grid, lightGrid, blockRegistry);
   }
   
   const decodeTime = performance.now() - startTime;
@@ -1957,6 +2396,10 @@ async function processSuperChunk(data) {
   let gridMeshes;
   
   // Use WASM meshing if available (includes full texture/lighting attributes)
+  // NOTE: WASM mesher does not check light values for merge decisions,
+  // which can cause blocky lighting. For now, prefer WASM for speed
+  // as light values are still per-vertex (just with larger quads).
+  // TODO: Add light-based merge checking to WASM mesher for smoother lighting.
   if (wasmInitialized && wasmLookupsInitialized) {
     try {
       gridMeshes = wasmMeshChunk(grid, lightGrid, bounds);

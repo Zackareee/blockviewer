@@ -7,7 +7,7 @@ use crate::lookup::Lookups;
 use crate::mesher::MeshBounds;
 use crate::types::{SectionKey, SECTION_SIZE, SECTION_VOLUME, Face, block_index_in_section};
 use super::geometry::{ModelMeshData, ModelFace};
-use super::registry::get_model_geometry_by_hash;
+use super::registry::get_model_geometry;
 
 /// Result from model meshing
 pub struct ModelMeshResult {
@@ -87,9 +87,9 @@ pub fn mesh_models(
             for local_z in 0..SECTION_SIZE {
                 for local_x in 0..SECTION_SIZE {
                     let idx = block_index_in_section(local_x, local_y, local_z);
-                    let state_hash = section[idx];
+                    let state_id = section[idx];
                     
-                    if state_hash == 0 {
+                    if state_id == 0 {
                         continue;
                     }
                     
@@ -97,8 +97,8 @@ pub fn mesh_models(
                     let world_y = base_y + local_y as i32;
                     let world_z = base_z + local_z as i32;
                     
-                    // Get model geometry by hash
-                    let model = match get_model_geometry_by_hash(state_hash) {
+                    // Get model geometry
+                    let model = match get_model_geometry(state_id) {
                         Some(m) => m,
                         None => continue,
                     };
