@@ -798,10 +798,12 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
         if (distSq > cpuCullDistanceSq) continue;
       }
 
-      // Get block color
-      const r = colorR[blockId];
-      const g = colorG[blockId];
-      const b = colorB[blockId];
+      // Vertex color is used as AO multiplier in the shader, not for block coloring
+      // (textures provide the actual block color)
+      // Set to white (1.0) for full brightness - no per-vertex AO for model blocks
+      const r = 1.0;
+      const g = 1.0;
+      const b = 1.0;
 
       // ========================================================================
       // FAST NEIGHBOR LOOKUP: Direct array access instead of getBlockId() calls
