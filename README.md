@@ -66,17 +66,59 @@ npm run test:regression:update
 
 ### Single Block Tests
 
-Test individual block rendering using coordinates from `debug_world_blocks.json`. Captures cropped screenshots centered on each block.
+Test individual block rendering using coordinates from `debug_world_blocks.json`. Captures isometric screenshots of each block for regression testing.
+
+#### Setting Up Block Tests (First Time)
+
+Block tests require a "debug world" containing all block types and a generated block registry JSON.
+
+**Step 1: Create or obtain a debug world**
+
+Use a Minecraft debug world that contains every block type. Place it in the test folder:
+```
+test/world_files/debug_world.zip
+```
+
+**Step 2: Extract block registry from the world**
+
+Run the extraction script to generate `debug_world_blocks.json`:
+```bash
+node scripts/extract-world-blocks.cjs test/world_files/debug_world.zip debug_world_blocks.json
+```
+
+This scans every chunk in the world and outputs a JSON file containing:
+- Every unique block + properties combination
+- Sample coordinates (x, y, z) for each block state
+- Used by the block regression tests to locate blocks
+
+**Step 3: Generate baseline screenshots**
+
+Run the subset test (diverse ~100 blocks) to create initial baselines:
+```bash
+npm run test:block:subset:update
+```
+
+Or generate baselines for ALL blocks (takes hours):
+```bash
+npm run test:block:update
+```
+
+#### Running Block Tests
 
 ```bash
-# Run block tests (headless)
+# Run subset tests (~100 diverse blocks, ~80 seconds)
+npm run test:block:subset
+
+# Run all block tests (29k+ blocks, takes hours)
 npm run test:block
 
-# Run with visible browser
+# Run with visible browser for debugging
 npm run test:block:visible
+npm run test:block:subset:visible
 
-# Update baseline screenshots
+# Update baselines after intentional changes
 npm run test:block:update
+npm run test:block:subset:update
 
 # Filter to specific blocks
 npm run test:block -- --filter=stairs
@@ -85,6 +127,15 @@ npm run test:block -- --filter=oak_door
 # Limit number of tests
 npm run test:block -- --limit=10
 ```
+
+#### How It Works
+
+1. Loads the debug world with full region render distance (32 chunks)
+2. Waits for 200+ chunks to load (ensures entire region is in memory)
+3. For each block in the registry:
+   - Positions camera isometrically (offset +X, +Y, +Z from block)
+   - Takes screenshot and crops to 350x350 centered on the canvas
+   - Compares against baseline or updates baseline
 
 ### Performance Tests
 
