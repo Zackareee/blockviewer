@@ -500,10 +500,25 @@ fn rotate_normal(n: [f32; 3], y_rotation: u8, axis: u8) -> (f32, f32, f32) {
 #[inline]
 fn is_solid_for_ao(grid: &BinaryGrid, lookups: &Lookups, x: i32, y: i32, z: i32) -> bool {
     let block_id = grid.get_block_id(x, y, z);
-    block_id != 0 
-        && !lookups.is_ao_transparent(block_id) 
-        && lookups.is_opaque(block_id)
-        && !lookups.is_non_cube(block_id) // Partial blocks (stairs, slabs) don't cause AO
+    
+    // Air is never solid
+    if block_id == 0 {
+        return false;
+    }
+    
+    // AO-transparent blocks (glass, leaves, non-cubes) don't cause AO
+    if lookups.is_ao_transparent(block_id) {
+        return false;
+    }
+    
+    // Non-cube blocks (stairs, slabs, walls) don't cause AO
+    // This is a belt-and-suspenders check in case is_ao_transparent wasn't set
+    if lookups.is_non_cube(block_id) {
+        return false;
+    }
+    
+    // Only opaque full cubes cause AO
+    lookups.is_opaque(block_id)
 }
 
 /// Calculate single vertex AO from 3 neighbors
@@ -516,13 +531,24 @@ fn vertex_ao_value(side1: bool, side2: bool, corner: bool) -> u8 {
     }
 }
 
-/// AO brightness levels
-const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
+/// AO brightness levels for model blocks
+/// Using higher minimum (0.7) than full cubes to prevent extreme darkening
+/// Full cubes use [0.2, 0.6, 0.8, 1.0] but model blocks need gentler AO
+const AO_BRIGHTNESS: [f32; 4] = [0.7, 0.85, 0.95, 1.0];
 
-/// Calculate per-vertex AO and lighting for a model face
+/// Calculate per-vertex lighting for a model face
+/// NOTE: We intentionally skip per-vertex AO for model blocks because:
+/// 1. Model block faces don't align to block boundaries
+/// 2. The full-cube AO algorithm samples at block+direction, which is wrong
+///    for partial blocks where faces can be anywhere within the block
+/// 3. Adjacent partial blocks (stairs next to stairs) would incorrectly
+///    cause extreme darkening because the algorithm treats them as solid
+///
+/// Instead, we use uniform lighting with full brightness (ao=1.0).
+/// Light values (sky/block) are still sampled correctly.
 fn calculate_face_ao_v3(
-    grid: &BinaryGrid,
-    lookups: &Lookups,
+    _grid: &BinaryGrid,
+    _lookups: &Lookups,
     light_grid: Option<&LightGrid>,
     world_x: i32,
     world_y: i32,
@@ -549,22 +575,12 @@ fn calculate_face_ao_v3(
         (15, 0)
     };
     
-    // IMPORTANT: Only calculate AO for faces that have a cullface (boundary faces)
-    // Faces without cullface are internal faces (like stair cut-outs) and should NOT
-    // sample AO from adjacent blocks - they're inside the block, not at the edge
-    let ao_values = if face.cullface.is_some() {
-        // Boundary face - calculate AO from neighbors
-        calculate_face_ao_neighbors(grid, lookups, world_x, world_y, world_z, face_dir)
-    } else {
-        // Internal face - no AO from neighbors (full brightness)
-        [3, 3, 3, 3]
-    };
-    
+    // No per-vertex AO for model blocks - use full brightness
     [
-        VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[0] as usize] },
-        VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[1] as usize] },
-        VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[2] as usize] },
-        VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[3] as usize] },
+        VertexLight { sky: base_sky, block: base_block, ao: 1.0 },
+        VertexLight { sky: base_sky, block: base_block, ao: 1.0 },
+        VertexLight { sky: base_sky, block: base_block, ao: 1.0 },
+        VertexLight { sky: base_sky, block: base_block, ao: 1.0 },
     ]
 }
 
