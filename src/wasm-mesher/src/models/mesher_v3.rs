@@ -546,6 +546,7 @@ fn calculate_face_ao_v3(
     
     // For simple model blocks, use face-based AO similar to solid blocks
     // Calculate AO based on neighbors adjacent to this face
+    // AO vertex order now matches baked model vertex order
     let ao_values = calculate_face_ao_neighbors(
         grid, lookups, world_x, world_y, world_z, face_dir
     );
@@ -578,23 +579,7 @@ fn calculate_face_ao_neighbors(
     match face_dir {
         Up => {
             // Check neighbors above
-            let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
-            let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
-            let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
-            let south = is_solid_for_ao(grid, lookups, fx, fy, fz + 1);
-            let nw = is_solid_for_ao(grid, lookups, fx - 1, fy, fz - 1);
-            let ne = is_solid_for_ao(grid, lookups, fx + 1, fy, fz - 1);
-            let sw = is_solid_for_ao(grid, lookups, fx - 1, fy, fz + 1);
-            let se = is_solid_for_ao(grid, lookups, fx + 1, fy, fz + 1);
-            
-            [
-                vertex_ao_value(west, south, sw),  // V0 (SW)
-                vertex_ao_value(east, south, se),  // V1 (SE)
-                vertex_ao_value(east, north, ne),  // V2 (NE)
-                vertex_ao_value(west, north, nw),  // V3 (NW)
-            ]
-        }
-        Down => {
+            // Baked vertex order for Up: V0=NW, V1=NE, V2=SE, V3=SW
             let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
             let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
             let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
@@ -611,7 +596,26 @@ fn calculate_face_ao_neighbors(
                 vertex_ao_value(west, south, sw),  // V3 (SW)
             ]
         }
+        Down => {
+            // Baked vertex order for Down: V0=SW, V1=SE, V2=NE, V3=NW
+            let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
+            let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
+            let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
+            let south = is_solid_for_ao(grid, lookups, fx, fy, fz + 1);
+            let nw = is_solid_for_ao(grid, lookups, fx - 1, fy, fz - 1);
+            let ne = is_solid_for_ao(grid, lookups, fx + 1, fy, fz - 1);
+            let sw = is_solid_for_ao(grid, lookups, fx - 1, fy, fz + 1);
+            let se = is_solid_for_ao(grid, lookups, fx + 1, fy, fz + 1);
+            
+            [
+                vertex_ao_value(west, south, sw),  // V0 (SW)
+                vertex_ao_value(east, south, se),  // V1 (SE)
+                vertex_ao_value(east, north, ne),  // V2 (NE)
+                vertex_ao_value(west, north, nw),  // V3 (NW)
+            ]
+        }
         North => {
+            // Baked vertex order for North: V0=east-up, V1=west-up, V2=west-down, V3=east-down
             let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
             let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
             let up = is_solid_for_ao(grid, lookups, fx, fy + 1, fz);
@@ -622,13 +626,14 @@ fn calculate_face_ao_neighbors(
             let de = is_solid_for_ao(grid, lookups, fx + 1, fy - 1, fz);
             
             [
-                vertex_ao_value(east, down, de),
-                vertex_ao_value(west, down, dw),
-                vertex_ao_value(west, up, uw),
-                vertex_ao_value(east, up, ue),
+                vertex_ao_value(east, up, ue),    // V0: east-up (top-right)
+                vertex_ao_value(west, up, uw),    // V1: west-up (top-left)
+                vertex_ao_value(west, down, dw),  // V2: west-down (bottom-left)
+                vertex_ao_value(east, down, de),  // V3: east-down (bottom-right)
             ]
         }
         South => {
+            // Baked vertex order for South: V0=west-up, V1=east-up, V2=east-down, V3=west-down
             let west = is_solid_for_ao(grid, lookups, fx - 1, fy, fz);
             let east = is_solid_for_ao(grid, lookups, fx + 1, fy, fz);
             let up = is_solid_for_ao(grid, lookups, fx, fy + 1, fz);
@@ -639,13 +644,14 @@ fn calculate_face_ao_neighbors(
             let de = is_solid_for_ao(grid, lookups, fx + 1, fy - 1, fz);
             
             [
-                vertex_ao_value(west, down, dw),
-                vertex_ao_value(east, down, de),
-                vertex_ao_value(east, up, ue),
-                vertex_ao_value(west, up, uw),
+                vertex_ao_value(west, up, uw),    // V0: west-up (top-left)
+                vertex_ao_value(east, up, ue),    // V1: east-up (top-right)
+                vertex_ao_value(east, down, de),  // V2: east-down (bottom-right)
+                vertex_ao_value(west, down, dw),  // V3: west-down (bottom-left)
             ]
         }
         East => {
+            // Baked vertex order for East: V0=south-up, V1=north-up, V2=north-down, V3=south-down
             let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
             let south = is_solid_for_ao(grid, lookups, fx, fy, fz + 1);
             let up = is_solid_for_ao(grid, lookups, fx, fy + 1, fz);
@@ -656,13 +662,14 @@ fn calculate_face_ao_neighbors(
             let ds = is_solid_for_ao(grid, lookups, fx, fy - 1, fz + 1);
             
             [
-                vertex_ao_value(south, down, ds),
-                vertex_ao_value(north, down, dn),
-                vertex_ao_value(north, up, un),
-                vertex_ao_value(south, up, us),
+                vertex_ao_value(south, up, us),    // V0: south-up (top-front)
+                vertex_ao_value(north, up, un),    // V1: north-up (top-back)
+                vertex_ao_value(north, down, dn),  // V2: north-down (bottom-back)
+                vertex_ao_value(south, down, ds),  // V3: south-down (bottom-front)
             ]
         }
         West => {
+            // Baked vertex order for West: V0=north-up, V1=south-up, V2=south-down, V3=north-down
             let north = is_solid_for_ao(grid, lookups, fx, fy, fz - 1);
             let south = is_solid_for_ao(grid, lookups, fx, fy, fz + 1);
             let up = is_solid_for_ao(grid, lookups, fx, fy + 1, fz);
@@ -673,10 +680,10 @@ fn calculate_face_ao_neighbors(
             let ds = is_solid_for_ao(grid, lookups, fx, fy - 1, fz + 1);
             
             [
-                vertex_ao_value(north, down, dn),
-                vertex_ao_value(south, down, ds),
-                vertex_ao_value(south, up, us),
-                vertex_ao_value(north, up, un),
+                vertex_ao_value(north, up, un),    // V0: north-up (top-back)
+                vertex_ao_value(south, up, us),    // V1: south-up (top-front)
+                vertex_ao_value(south, down, ds),  // V2: south-down (bottom-front)
+                vertex_ao_value(north, down, dn),  // V3: north-down (bottom-back)
             ]
         }
         None => {
