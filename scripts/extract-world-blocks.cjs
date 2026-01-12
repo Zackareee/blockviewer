@@ -44,13 +44,18 @@ const zlib = require('zlib');
 // Check for command line arguments
 const args = process.argv.slice(2);
 if (args.length < 2) {
-  console.log('Usage: node scripts/extract-world-blocks.js <input.zip|input_folder> <output.json>');
-  console.log('Example: node scripts/extract-world-blocks.js test/world_files/debug_world.zip debug_world_blocks.json');
+  console.log('Usage: node scripts/extract-world-blocks.cjs <input.zip|input_folder> <output.json> [--with-positions]');
+  console.log('Example: node scripts/extract-world-blocks.cjs test/world_files/debug_world.zip debug_world_blocks.json');
+  console.log('');
+  console.log('Options:');
+  console.log('  --with-positions  Include all block positions (large output)');
+  console.log('                    Without this flag, only unique block+properties combinations are output');
   process.exit(1);
 }
 
 const inputPath = args[0];
 const outputPath = args[1];
+const includePositions = args.includes('--with-positions');
 
 // ============================================================================
 // NBT Parser (simplified version for Node.js)
@@ -550,6 +555,46 @@ async function main() {
   // Count unique block types
   const uniqueBlockTypes = new Set(allBlocks.map(b => b.block));
 
+  // Deduplicate blocks by (block, properties) pair
+  let outputBlocks;
+  if (includePositions) {
+    // Keep all blocks with positions
+    outputBlocks = allBlocks;
+  } else {
+    // Create unique entries based on block + properties
+    const uniqueMap = new Map();
+    
+    for (const block of allBlocks) {
+      // Create a unique key from block name and sorted properties
+      const propsKey = block.properties 
+        ? Object.keys(block.properties).sort().map(k => `${k}=${block.properties[k]}`).join(',')
+        : '';
+      const key = `${block.block}|${propsKey}`;
+      
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, {
+          block: block.block,
+          properties: block.properties,
+          count: 1,
+          // Store one example position
+          examplePosition: { x: block.x, y: block.y, z: block.z }
+        });
+      } else {
+        uniqueMap.get(key).count++;
+      }
+    }
+    
+    // Convert map to array sorted by block name then properties
+    outputBlocks = Array.from(uniqueMap.values()).sort((a, b) => {
+      if (a.block !== b.block) return a.block.localeCompare(b.block);
+      const aProps = JSON.stringify(a.properties || {});
+      const bProps = JSON.stringify(b.properties || {});
+      return aProps.localeCompare(bProps);
+    });
+    
+    console.log(`  Deduplicated to ${outputBlocks.length} unique block+properties combinations`);
+  }
+
   // Build output
   const output = {
     metadata: {
@@ -557,10 +602,12 @@ async function main() {
       source: path.basename(inputPath),
       totalBlocks: allBlocks.length,
       uniqueBlockTypes: uniqueBlockTypes.size,
+      uniqueBlockStates: includePositions ? null : outputBlocks.length,
       chunks: totalChunks,
-      regions: regionFiles.length
+      regions: regionFiles.length,
+      includesPositions: includePositions
     },
-    blocks: allBlocks,
+    blocks: outputBlocks,
     blockEntities: allBlockEntities
   };
 
@@ -576,6 +623,9 @@ async function main() {
   console.log(`\nExtraction complete!`);
   console.log(`  Total blocks: ${allBlocks.length.toLocaleString()}`);
   console.log(`  Unique block types: ${uniqueBlockTypes.size}`);
+  if (!includePositions) {
+    console.log(`  Unique block+properties: ${outputBlocks.length}`);
+  }
   console.log(`  Block entities: ${allBlockEntities.length}`);
   console.log(`  Output written to: ${outputPath}`);
 }
