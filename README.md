@@ -1,16 +1,121 @@
-# React + Vite
+# Block Viewer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A Minecraft world viewer that renders `.mca` region files using Three.js. Replicates Minecraft's rendering pipeline including block meshing, lighting, ambient occlusion, and texture atlases.
 
-Currently, two official plugins are available:
+## Getting Started
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### Prerequisites
 
-## React Compiler
+- Node.js 18+
+- Rust and [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) for WASM builds
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Installation
 
-## Expanding the ESLint configuration
+```bash
+npm install
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Development
+
+```bash
+# Build WASM and start dev server
+npm run dev:wasm
+
+# Or if WASM is already built, just start dev server
+npm run dev
+```
+
+### Production Build
+
+```bash
+# Full build (WASM + Vite)
+npm run build
+
+# Preview production build
+npm run preview
+```
+
+### WASM Build Only
+
+```bash
+# Debug build (faster, larger)
+npm run build:wasm
+
+# Release build (optimized)
+npm run build:wasm:release
+```
+
+Open http://localhost:5173 and drag-and-drop a Minecraft world folder or `.mca` region file.
+
+## Testing
+
+### Visual Regression Tests
+
+Compare rendered scenes against baseline screenshots to detect visual regressions.
+
+```bash
+# Run regression tests (headless)
+npm run test:regression
+
+# Run with visible browser for debugging
+npm run test:regression:visible
+
+# Update baseline screenshots after intentional changes
+npm run test:regression:update
+```
+
+### Single Block Tests
+
+Test individual block rendering using coordinates from `debug_world_blocks.json`. Captures cropped screenshots centered on each block.
+
+```bash
+# Run block tests (headless)
+npm run test:block
+
+# Run with visible browser
+npm run test:block:visible
+
+# Update baseline screenshots
+npm run test:block:update
+
+# Filter to specific blocks
+npm run test:block -- --filter=stairs
+npm run test:block -- --filter=oak_door
+
+# Limit number of tests
+npm run test:block -- --limit=10
+```
+
+### Performance Tests
+
+Measure rendering performance and chunk loading times.
+
+```bash
+# Run performance test (headless)
+npm run test:performance
+
+# Run with visible browser
+npm run test:performance:visible
+
+# Run benchmark suite
+npm run test:benchmark
+npm run test:benchmark:headless
+```
+
+### Mesh Consistency Tests
+
+Verify mesh generation produces consistent output.
+
+```bash
+npm run test:mesh
+npm run test:mesh:update
+```
+
+## Project Structure
+
+- `src/mesh/` - Chunk meshing (FastMesher for greedy meshing, ModelMesher for partial blocks)
+- `src/wasm-mesher/` - Rust/WASM implementation of meshers
+- `src/viewer/` - Three.js rendering and materials
+- `src/assets/` - Block models, textures, and atlases
+- `test/e2e/` - End-to-end visual regression tests
+- `docs/` - Technical documentation and Minecraft shader references
