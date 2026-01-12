@@ -495,10 +495,14 @@ fn rotate_normal(n: [f32; 3], y_rotation: u8, axis: u8) -> (f32, f32, f32) {
 }
 
 /// Check if block is solid for AO calculation
+/// Only full cubes should cause AO occlusion - not partial blocks like stairs
 #[inline]
 fn is_solid_for_ao(grid: &BinaryGrid, lookups: &Lookups, x: i32, y: i32, z: i32) -> bool {
     let block_id = grid.get_block_id(x, y, z);
-    block_id != 0 && !lookups.is_ao_transparent(block_id) && lookups.is_opaque(block_id)
+    block_id != 0 
+        && !lookups.is_ao_transparent(block_id) 
+        && lookups.is_opaque(block_id)
+        && !lookups.is_non_cube(block_id) // Partial blocks (stairs, slabs) don't cause AO
 }
 
 /// Calculate single vertex AO from 3 neighbors

@@ -101,6 +101,28 @@ export const testCases = [
 ];
 
 /**
+ * Additional test cases that use different world files
+ * These are run separately from the main tests
+ */
+export const hermitcraftTestCases = [
+  {
+    name: 'stair_ao_hermitcraft',
+    description: 'Stair AO test - should have no black faces with smooth lighting',
+    worldFile: 'hermitcraft10.zip',
+    x: -456.1,
+    y: 77.6,
+    z: -78.5,
+    yaw: 180, // north
+    pitch: 44,
+    settings: {
+      smoothLighting: true, // Enable smooth lighting to test AO
+      renderDistance: 6,
+    },
+    waitMs: 5000, // Wait for chunks to load
+  },
+];
+
+/**
  * Get a test case by name
  */
 export function getTestCase(name) {
