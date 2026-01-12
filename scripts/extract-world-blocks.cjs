@@ -575,9 +575,7 @@ async function main() {
         uniqueMap.set(key, {
           block: block.block,
           properties: block.properties,
-          count: 1,
-          // Store one example position
-          examplePosition: { x: block.x, y: block.y, z: block.z }
+          count: 1
         });
       } else {
         uniqueMap.get(key).count++;
