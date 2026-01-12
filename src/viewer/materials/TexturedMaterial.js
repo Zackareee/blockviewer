@@ -893,6 +893,8 @@ varying vec2 vLightUV;
 varying float vVertexDistance; // Horizontal distance from camera for fog
 
 void main() {
+  // Use vertex color if available, otherwise default to white (no AO darkening)
+  // Three.js sets color to (1,1,1) when vertexColors is true but no color attribute exists
   vColor = color;
   vNormal = normal;
   vModelUV = modelUV; // Pass model UV directly
@@ -1293,7 +1295,13 @@ void main() {
   }
   
   // Apply per-vertex AO (stored in vertex color)
-  vec3 litColor = finalColor * lightColor * vColor.rgb;
+  // Ensure aoColor is never zero - if vColor is (0,0,0), something is wrong with the color attribute
+  // Default to (1,1,1) if vColor appears to be missing/zero
+  vec3 aoColor = vColor.rgb;
+  if (aoColor.r < 0.01 && aoColor.g < 0.01 && aoColor.b < 0.01) {
+    aoColor = vec3(1.0); // Fallback to white (no AO) if color is missing
+  }
+  vec3 litColor = finalColor * lightColor * aoColor;
   
   // Apply distance fog (like Minecraft's render distance haze)
   if (uFogEnabled > 0.5) {
