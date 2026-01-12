@@ -743,12 +743,11 @@ fn emit_face_v3_with_ao(
         mesh.uvs.push(face.uvs[i][0]);
         mesh.uvs.push(face.uvs[i][1]);
         
-        // Emit color with AO applied
+        // Emit color with AO applied (RGB only, no alpha - matches geometry expectation)
         let ao = vertex_lights[i].ao;
         mesh.colors.push(ao);
         mesh.colors.push(ao);
         mesh.colors.push(ao);
-        mesh.colors.push(1.0);
         
         // Emit texture index
         mesh.tex_indices.push(face.texture_index as f32);

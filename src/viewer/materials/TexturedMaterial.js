@@ -1292,7 +1292,8 @@ void main() {
     lightColor = vec3(faceShade);
   }
   
-  vec3 litColor = finalColor * lightColor;
+  // Apply per-vertex AO (stored in vertex color)
+  vec3 litColor = finalColor * lightColor * vColor.rgb;
   
   // Apply distance fog (like Minecraft's render distance haze)
   if (uFogEnabled > 0.5) {
