@@ -561,7 +561,7 @@ async function main() {
     // Keep all blocks with positions
     outputBlocks = allBlocks;
   } else {
-    // Create unique entries based on block + properties
+    // Create unique entries based on block + properties, with a sample position
     const uniqueMap = new Map();
     
     for (const block of allBlocks) {
@@ -574,7 +574,10 @@ async function main() {
       if (!uniqueMap.has(key)) {
         uniqueMap.set(key, {
           block: block.block,
-          properties: block.properties
+          properties: block.properties,
+          x: block.x,
+          y: block.y,
+          z: block.z
         });
       }
     }
