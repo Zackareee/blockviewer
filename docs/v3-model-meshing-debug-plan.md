@@ -30,8 +30,8 @@ The failures are unrelated to V3 model meshing - they appear to be chunk loading
 - Test blocks verified: stone_slab, oak_stairs, oak_fence, torch, lantern, chest
 
 ### Phase 1: Build-time Data - ✅ VERIFIED
-- `baked-models.bin`: 1163 blocks, magic=0x424B4D44, version=1
-- `block-model-manifest.json`: 1163 blocks with variants
+   - `baked-models.bin`: 1163 blocks, magic=0x424B4D44, version=1
+   - `block-model-manifest.json`: 1163 blocks with variants
 - 907 blocks have geometry with total of ~20,000 faces
 - Key blocks verified: stone_slab (18 faces), oak_stairs (63 faces), torch (6 faces)
 

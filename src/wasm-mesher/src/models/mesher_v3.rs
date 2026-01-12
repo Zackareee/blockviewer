@@ -544,12 +544,16 @@ fn calculate_face_ao_v3(
         (15, 0)
     };
     
-    // For simple model blocks, use face-based AO similar to solid blocks
-    // Calculate AO based on neighbors adjacent to this face
-    // AO vertex order now matches baked model vertex order
-    let ao_values = calculate_face_ao_neighbors(
-        grid, lookups, world_x, world_y, world_z, face_dir
-    );
+    // IMPORTANT: Only calculate AO for faces that have a cullface (boundary faces)
+    // Faces without cullface are internal faces (like stair cut-outs) and should NOT
+    // sample AO from adjacent blocks - they're inside the block, not at the edge
+    let ao_values = if face.cullface.is_some() {
+        // Boundary face - calculate AO from neighbors
+        calculate_face_ao_neighbors(grid, lookups, world_x, world_y, world_z, face_dir)
+    } else {
+        // Internal face - no AO from neighbors (full brightness)
+        [3, 3, 3, 3]
+    };
     
     [
         VertexLight { sky: base_sky, block: base_block, ao: AO_BRIGHTNESS[ao_values[0] as usize] },
