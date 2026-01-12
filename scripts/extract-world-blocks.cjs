@@ -574,11 +574,8 @@ async function main() {
       if (!uniqueMap.has(key)) {
         uniqueMap.set(key, {
           block: block.block,
-          properties: block.properties,
-          count: 1
+          properties: block.properties
         });
-      } else {
-        uniqueMap.get(key).count++;
       }
     }
     
