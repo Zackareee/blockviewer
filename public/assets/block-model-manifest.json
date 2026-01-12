@@ -1,6 +1,6 @@
 {
   "version": "1.21.1",
-  "generatedAt": "2026-01-12T01:59:18.284Z",
+  "generatedAt": "2026-01-12T02:05:02.208Z",
   "blocks": {
     "acacia_button": {
       "isMultipart": false,
@@ -3539,6 +3539,110 @@
         "noShade": false
       }
     },
+    "barrel": {
+      "isMultipart": false,
+      "variants": {
+        "facing=down,open=false": {
+          "model": "barrel",
+          "rotX": 180,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=down,open=true": {
+          "model": "barrel_open",
+          "rotX": 180,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=east,open=false": {
+          "model": "barrel",
+          "rotX": 90,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,open=true": {
+          "model": "barrel_open",
+          "rotX": 90,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north,open=false": {
+          "model": "barrel",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,open=true": {
+          "model": "barrel_open",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south,open=false": {
+          "model": "barrel",
+          "rotX": 90,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,open=true": {
+          "model": "barrel_open",
+          "rotX": 90,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=up,open=false": {
+          "model": "barrel",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=up,open=true": {
+          "model": "barrel_open",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=west,open=false": {
+          "model": "barrel",
+          "rotX": 90,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,open=true": {
+          "model": "barrel_open",
+          "rotX": 90,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing",
+        "open"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "barrel",
+        "barrel_open"
+      ],
+      "resolvedModels": {
+        "barrel": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "barrel_open": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "barrier": {
       "isMultipart": false,
       "variants": {
@@ -3584,6 +3688,358 @@
       "resolvedModels": {
         "beacon": {
           "elementCount": 3,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "bee_nest": {
+      "isMultipart": false,
+      "variants": {
+        "facing=east,honey_level=0": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=1": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=2": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=3": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=4": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=5": {
+          "model": "bee_nest_honey",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north,honey_level=0": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=1": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=2": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=3": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=4": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=5": {
+          "model": "bee_nest_honey",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south,honey_level=0": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=1": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=2": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=3": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=4": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=5": {
+          "model": "bee_nest_honey",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west,honey_level=0": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=1": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=2": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=3": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=4": {
+          "model": "bee_nest_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=5": {
+          "model": "bee_nest_honey",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing",
+        "honey_level"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "bee_nest_empty",
+        "bee_nest_honey"
+      ],
+      "resolvedModels": {
+        "bee_nest_empty": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "bee_nest_honey": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "beehive": {
+      "isMultipart": false,
+      "variants": {
+        "facing=east,honey_level=0": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=1": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=2": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=3": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=4": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,honey_level=5": {
+          "model": "beehive_honey",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north,honey_level=0": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=1": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=2": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=3": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=4": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,honey_level=5": {
+          "model": "beehive_honey",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south,honey_level=0": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=1": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=2": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=3": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=4": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,honey_level=5": {
+          "model": "beehive_honey",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west,honey_level=0": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=1": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=2": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=3": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=4": {
+          "model": "beehive_empty",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,honey_level=5": {
+          "model": "beehive_honey",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing",
+        "honey_level"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "beehive_empty",
+        "beehive_honey"
+      ],
+      "resolvedModels": {
+        "beehive_empty": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "beehive_honey": {
+          "elementCount": 1,
           "hasAO": true
         }
       },
@@ -5777,6 +6233,63 @@
         "noShade": false
       }
     },
+    "blast_furnace": {
+      "isMultipart": false,
+      "variants": {
+        "facing=east": {
+          "model": "blast_furnace",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north": {
+          "model": "blast_furnace",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south": {
+          "model": "blast_furnace",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west": {
+          "model": "blast_furnace",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "blast_furnace",
+        "blast_furnace_on"
+      ],
+      "resolvedModels": {
+        "blast_furnace": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "blast_furnace_on": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "blue_banner": {
       "isMultipart": false,
       "variants": {
@@ -7484,6 +7997,56 @@
         "noShade": false
       }
     },
+    "carved_pumpkin": {
+      "isMultipart": false,
+      "variants": {
+        "facing=east": {
+          "model": "carved_pumpkin",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north": {
+          "model": "carved_pumpkin",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south": {
+          "model": "carved_pumpkin",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west": {
+          "model": "carved_pumpkin",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "carved_pumpkin"
+      ],
+      "resolvedModels": {
+        "carved_pumpkin": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "cauldron": {
       "isMultipart": false,
       "variants": {
@@ -7616,6 +8179,110 @@
         "cave_vines_plant_lit": {
           "elementCount": 2,
           "hasAO": false
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "chain_command_block": {
+      "isMultipart": false,
+      "variants": {
+        "conditional=false,facing=down": {
+          "model": "chain_command_block",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=east": {
+          "model": "chain_command_block",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "conditional=false,facing=north": {
+          "model": "chain_command_block",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=south": {
+          "model": "chain_command_block",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "conditional=false,facing=up": {
+          "model": "chain_command_block",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=west": {
+          "model": "chain_command_block",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "conditional=true,facing=down": {
+          "model": "chain_command_block_conditional",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=east": {
+          "model": "chain_command_block_conditional",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "conditional=true,facing=north": {
+          "model": "chain_command_block_conditional",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=south": {
+          "model": "chain_command_block_conditional",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "conditional=true,facing=up": {
+          "model": "chain_command_block_conditional",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=west": {
+          "model": "chain_command_block_conditional",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "conditional",
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "chain_command_block",
+        "chain_command_block_conditional"
+      ],
+      "resolvedModels": {
+        "chain_command_block": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "chain_command_block_conditional": {
+          "elementCount": 1,
+          "hasAO": true
         }
       },
       "flags": {
@@ -9811,6 +10478,110 @@
         "noShade": false
       }
     },
+    "command_block": {
+      "isMultipart": false,
+      "variants": {
+        "conditional=false,facing=down": {
+          "model": "command_block",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=east": {
+          "model": "command_block",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "conditional=false,facing=north": {
+          "model": "command_block",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=south": {
+          "model": "command_block",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "conditional=false,facing=up": {
+          "model": "command_block",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=west": {
+          "model": "command_block",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "conditional=true,facing=down": {
+          "model": "command_block_conditional",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=east": {
+          "model": "command_block_conditional",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "conditional=true,facing=north": {
+          "model": "command_block_conditional",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=south": {
+          "model": "command_block_conditional",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "conditional=true,facing=up": {
+          "model": "command_block_conditional",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=west": {
+          "model": "command_block_conditional",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "conditional",
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "command_block",
+        "command_block_conditional"
+      ],
+      "resolvedModels": {
+        "command_block": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "command_block_conditional": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "comparator": {
       "isMultipart": false,
       "variants": {
@@ -10598,6 +11369,337 @@
         "hasPositionOffset": true,
         "isTransparent": true,
         "noShade": true
+      }
+    },
+    "crafter": {
+      "isMultipart": false,
+      "variants": {
+        "crafting=false,orientation=down_east,triggered=false": {
+          "model": "crafter",
+          "rotX": 90,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=false,orientation=down_east,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 90,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=false,orientation=down_north,triggered=false": {
+          "model": "crafter",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=false,orientation=down_north,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=false,orientation=down_south,triggered=false": {
+          "model": "crafter",
+          "rotX": 90,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=false,orientation=down_south,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 90,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=false,orientation=down_west,triggered=false": {
+          "model": "crafter",
+          "rotX": 90,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=false,orientation=down_west,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 90,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=false,orientation=east_up,triggered=false": {
+          "model": "crafter",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=false,orientation=east_up,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=false,orientation=north_up,triggered=false": {
+          "model": "crafter",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=false,orientation=north_up,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=false,orientation=south_up,triggered=false": {
+          "model": "crafter",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=false,orientation=south_up,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=false,orientation=up_east,triggered=false": {
+          "model": "crafter",
+          "rotX": 270,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=false,orientation=up_east,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 270,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=false,orientation=up_north,triggered=false": {
+          "model": "crafter",
+          "rotX": 270,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=false,orientation=up_north,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 270,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=false,orientation=up_south,triggered=false": {
+          "model": "crafter",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=false,orientation=up_south,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=false,orientation=up_west,triggered=false": {
+          "model": "crafter",
+          "rotX": 270,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=false,orientation=up_west,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 270,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=false,orientation=west_up,triggered=false": {
+          "model": "crafter",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=false,orientation=west_up,triggered=true": {
+          "model": "crafter_triggered",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=true,orientation=down_east,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 90,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=true,orientation=down_east,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 90,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=true,orientation=down_north,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=true,orientation=down_north,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=true,orientation=down_south,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 90,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=true,orientation=down_south,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 90,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=true,orientation=down_west,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 90,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=true,orientation=down_west,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 90,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=true,orientation=east_up,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=true,orientation=east_up,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=true,orientation=north_up,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=true,orientation=north_up,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=true,orientation=south_up,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=true,orientation=south_up,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=true,orientation=up_east,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 270,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=true,orientation=up_east,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 270,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=true,orientation=up_north,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 270,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=true,orientation=up_north,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 270,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "crafting=true,orientation=up_south,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=true,orientation=up_south,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "crafting=true,orientation=up_west,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 270,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=true,orientation=up_west,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 270,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "crafting=true,orientation=west_up,triggered=false": {
+          "model": "crafter_crafting",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "crafting=true,orientation=west_up,triggered=true": {
+          "model": "crafter_crafting_triggered",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "crafting",
+        "orientation",
+        "triggered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "crafter",
+        "crafter_triggered",
+        "crafter_crafting",
+        "crafter_crafting_triggered"
+      ],
+      "resolvedModels": {
+        "crafter": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "crafter_triggered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "crafter_crafting": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "crafter_crafting_triggered": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
       }
     },
     "creeper_head": {
@@ -16006,6 +17108,73 @@
         "noShade": false
       }
     },
+    "dispenser": {
+      "isMultipart": false,
+      "variants": {
+        "facing=down": {
+          "model": "dispenser_vertical",
+          "rotX": 180,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=east": {
+          "model": "dispenser",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north": {
+          "model": "dispenser",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south": {
+          "model": "dispenser",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=up": {
+          "model": "dispenser_vertical",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=west": {
+          "model": "dispenser",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "dispenser_vertical",
+        "dispenser"
+      ],
+      "resolvedModels": {
+        "dispenser_vertical": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "dispenser": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "dragon_egg": {
       "isMultipart": false,
       "variants": {
@@ -16214,6 +17383,73 @@
         },
         "dried_ghast_hydration_3": {
           "elementCount": 7,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "dropper": {
+      "isMultipart": false,
+      "variants": {
+        "facing=down": {
+          "model": "dropper_vertical",
+          "rotX": 180,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=east": {
+          "model": "dropper",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north": {
+          "model": "dropper",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south": {
+          "model": "dropper",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=up": {
+          "model": "dropper_vertical",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=west": {
+          "model": "dropper",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "dropper_vertical",
+        "dropper"
+      ],
+      "resolvedModels": {
+        "dropper_vertical": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "dropper": {
+          "elementCount": 1,
           "hasAO": true
         }
       },
@@ -18093,6 +19329,63 @@
         "noShade": false
       }
     },
+    "furnace": {
+      "isMultipart": false,
+      "variants": {
+        "facing=east": {
+          "model": "furnace",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north": {
+          "model": "furnace",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south": {
+          "model": "furnace",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west": {
+          "model": "furnace",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "furnace",
+        "furnace_on"
+      ],
+      "resolvedModels": {
+        "furnace": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "furnace_on": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "glow_item_frame": {
       "isMultipart": false,
       "variants": {
@@ -19918,6 +21211,56 @@
         },
         "item_frame_map": {
           "elementCount": 5,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "jack_o_lantern": {
+      "isMultipart": false,
+      "variants": {
+        "facing=east": {
+          "model": "jack_o_lantern",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north": {
+          "model": "jack_o_lantern",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south": {
+          "model": "jack_o_lantern",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west": {
+          "model": "jack_o_lantern",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "jack_o_lantern"
+      ],
+      "resolvedModels": {
+        "jack_o_lantern": {
+          "elementCount": 1,
           "hasAO": true
         }
       },
@@ -22900,6 +24243,56 @@
         "banner"
       ],
       "resolvedModels": {},
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "loom": {
+      "isMultipart": false,
+      "variants": {
+        "facing=east": {
+          "model": "loom",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north": {
+          "model": "loom",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south": {
+          "model": "loom",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west": {
+          "model": "loom",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "loom"
+      ],
+      "resolvedModels": {
+        "loom": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
       "flags": {
         "hasRandomRotation": false,
         "hasPositionOffset": false,
@@ -27369,6 +28762,110 @@
         "oak_sign"
       ],
       "resolvedModels": {},
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "observer": {
+      "isMultipart": false,
+      "variants": {
+        "facing=down,powered=false": {
+          "model": "observer",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=down,powered=true": {
+          "model": "observer_on",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=east,powered=false": {
+          "model": "observer",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=east,powered=true": {
+          "model": "observer_on",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north,powered=false": {
+          "model": "observer",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=north,powered=true": {
+          "model": "observer_on",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south,powered=false": {
+          "model": "observer",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=south,powered=true": {
+          "model": "observer_on",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=up,powered=false": {
+          "model": "observer",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=up,powered=true": {
+          "model": "observer_on",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=west,powered=false": {
+          "model": "observer",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,powered=true": {
+          "model": "observer_on",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing",
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "observer",
+        "observer_on"
+      ],
+      "resolvedModels": {
+        "observer": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "observer_on": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
       "flags": {
         "hasRandomRotation": false,
         "hasPositionOffset": false,
@@ -38325,6 +39822,110 @@
         "noShade": false
       }
     },
+    "repeating_command_block": {
+      "isMultipart": false,
+      "variants": {
+        "conditional=false,facing=down": {
+          "model": "repeating_command_block",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=east": {
+          "model": "repeating_command_block",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "conditional=false,facing=north": {
+          "model": "repeating_command_block",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=south": {
+          "model": "repeating_command_block",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "conditional=false,facing=up": {
+          "model": "repeating_command_block",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=false,facing=west": {
+          "model": "repeating_command_block",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "conditional=true,facing=down": {
+          "model": "repeating_command_block_conditional",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=east": {
+          "model": "repeating_command_block_conditional",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "conditional=true,facing=north": {
+          "model": "repeating_command_block_conditional",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=south": {
+          "model": "repeating_command_block_conditional",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "conditional=true,facing=up": {
+          "model": "repeating_command_block_conditional",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "conditional=true,facing=west": {
+          "model": "repeating_command_block_conditional",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "conditional",
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "repeating_command_block",
+        "repeating_command_block_conditional"
+      ],
+      "resolvedModels": {
+        "repeating_command_block": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "repeating_command_block_conditional": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "resin_brick_slab": {
       "isMultipart": false,
       "variants": {
@@ -39581,6 +41182,63 @@
         },
         "small_dripleaf_top": {
           "elementCount": 8,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "smoker": {
+      "isMultipart": false,
+      "variants": {
+        "facing=east": {
+          "model": "smoker",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north": {
+          "model": "smoker",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south": {
+          "model": "smoker",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west": {
+          "model": "smoker",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "facing"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "smoker",
+        "smoker_on"
+      ],
+      "resolvedModels": {
+        "smoker": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "smoker_on": {
+          "elementCount": 1,
           "hasAO": true
         }
       },

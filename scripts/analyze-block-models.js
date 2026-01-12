@@ -118,6 +118,29 @@ const FULL_CUBE_BLOCKS = new Set([
   // etc - these are handled by greedy meshing
 ]);
 
+// Full cubes that NEED V3 handling due to state-dependent textures or complex rotation
+// These have different textures based on properties (open/closed, lit/unlit, facing with 6-way rotation)
+const STATE_DEPENDENT_FULL_CUBES = new Set([
+  // Barrels: 6-way facing + open/closed state changes top texture
+  'barrel',
+  // Furnaces/Smokers/Blast Furnaces: lit state changes front texture
+  'furnace', 'blast_furnace', 'smoker',
+  // Beehives/Bee Nests: honey_level changes front texture
+  'beehive', 'bee_nest',
+  // Carved Pumpkin/Jack o'Lantern: 4-way facing
+  'carved_pumpkin', 'jack_o_lantern',
+  // Observer: facing + powered changes texture
+  'observer',
+  // Dispensers/Droppers: facing + triggered state
+  'dispenser', 'dropper',
+  // Command blocks: facing + conditional
+  'command_block', 'chain_command_block', 'repeating_command_block',
+  // Loom: facing
+  'loom',
+  // Crafter: facing + crafting/triggered states
+  'crafter',
+]);
+
 // Blocks with shade: false (cross-model plants, etc.)
 // These blocks should not have directional face shading
 const NO_SHADE_BLOCKS = new Set([
@@ -488,9 +511,8 @@ async function analyzeAllBlocks() {
     const isFullCube = fullCubeCount > 0 && nonFullCubeCount === 0;
     
     // Skip full cube blocks - they're handled by the greedy mesher
-    // Full cubes with variants (like podzol snowy, barrel facing) still go to greedy
-    // because the greedy mesher handles rotation/axis and the geometry is identical
-    if (isFullCube) {
+    // UNLESS they need state-dependent textures (barrel open/closed, furnace lit, etc.)
+    if (isFullCube && !STATE_DEPENDENT_FULL_CUBES.has(blockName)) {
       skippedCount++;
       continue;
     }
