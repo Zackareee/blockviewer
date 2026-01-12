@@ -1,6 +1,6 @@
 {
   "version": "1.21.1",
-  "generatedAt": "2026-01-12T02:05:02.208Z",
+  "generatedAt": "2026-01-12T02:12:38.271Z",
   "blocks": {
     "acacia_button": {
       "isMultipart": false,
@@ -10746,6 +10746,61 @@
         "noShade": false
       }
     },
+    "copper_bulb": {
+      "isMultipart": false,
+      "variants": {
+        "powered=false": {
+          "model": "copper_bulb",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "powered=true": {
+          "model": "copper_bulb_powered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "copper_bulb",
+        "copper_bulb_powered",
+        "copper_bulb_lit",
+        "copper_bulb_lit_powered"
+      ],
+      "resolvedModels": {
+        "copper_bulb": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "copper_bulb_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "copper_bulb_lit": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "copper_bulb_lit_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "copper_chain": {
       "isMultipart": false,
       "variants": {
@@ -18039,6 +18094,61 @@
         "noShade": false
       }
     },
+    "exposed_copper_bulb": {
+      "isMultipart": false,
+      "variants": {
+        "powered=false": {
+          "model": "exposed_copper_bulb",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "powered=true": {
+          "model": "exposed_copper_bulb_powered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "exposed_copper_bulb",
+        "exposed_copper_bulb_powered",
+        "exposed_copper_bulb_lit",
+        "exposed_copper_bulb_lit_powered"
+      ],
+      "resolvedModels": {
+        "exposed_copper_bulb": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "exposed_copper_bulb_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "exposed_copper_bulb_lit": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "exposed_copper_bulb_lit_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "exposed_copper_chain": {
       "isMultipart": false,
       "variants": {
@@ -21260,6 +21370,104 @@
       ],
       "resolvedModels": {
         "jack_o_lantern": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "jigsaw": {
+      "isMultipart": false,
+      "variants": {
+        "orientation=down_east": {
+          "model": "jigsaw",
+          "rotX": 90,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "orientation=down_north": {
+          "model": "jigsaw",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "orientation=down_south": {
+          "model": "jigsaw",
+          "rotX": 90,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "orientation=down_west": {
+          "model": "jigsaw",
+          "rotX": 90,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "orientation=east_up": {
+          "model": "jigsaw",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "orientation=north_up": {
+          "model": "jigsaw",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "orientation=south_up": {
+          "model": "jigsaw",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "orientation=up_east": {
+          "model": "jigsaw",
+          "rotX": 270,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "orientation=up_north": {
+          "model": "jigsaw",
+          "rotX": 270,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "orientation=up_south": {
+          "model": "jigsaw",
+          "rotX": 270,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "orientation=up_west": {
+          "model": "jigsaw",
+          "rotX": 270,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "orientation=west_up": {
+          "model": "jigsaw",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "orientation"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "jigsaw"
+      ],
+      "resolvedModels": {
+        "jigsaw": {
           "elementCount": 1,
           "hasAO": true
         }
@@ -29215,6 +29423,61 @@
         "hasPositionOffset": true,
         "isTransparent": true,
         "noShade": true
+      }
+    },
+    "oxidized_copper_bulb": {
+      "isMultipart": false,
+      "variants": {
+        "powered=false": {
+          "model": "oxidized_copper_bulb",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "powered=true": {
+          "model": "oxidized_copper_bulb_powered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "oxidized_copper_bulb",
+        "oxidized_copper_bulb_powered",
+        "oxidized_copper_bulb_lit",
+        "oxidized_copper_bulb_lit_powered"
+      ],
+      "resolvedModels": {
+        "oxidized_copper_bulb": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "oxidized_copper_bulb_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "oxidized_copper_bulb_lit": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "oxidized_copper_bulb_lit_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
       }
     },
     "oxidized_copper_chain": {
@@ -39240,6 +39503,43 @@
         "noShade": false
       }
     },
+    "redstone_lamp": {
+      "isMultipart": false,
+      "variants": {
+        "default": {
+          "model": "redstone_lamp",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "redstone_lamp",
+        "redstone_lamp_on"
+      ],
+      "resolvedModels": {
+        "redstone_lamp": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "redstone_lamp_on": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "redstone_torch": {
       "isMultipart": false,
       "variants": {
@@ -44951,6 +45251,71 @@
         "noShade": false
       }
     },
+    "structure_block": {
+      "isMultipart": false,
+      "variants": {
+        "mode=corner": {
+          "model": "structure_block_corner",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "mode=data": {
+          "model": "structure_block_data",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "mode=load": {
+          "model": "structure_block_load",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "mode=save": {
+          "model": "structure_block_save",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "mode"
+      ],
+      "flipProperties": [],
+      "flagProperties": [],
+      "uniqueModels": [
+        "structure_block_corner",
+        "structure_block_data",
+        "structure_block_load",
+        "structure_block_save"
+      ],
+      "resolvedModels": {
+        "structure_block_corner": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "structure_block_data": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "structure_block_load": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "structure_block_save": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "structure_void": {
       "isMultipart": false,
       "variants": {
@@ -48526,6 +48891,61 @@
         "noShade": false
       }
     },
+    "waxed_copper_bulb": {
+      "isMultipart": false,
+      "variants": {
+        "powered=false": {
+          "model": "copper_bulb",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "powered=true": {
+          "model": "copper_bulb_powered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "copper_bulb",
+        "copper_bulb_powered",
+        "copper_bulb_lit",
+        "copper_bulb_lit_powered"
+      ],
+      "resolvedModels": {
+        "copper_bulb": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "copper_bulb_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "copper_bulb_lit": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "copper_bulb_lit_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "waxed_copper_chain": {
       "isMultipart": false,
       "variants": {
@@ -49363,6 +49783,61 @@
         },
         "cut_copper_stairs": {
           "elementCount": 2,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "waxed_exposed_copper_bulb": {
+      "isMultipart": false,
+      "variants": {
+        "powered=false": {
+          "model": "exposed_copper_bulb",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "powered=true": {
+          "model": "exposed_copper_bulb_powered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "exposed_copper_bulb",
+        "exposed_copper_bulb_powered",
+        "exposed_copper_bulb_lit",
+        "exposed_copper_bulb_lit_powered"
+      ],
+      "resolvedModels": {
+        "exposed_copper_bulb": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "exposed_copper_bulb_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "exposed_copper_bulb_lit": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "exposed_copper_bulb_lit_powered": {
+          "elementCount": 1,
           "hasAO": true
         }
       },
@@ -50428,6 +50903,61 @@
         "noShade": false
       }
     },
+    "waxed_oxidized_copper_bulb": {
+      "isMultipart": false,
+      "variants": {
+        "powered=false": {
+          "model": "oxidized_copper_bulb",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "powered=true": {
+          "model": "oxidized_copper_bulb_powered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "oxidized_copper_bulb",
+        "oxidized_copper_bulb_powered",
+        "oxidized_copper_bulb_lit",
+        "oxidized_copper_bulb_lit_powered"
+      ],
+      "resolvedModels": {
+        "oxidized_copper_bulb": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "oxidized_copper_bulb_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "oxidized_copper_bulb_lit": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "oxidized_copper_bulb_lit_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "waxed_oxidized_copper_chain": {
       "isMultipart": false,
       "variants": {
@@ -51379,6 +51909,61 @@
         "noShade": false
       }
     },
+    "waxed_weathered_copper_bulb": {
+      "isMultipart": false,
+      "variants": {
+        "powered=false": {
+          "model": "weathered_copper_bulb",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "powered=true": {
+          "model": "weathered_copper_bulb_powered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "weathered_copper_bulb",
+        "weathered_copper_bulb_powered",
+        "weathered_copper_bulb_lit",
+        "weathered_copper_bulb_lit_powered"
+      ],
+      "resolvedModels": {
+        "weathered_copper_bulb": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "weathered_copper_bulb_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "weathered_copper_bulb_lit": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "weathered_copper_bulb_lit_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
     "waxed_weathered_copper_chain": {
       "isMultipart": false,
       "variants": {
@@ -52320,6 +52905,61 @@
         },
         "lightning_rod_on": {
           "elementCount": 2,
+          "hasAO": true
+        }
+      },
+      "flags": {
+        "hasRandomRotation": false,
+        "hasPositionOffset": false,
+        "isTransparent": false,
+        "noShade": false
+      }
+    },
+    "weathered_copper_bulb": {
+      "isMultipart": false,
+      "variants": {
+        "powered=false": {
+          "model": "weathered_copper_bulb",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "powered=true": {
+          "model": "weathered_copper_bulb_powered",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        }
+      },
+      "rotationProperties": [],
+      "geometryProperties": [
+        "powered"
+      ],
+      "flipProperties": [],
+      "flagProperties": [
+        "lit"
+      ],
+      "uniqueModels": [
+        "weathered_copper_bulb",
+        "weathered_copper_bulb_powered",
+        "weathered_copper_bulb_lit",
+        "weathered_copper_bulb_lit_powered"
+      ],
+      "resolvedModels": {
+        "weathered_copper_bulb": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "weathered_copper_bulb_powered": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "weathered_copper_bulb_lit": {
+          "elementCount": 1,
+          "hasAO": true
+        },
+        "weathered_copper_bulb_lit_powered": {
+          "elementCount": 1,
           "hasAO": true
         }
       },

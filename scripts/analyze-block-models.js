@@ -137,8 +137,17 @@ const STATE_DEPENDENT_FULL_CUBES = new Set([
   'command_block', 'chain_command_block', 'repeating_command_block',
   // Loom: facing
   'loom',
-  // Crafter: facing + crafting/triggered states
+  // Crafter: orientation (12 rotations) + crafting/triggered states
   'crafter',
+  // Jigsaw: orientation (12 rotations) with different textures on each face
+  'jigsaw',
+  // Structure block: mode changes texture
+  'structure_block',
+  // Redstone lamp: lit state changes texture
+  'redstone_lamp',
+  // Copper bulbs: lit + powered changes texture (all variants)
+  'copper_bulb', 'exposed_copper_bulb', 'weathered_copper_bulb', 'oxidized_copper_bulb',
+  'waxed_copper_bulb', 'waxed_exposed_copper_bulb', 'waxed_weathered_copper_bulb', 'waxed_oxidized_copper_bulb',
 ]);
 
 // Blocks with shade: false (cross-model plants, etc.)
