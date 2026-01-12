@@ -447,7 +447,8 @@ async function analyzeAllBlocks() {
     
     // Resolve actual model geometry for each unique model
     const resolvedModels = {};
-    let isFullCube = false;
+    let fullCubeCount = 0;
+    let nonFullCubeCount = 0;
     for (const modelName of analysis.uniqueModels) {
       const resolved = resolveModel(modelName, modelCache);
       if (resolved && resolved.elements && resolved.elements.length > 0) {
@@ -457,6 +458,7 @@ async function analyzeAllBlocks() {
         };
         
         // Check if this is a full cube model (single element from 0,0,0 to 16,16,16)
+        let isThisModelFullCube = false;
         if (resolved.elements.length === 1) {
           const elem = resolved.elements[0];
           const from = elem.from || [0, 0, 0];
@@ -469,15 +471,26 @@ async function analyzeAllBlocks() {
                 faces.includes('north') && faces.includes('south') &&
                 faces.includes('east') && faces.includes('west') &&
                 faces.includes('up') && faces.includes('down')) {
-              isFullCube = true;
+              isThisModelFullCube = true;
             }
           }
+        }
+        
+        if (isThisModelFullCube) {
+          fullCubeCount++;
+        } else {
+          nonFullCubeCount++;
         }
       }
     }
     
+    // Only skip if ALL models are full cubes (not just some, like double slabs)
+    const isFullCube = fullCubeCount > 0 && nonFullCubeCount === 0;
+    
     // Skip full cube blocks - they're handled by the greedy mesher
-    if (isFullCube && Object.keys(analysis.variants).length <= 1) {
+    // Full cubes with variants (like podzol snowy, barrel facing) still go to greedy
+    // because the greedy mesher handles rotation/axis and the geometry is identical
+    if (isFullCube) {
       skippedCount++;
       continue;
     }
