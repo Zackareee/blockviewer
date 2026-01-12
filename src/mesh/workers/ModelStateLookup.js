@@ -23,18 +23,22 @@ export const STATE_FLAGS = {
 };
 
 // Facing to rotation mapping
+// Adjusted to compensate for model baking orientation
 const FACING_TO_ROTATION = {
-  north: 0,
-  east: 1,
-  south: 2,
-  west: 3,
+  north: 3,
+  east: 0,
+  south: 1,
+  west: 2,
 };
 
 // Axis to rotation (for logs, pillars)
-const AXIS_TO_ROTATION = {
-  y: 0, // No rotation
-  x: 1, // 90° X rotation (handled differently)
-  z: 2, // 90° Z rotation
+// Axis encoding - stored in upper bits of rotation field
+// Rotation field is 4 bits: [axis (2 bits) | y_rotation (2 bits)]
+// axis: 0=Y (default), 1=X, 2=Z
+const AXIS_TO_BITS = {
+  y: 0,
+  x: 1,
+  z: 2,
 };
 
 /**
@@ -102,8 +106,7 @@ export class ModelStateLookup {
   
   /**
    * Check if a block is a model block (has pre-baked geometry)
-   * Returns true only if the block has variants in the manifest.
-   * Blocks with 0 variants (full cubes) should be rendered by greedy mesher.
+   * Returns true if the block has variants in the manifest.
    * @param {string} blockName - Block name (without minecraft:)
    * @returns {boolean} True if this is a model block with geometry
    */
@@ -162,14 +165,6 @@ export class ModelStateLookup {
   }
   
   /**
-   * Check if a block is a model block (has geometry in registry)
-   */
-  isModelBlock(blockName) {
-    const normalized = blockName.replace('minecraft:', '');
-    return this.blockNameToIndex.has(normalized);
-  }
-  
-  /**
    * Get block index by name
    */
   getBlockIndex(blockName) {
@@ -197,24 +192,31 @@ export class ModelStateLookup {
   
   /**
    * Get rotation value from rotation properties
+   * Returns a 4-bit value: [axis (2 bits) | y_rotation (2 bits)]
+   * - Bits 0-1: Y-axis rotation (0-3 = 0°/90°/180°/270°)
+   * - Bits 2-3: Axis (0=Y, 1=X, 2=Z)
    */
   _getRotation(properties, rotationProperties) {
+    let yRotation = 0;
+    let axisBits = 0;
+    
     for (const prop of rotationProperties) {
       const value = properties[prop];
       if (value !== undefined) {
         if (prop === 'facing') {
-          return FACING_TO_ROTATION[value] ?? 0;
-        }
-        if (prop === 'axis') {
-          return AXIS_TO_ROTATION[value] ?? 0;
-        }
-        if (prop === 'rotation') {
+          yRotation = FACING_TO_ROTATION[value] ?? 0;
+        } else if (prop === 'axis') {
+          // Axis stored in upper 2 bits
+          axisBits = AXIS_TO_BITS[value] ?? 0;
+        } else if (prop === 'rotation') {
           // For signs: 0-15 → 0-3 (90° increments)
-          return Math.floor(parseInt(value, 10) / 4) % 4;
+          yRotation = Math.floor(parseInt(value, 10) / 4) % 4;
         }
       }
     }
-    return 0;
+    
+    // Pack: [axis (2 bits) | y_rotation (2 bits)]
+    return (axisBits << 2) | (yRotation & 0x3);
   }
   
   /**

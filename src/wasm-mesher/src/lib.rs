@@ -273,6 +273,7 @@ impl ModelMeshResultWasm {
     pub fn opaque_tint_types(&self) -> Vec<f32> { self.opaque.tint_types.clone() }
     pub fn opaque_sky_light(&self) -> Vec<f32> { self.opaque.sky_light.clone() }
     pub fn opaque_block_light(&self) -> Vec<f32> { self.opaque.block_light.clone() }
+    pub fn opaque_shade_flags(&self) -> Vec<f32> { self.opaque.shade_flags.clone() }
     pub fn opaque_position_count(&self) -> u32 { self.opaque.positions.len() as u32 }
     pub fn opaque_index_count(&self) -> u32 { self.opaque.indices.len() as u32 }
     pub fn opaque_vertex_count(&self) -> u32 { (self.opaque.positions.len() / 3) as u32 }
@@ -287,6 +288,7 @@ impl ModelMeshResultWasm {
     pub fn transparent_tint_types(&self) -> Vec<f32> { self.transparent.tint_types.clone() }
     pub fn transparent_sky_light(&self) -> Vec<f32> { self.transparent.sky_light.clone() }
     pub fn transparent_block_light(&self) -> Vec<f32> { self.transparent.block_light.clone() }
+    pub fn transparent_shade_flags(&self) -> Vec<f32> { self.transparent.shade_flags.clone() }
     pub fn transparent_position_count(&self) -> u32 { self.transparent.positions.len() as u32 }
     pub fn transparent_index_count(&self) -> u32 { self.transparent.indices.len() as u32 }
     pub fn transparent_vertex_count(&self) -> u32 { (self.transparent.positions.len() / 3) as u32 }
@@ -301,6 +303,7 @@ impl ModelMeshResultWasm {
     pub fn overlay_tint_types(&self) -> Vec<f32> { self.overlay.tint_types.clone() }
     pub fn overlay_sky_light(&self) -> Vec<f32> { self.overlay.sky_light.clone() }
     pub fn overlay_block_light(&self) -> Vec<f32> { self.overlay.block_light.clone() }
+    pub fn overlay_shade_flags(&self) -> Vec<f32> { self.overlay.shade_flags.clone() }
     pub fn overlay_position_count(&self) -> u32 { self.overlay.positions.len() as u32 }
     pub fn overlay_index_count(&self) -> u32 { self.overlay.indices.len() as u32 }
     pub fn overlay_vertex_count(&self) -> u32 { (self.overlay.positions.len() / 3) as u32 }

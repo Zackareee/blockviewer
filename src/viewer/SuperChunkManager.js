@@ -847,19 +847,30 @@ export class SuperChunkManager {
       // Get serialized model geometry for worker WASM model registry (V2 - legacy)
       const modelGeometryData = getSerializedModelGeometry(this.stateRegistry);
       
-      // Load V3 baked models and manifest for worker model meshing
+      // Load V3 baked models, manifest, and texture mapping for worker model meshing
       let bakedModelsData = null;
       let manifestData = null;
+      let textureRemapping = null;
       try {
-        const [bakedResponse, manifestResponse] = await Promise.all([
+        const [bakedResponse, manifestResponse, texturesResponse] = await Promise.all([
           fetch('/assets/baked-models.bin'),
           fetch('/assets/block-model-manifest.json'),
+          fetch('/assets/baked-models-textures.json'),
         ]);
         
         if (bakedResponse.ok && manifestResponse.ok) {
           bakedModelsData = await bakedResponse.arrayBuffer();
           manifestData = await manifestResponse.json();
           console.log(`[SuperChunkManager] V3 baked models loaded: ${(bakedModelsData.byteLength / 1024).toFixed(1)} KB, manifest has ${Object.keys(manifestData.blocks || {}).length} blocks`);
+          
+          // Build texture remapping from baked indices to atlas indices
+          if (texturesResponse.ok) {
+            const bakedTextures = await texturesResponse.json();
+            textureRemapping = this._buildTextureRemapping(bakedTextures, textureIndexLookup);
+            console.log(`[SuperChunkManager] Built texture remapping: ${textureRemapping.length} entries`);
+          } else {
+            console.warn('[SuperChunkManager] baked-models-textures.json not found, texture mapping may be incorrect');
+          }
         } else {
           console.warn('[SuperChunkManager] Failed to load V3 baked models, falling back to main-thread model meshing');
         }
@@ -877,7 +888,8 @@ export class SuperChunkManager {
         wasmLookups, 
         modelGeometryData,
         bakedModelsData,
-        manifestData
+        manifestData,
+        textureRemapping
       );
       
       this.superChunkWorkerPoolInitialized = true;
@@ -888,6 +900,79 @@ export class SuperChunkManager {
       this.useSuperChunkWorkerPool = false;
       return false;
     }
+  }
+  
+  /**
+   * Build texture remapping from baked model indices to atlas indices
+   * @param {Object} bakedTextures - Map of texture name to baked index (from baked-models-textures.json)
+   * @param {TextureIndexLookup} textureIndexLookup - Browser's texture index lookup
+   * @returns {Uint16Array|null} Remapping array where remapping[bakedIndex] = atlasIndex
+   */
+  _buildTextureRemapping(bakedTextures, textureIndexLookup) {
+    if (!bakedTextures || !textureIndexLookup) {
+      console.warn('[SuperChunkManager] Cannot build texture remapping - missing data');
+      return null;
+    }
+    
+    // Get the atlas's texture path to index mapping
+    const atlasPathToIndex = textureIndexLookup.texturePathToIndex;
+    if (!atlasPathToIndex) {
+      console.warn('[SuperChunkManager] TextureIndexLookup has no texturePathToIndex');
+      return null;
+    }
+    
+    // Find max baked index to size the array
+    let maxBakedIndex = 0;
+    for (const bakedIndex of Object.values(bakedTextures)) {
+      if (bakedIndex > maxBakedIndex) maxBakedIndex = bakedIndex;
+    }
+    
+    // Create remapping array
+    const remapping = new Uint16Array(maxBakedIndex + 1);
+    let matched = 0;
+    let unmatched = 0;
+    const defaultIndex = textureIndexLookup.defaultIndex || 0;
+    
+    // Fill with default first
+    remapping.fill(defaultIndex);
+    
+    // Build the remapping
+    for (const [textureName, bakedIndex] of Object.entries(bakedTextures)) {
+      // Try multiple path formats to find the atlas texture
+      const pathsToTry = [
+        `block/${textureName}`,           // Most textures
+        textureName,                       // Already has path
+        `item/${textureName}`,             // Some items
+      ];
+      
+      let atlasIndex = undefined;
+      for (const path of pathsToTry) {
+        atlasIndex = atlasPathToIndex.get(path);
+        if (atlasIndex !== undefined) break;
+      }
+      
+      if (atlasIndex !== undefined) {
+        remapping[bakedIndex] = atlasIndex;
+        matched++;
+      } else {
+        unmatched++;
+        // Keep default index for unmatched
+      }
+    }
+    
+    console.log(`[SuperChunkManager] Texture remapping: ${matched} matched, ${unmatched} unmatched (using default ${defaultIndex})`);
+    
+    // Debug: show a few mappings
+    const sampleMappings = ['stone', 'dirt', 'oak_planks', 'glass'];
+    for (const name of sampleMappings) {
+      const bakedIdx = bakedTextures[name];
+      if (bakedIdx !== undefined) {
+        const atlasIdx = remapping[bakedIdx];
+        console.log(`  ${name}: baked=${bakedIdx} -> atlas=${atlasIdx}`);
+      }
+    }
+    
+    return remapping;
   }
   
   /**
@@ -1431,10 +1516,10 @@ export class SuperChunkManager {
    * All meshes for a super-chunk are created together to avoid visual popping.
    */
   async _createMeshesFromWorkerResult(superChunk, result) {
-    // Log V3 debug info if present (for debugging model meshing)
-    if (result.v3Debug) {
-      console.log(`[V3 Debug] Worker result:`, result.v3Debug);
-    }
+    // Debug logging disabled for performance
+    // if (result.v3Debug) {
+    //   console.log(`[V3 Debug] Worker result:`, result.v3Debug);
+    // }
     
     // Solid mesh
     if (result.solid && result.solid.positions.length > 0) {
@@ -1476,11 +1561,15 @@ export class SuperChunkManager {
     }
     
     // V3: Model meshes come directly from worker WASM
+    // Track if V3 produced any model meshes to skip legacy fallback
+    let v3ProducedModels = false;
+    
     if (result.modelOpaque && result.modelOpaque.positions?.length > 0) {
       const mesh = this._createMesh(result.modelOpaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
       if (mesh) {
         superChunk.meshes.push(mesh);
         this.chunkManager.modelMeshes.push(mesh);
+        v3ProducedModels = true;
       }
     }
     
@@ -1490,6 +1579,7 @@ export class SuperChunkManager {
         mesh.renderOrder = 0.5;
         superChunk.meshes.push(mesh);
         this.chunkManager.transparentModelMeshes.push(mesh);
+        v3ProducedModels = true;
       }
     }
     
@@ -1499,6 +1589,7 @@ export class SuperChunkManager {
         mesh.renderOrder = 0.1;
         superChunk.meshes.push(mesh);
         this.chunkManager.overlayMeshes?.push(mesh);
+        v3ProducedModels = true;
       }
     }
     
@@ -1515,7 +1606,10 @@ export class SuperChunkManager {
       }
     }
     
-    // Legacy fallback: Build model meshes from grids (deferred to not block the frame)
+    // Legacy fallback: Build model meshes from grids for multipart blocks
+    // V3 handles non-multipart model blocks (stairs, slabs, doors, etc.)
+    // Legacy handles multipart blocks (fences, walls, redstone_wire, etc.)
+    // Both can run in parallel since they handle different block types
     if (result.grids) {
       // Queue model mesh building for next idle callback to avoid blocking this frame
       this._queueModelMeshBuild(superChunk, result.grids);
@@ -1671,11 +1765,13 @@ export class SuperChunkManager {
     }
     
     // Build model meshes using full ModelMesher
+    // multipartOnly=true because V3 handles non-multipart model blocks (stairs, slabs, etc.)
+    // Legacy mesher only needs to render multipart blocks (fences, walls, panes, redstone_wire)
     const offset = { x: 0, y: 0, z: 0 };
     const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
     const collectEmitters = this.chunkManager.particleQuality !== 'off';
     const effectiveLightGrid = this.chunkManager.smoothLightingEnabled ? lightGrid : null;
-    const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid, collectEmitters };
+    const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid, collectEmitters, multipartOnly: true };
     
     const result = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
     

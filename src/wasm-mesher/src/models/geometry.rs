@@ -115,6 +115,8 @@ pub struct ModelMeshData {
     pub block_light: Vec<f32>,
     /// Packed light: high nibble = sky (0-15), low nibble = block (0-15)
     pub packed_light: Vec<u8>,
+    /// Per-vertex shade flag (0.0 = no shade, 1.0 = apply directional shading)
+    pub shade_flags: Vec<f32>,
     pub indices: Vec<u32>,
     pub vertex_count: u32,
 }
@@ -131,6 +133,7 @@ impl ModelMeshData {
             sky_light: Vec::new(),
             block_light: Vec::new(),
             packed_light: Vec::new(),
+            shade_flags: Vec::new(),
             indices: Vec::new(),
             vertex_count: 0,
         }

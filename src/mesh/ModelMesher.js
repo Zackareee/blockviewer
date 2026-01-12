@@ -389,6 +389,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     lightGrid = null, 
     skipStateIds = null,
     collectEmitters = true, // Set to false to skip particle emitter collection for performance
+    // When true, only render multipart blocks (fences, walls, panes, redstone_wire)
+    // Used when V3 model meshing handles non-multipart blocks
+    multipartOnly = false,
     // CPU-side distance culling - skip generating geometry for blocks beyond this distance
     // Set to 0 to disable (default behavior for LOD0)
     cpuCullDistance = 0,
@@ -507,6 +510,12 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
           stateIsBeacon[stateId] = 1;
         }
         
+        continue;
+      }
+      
+      // When multipartOnly is true, skip non-multipart blocks (V3 handles them)
+      if (multipartOnly && blockName && !isMultipartBlock(blockName)) {
+        stateGeometries[stateId] = null;
         continue;
       }
       
@@ -1875,6 +1884,7 @@ export function buildModelMeshesWithInstancing(grid, stateGrid, registry, stateR
     lightGrid = null,
     cpuCullDistance = 0,
     cpuCullCenter = null,
+    multipartOnly = false,
   } = options;
   
   // TEMPORARY: Disable instancing until it's fully debugged
@@ -2297,6 +2307,41 @@ export function isNonCubeBlock(blockName) {
   
   // Pattern-based matching
   return NON_CUBE_PATTERNS.some(pattern => name.includes(pattern));
+}
+
+/**
+ * Patterns for multipart blocks that require legacy meshing even when V3 is active.
+ * These blocks use Minecraft's multipart model composition and are not handled by V3.
+ */
+export const MULTIPART_PATTERNS = [
+  '_fence', '_wall', '_pane', 'iron_bars', 'copper_bars',
+  'redstone_wire', 'tripwire',
+  'chorus_plant', 'vine', 'glow_lichen',
+  'fire', 'soul_fire',
+  'mushroom_block', // brown_mushroom_block, red_mushroom_block have multipart
+  'shelf', // bookshelves with state
+  'brewing_stand',
+];
+
+/**
+ * Exact match multipart blocks
+ */
+export const MULTIPART_EXACT = new Set([
+  'bamboo',
+  'chorus_plant',
+]);
+
+/**
+ * Check if a block uses multipart model composition
+ */
+export function isMultipartBlock(blockName) {
+  const name = blockName.replace('minecraft:', '');
+  
+  if (MULTIPART_EXACT.has(name)) {
+    return true;
+  }
+  
+  return MULTIPART_PATTERNS.some(pattern => name.includes(pattern));
 }
 
 export default buildModelMeshes;

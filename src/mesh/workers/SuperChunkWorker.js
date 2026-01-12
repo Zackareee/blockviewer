@@ -333,6 +333,7 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds) {
       tintTypes: new Float32Array(result.opaque_tint_types()),
       skyLight: new Float32Array(result.opaque_sky_light()),
       blockLight: new Float32Array(result.opaque_block_light()),
+      shadeFlags: new Float32Array(result.opaque_shade_flags()),
       indices: new Uint32Array(result.opaque_indices()),
       vertexCount: result.opaque_vertex_count(),
     },
@@ -345,6 +346,7 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds) {
       tintTypes: new Float32Array(result.transparent_tint_types()),
       skyLight: new Float32Array(result.transparent_sky_light()),
       blockLight: new Float32Array(result.transparent_block_light()),
+      shadeFlags: new Float32Array(result.transparent_shade_flags()),
       indices: new Uint32Array(result.transparent_indices()),
       vertexCount: result.transparent_vertex_count(),
     },
@@ -357,6 +359,7 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds) {
       tintTypes: new Float32Array(result.overlay_tint_types()),
       skyLight: new Float32Array(result.overlay_sky_light()),
       blockLight: new Float32Array(result.overlay_block_light()),
+      shadeFlags: new Float32Array(result.overlay_shade_flags()),
       indices: new Uint32Array(result.overlay_indices()),
       vertexCount: result.overlay_vertex_count(),
     },
@@ -880,7 +883,22 @@ class WorkerModelStateGrid {
       }
     }
     
-    console.log(`[V3 Debug] serializeForWasm: ${nonEmptySections.length} sections, ${totalNonZeroStates} total non-zero states`);
+    // DEBUG: Log detailed V3 serialization info
+    if (nonEmptySections.length > 0) {
+      const firstSection = nonEmptySections[0];
+      const sampleStates = [];
+      for (let i = 0; i < firstSection.section.length && sampleStates.length < 5; i++) {
+        if (firstSection.section[i] !== 0) {
+          sampleStates.push({
+            index: i,
+            state: firstSection.section[i],
+            blockIdx: firstSection.section[i] & 0xFFF,
+            variantIdx: (firstSection.section[i] >> 12) & 0xFF,
+          });
+        }
+      }
+      console.log(`[V3 Debug] serializeForWasm: ${nonEmptySections.length} sections, ${totalNonZeroStates} states, samples:`, sampleStates);
+    }
     
     const sectionCount = nonEmptySections.length;
     const totalSize = 4 + sectionCount * (8 + S3 * 4);
@@ -899,9 +917,11 @@ class WorkerModelStateGrid {
       const sy = sectionY & 0xFFFF;
       
       // Pack: cx (24 bits at [40:64]) | cz (24 bits at [16:40]) | sy (16 bits at [0:16])
-      // Write as two 32-bit values for portability
-      const low = (cz << 16) | sy;
-      const high = (cx << 16) | (cz >> 8);
+      // Write as two 32-bit little-endian values
+      // low = bits 0-31: lower 16 bits of cz at [16:31], sy at [0:15]
+      // high = bits 32-63: cx at [8:31], upper 8 bits of cz at [0:7]
+      const low = ((cz & 0xFFFF) << 16) | (sy & 0xFFFF);
+      const high = ((cx & 0xFFFFFF) << 8) | ((cz >> 16) & 0xFF);
       view.setUint32(offset, low, true);
       view.setUint32(offset + 4, high, true);
       offset += 8;
@@ -1170,10 +1190,10 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
         if (modelStates && !isAir[i] && modelStateLookup.isModelBlock(shortName)) {
           const ms = modelStateLookup.getModelState(shortName, props);
           modelStates[i] = ms;
-          // Debug: Log first few model states found
-          if (ms !== 0 && totalBlocks < 5) {
-            console.log(`[V3 Debug] Found model block: ${shortName}, state=0x${ms.toString(16)}`);
-          }
+          // Debug logging disabled for performance
+          // if (ms !== 0 && totalBlocks < 5) {
+          //   console.log(`[V3 Debug] Found model block: ${shortName}, state=0x${ms.toString(16)}`);
+          // }
         }
         
         if (name.includes('water') || name.includes('lava')) {
@@ -1195,6 +1215,14 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
       // Pre-create model state section if needed
       const hasModelBlocks = modelStates && modelStates.some(ms => ms !== 0);
       
+      // Debug logging disabled for performance
+      // if (modelStates && v3RegistryInitialized) {
+      //   const modelBlocksInPalette = modelStates.filter(ms => ms !== 0).length;
+      //   if (modelBlocksInPalette > 0 && totalBlocks < 50) {
+      //     console.log(`[V3 Decode] Section (${chunkX}, ${chunkZ}, y=${baseY}): ${modelBlocksInPalette}/${palette.length} palette entries are model blocks`);
+      //   }
+      // }
+      
       if (palette.length === 1 || !blockData || blockData.length === 0) {
         if (!isAir[0]) {
           const lv = isWaterlogged[0] ? 8 : (levels[0] >= 0 ? levels[0] : 0);
@@ -1203,7 +1231,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
           if (stateSection && stateIds) stateSection.fill(stateIds[0]);
           
           // V3: Fill model state section if this is a model block
-          if (hasModelBlocks && modelStates[0] !== 0) {
+          if (hasModelBlocks && modelStates[0] !== 0 && modelStateGrid) {
             const worldBaseX = chunkX * S;
             const worldBaseZ = chunkZ * S;
             const worldBaseY = baseY;
@@ -1238,7 +1266,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
           if (stateSection && stateIds) stateSection[i] = stateIds[pi];
           
           // V3: Store model state if this is a model block
-          if (modelStates && modelStates[pi] !== 0) {
+          if (modelStates && modelStates[pi] !== 0 && modelStateGrid) {
             // Convert section index to local coords
             const ly = Math.floor(i / S2);
             const lz = Math.floor((i % S2) / S);
@@ -2524,12 +2552,23 @@ async function processSuperChunk(data) {
   const chunkResults = await Promise.all(chunkPromises);
   
   // Decode all chunks to grid
+  let totalModelStatesSet = 0;
   for (const chunk of chunkResults) {
     if (chunk) {
       decodedChunks.push(chunk);
+      const beforeSize = modelStateGrid?.size ?? 0;
       decodeChunk(chunk, grid, blockRegistry, stateGrid, stateRegistry, lightGrid, modelStateGrid);
+      const afterSize = modelStateGrid?.size ?? 0;
+      if (afterSize > beforeSize) {
+        totalModelStatesSet += (afterSize - beforeSize);
+      }
     }
   }
+  
+  // Debug logging disabled for performance
+  // if (modelStateGrid) {
+  //   console.log(`[SuperChunkWorker] After decode: modelStateGrid has ${modelStateGrid.size} sections`);
+  // }
   
   // Determine which neighbors we actually need based on loaded chunk positions
   // Only decompress neighbors adjacent to our actual chunk boundaries
@@ -2803,9 +2842,8 @@ async function processSuperChunk(data) {
     );
   }
   
-  // V3 Model Meshing - DISABLED for now, needs further debugging
-  // See docs/v3-model-meshing-debug-plan.md
-  const v3Enabled = false; // v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0;
+  // V3 Model Meshing - if V3 registry initialized, mesh models in WASM
+  const v3Enabled = v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0;
   
   // Debug info for testing
   result.v3Debug = {
@@ -2836,6 +2874,7 @@ async function processSuperChunk(data) {
           modelMeshes.modelOpaque.tintTypes.buffer,
           modelMeshes.modelOpaque.skyLight.buffer,
           modelMeshes.modelOpaque.blockLight.buffer,
+          modelMeshes.modelOpaque.shadeFlags.buffer,
           modelMeshes.modelOpaque.indices.buffer
         );
       }
@@ -2852,6 +2891,7 @@ async function processSuperChunk(data) {
           modelMeshes.modelTransparent.tintTypes.buffer,
           modelMeshes.modelTransparent.skyLight.buffer,
           modelMeshes.modelTransparent.blockLight.buffer,
+          modelMeshes.modelTransparent.shadeFlags.buffer,
           modelMeshes.modelTransparent.indices.buffer
         );
       }
@@ -2868,6 +2908,7 @@ async function processSuperChunk(data) {
           modelMeshes.modelOverlay.tintTypes.buffer,
           modelMeshes.modelOverlay.skyLight.buffer,
           modelMeshes.modelOverlay.blockLight.buffer,
+          modelMeshes.modelOverlay.shadeFlags.buffer,
           modelMeshes.modelOverlay.indices.buffer
         );
       }
@@ -2877,8 +2918,9 @@ async function processSuperChunk(data) {
         result.beaconPositions = modelMeshes.beaconPositions;
       }
       
-      // Clear grids from result since model meshing was done in worker
-      result.grids = null;
+      // Keep grids so legacy mesher can render multipart blocks (fences, walls, panes, redstone_wire)
+      // V3 handles non-multipart model blocks, legacy handles multipart
+      // result.grids is NOT cleared
     } catch (e) {
       console.warn('[SuperChunkWorker] V3 model meshing failed:', e.message);
       // Fall back to returning grids for main thread model meshing
@@ -2954,10 +2996,15 @@ self.onmessage = async function(e) {
       if (wasmReady && data.bakedModels && wasmModule) {
         try {
           const bakedData = new Uint8Array(data.bakedModels);
-          const result = wasmModule.init_block_model_registry(bakedData);
+          // Pass texture remapping if available
+          const remapping = data.textureRemapping ? new Uint16Array(data.textureRemapping) : null;
+          const result = wasmModule.init_block_model_registry(bakedData, remapping);
           if (result) {
             v3RegistryInitialized = true;
             console.log(`[SuperChunkWorker] V3 block model registry initialized: ${(bakedData.length / 1024).toFixed(1)} KB`);
+            if (remapping) {
+              console.log(`[SuperChunkWorker] Applied texture remapping with ${remapping.length} entries`);
+            }
           }
         } catch (err) {
           console.warn('[SuperChunkWorker] Failed to init V3 block model registry:', err);
@@ -2968,7 +3015,16 @@ self.onmessage = async function(e) {
       if (data.manifest) {
         modelStateLookup = new ModelStateLookup();
         modelStateLookup.init(data.manifest);
-        console.log(`[SuperChunkWorker] ModelStateLookup initialized`);
+        // Count how many blocks have variants (actual model blocks)
+        let modelBlockCount = 0;
+        for (const [name, blockData] of Object.entries(data.manifest.blocks)) {
+          if (Object.keys(blockData.variants).length > 0) {
+            modelBlockCount++;
+          }
+        }
+        console.log(`[SuperChunkWorker] ModelStateLookup initialized: ${modelBlockCount} model blocks with variants`);
+      } else {
+        console.warn(`[SuperChunkWorker] No manifest data - V3 will not work`);
       }
       
       workerInitialized = true;

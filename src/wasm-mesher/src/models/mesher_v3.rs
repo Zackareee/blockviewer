@@ -43,17 +43,30 @@ pub fn mesh_models_v3(
     let mut result = ModelMeshResult::new();
     let mut blocks_found = 0u32;
     let mut blocks_meshed = 0u32;
-    let mut faces_emitted = 0u32;
+    let mut _faces_emitted = 0u32;
     
-    web_sys::console::log_1(&format!("[WASM mesh_models_v3] Registry has {} blocks", registry.len()).into());
-    web_sys::console::log_1(&format!("[WASM mesh_models_v3] ModelStateGrid has {} sections", model_state_grid.section_count()).into());
+    // Debug logging for V3 debugging
+    web_sys::console::log_1(&format!("[WASM mesh_models_v3] Registry has {} blocks, grid has {} sections", registry.len(), model_state_grid.section_count()).into());
     
     // Iterate over sections with model states
+    let mut section_count = 0u32;
     for (key, section) in model_state_grid.iter_sections_with_states() {
+        section_count += 1;
+        if section_count <= 2 {
+            let non_empty = section.iter().filter(|s| !s.is_empty()).count();
+            web_sys::console::log_1(&format!("[WASM V3] Section ({}, {}, {}): {} non-empty states", 
+                key.chunk_x, key.chunk_z, key.section_y, non_empty).into());
+        }
+        
         // Check bounds
         if let Some(b) = bounds {
             if key.chunk_x < b.min_chunk_x || key.chunk_x > b.max_chunk_x ||
                key.chunk_z < b.min_chunk_z || key.chunk_z > b.max_chunk_z {
+                if section_count <= 2 {
+                    web_sys::console::log_1(&format!("[WASM V3] Section ({}, {}) SKIPPED - out of bounds [{},{}] to [{},{}]", 
+                        key.chunk_x, key.chunk_z,
+                        b.min_chunk_x, b.min_chunk_z, b.max_chunk_x, b.max_chunk_z).into());
+                }
                 continue;
             }
         }
@@ -77,7 +90,10 @@ pub fn mesh_models_v3(
                     
                     let block_idx = state.block_index();
                     let variant_idx = state.variant_index();
-                    let rotation = state.rotation();
+                    let rotation_packed = state.rotation();
+                    // Unpack rotation: [axis (2 bits) | y_rotation (2 bits)]
+                    let y_rotation = rotation_packed & 0x3;
+                    let axis = (rotation_packed >> 2) & 0x3;
                     let is_flipped = state.is_flipped();
                     
                     // Get block data from registry
@@ -118,11 +134,11 @@ pub fn mesh_models_v3(
                     }
                     
                     // Get additional rotation for random-rotation blocks
-                    let total_rotation = if block.has_random_rotation() {
+                    let total_y_rotation = if block.has_random_rotation() {
                         let pos_rot = get_position_rotation(world_x, world_y, world_z);
-                        (rotation + pos_rot) % 4
+                        (y_rotation + pos_rot) % 4
                     } else {
-                        rotation
+                        y_rotation
                     };
                     
                     // Get position offset for offset blocks
@@ -150,7 +166,7 @@ pub fn mesh_models_v3(
                     // Process each face
                     for face in &variant.faces {
                         // Check if face should be culled
-                        if should_cull_face_v3(grid, lookups, world_x, world_y, world_z, face, total_rotation, is_flipped) {
+                        if should_cull_face_v3(grid, lookups, world_x, world_y, world_z, face, total_y_rotation, axis, is_flipped) {
                             continue;
                         }
                         
@@ -158,19 +174,23 @@ pub fn mesh_models_v3(
                         let vertex_ao = calculate_face_ao_v3(
                             grid, lookups, light_grid,
                             world_x, world_y, world_z,
-                            face, total_rotation, is_flipped,
+                            face, total_y_rotation, axis, is_flipped,
                         );
                         
                         // Emit face with rotation/flip applied
+                        // shade_flag = 1.0 for shaded blocks, 0.0 for no-shade blocks (cross models)
+                        let shade_flag = if block.has_no_shade() { 0.0 } else { 1.0 };
                         emit_face_v3_with_ao(
                             target,
                             face,
                             world_x as f32 + offset_x,
                             world_y as f32,
                             world_z as f32 + offset_z,
-                            total_rotation,
+                            total_y_rotation,
+                            axis,
                             is_flipped,
                             &vertex_ao,
+                            shade_flag,
                         );
                     }
                     
@@ -181,12 +201,14 @@ pub fn mesh_models_v3(
         }
     }
     
-    web_sys::console::log_1(&format!(
-        "[WASM mesh_models_v3] Found {} blocks, meshed {}, opaque verts={}, trans verts={}",
-        blocks_found, blocks_meshed,
-        result.opaque.positions.len() / 3,
-        result.transparent.positions.len() / 3
-    ).into());
+    // Debug logging disabled for performance
+    // web_sys::console::log_1(&format!(
+    //     "[WASM mesh_models_v3] Found {} blocks, meshed {}, opaque verts={}, trans verts={}",
+    //     blocks_found, blocks_meshed,
+    //     result.opaque.positions.len() / 3,
+    //     result.transparent.positions.len() / 3
+    // ).into());
+    let _ = (blocks_found, blocks_meshed, _faces_emitted); // Suppress unused warnings
     
     result
 }
@@ -199,7 +221,8 @@ fn should_cull_face_v3(
     world_y: i32,
     world_z: i32,
     face: &BakedFace,
-    rotation: u8,
+    y_rotation: u8,
+    axis: u8,
     is_flipped: bool,
 ) -> bool {
     // If no cullface, never cull
@@ -208,8 +231,8 @@ fn should_cull_face_v3(
         None => return false,
     };
     
-    // Transform cullface by rotation and flip
-    let transformed = transform_direction(cullface, rotation, is_flipped);
+    // Transform cullface by axis, rotation and flip
+    let transformed = transform_direction(cullface, y_rotation, axis, is_flipped);
     
     // Get neighbor position
     let (nx, ny, nz) = direction_offset(transformed);
@@ -228,56 +251,81 @@ fn should_cull_face_v3(
     lookups.is_opaque(block_id) && !lookups.is_non_cube(block_id)
 }
 
-/// Transform a direction by rotation and vertical flip
-fn transform_direction(dir: FaceDirection, rotation: u8, is_flipped: bool) -> FaceDirection {
+/// Transform a direction by axis rotation, Y rotation, and vertical flip
+fn transform_direction(dir: FaceDirection, y_rotation: u8, axis: u8, is_flipped: bool) -> FaceDirection {
     use FaceDirection::*;
     
-    // Vertical flip swaps up/down
+    // First apply axis rotation
+    let after_axis = match axis {
+        1 => {
+            // X-axis: 90° around Z axis
+            match dir {
+                Up => North,
+                Down => South,
+                North => Down,
+                South => Up,
+                other => other, // East/West unchanged
+            }
+        }
+        2 => {
+            // Z-axis: 90° around X axis
+            match dir {
+                Up => West,
+                Down => East,
+                West => Down,
+                East => Up,
+                other => other, // North/South unchanged
+            }
+        }
+        _ => dir, // Y-axis (default): no change
+    };
+    
+    // Then apply vertical flip
     let after_flip = if is_flipped {
-        match dir {
+        match after_axis {
             Up => Down,
             Down => Up,
             other => other,
         }
     } else {
-        dir
+        after_axis
     };
     
-    // Horizontal rotation (Y-axis)
-    if rotation == 0 {
+    // Finally apply Y-axis rotation (CCW to match rotate_vertex)
+    if y_rotation == 0 {
         return after_flip;
     }
     
     match after_flip {
         North => {
-            match rotation {
-                1 => East,
+            match y_rotation {
+                1 => West,  // CCW: North -> West
                 2 => South,
-                3 => West,
+                3 => East,  // CCW: North -> East
                 _ => North,
             }
         }
         East => {
-            match rotation {
-                1 => South,
+            match y_rotation {
+                1 => North, // CCW: East -> North
                 2 => West,
-                3 => North,
+                3 => South, // CCW: East -> South
                 _ => East,
             }
         }
         South => {
-            match rotation {
-                1 => West,
+            match y_rotation {
+                1 => East,  // CCW: South -> East
                 2 => North,
-                3 => East,
+                3 => West,  // CCW: South -> West
                 _ => South,
             }
         }
         West => {
-            match rotation {
-                1 => North,
+            match y_rotation {
+                1 => South, // CCW: West -> South
                 2 => East,
-                3 => South,
+                3 => North, // CCW: West -> North
                 _ => West,
             }
         }
@@ -299,14 +347,16 @@ fn direction_offset(dir: FaceDirection) -> (i32, i32, i32) {
     }
 }
 
-/// Emit a face to the mesh data with rotation/flip applied
+/// Emit a face to the mesh data with rotation/flip applied (legacy, without per-vertex AO)
+#[allow(dead_code)]
 fn emit_face_v3(
     mesh: &mut ModelMeshData,
     face: &BakedFace,
     world_x: f32,
     world_y: f32,
     world_z: f32,
-    rotation: u8,
+    y_rotation: u8,
+    axis: u8,
     is_flipped: bool,
     sky_light: u8,
     block_light: u8,
@@ -317,8 +367,8 @@ fn emit_face_v3(
     for i in 0..4 {
         let v = face.vertices[i];
         
-        // Apply rotation around center (0.5, 0.5, 0.5)
-        let (mut vx, mut vy, mut vz) = rotate_vertex(v, rotation);
+        // Apply axis and Y rotation around center (0.5, 0.5, 0.5)
+        let (vx, mut vy, vz) = rotate_vertex(v, y_rotation, axis);
         
         // Apply vertical flip around center
         if is_flipped {
@@ -332,7 +382,7 @@ fn emit_face_v3(
         
         // Transform and emit normal
         let n = face.normal;
-        let (nx, ny, nz) = rotate_normal(n, rotation);
+        let (nx, ny, nz) = rotate_normal(n, y_rotation, axis);
         let (nx, ny, nz) = if is_flipped { (nx, -ny, nz) } else { (nx, ny, nz) };
         
         mesh.normals.push(nx);
@@ -370,30 +420,76 @@ fn emit_face_v3(
     mesh.indices.push(base_idx + 3);
 }
 
-/// Rotate a vertex around Y axis (center at 0.5, 0.5, 0.5)
-fn rotate_vertex(v: [f32; 3], rotation: u8) -> (f32, f32, f32) {
-    let (x, y, z) = (v[0] - 0.5, v[1], v[2] - 0.5);
+/// Rotate a vertex with axis and Y rotation
+/// First applies axis rotation, then Y rotation
+/// Center at (0.5, 0.5, 0.5)
+fn rotate_vertex(v: [f32; 3], y_rotation: u8, axis: u8) -> (f32, f32, f32) {
+    // Center the vertex
+    let (mut x, mut y, mut z) = (v[0] - 0.5, v[1] - 0.5, v[2] - 0.5);
     
-    let (rx, rz) = match rotation {
+    // Apply axis rotation first
+    match axis {
+        1 => {
+            // X-axis orientation: rotate 90° around Z axis
+            // (x, y, z) -> (y, -x, z)
+            let new_x = y;
+            let new_y = -x;
+            x = new_x;
+            y = new_y;
+        }
+        2 => {
+            // Z-axis orientation: rotate 90° around X axis
+            // (x, y, z) -> (x, -z, y)
+            let new_y = -z;
+            let new_z = y;
+            y = new_y;
+            z = new_z;
+        }
+        _ => {} // Y-axis (0) or default: no axis rotation
+    }
+    
+    // Apply Y-axis rotation (CCW when looking down at +Y)
+    // Combined with FACING_TO_ROTATION compensation to get correct orientation
+    let (rx, rz) = match y_rotation {
         0 => (x, z),
-        1 => (-z, x),  // 90° CW
+        1 => (-z, x),  // 90° CCW
         2 => (-x, -z), // 180°
-        3 => (z, -x),  // 270° CW
+        3 => (z, -x),  // 270° CCW (90° CW)
         _ => (x, z),
     };
     
-    (rx + 0.5, y, rz + 0.5)
+    (rx + 0.5, y + 0.5, rz + 0.5)
 }
 
-/// Rotate a normal vector around Y axis
-fn rotate_normal(n: [f32; 3], rotation: u8) -> (f32, f32, f32) {
-    let (x, y, z) = (n[0], n[1], n[2]);
+/// Rotate a normal vector with axis and Y rotation
+fn rotate_normal(n: [f32; 3], y_rotation: u8, axis: u8) -> (f32, f32, f32) {
+    let (mut x, mut y, mut z) = (n[0], n[1], n[2]);
     
-    match rotation {
+    // Apply axis rotation first
+    match axis {
+        1 => {
+            // X-axis orientation: rotate 90° around Z axis
+            let new_x = y;
+            let new_y = -x;
+            x = new_x;
+            y = new_y;
+        }
+        2 => {
+            // Z-axis orientation: rotate 90° around X axis
+            let new_y = -z;
+            let new_z = y;
+            y = new_y;
+            z = new_z;
+        }
+        _ => {}
+    }
+    
+    // Apply Y-axis rotation (CCW when looking down at +Y)
+    match y_rotation {
         0 => (x, y, z),
-        1 => (-z, y, x),  // 90° CW
+        1 => (-z, y, x),  // 90° CCW
         2 => (-x, y, -z), // 180°
-        3 => (z, y, -x),  // 270° CW
+        3 => (z, y, -x),  // 270° CCW (90° CW)
         _ => (x, y, z),
     }
 }
@@ -427,11 +523,12 @@ fn calculate_face_ao_v3(
     world_y: i32,
     world_z: i32,
     face: &BakedFace,
-    rotation: u8,
+    y_rotation: u8,
+    axis: u8,
     is_flipped: bool,
 ) -> [VertexLight; 4] {
     // Transform face direction to get sampling direction
-    let face_dir = transform_direction(face.direction, rotation, is_flipped);
+    let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
     let (dx, dy, dz) = direction_offset(face_dir);
     
     // Sample position is in the direction the face is pointing
@@ -596,9 +693,11 @@ fn emit_face_v3_with_ao(
     world_x: f32,
     world_y: f32,
     world_z: f32,
-    rotation: u8,
+    y_rotation: u8,
+    axis: u8,
     is_flipped: bool,
     vertex_lights: &[VertexLight; 4],
+    shade_flag: f32,
 ) {
     let base_idx = mesh.positions.len() as u32 / 3;
     
@@ -611,8 +710,8 @@ fn emit_face_v3_with_ao(
     for i in 0..4 {
         let v = face.vertices[i];
         
-        // Apply rotation around center (0.5, 0.5, 0.5)
-        let (vx, mut vy, vz) = rotate_vertex(v, rotation);
+        // Apply axis and Y rotation around center (0.5, 0.5, 0.5)
+        let (vx, mut vy, vz) = rotate_vertex(v, y_rotation, axis);
         
         // Apply vertical flip around center
         if is_flipped {
@@ -626,7 +725,7 @@ fn emit_face_v3_with_ao(
         
         // Transform and emit normal
         let n = face.normal;
-        let (nx, ny, nz) = rotate_normal(n, rotation);
+        let (nx, ny, nz) = rotate_normal(n, y_rotation, axis);
         let (nx, ny, nz) = if is_flipped { (nx, -ny, nz) } else { (nx, ny, nz) };
         
         mesh.normals.push(nx);
@@ -653,25 +752,31 @@ fn emit_face_v3_with_ao(
         // Emit light
         mesh.sky_light.push(vertex_lights[i].sky as f32);
         mesh.block_light.push(vertex_lights[i].block as f32);
+        
+        // Emit shade flag
+        mesh.shade_flags.push(shade_flag);
     }
     
-    // Emit indices with optional winding flip for better AO interpolation
+    // Emit indices - match JS ModelMesher winding order exactly
+    // The baked geometry has vertices in specific order for each face
+    // With indices 0-2-1, 0-3-2, we create CCW triangles for Three.js front faces
+    // AO diagonal flip uses alternate diagonal for better interpolation
     if flip_winding {
-        // Flipped: 1-2-3, 1-3-0
+        // Flipped diagonal for AO: 1-3-2, 1-0-3
         mesh.indices.push(base_idx + 1);
+        mesh.indices.push(base_idx + 3);
         mesh.indices.push(base_idx + 2);
-        mesh.indices.push(base_idx + 3);
         mesh.indices.push(base_idx + 1);
-        mesh.indices.push(base_idx + 3);
         mesh.indices.push(base_idx);
+        mesh.indices.push(base_idx + 3);
     } else {
-        // Normal: 0-1-2, 0-2-3
+        // Normal winding: 0-2-1, 0-3-2 (matches JS ModelMesher)
         mesh.indices.push(base_idx);
+        mesh.indices.push(base_idx + 2);
         mesh.indices.push(base_idx + 1);
-        mesh.indices.push(base_idx + 2);
         mesh.indices.push(base_idx);
-        mesh.indices.push(base_idx + 2);
         mesh.indices.push(base_idx + 3);
+        mesh.indices.push(base_idx + 2);
     }
 }
 

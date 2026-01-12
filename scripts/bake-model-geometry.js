@@ -62,14 +62,16 @@ const FACE_NORMALS = {
   east: [1, 0, 0],
 };
 
-// Face vertices (before rotation) - CCW winding
+// Face vertices - MUST match ModelGeometry.js for consistent winding order
+// Vertices are ordered for CCW winding when viewed from OUTSIDE the block
+// Starting from top-left when looking at the face from outside
 const FACE_VERTICES = {
-  down: [[0, 0, 1], [1, 0, 1], [1, 0, 0], [0, 0, 0]],
-  up: [[0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]],
-  north: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]],
-  south: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]],
-  west: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]],
-  east: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]],
+  down:  [[0, 0, 1], [1, 0, 1], [1, 0, 0], [0, 0, 0]], // -Y
+  up:    [[0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]], // +Y
+  north: [[1, 1, 0], [0, 1, 0], [0, 0, 0], [1, 0, 0]], // -Z (starts top-right, goes CCW)
+  south: [[0, 1, 1], [1, 1, 1], [1, 0, 1], [0, 0, 1]], // +Z (starts top-left, goes CCW)
+  west:  [[0, 1, 0], [0, 1, 1], [0, 0, 1], [0, 0, 0]], // -X
+  east:  [[1, 1, 1], [1, 1, 0], [1, 0, 0], [1, 0, 1]], // +X
 };
 
 // Texture name → tint type mapping
@@ -286,54 +288,62 @@ function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
       const tintType = faceData.tintindex !== undefined ? getTintType(textureName) : 0;
       
       // Get base vertices for this face
+      // MUST match ModelGeometry.js vertex order for consistent winding
+      // Vertices are in CCW order when viewed from OUTSIDE the block
       let vertices;
       switch (faceName) {
         case 'down':
+          // -Y face: starts at (from.x, from.y, to.z), goes CCW when looking from below
           vertices = [
-            [from[0], from[1], to[2]],
-            [to[0], from[1], to[2]],
-            [to[0], from[1], from[2]],
-            [from[0], from[1], from[2]],
+            [from[0], from[1], to[2]],    // V0
+            [to[0], from[1], to[2]],      // V1
+            [to[0], from[1], from[2]],    // V2
+            [from[0], from[1], from[2]],  // V3
           ];
           break;
         case 'up':
+          // +Y face: starts at (from.x, to.y, from.z), goes CCW when looking from above
           vertices = [
-            [from[0], to[1], from[2]],
-            [to[0], to[1], from[2]],
-            [to[0], to[1], to[2]],
-            [from[0], to[1], to[2]],
+            [from[0], to[1], from[2]],    // V0
+            [to[0], to[1], from[2]],      // V1
+            [to[0], to[1], to[2]],        // V2
+            [from[0], to[1], to[2]],      // V3
           ];
           break;
         case 'north':
+          // -Z face: starts at top-right (to.x, to.y, from.z), goes CCW
           vertices = [
-            [to[0], from[1], from[2]],
-            [from[0], from[1], from[2]],
-            [from[0], to[1], from[2]],
-            [to[0], to[1], from[2]],
+            [to[0], to[1], from[2]],      // V0: top-right
+            [from[0], to[1], from[2]],    // V1: top-left
+            [from[0], from[1], from[2]],  // V2: bottom-left
+            [to[0], from[1], from[2]],    // V3: bottom-right
           ];
           break;
         case 'south':
+          // +Z face: starts at top-left (from.x, to.y, to.z), goes CCW
           vertices = [
-            [from[0], from[1], to[2]],
-            [to[0], from[1], to[2]],
-            [to[0], to[1], to[2]],
-            [from[0], to[1], to[2]],
+            [from[0], to[1], to[2]],      // V0: top-left
+            [to[0], to[1], to[2]],        // V1: top-right
+            [to[0], from[1], to[2]],      // V2: bottom-right
+            [from[0], from[1], to[2]],    // V3: bottom-left
           ];
           break;
         case 'west':
+          // -X face: starts at top-back (from.x, to.y, from.z), goes CCW
           vertices = [
-            [from[0], from[1], from[2]],
-            [from[0], from[1], to[2]],
-            [from[0], to[1], to[2]],
-            [from[0], to[1], from[2]],
+            [from[0], to[1], from[2]],    // V0: top-back
+            [from[0], to[1], to[2]],      // V1: top-front
+            [from[0], from[1], to[2]],    // V2: bottom-front
+            [from[0], from[1], from[2]],  // V3: bottom-back
           ];
           break;
         case 'east':
+          // +X face: starts at top-front (to.x, to.y, to.z), goes CCW
           vertices = [
-            [to[0], from[1], to[2]],
-            [to[0], from[1], from[2]],
-            [to[0], to[1], from[2]],
-            [to[0], to[1], to[2]],
+            [to[0], to[1], to[2]],        // V0: top-front
+            [to[0], to[1], from[2]],      // V1: top-back
+            [to[0], from[1], from[2]],    // V2: bottom-back
+            [to[0], from[1], to[2]],      // V3: bottom-front
           ];
           break;
         default:
@@ -345,11 +355,14 @@ function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
         const origin = element.rotation.origin.map(v => v / 16);
         const axis = element.rotation.axis;
         const angle = element.rotation.angle || 0;
+        const rescale = element.rotation.rescale || false;
         
         if (angle !== 0) {
           const rad = (angle * Math.PI) / 180;
           const cos = Math.cos(rad);
           const sin = Math.sin(rad);
+          // Rescale factor: 1/cos(angle) to compensate for narrowing during rotation
+          const scale = rescale ? 1.0 / Math.abs(cos) : 1.0;
           
           vertices = vertices.map(v => {
             let [x, y, z] = v;
@@ -360,16 +373,31 @@ function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
             let newX = x, newY = y, newZ = z;
             switch (axis) {
               case 'x':
+                // Rotate around X, rescale affects Y and Z
                 newY = y * cos - z * sin;
                 newZ = y * sin + z * cos;
+                if (rescale) {
+                  newY *= scale;
+                  newZ *= scale;
+                }
                 break;
               case 'y':
+                // Rotate around Y, rescale affects X and Z
                 newX = x * cos - z * sin;
                 newZ = x * sin + z * cos;
+                if (rescale) {
+                  newX *= scale;
+                  newZ *= scale;
+                }
                 break;
               case 'z':
+                // Rotate around Z, rescale affects X and Y
                 newX = x * cos - y * sin;
                 newY = x * sin + y * cos;
+                if (rescale) {
+                  newX *= scale;
+                  newY *= scale;
+                }
                 break;
             }
             
@@ -390,18 +418,45 @@ function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
       }
       
       // Get UVs
+      // UV order must match vertex order for each face
+      // In Minecraft UV space: (0,0) = top-left, (1,1) = bottom-right
       let uvs;
       if (faceData.uv) {
         const [u0, v0, u1, v1] = faceData.uv.map(v => v / 16);
-        uvs = [
-          [u0, v1],
-          [u1, v1],
-          [u1, v0],
-          [u0, v0],
-        ];
+        // UV corners for the quad (texture coordinates)
+        // Vertices go CCW starting from "top" corner, so UVs should match
+        switch (faceName) {
+          case 'down':
+          case 'up':
+            // Horizontal faces: V0=front-left, V1=front-right, V2=back-right, V3=back-left
+            uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+            break;
+          case 'north':
+          case 'south':
+          case 'west':
+          case 'east':
+            // Vertical faces: V0=top-X, V1=top-Y, V2=bottom-Y, V3=bottom-X (CCW from top)
+            uvs = [[u1, v0], [u0, v0], [u0, v1], [u1, v1]];
+            break;
+          default:
+            uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        }
       } else {
         // Auto-generate UVs based on face
-        uvs = [[0, 1], [1, 1], [1, 0], [0, 0]];
+        switch (faceName) {
+          case 'down':
+          case 'up':
+            uvs = [[0, 0], [1, 0], [1, 1], [0, 1]];
+            break;
+          case 'north':
+          case 'south':
+          case 'west':
+          case 'east':
+            uvs = [[1, 0], [0, 0], [0, 1], [1, 1]];
+            break;
+          default:
+            uvs = [[0, 0], [1, 0], [1, 1], [0, 1]];
+        }
       }
       
       // Handle UV rotation
@@ -546,6 +601,7 @@ function writeBinary(manifest) {
     if (block.flags.hasRandomRotation) flags |= 0x01;
     if (block.flags.hasPositionOffset) flags |= 0x02;
     if (block.flags.isTransparent) flags |= 0x04;
+    if (block.flags.noShade) flags |= 0x08;
     buffer.writeUInt8(flags, offset); offset += 1;
     
     for (const variant of block.variants) {

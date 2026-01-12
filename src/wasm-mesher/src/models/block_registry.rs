@@ -42,6 +42,8 @@ pub mod block_flags {
     pub const HAS_POSITION_OFFSET: u8 = 0x02;
     /// Render in transparent pass
     pub const IS_TRANSPARENT: u8 = 0x04;
+    /// No directional shading (cross-model plants, etc.)
+    pub const NO_SHADE: u8 = 0x08;
 }
 
 /// Face direction constants
@@ -126,6 +128,10 @@ impl BlockModelData {
     
     pub fn is_transparent(&self) -> bool {
         self.flags & block_flags::IS_TRANSPARENT != 0
+    }
+    
+    pub fn has_no_shade(&self) -> bool {
+        self.flags & block_flags::NO_SHADE != 0
     }
 }
 
@@ -298,6 +304,24 @@ impl BlockModelRegistry {
         self.blocks.len()
     }
     
+    /// Apply texture index remapping to all faces in the registry
+    /// Returns the number of faces that were remapped
+    pub fn apply_texture_remapping(&mut self, remapping: &[u16]) -> usize {
+        let mut count = 0;
+        for block in &mut self.blocks {
+            for variant in &mut block.variants {
+                for face in &mut variant.faces {
+                    let old_idx = face.texture_index as usize;
+                    if old_idx < remapping.len() {
+                        face.texture_index = remapping[old_idx];
+                        count += 1;
+                    }
+                }
+            }
+        }
+        count
+    }
+    
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.blocks.is_empty()
@@ -341,13 +365,26 @@ fn read_f32_le(data: &[u8], offset: &mut usize) -> f32 {
 // Static registry instance
 static BLOCK_MODEL_REGISTRY: OnceLock<BlockModelRegistry> = OnceLock::new();
 
-/// Initialize the block model registry from baked binary data
+/// Initialize the block model registry from baked binary data with optional texture remapping
+/// 
+/// If texture_remapping is provided (non-empty), it maps baked texture indices to atlas indices:
+/// new_texture_index = remapping[original_texture_index]
 #[wasm_bindgen]
-pub fn init_block_model_registry(data: Vec<u8>) -> bool {
+pub fn init_block_model_registry(data: Vec<u8>, texture_remapping: Option<Vec<u16>>) -> bool {
     let mut registry = BlockModelRegistry::new();
     
     match registry.load_from_binary(&data) {
         Ok(()) => {
+            // Apply texture remapping if provided
+            if let Some(remapping) = texture_remapping {
+                if !remapping.is_empty() {
+                    let remapped_count = registry.apply_texture_remapping(&remapping);
+                    web_sys::console::log_1(
+                        &format!("[WASM] Applied texture remapping to {} faces", remapped_count).into()
+                    );
+                }
+            }
+            
             let count = registry.len();
             if BLOCK_MODEL_REGISTRY.set(registry).is_err() {
                 web_sys::console::warn_1(&"Block model registry already initialized".into());

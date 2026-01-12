@@ -25,11 +25,12 @@ const BLOCKSTATES_PATH = path.join(ASSETS_PATH, 'blockstates');
 const MODELS_PATH = path.join(ASSETS_PATH, 'models/block');
 const OUTPUT_PATH = path.join(__dirname, '../public/assets/block-model-manifest.json');
 
-// Properties that only affect rotation (not geometry)
+// Properties that only affect runtime rotation (not geometry)
+// NOTE: 'facing' is NOT here - most blocks with 'facing' have rotation baked into variants
+// Only truly runtime-rotated properties should be here
 const ROTATION_PROPERTIES = new Set([
-  'facing',
-  'rotation', // For signs, skulls
-  'axis',     // For logs, pillars
+  'rotation', // For signs, skulls - 0-15 rotation value applied at runtime
+  'axis',     // For logs, pillars - single model rotated at runtime
 ]);
 
 // Properties that affect vertical flip
@@ -117,6 +118,24 @@ const FULL_CUBE_BLOCKS = new Set([
   // etc - these are handled by greedy meshing
 ]);
 
+// Blocks with shade: false (cross-model plants, etc.)
+// These blocks should not have directional face shading
+const NO_SHADE_BLOCKS = new Set([
+  'short_grass', 'tall_grass', 'fern', 'large_fern',
+  'dead_bush', 'nether_sprouts', 'crimson_roots', 'warped_roots',
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower', 'eyeblossom', 'pink_petals',
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
+  'mangrove_propagule', 'hanging_roots', 'spore_blossom',
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  'sugar_cane', 'kelp', 'seagrass', 'tall_seagrass',
+  'vine', 'twisting_vines', 'weeping_vines', 'cave_vines',
+  'fire', 'soul_fire',
+]);
+
 /**
  * Load JSON file
  */
@@ -151,10 +170,12 @@ function parseVariantKey(key) {
  */
 function classifyProperty(propName, propValue, blockName) {
   // Special cases by block type
+  // NOTE: For blocks where variants have baked X/Y rotations, 'facing' is GEOMETRY not rotation
+  // The rotation is baked into the variant, not applied at runtime
   if (blockName.endsWith('_stairs')) {
     if (propName === 'shape') return 'geometry';
-    if (propName === 'facing') return 'rotation';
-    if (propName === 'half') return 'flip';
+    if (propName === 'facing') return 'geometry'; // Rotation is baked into variant
+    if (propName === 'half') return 'geometry';   // Also affects geometry for stairs
     if (propName === 'waterlogged') return 'flag';
   }
   
@@ -175,7 +196,7 @@ function classifyProperty(propName, propValue, blockName) {
   
   if (blockName.endsWith('_door')) {
     if (propName === 'open') return 'geometry';
-    if (propName === 'facing') return 'rotation';
+    if (propName === 'facing') return 'geometry'; // Rotation is baked into variant
     if (propName === 'hinge') return 'geometry';
     if (propName === 'half') return 'geometry';
     if (propName === 'powered') return 'flag';
@@ -183,8 +204,8 @@ function classifyProperty(propName, propValue, blockName) {
   
   if (blockName.endsWith('_trapdoor')) {
     if (propName === 'open') return 'geometry';
-    if (propName === 'facing') return 'rotation';
-    if (propName === 'half') return 'flip';
+    if (propName === 'facing') return 'geometry'; // Rotation is baked into variant
+    if (propName === 'half') return 'geometry';   // Also affects geometry for trapdoors
     if (propName === 'powered') return 'flag';
     if (propName === 'waterlogged') return 'flag';
   }
@@ -221,6 +242,7 @@ function analyzeBlockstate(blockName, blockstate) {
     hasRandomRotation: RANDOM_ROTATION_BLOCKS.has(blockName),
     hasPositionOffset: POSITION_OFFSET_BLOCKS.has(blockName),
     isTransparent: TRANSPARENT_BLOCKS.has(blockName),
+    noShade: NO_SHADE_BLOCKS.has(blockName),
   };
   
   if (blockstate.multipart) {
@@ -410,7 +432,14 @@ async function analyzeAllBlocks() {
     const analysis = analyzeBlockstate(blockName, blockstate);
     
     // Only include blocks with model variants (non-cube blocks)
-    const hasVariants = Object.keys(analysis.variants).length > 0 || analysis.isMultipart;
+    // Skip multipart blocks for now - they need special handling
+    // (fences, walls, redstone wire, etc. use conditional model composition)
+    if (analysis.isMultipart) {
+      skippedCount++;
+      continue;
+    }
+    
+    const hasVariants = Object.keys(analysis.variants).length > 0;
     if (!hasVariants) {
       skippedCount++;
       continue;
@@ -418,6 +447,7 @@ async function analyzeAllBlocks() {
     
     // Resolve actual model geometry for each unique model
     const resolvedModels = {};
+    let isFullCube = false;
     for (const modelName of analysis.uniqueModels) {
       const resolved = resolveModel(modelName, modelCache);
       if (resolved && resolved.elements && resolved.elements.length > 0) {
@@ -425,7 +455,31 @@ async function analyzeAllBlocks() {
           elementCount: resolved.elements.length,
           hasAO: resolved.ambientocclusion,
         };
+        
+        // Check if this is a full cube model (single element from 0,0,0 to 16,16,16)
+        if (resolved.elements.length === 1) {
+          const elem = resolved.elements[0];
+          const from = elem.from || [0, 0, 0];
+          const to = elem.to || [16, 16, 16];
+          if (from[0] === 0 && from[1] === 0 && from[2] === 0 &&
+              to[0] === 16 && to[1] === 16 && to[2] === 16) {
+            // All 6 faces present = full cube
+            const faces = Object.keys(elem.faces || {});
+            if (faces.length === 6 && 
+                faces.includes('north') && faces.includes('south') &&
+                faces.includes('east') && faces.includes('west') &&
+                faces.includes('up') && faces.includes('down')) {
+              isFullCube = true;
+            }
+          }
+        }
       }
+    }
+    
+    // Skip full cube blocks - they're handled by the greedy mesher
+    if (isFullCube && Object.keys(analysis.variants).length <= 1) {
+      skippedCount++;
+      continue;
     }
     
     manifest.blocks[blockName] = {
@@ -441,6 +495,7 @@ async function analyzeAllBlocks() {
         hasRandomRotation: analysis.hasRandomRotation,
         hasPositionOffset: analysis.hasPositionOffset,
         isTransparent: analysis.isTransparent,
+        noShade: analysis.noShade,
       },
     };
     

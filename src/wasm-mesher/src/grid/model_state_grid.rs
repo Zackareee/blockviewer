@@ -228,7 +228,6 @@ impl ModelStateGrid {
             .map(|(k, v)| (k, v.as_ref()))
     }
     
-    
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.sections.is_empty()
