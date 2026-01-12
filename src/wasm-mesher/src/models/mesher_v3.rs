@@ -170,17 +170,13 @@ pub fn mesh_models_v3(
                             continue;
                         }
                         
-                        // Skip per-vertex AO for model blocks - use uniform full brightness
-                        // 
-                        // The full-cube AO algorithm doesn't work for partial blocks because:
-                        // 1. Model block faces don't align to block boundaries
-                        // 2. Adjacent partial blocks (stairs/walls) incorrectly cause extreme darkening
-                        let vertex_ao = [
-                            VertexLight { sky: 15, block: 0, ao: 1.0 },
-                            VertexLight { sky: 15, block: 0, ao: 1.0 },
-                            VertexLight { sky: 15, block: 0, ao: 1.0 },
-                            VertexLight { sky: 15, block: 0, ao: 1.0 },
-                        ];
+                        // Calculate per-vertex AO for this face
+                        // Only full cubes cause AO - partial blocks (stairs, slabs) are AO-transparent
+                        let vertex_ao = calculate_face_ao_v3(
+                            grid, lookups, light_grid,
+                            world_x, world_y, world_z,
+                            face, total_y_rotation, axis, is_flipped,
+                        );
                         
                         // Emit face with rotation/flip applied
                         // shade_flag = 1.0 for shaded blocks, 0.0 for no-shade blocks (cross models)
@@ -520,13 +516,10 @@ fn vertex_ao_value(side1: bool, side2: bool, corner: bool) -> u8 {
     }
 }
 
-/// AO brightness levels (used by greedy mesher, kept for reference)
-#[allow(dead_code)]
+/// AO brightness levels
 const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
 
-/// Calculate per-vertex AO and lighting for a model face (currently unused)
-/// Disabled because the full-cube AO algorithm causes black faces on partial blocks
-#[allow(dead_code)]
+/// Calculate per-vertex AO and lighting for a model face
 fn calculate_face_ao_v3(
     grid: &BinaryGrid,
     lookups: &Lookups,
