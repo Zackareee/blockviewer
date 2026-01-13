@@ -493,6 +493,9 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
     cpuCullDistance = 0,
     // Reference point for distance culling (world coordinates)
     cpuCullCenter = null,
+    // Bounds to filter sections - only mesh blocks within these chunk coordinates
+    // Used to exclude neighbor chunk data that's included in the grid for neighbor lookups
+    bounds = null, // { minChunkX, minChunkZ, maxChunkX, maxChunkZ }
   } = options;
   
   // Pre-compute squared distance for faster comparison (avoid sqrt)
@@ -798,6 +801,16 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   // Process each section that has state data
   for (const [sectionKey, stateSection] of stateGrid.sections) {
     const { chunkX, chunkZ, sectionY } = parseSectionKey(sectionKey);
+    
+    // Skip sections outside bounds (they're only for neighbor lookups)
+    // This prevents meshing blocks from neighbor chunks that were included for lighting/culling
+    if (bounds) {
+      if (chunkX < bounds.minChunkX || chunkX > bounds.maxChunkX ||
+          chunkZ < bounds.minChunkZ || chunkZ > bounds.maxChunkZ) {
+        continue;
+      }
+    }
+    
     const baseX = chunkX * 16;
     const baseY = sectionToWorldY(sectionY);
     const baseZ = chunkZ * 16;

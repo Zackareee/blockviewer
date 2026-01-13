@@ -2697,6 +2697,15 @@ export class ModelMeshResultWasm {
     /**
      * @returns {Float32Array}
      */
+    opaque_shade_flags() {
+        const ret = wasm.modelmeshresultwasm_opaque_shade_flags(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
     opaque_tex_indices() {
         const ret = wasm.modelmeshresultwasm_opaque_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -2743,6 +2752,15 @@ export class ModelMeshResultWasm {
     overlay_index_count() {
         const ret = wasm.modelmeshresultwasm_overlay_index_count(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    overlay_shade_flags() {
+        const ret = wasm.modelmeshresultwasm_overlay_shade_flags(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {Float32Array}
@@ -2834,6 +2852,15 @@ export class ModelMeshResultWasm {
     transparent_index_count() {
         const ret = wasm.modelmeshresultwasm_transparent_index_count(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    transparent_shade_flags() {
+        const ret = wasm.modelmeshresultwasm_transparent_shade_flags(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {Float32Array}
@@ -3831,14 +3858,20 @@ export function initThreadPool(num_threads) {
 }
 
 /**
- * Initialize the block model registry from baked binary data
+ * Initialize the block model registry from baked binary data with optional texture remapping
+ *
+ * If texture_remapping is provided (non-empty), it maps baked texture indices to atlas indices:
+ * new_texture_index = remapping[original_texture_index]
  * @param {Uint8Array} data
+ * @param {Uint16Array | null} [texture_remapping]
  * @returns {boolean}
  */
-export function init_block_model_registry(data) {
+export function init_block_model_registry(data, texture_remapping) {
     const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.init_block_model_registry(ptr0, len0);
+    var ptr1 = isLikeNone(texture_remapping) ? 0 : passArray16ToWasm0(texture_remapping, wasm.__wbindgen_malloc);
+    var len1 = WASM_VECTOR_LEN;
+    const ret = wasm.init_block_model_registry(ptr0, len0, ptr1, len1);
     return ret !== 0;
 }
 

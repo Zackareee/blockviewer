@@ -290,12 +290,14 @@ export class ModelMeshResultWasm {
   overlay_sky_light(): Float32Array;
   opaque_block_light(): Float32Array;
   opaque_index_count(): number;
+  opaque_shade_flags(): Float32Array;
   opaque_tex_indices(): Float32Array;
   overlay_tint_types(): Float32Array;
   transparent_colors(): Float32Array;
   opaque_vertex_count(): number;
   overlay_block_light(): Float32Array;
   overlay_index_count(): number;
+  overlay_shade_flags(): Float32Array;
   overlay_tex_indices(): Float32Array;
   transparent_indices(): Uint32Array;
   transparent_normals(): Float32Array;
@@ -307,6 +309,7 @@ export class ModelMeshResultWasm {
   transparent_tint_types(): Float32Array;
   transparent_block_light(): Float32Array;
   transparent_index_count(): number;
+  transparent_shade_flags(): Float32Array;
   transparent_tex_indices(): Float32Array;
   transparent_vertex_count(): number;
   transparent_position_count(): number;
@@ -471,9 +474,12 @@ export function init(): void;
 export function initThreadPool(num_threads: number): Promise<any>;
 
 /**
- * Initialize the block model registry from baked binary data
+ * Initialize the block model registry from baked binary data with optional texture remapping
+ * 
+ * If texture_remapping is provided (non-empty), it maps baked texture indices to atlas indices:
+ * new_texture_index = remapping[original_texture_index]
  */
-export function init_block_model_registry(data: Uint8Array): boolean;
+export function init_block_model_registry(data: Uint8Array, texture_remapping?: Uint16Array | null): boolean;
 
 /**
  * Initialize the block registry from JavaScript
@@ -897,6 +903,7 @@ export interface InitOutput {
   readonly modelmeshresultwasm_opaque_normals: (a: number) => [number, number];
   readonly modelmeshresultwasm_opaque_position_count: (a: number) => number;
   readonly modelmeshresultwasm_opaque_positions: (a: number) => [number, number];
+  readonly modelmeshresultwasm_opaque_shade_flags: (a: number) => [number, number];
   readonly modelmeshresultwasm_opaque_sky_light: (a: number) => [number, number];
   readonly modelmeshresultwasm_opaque_tex_indices: (a: number) => [number, number];
   readonly modelmeshresultwasm_opaque_tint_types: (a: number) => [number, number];
@@ -909,6 +916,7 @@ export interface InitOutput {
   readonly modelmeshresultwasm_overlay_normals: (a: number) => [number, number];
   readonly modelmeshresultwasm_overlay_position_count: (a: number) => number;
   readonly modelmeshresultwasm_overlay_positions: (a: number) => [number, number];
+  readonly modelmeshresultwasm_overlay_shade_flags: (a: number) => [number, number];
   readonly modelmeshresultwasm_overlay_sky_light: (a: number) => [number, number];
   readonly modelmeshresultwasm_overlay_tex_indices: (a: number) => [number, number];
   readonly modelmeshresultwasm_overlay_tint_types: (a: number) => [number, number];
@@ -921,6 +929,7 @@ export interface InitOutput {
   readonly modelmeshresultwasm_transparent_normals: (a: number) => [number, number];
   readonly modelmeshresultwasm_transparent_position_count: (a: number) => number;
   readonly modelmeshresultwasm_transparent_positions: (a: number) => [number, number];
+  readonly modelmeshresultwasm_transparent_shade_flags: (a: number) => [number, number];
   readonly modelmeshresultwasm_transparent_sky_light: (a: number) => [number, number];
   readonly modelmeshresultwasm_transparent_tex_indices: (a: number) => [number, number];
   readonly modelmeshresultwasm_transparent_tint_types: (a: number) => [number, number];
@@ -1038,15 +1047,15 @@ export interface InitOutput {
   readonly streamingmeshresultwasm_boundary_neg_z_count: (a: number) => number;
   readonly streamingmeshresultwasm_vertex_count: (a: number) => number;
   readonly init_thread_pool: (a: number) => any;
-  readonly init_model_registry: (a: number, b: number, c: number, d: number) => void;
-  readonly init_model_registry_v2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-  readonly init_state_registry: (a: number, b: number, c: number, d: number) => void;
   readonly get_block_model_flags: (a: number, b: number) => number;
   readonly get_block_model_index: (a: number, b: number) => number;
   readonly get_block_variant_count: (a: number, b: number) => number;
-  readonly init_block_model_registry: (a: number, b: number) => number;
+  readonly init_block_model_registry: (a: number, b: number, c: number, d: number) => number;
   readonly init_block_registry: (a: number, b: number, c: number, d: number) => void;
   readonly is_block_model_registry_initialized: () => number;
+  readonly init_model_registry: (a: number, b: number, c: number, d: number) => void;
+  readonly init_model_registry_v2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+  readonly init_state_registry: (a: number, b: number, c: number, d: number) => void;
   readonly __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
   readonly initThreadPool: (a: number) => any;
   readonly wbg_rayon_poolbuilder_build: (a: number) => void;

@@ -1655,7 +1655,7 @@ export class SuperChunkManager {
     
     // Legacy fallback: Build model meshes from grids for multipart blocks
     // V3 handles non-multipart model blocks (stairs, slabs, doors, etc.)
-    // Legacy handles multipart blocks (fences, walls, redstone_wire, etc.)
+    // Legacy handles multipart blocks (fences, walls, panes, redstone_wire, etc.)
     // Both can run in parallel since they handle different block types
     if (result.grids) {
       // Queue model mesh building for next idle callback to avoid blocking this frame
@@ -1672,10 +1672,20 @@ export class SuperChunkManager {
       this._modelMeshQueue = [];
     }
     
+    // Compute bounds for this super-chunk to filter out neighbor data during meshing
+    // Neighbor data is included in the grid for lighting/culling but shouldn't be meshed
+    const bounds = {
+      minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
+      minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
+      maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+      maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
+    };
+    
     // Store the current build version to detect stale queue items
     this._modelMeshQueue.push({ 
       superChunk, 
       gridsData,
+      bounds,
       buildVersion: superChunk.buildVersion,
     });
     
@@ -1697,7 +1707,7 @@ export class SuperChunkManager {
     if (!this._modelMeshQueue || this._modelMeshQueue.length === 0) return;
     
     // Process one model mesh per idle callback
-    const { superChunk, gridsData, buildVersion } = this._modelMeshQueue.shift();
+    const { superChunk, gridsData, bounds, buildVersion } = this._modelMeshQueue.shift();
     
     // Skip if this is stale data from an old build
     // The super chunk may have been rebuilt since this was queued
@@ -1711,7 +1721,7 @@ export class SuperChunkManager {
     }
     
     try {
-      const modelResult = await this._buildModelMeshesFromWorkerGrids(gridsData);
+      const modelResult = await this._buildModelMeshesFromWorkerGrids(gridsData, bounds);
       if (modelResult) {
         // Opaque models
         if (modelResult.opaque && modelResult.opaque.positions?.length > 0) {
@@ -1765,8 +1775,10 @@ export class SuperChunkManager {
   
   /**
    * Deserialize grids from worker and build model meshes on main thread
+   * @param {Object} gridsData - Serialized grid data from worker
+   * @param {Object} bounds - Optional chunk bounds to filter sections { minChunkX, minChunkZ, maxChunkX, maxChunkZ }
    */
-  async _buildModelMeshesFromWorkerGrids(gridsData) {
+  async _buildModelMeshesFromWorkerGrids(gridsData, bounds = null) {
     if (!gridsData) return null;
     
     // Reconstruct BinaryGrid
@@ -1830,11 +1842,12 @@ export class SuperChunkManager {
     // Build model meshes using full ModelMesher
     // multipartOnly=true because V3 handles non-multipart model blocks (stairs, slabs, etc.)
     // Legacy mesher only needs to render multipart blocks (fences, walls, panes, redstone_wire)
+    // bounds filters out neighbor chunk data that was included for lighting/culling lookups
     const offset = { x: 0, y: 0, z: 0 };
     const textureIndexLookup = this.chunkManager.getTextureIndexLookup?.() || null;
     const collectEmitters = this.chunkManager.particleQuality !== 'off';
     const effectiveLightGrid = this.chunkManager.smoothLightingEnabled ? lightGrid : null;
-    const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid, collectEmitters, multipartOnly: true };
+    const mesherOptions = { textureIndexLookup, lightGrid: effectiveLightGrid, collectEmitters, multipartOnly: true, bounds };
     
     const result = buildModelMeshesWithInstancing(grid, stateGrid, this.registry, this.stateRegistry, offset, mesherOptions);
     
@@ -2911,12 +2924,21 @@ export class SuperChunkManager {
       // Mark as rebuild pending to prevent concurrent rebuilds
       superChunk.rebuildPending = true;
       
-      // Store old meshes to dispose after new ones are ready
-      const oldMeshes = [...superChunk.meshes];
-      superChunk.meshes = [];
-      // Increment build version to invalidate any pending queued operations
+      // CRITICAL: Increment build version FIRST to invalidate any pending queued
+      // operations BEFORE we capture oldMeshes or clear the meshes array.
+      // This prevents race conditions where a model mesh queue item could:
+      // 1. Process after meshes = [] but before version++
+      // 2. Pass the version check (version not changed yet)
+      // 3. Add a mesh that's NOT in oldMeshes
+      // 4. Result in orphaned duplicate meshes that never get disposed
       superChunk.buildVersion++;
       const buildVersion = superChunk.buildVersion;
+      
+      // Store old meshes to dispose after new ones are ready
+      const oldMeshes = [...superChunk.meshes];
+      console.log('[DEBUG PARALLEL] Captured oldMeshes for', superChunk.superX, superChunk.superZ,
+        'buildVersion:', buildVersion, 'meshCount:', oldMeshes.length);
+      superChunk.meshes = [];
       
       // Collect job data - IMPORTANT: clone ArrayBuffers for parallel dispatch
       const chunks = [];
@@ -3063,6 +3085,21 @@ export class SuperChunkManager {
    * Helper to dispose old meshes
    */
   _disposeOldMeshes(oldMeshes) {
+    console.log('[DEBUG DISPOSE] Disposing', oldMeshes.length, 'old meshes',
+      'transparentModelMeshes before:', this.chunkManager.transparentModelMeshes?.length || 0);
+    
+    // Debug: Check for duplicate meshes in the scene
+    if (oldMeshes.length > 0 && !globalThis._checkedDuplicates) {
+      globalThis._checkedDuplicates = true;
+      const tmm = this.chunkManager.transparentModelMeshes;
+      if (tmm) {
+        const uniqueIds = new Set(tmm.map(m => m.id));
+        if (uniqueIds.size !== tmm.length) {
+          console.warn('[DEBUG] DUPLICATE MESHES DETECTED!', 
+            'total:', tmm.length, 'unique:', uniqueIds.size);
+        }
+      }
+    }
     for (const mesh of oldMeshes) {
       if (this.chunkManager.solidMeshes) removeFromArray(this.chunkManager.solidMeshes, mesh);
       if (this.chunkManager.waterMeshes) removeFromArray(this.chunkManager.waterMeshes, mesh);
@@ -3397,6 +3434,56 @@ export class SuperChunkManager {
     this.wasmInitPromise = null;
   }
 
+  /**
+   * DEBUG: Log mesh statistics to identify overlapping meshes
+   * Call from console: window.superChunkManager?.debugMeshStats()
+   */
+  debugMeshStats() {
+    const tmm = this.chunkManager.transparentModelMeshes || [];
+    console.log('=== TRANSPARENT MODEL MESH STATS ===');
+    console.log('Total meshes:', tmm.length);
+    
+    // Count meshes by checking their bounding box centers
+    const byRegion = new Map();
+    for (const mesh of tmm) {
+      if (!mesh.geometry?.boundingBox) {
+        mesh.geometry?.computeBoundingBox();
+      }
+      const bb = mesh.geometry?.boundingBox;
+      if (bb) {
+        const cx = Math.floor((bb.min.x + bb.max.x) / 2 / 32);
+        const cz = Math.floor((bb.min.z + bb.max.z) / 2 / 32);
+        const key = `${cx},${cz}`;
+        if (!byRegion.has(key)) byRegion.set(key, []);
+        byRegion.get(key).push(mesh);
+      }
+    }
+    
+    // Log regions with multiple meshes (potential duplicates)
+    for (const [key, meshes] of byRegion) {
+      if (meshes.length > 1) {
+        console.log(`Region ${key}: ${meshes.length} transparent model meshes (POTENTIAL OVERLAP)`);
+        for (const m of meshes) {
+          console.log(`  mesh id=${m.id} visible=${m.visible} parent=${!!m.parent}`);
+        }
+      }
+    }
+    
+    // Also check for hidden but not removed meshes
+    const hidden = tmm.filter(m => !m.visible);
+    if (hidden.length > 0) {
+      console.log(`WARNING: ${hidden.length} hidden but not removed meshes!`);
+    }
+    
+    // Check for meshes without parent (orphaned)
+    const orphaned = tmm.filter(m => !m.parent);
+    if (orphaned.length > 0) {
+      console.log(`WARNING: ${orphaned.length} orphaned meshes (no parent)!`);
+    }
+    
+    console.log('===================================');
+  }
+  
   /**
    * Dispose and clean up
    */
