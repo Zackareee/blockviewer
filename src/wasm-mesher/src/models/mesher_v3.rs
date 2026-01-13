@@ -546,63 +546,32 @@ const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
 /// 3. Calculate AO from those neighbors
 /// 4. Sample smooth light for the vertex
 fn calculate_face_ao_v3(
-    grid: &BinaryGrid,
-    lookups: &Lookups,
+    _grid: &BinaryGrid,
+    _lookups: &Lookups,
     light_grid: Option<&LightGrid>,
     world_x: i32,
     world_y: i32,
     world_z: i32,
-    face: &BakedFace,
-    y_rotation: u8,
-    axis: u8,
-    is_flipped: bool,
+    _face: &BakedFace,
+    _y_rotation: u8,
+    _axis: u8,
+    _is_flipped: bool,
 ) -> [VertexLight; 4] {
-    // Get the transformed normal direction for determining sample plane
-    let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
-    
-    // Simple and robust light sampling for model blocks:
-    // Key insight: Model blocks exist in air space where light exists.
-    // 1. Get the model block's own light (always valid - this is where the block is)
-    // 2. Check adjacent block in face direction
-    // 3. If adjacent is air/transparent, use that light (more accurate for exposed faces)
-    // 4. If adjacent is solid, use the model block's own light (face is against a wall)
+    // SIMPLEST APPROACH: Just use the model block's own light value.
+    // Model blocks exist in air space, so their light value is always valid.
+    // This avoids all the complexity of face direction checking and adjacent sampling
+    // that was causing black faces.
     
     let (face_sky, face_block) = if let Some(lg) = light_grid {
-        // Get the model block's own light - this is always valid as a fallback
-        let own_light = lg.get_light(world_x, world_y, world_z);
-        
-        // Get adjacent block position in face direction
-        let (adj_x, adj_y, adj_z) = match face_dir {
-            FaceDirection::Up => (world_x, world_y + 1, world_z),
-            FaceDirection::Down => (world_x, world_y - 1, world_z),
-            FaceDirection::East => (world_x + 1, world_y, world_z),
-            FaceDirection::West => (world_x - 1, world_y, world_z),
-            FaceDirection::North => (world_x, world_y, world_z - 1),
-            FaceDirection::South => (world_x, world_y, world_z + 1),
-            FaceDirection::None => (world_x, world_y, world_z), // Use own position
-        };
-        
-        // Check if adjacent block is solid (would have 0 light)
-        let adj_block_id = grid.get_block_id(adj_x, adj_y, adj_z);
-        let adj_is_air_or_transparent = adj_block_id == 0 
-            || lookups.is_ao_transparent(adj_block_id) 
-            || !lookups.is_opaque(adj_block_id);
-        
-        if adj_is_air_or_transparent {
-            // Adjacent is air/transparent - sample from there (more accurate)
-            let adj_light = lg.get_light(adj_x, adj_y, adj_z);
-            (adj_light.sky_light, adj_light.block_light)
-        } else {
-            // Adjacent is solid - use the model block's own light
-            // This prevents black faces when a model is against a wall
-            (own_light.sky_light, own_light.block_light)
-        }
+        // Get light directly at the model block's position
+        // Model blocks are non-opaque, so Minecraft stores the correct ambient light here
+        let light = lg.get_light(world_x, world_y, world_z);
+        (light.sky_light, light.block_light)
     } else {
         (15, 0)
     };
     
-    // Apply the same light to all 4 vertices of this face (no per-vertex interpolation)
-    // This is simpler and avoids the complexity of bilinear sampling that was causing issues
+    // Apply the same light to all 4 vertices of this face
     [
         VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
         VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
