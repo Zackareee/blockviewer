@@ -595,92 +595,93 @@ fn calculate_face_ao_v3(
     result
 }
 
-/// Sample smooth light at a vertex position by averaging the 4 adjacent blocks
+/// Sample smooth light at a vertex position using bilinear interpolation
 /// in the plane perpendicular to the face normal.
+///
+/// This properly handles partial blocks (slabs, etc.) by sampling based on
+/// the actual vertex position, not fixed block-boundary offsets.
 fn sample_smooth_light_at_vertex(
     light_grid: &LightGrid,
     vx: f32, vy: f32, vz: f32,
     face_dir: FaceDirection,
 ) -> (u8, u8) {
-    // Determine which 4 blocks to sample based on face direction
-    // We sample in the plane perpendicular to the face normal
-    let (offsets, sample_at) = match face_dir {
-        FaceDirection::Up | FaceDirection::Down => {
-            // Horizontal face - sample in XZ plane
-            // The vertex is at a corner, sample the 4 blocks touching it
-            let base_x = vx.floor() as i32;
-            let base_y = if face_dir == FaceDirection::Up { 
-                (vy + 0.5).floor() as i32  // Sample above for up face
-            } else { 
-                (vy - 0.5).floor() as i32  // Sample below for down face
-            };
-            let base_z = vz.floor() as i32;
-            (
-                [(-1, 0, -1), (0, 0, -1), (-1, 0, 0), (0, 0, 0)],
-                (base_x, base_y, base_z)
-            )
-        }
-        FaceDirection::North | FaceDirection::South => {
-            // Vertical face perpendicular to Z - sample in XY plane
-            let base_x = vx.floor() as i32;
-            let base_y = vy.floor() as i32;
-            let base_z = if face_dir == FaceDirection::North {
-                (vz - 0.5).floor() as i32
-            } else {
-                (vz + 0.5).floor() as i32
-            };
-            (
-                [(-1, -1, 0), (0, -1, 0), (-1, 0, 0), (0, 0, 0)],
-                (base_x, base_y, base_z)
-            )
-        }
-        FaceDirection::East | FaceDirection::West => {
-            // Vertical face perpendicular to X - sample in YZ plane
-            let base_x = if face_dir == FaceDirection::East {
-                (vx + 0.5).floor() as i32
-            } else {
-                (vx - 0.5).floor() as i32
-            };
-            let base_y = vy.floor() as i32;
-            let base_z = vz.floor() as i32;
-            (
-                [(0, -1, -1), (0, 0, -1), (0, -1, 0), (0, 0, 0)],
-                (base_x, base_y, base_z)
-            )
-        }
+    // Offset into the air space in front of the face
+    let (sample_x, sample_y, sample_z) = match face_dir {
+        FaceDirection::Up => (vx, vy + 0.5, vz),
+        FaceDirection::Down => (vx, vy - 0.5, vz),
+        FaceDirection::East => (vx + 0.5, vy, vz),
+        FaceDirection::West => (vx - 0.5, vy, vz),
+        FaceDirection::North => (vx, vy, vz - 0.5),
+        FaceDirection::South => (vx, vy, vz + 0.5),
         FaceDirection::None => {
-            // No clear direction - sample at vertex position (cross-model plants, etc.)
-            let base_x = vx.floor() as i32;
-            let base_y = vy.floor() as i32;
-            let base_z = vz.floor() as i32;
-            // Just sample the single block the vertex is in
-            (
-                [(0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)],
-                (base_x, base_y, base_z)
-            )
+            let light = light_grid.get_light(vx.floor() as i32, vy.floor() as i32, vz.floor() as i32);
+            return (light.sky_light, light.block_light);
         }
     };
-    
-    // Sample light from the 4 positions and average
-    let mut total_sky: u32 = 0;
-    let mut total_block: u32 = 0;
-    let mut count: u32 = 0;
-    
-    for (dx, dy, dz) in offsets.iter() {
-        let sx = sample_at.0 + dx;
-        let sy = sample_at.1 + dy;
-        let sz = sample_at.2 + dz;
-        
-        let light = light_grid.get_light(sx, sy, sz);
-        total_sky += light.sky_light as u32;
-        total_block += light.block_light as u32;
-        count += 1;
-    }
-    
-    if count > 0 {
-        ((total_sky / count) as u8, (total_block / count) as u8)
-    } else {
-        (15, 0)
+
+    // Bilinear interpolation in the plane perpendicular to the face normal
+    match face_dir {
+        FaceDirection::Up | FaceDirection::Down => {
+            // Sample in XZ plane at fixed Y
+            let y = sample_y.floor() as i32;
+            let x0 = sample_x.floor() as i32;
+            let z0 = sample_z.floor() as i32;
+            let fx = sample_x - sample_x.floor();
+            let fz = sample_z - sample_z.floor();
+            
+            let l00 = light_grid.get_light(x0, y, z0);
+            let l10 = light_grid.get_light(x0 + 1, y, z0);
+            let l01 = light_grid.get_light(x0, y, z0 + 1);
+            let l11 = light_grid.get_light(x0 + 1, y, z0 + 1);
+            
+            let sky = (1.0-fx)*(1.0-fz)*(l00.sky_light as f32) + fx*(1.0-fz)*(l10.sky_light as f32) + 
+                      (1.0-fx)*fz*(l01.sky_light as f32) + fx*fz*(l11.sky_light as f32);
+            let block = (1.0-fx)*(1.0-fz)*(l00.block_light as f32) + fx*(1.0-fz)*(l10.block_light as f32) + 
+                        (1.0-fx)*fz*(l01.block_light as f32) + fx*fz*(l11.block_light as f32);
+            (sky as u8, block as u8)
+        }
+        FaceDirection::East | FaceDirection::West => {
+            // Sample in YZ plane at fixed X
+            let x = sample_x.floor() as i32;
+            let y0 = sample_y.floor() as i32;
+            let z0 = sample_z.floor() as i32;
+            let fy = sample_y - sample_y.floor();
+            let fz = sample_z - sample_z.floor();
+            
+            let l00 = light_grid.get_light(x, y0, z0);
+            let l10 = light_grid.get_light(x, y0 + 1, z0);
+            let l01 = light_grid.get_light(x, y0, z0 + 1);
+            let l11 = light_grid.get_light(x, y0 + 1, z0 + 1);
+            
+            let sky = (1.0-fy)*(1.0-fz)*(l00.sky_light as f32) + fy*(1.0-fz)*(l10.sky_light as f32) + 
+                      (1.0-fy)*fz*(l01.sky_light as f32) + fy*fz*(l11.sky_light as f32);
+            let block = (1.0-fy)*(1.0-fz)*(l00.block_light as f32) + fy*(1.0-fz)*(l10.block_light as f32) + 
+                        (1.0-fy)*fz*(l01.block_light as f32) + fy*fz*(l11.block_light as f32);
+            (sky as u8, block as u8)
+        }
+        FaceDirection::North | FaceDirection::South => {
+            // Sample in XY plane at fixed Z
+            let x0 = sample_x.floor() as i32;
+            let y0 = sample_y.floor() as i32;
+            let z = sample_z.floor() as i32;
+            let fx = sample_x - sample_x.floor();
+            let fy = sample_y - sample_y.floor();
+            
+            let l00 = light_grid.get_light(x0, y0, z);
+            let l10 = light_grid.get_light(x0 + 1, y0, z);
+            let l01 = light_grid.get_light(x0, y0 + 1, z);
+            let l11 = light_grid.get_light(x0 + 1, y0 + 1, z);
+            
+            let sky = (1.0-fx)*(1.0-fy)*(l00.sky_light as f32) + fx*(1.0-fy)*(l10.sky_light as f32) + 
+                      (1.0-fx)*fy*(l01.sky_light as f32) + fx*fy*(l11.sky_light as f32);
+            let block = (1.0-fx)*(1.0-fy)*(l00.block_light as f32) + fx*(1.0-fy)*(l10.block_light as f32) + 
+                        (1.0-fx)*fy*(l01.block_light as f32) + fx*fy*(l11.block_light as f32);
+            (sky as u8, block as u8)
+        }
+        FaceDirection::None => {
+            // Already handled above
+            (15, 0)
+        }
     }
 }
 

@@ -365,66 +365,99 @@ function getPositionRotation(x, y, z) {
 }
 
 /**
- * Sample smooth light at a vertex position by averaging the 4 adjacent blocks
+ * Sample smooth light at a vertex position using bilinear interpolation
  * in the plane perpendicular to the face normal.
+ * 
+ * This properly handles partial blocks (slabs, etc.) by sampling based on
+ * the actual vertex position, not fixed block-boundary offsets.
  * 
  * @param {LightGrid} lightGrid - Light data
  * @param {number} vx, vy, vz - Vertex world position
  * @param {string} faceDirName - Face direction ('up', 'down', 'north', 'south', 'east', 'west')
- * @returns {{skyLight: number, blockLight: number}} Averaged light at vertex
+ * @returns {{skyLight: number, blockLight: number}} Interpolated light at vertex
  */
 function sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName) {
-  // Determine which 4 blocks to sample based on face direction
-  // We sample in the plane perpendicular to the face normal
-  let offsets, baseX, baseY, baseZ;
-  
+  // Offset into the air space in front of the face
+  let sampleX = vx, sampleY = vy, sampleZ = vz;
+  switch (faceDirName) {
+    case 'up': sampleY += 0.5; break;
+    case 'down': sampleY -= 0.5; break;
+    case 'east': sampleX += 0.5; break;
+    case 'west': sampleX -= 0.5; break;
+    case 'north': sampleZ -= 0.5; break;
+    case 'south': sampleZ += 0.5; break;
+  }
+
+  // Bilinear interpolation in the plane perpendicular to the face normal
   switch (faceDirName) {
     case 'up':
     case 'down': {
-      // Horizontal face - sample in XZ plane
-      baseX = Math.floor(vx);
-      baseY = faceDirName === 'up' ? Math.floor(vy + 0.5) : Math.floor(vy - 0.5);
-      baseZ = Math.floor(vz);
-      offsets = [[-1, 0, -1], [0, 0, -1], [-1, 0, 0], [0, 0, 0]];
-      break;
-    }
-    case 'north':
-    case 'south': {
-      // Vertical face perpendicular to Z - sample in XY plane
-      baseX = Math.floor(vx);
-      baseY = Math.floor(vy);
-      baseZ = faceDirName === 'north' ? Math.floor(vz - 0.5) : Math.floor(vz + 0.5);
-      offsets = [[-1, -1, 0], [0, -1, 0], [-1, 0, 0], [0, 0, 0]];
-      break;
+      // Sample in XZ plane at fixed Y
+      const y = Math.floor(sampleY);
+      const x0 = Math.floor(sampleX);
+      const z0 = Math.floor(sampleZ);
+      const fx = sampleX - x0;
+      const fz = sampleZ - z0;
+      
+      const l00 = lightGrid.getLight(x0, y, z0);
+      const l10 = lightGrid.getLight(x0 + 1, y, z0);
+      const l01 = lightGrid.getLight(x0, y, z0 + 1);
+      const l11 = lightGrid.getLight(x0 + 1, y, z0 + 1);
+      
+      return {
+        skyLight: (1-fx)*(1-fz)*l00.skyLight + fx*(1-fz)*l10.skyLight + 
+                  (1-fx)*fz*l01.skyLight + fx*fz*l11.skyLight,
+        blockLight: (1-fx)*(1-fz)*l00.blockLight + fx*(1-fz)*l10.blockLight + 
+                    (1-fx)*fz*l01.blockLight + fx*fz*l11.blockLight,
+      };
     }
     case 'east':
     case 'west': {
-      // Vertical face perpendicular to X - sample in YZ plane
-      baseX = faceDirName === 'east' ? Math.floor(vx + 0.5) : Math.floor(vx - 0.5);
-      baseY = Math.floor(vy);
-      baseZ = Math.floor(vz);
-      offsets = [[0, -1, -1], [0, 0, -1], [0, -1, 0], [0, 0, 0]];
-      break;
+      // Sample in YZ plane at fixed X
+      const x = Math.floor(sampleX);
+      const y0 = Math.floor(sampleY);
+      const z0 = Math.floor(sampleZ);
+      const fy = sampleY - y0;
+      const fz = sampleZ - z0;
+      
+      const l00 = lightGrid.getLight(x, y0, z0);
+      const l10 = lightGrid.getLight(x, y0 + 1, z0);
+      const l01 = lightGrid.getLight(x, y0, z0 + 1);
+      const l11 = lightGrid.getLight(x, y0 + 1, z0 + 1);
+      
+      return {
+        skyLight: (1-fy)*(1-fz)*l00.skyLight + fy*(1-fz)*l10.skyLight + 
+                  (1-fy)*fz*l01.skyLight + fy*fz*l11.skyLight,
+        blockLight: (1-fy)*(1-fz)*l00.blockLight + fy*(1-fz)*l10.blockLight + 
+                    (1-fy)*fz*l01.blockLight + fy*fz*l11.blockLight,
+      };
+    }
+    case 'north':
+    case 'south': {
+      // Sample in XY plane at fixed Z
+      const x0 = Math.floor(sampleX);
+      const y0 = Math.floor(sampleY);
+      const z = Math.floor(sampleZ);
+      const fx = sampleX - x0;
+      const fy = sampleY - y0;
+      
+      const l00 = lightGrid.getLight(x0, y0, z);
+      const l10 = lightGrid.getLight(x0 + 1, y0, z);
+      const l01 = lightGrid.getLight(x0, y0 + 1, z);
+      const l11 = lightGrid.getLight(x0 + 1, y0 + 1, z);
+      
+      return {
+        skyLight: (1-fx)*(1-fy)*l00.skyLight + fx*(1-fy)*l10.skyLight + 
+                  (1-fx)*fy*l01.skyLight + fx*fy*l11.skyLight,
+        blockLight: (1-fx)*(1-fy)*l00.blockLight + fx*(1-fy)*l10.blockLight + 
+                    (1-fx)*fy*l01.blockLight + fx*fy*l11.blockLight,
+      };
     }
     default: {
-      // No clear direction - sample at vertex position
       const light = lightGrid.getLight(Math.floor(vx), Math.floor(vy), Math.floor(vz));
       return { skyLight: light.skyLight, blockLight: light.blockLight };
     }
   }
-  
-  // Sample light from the 4 positions and average
-  let totalSky = 0, totalBlock = 0;
-  for (const [dx, dy, dz] of offsets) {
-    const light = lightGrid.getLight(baseX + dx, baseY + dy, baseZ + dz);
-    totalSky += light.skyLight;
-    totalBlock += light.blockLight;
-  }
-  
-  return {
-    skyLight: totalSky / 4,
-    blockLight: totalBlock / 4,
-  };
 }
 
 // Initial buffer sizes (will grow as needed)
