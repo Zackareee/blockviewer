@@ -449,14 +449,21 @@ class SuperChunk {
 
   /**
    * Dispose all meshes
+   * @param {SuperChunkManager} manager - Optional manager to remove from ChunkManager arrays
    */
-  dispose() {
-    for (const mesh of this.meshes) {
-      if (mesh.geometry) {
-        mesh.geometry.dispose();
-      }
-      if (mesh.parent) {
-        mesh.parent.remove(mesh);
+  dispose(manager = null) {
+    if (manager) {
+      // Use manager's _disposeOldMeshes for complete cleanup including ChunkManager arrays
+      manager._disposeOldMeshes(this.meshes);
+    } else {
+      // Basic cleanup without ChunkManager array removal
+      for (const mesh of this.meshes) {
+        if (mesh.geometry) {
+          mesh.geometry.dispose();
+        }
+        if (mesh.parent) {
+          mesh.parent.remove(mesh);
+        }
       }
     }
     this.meshes = [];
@@ -1233,7 +1240,7 @@ export class SuperChunkManager {
       
       if (superChunk.isEmpty()) {
         // Dispose and remove empty super-chunk
-        superChunk.dispose();
+        superChunk.dispose(this);
         this.superChunks.delete(key);
         this.dirtySet.delete(key);
       } else {
@@ -1257,7 +1264,7 @@ export class SuperChunkManager {
     
     // Dispose old meshes (unless caller will handle cleanup)
     if (!keepOldMeshes) {
-      superChunk.dispose();
+      superChunk.dispose(this);
     } else {
       // Clear the meshes array but don't dispose - caller will do it
       superChunk.meshes = [];
@@ -3338,7 +3345,7 @@ export class SuperChunkManager {
   clear() {
     for (const [, superChunk] of this.superChunks) {
       this._removeMeshesFromManager(superChunk);
-      superChunk.dispose();
+      superChunk.dispose(this);
     }
     this.superChunks.clear();
     this.dirtySet.clear();
