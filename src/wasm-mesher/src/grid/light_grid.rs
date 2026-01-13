@@ -46,11 +46,16 @@ pub struct LightGrid {
     /// Sections stored by packed key
     sections: HashMap<u64, Box<[u8; SECTION_VOLUME]>>,
     /// True if this grid contains Minecraft's pre-computed light data
-    /// When true, missing sections default to 0 (dark)
+    /// When true, missing sections within bounds default to 0 (dark)
     /// When false (fallback mode), missing sections default to MAX_LIGHT
     has_minecraft_data: bool,
     /// Public flag for decode module to set
     pub has_minecraft_light_data: bool,
+    /// Chunk bounds for determining if a position is within loaded data
+    min_chunk_x: i32,
+    max_chunk_x: i32,
+    min_chunk_z: i32,
+    max_chunk_z: i32,
 }
 
 impl LightGrid {
@@ -59,6 +64,10 @@ impl LightGrid {
             sections: HashMap::new(),
             has_minecraft_data: false,
             has_minecraft_light_data: false,
+            min_chunk_x: i32::MAX,
+            max_chunk_x: i32::MIN,
+            min_chunk_z: i32::MAX,
+            max_chunk_z: i32::MIN,
         }
     }
 
@@ -91,12 +100,20 @@ impl LightGrid {
             section.copy_from_slice(&data[offset..offset + SECTION_VOLUME]);
             offset += SECTION_VOLUME;
 
+            // Track bounds from section key
+            let section_key = SectionKey::from_packed(key);
+            grid.min_chunk_x = grid.min_chunk_x.min(section_key.chunk_x);
+            grid.max_chunk_x = grid.max_chunk_x.max(section_key.chunk_x);
+            grid.min_chunk_z = grid.min_chunk_z.min(section_key.chunk_z);
+            grid.max_chunk_z = grid.max_chunk_z.max(section_key.chunk_z);
+
             grid.sections.insert(key, section);
         }
 
         // If we loaded any sections, we have Minecraft light data
-        // Missing sections should default to 0 (dark), not MAX_LIGHT
+        // Missing sections within bounds should default to 0 (dark), not MAX_LIGHT
         grid.has_minecraft_data = !grid.sections.is_empty();
+        grid.has_minecraft_light_data = grid.has_minecraft_data;
 
         grid
     }
@@ -129,11 +146,18 @@ impl LightGrid {
             let idx = block_index_in_section(local_x, local_y, local_z);
             LightValue::unpack(section[idx])
         } else {
-            // Missing sections default to full sky light
-            // Minecraft only stores sections that have blocks - empty sections above terrain
-            // don't have stored light data and are implicitly full sky light.
-            // Underground caves HAVE block data, so their light values ARE stored (as 0).
-            LightValue::new(MAX_LIGHT, 0)
+            // Check if this position is within our loaded chunk bounds
+            let within_bounds = 
+                chunk_x >= self.min_chunk_x && chunk_x <= self.max_chunk_x &&
+                chunk_z >= self.min_chunk_z && chunk_z <= self.max_chunk_z;
+            
+            if self.has_minecraft_data && within_bounds {
+                // Within loaded chunks with Minecraft data - missing section = underground (dark)
+                LightValue::new(0, 0)
+            } else {
+                // Outside bounds or no Minecraft data - default to bright (safe fallback)
+                LightValue::new(MAX_LIGHT, 0)
+            }
         }
     }
 
@@ -200,6 +224,21 @@ impl LightGrid {
         if other.has_minecraft_light_data {
             self.has_minecraft_light_data = true;
         }
+        // Expand bounds to include other grid's bounds
+        if other.min_chunk_x != i32::MAX {
+            self.min_chunk_x = self.min_chunk_x.min(other.min_chunk_x);
+            self.max_chunk_x = self.max_chunk_x.max(other.max_chunk_x);
+            self.min_chunk_z = self.min_chunk_z.min(other.min_chunk_z);
+            self.max_chunk_z = self.max_chunk_z.max(other.max_chunk_z);
+        }
+    }
+    
+    /// Set bounds explicitly (used when merging from JS)
+    pub fn set_bounds(&mut self, min_x: i32, max_x: i32, min_z: i32, max_z: i32) {
+        self.min_chunk_x = min_x;
+        self.max_chunk_x = max_x;
+        self.min_chunk_z = min_z;
+        self.max_chunk_z = max_z;
     }
 }
 
