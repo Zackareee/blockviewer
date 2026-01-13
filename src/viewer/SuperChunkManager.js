@@ -452,6 +452,7 @@ class SuperChunk {
    * @param {SuperChunkManager} manager - Optional manager to remove from ChunkManager arrays
    */
   dispose(manager = null) {
+    console.log(`[DEBUG] dispose() called for ${this.superX},${this.superZ} (meshes=${this.meshes.length}, buildVersion=${this.buildVersion}→${this.buildVersion + 1})`);
     if (manager) {
       // Use manager's _disposeOldMeshes for complete cleanup including ChunkManager arrays
       manager._disposeOldMeshes(this.meshes);
@@ -1698,6 +1699,7 @@ export class SuperChunkManager {
     // Skip if this is stale data from an old build
     // The super chunk may have been rebuilt since this was queued
     if (buildVersion !== superChunk.buildVersion) {
+      console.log(`[DEBUG] SKIPPING stale model mesh queue item for ${superChunk.superX},${superChunk.superZ} (queuedVersion=${buildVersion}, currentVersion=${superChunk.buildVersion})`);
       // Schedule next immediately - this one was stale
       if (this._modelMeshQueue.length > 0) {
         this._modelMeshScheduled = true;
@@ -1725,6 +1727,7 @@ export class SuperChunkManager {
             mesh.renderOrder = 0.5;
             superChunk.meshes.push(mesh);
             this.chunkManager.transparentModelMeshes.push(mesh);
+            console.log(`[DEBUG] Added transparent model mesh to ${superChunk.superX},${superChunk.superZ} (buildVersion=${superChunk.buildVersion}, total meshes=${superChunk.meshes.length}, total transparent=${this.chunkManager.transparentModelMeshes.length})`);
           }
         }
         
