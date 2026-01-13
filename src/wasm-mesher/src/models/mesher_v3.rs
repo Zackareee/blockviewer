@@ -560,43 +560,55 @@ fn calculate_face_ao_v3(
     // Get the transformed normal direction for determining sample plane
     let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
     
-    // IMPORTANT: Disable per-vertex AO for model blocks (stairs, slabs, etc.)
-    // The full-cube AO algorithm doesn't work correctly for partial blocks:
-    // - Full cubes have faces at block boundaries, so sampling at block + direction works
-    // - Model blocks have faces anywhere within the block (stairs at y+0.5), so
-    //   sampling at block boundaries gives incorrect results (black faces)
-    // 
-    // Instead, we use ao: 1.0 (full brightness) for all model block vertices
-    // while still correctly sampling sky/block light.
+    // Simple and robust light sampling for model blocks:
+    // Key insight: Model blocks exist in air space where light exists.
+    // 1. Get the model block's own light (always valid - this is where the block is)
+    // 2. Check adjacent block in face direction
+    // 3. If adjacent is air/transparent, use that light (more accurate for exposed faces)
+    // 4. If adjacent is solid, use the model block's own light (face is against a wall)
     
-    let mut result = [VertexLight { sky: 15, block: 0, ao: 1.0 }; 4];
-    
-    for (i, vertex) in face.vertices.iter().enumerate() {
-        // Transform vertex position by rotation
-        let (rot_x, rot_y, rot_z) = apply_rotation_to_point(
-            vertex[0], vertex[1], vertex[2],
-            y_rotation, axis, is_flipped
-        );
-    
-        // Sample light at the actual vertex position for smooth lighting
-        let (sky, block) = if let Some(lg) = light_grid {
-            // Calculate world position of this vertex
-            let vx = world_x as f32 + rot_x;
-            let vy = world_y as f32 + rot_y;
-            let vz = world_z as f32 + rot_z;
-            
-            // Sample light using trilinear interpolation at vertex position
-            // Only samples from non-solid blocks to avoid dark faces next to full cubes
-            sample_smooth_light_at_vertex(grid, lookups, lg, vx, vy, vz, face_dir)
-        } else {
-            (15, 0)
+    let (face_sky, face_block) = if let Some(lg) = light_grid {
+        // Get the model block's own light - this is always valid as a fallback
+        let own_light = lg.get_light(world_x, world_y, world_z);
+        
+        // Get adjacent block position in face direction
+        let (adj_x, adj_y, adj_z) = match face_dir {
+            FaceDirection::Up => (world_x, world_y + 1, world_z),
+            FaceDirection::Down => (world_x, world_y - 1, world_z),
+            FaceDirection::East => (world_x + 1, world_y, world_z),
+            FaceDirection::West => (world_x - 1, world_y, world_z),
+            FaceDirection::North => (world_x, world_y, world_z - 1),
+            FaceDirection::South => (world_x, world_y, world_z + 1),
+            FaceDirection::None => (world_x, world_y, world_z), // Use own position
         };
+        
+        // Check if adjacent block is solid (would have 0 light)
+        let adj_block_id = grid.get_block_id(adj_x, adj_y, adj_z);
+        let adj_is_air_or_transparent = adj_block_id == 0 
+            || lookups.is_ao_transparent(adj_block_id) 
+            || !lookups.is_opaque(adj_block_id);
+        
+        if adj_is_air_or_transparent {
+            // Adjacent is air/transparent - sample from there (more accurate)
+            let adj_light = lg.get_light(adj_x, adj_y, adj_z);
+            (adj_light.sky_light, adj_light.block_light)
+        } else {
+            // Adjacent is solid - use the model block's own light
+            // This prevents black faces when a model is against a wall
+            (own_light.sky_light, own_light.block_light)
+        }
+    } else {
+        (15, 0)
+    };
     
-        // Use ao: 1.0 (no AO darkening) for model blocks
-        result[i] = VertexLight { sky, block, ao: 1.0 };
-    }
-    
-    result
+    // Apply the same light to all 4 vertices of this face (no per-vertex interpolation)
+    // This is simpler and avoids the complexity of bilinear sampling that was causing issues
+    [
+        VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
+        VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
+        VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
+        VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
+    ]
 }
 
 /// Calculate AO directly at a vertex position
