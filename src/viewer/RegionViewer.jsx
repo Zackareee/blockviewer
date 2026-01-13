@@ -26,6 +26,11 @@ import * as THREE from 'three';
 let persistentChunkManager = null;
 let persistentChunkManagerScene = null; // Track which scene the manager is attached to
 
+// Expose for debugging in console
+if (typeof window !== 'undefined') {
+  window.__getChunkManager = () => persistentChunkManager;
+}
+
 /**
  * Adaptive pixel ratio component - reduces DPR when performance drops
  * PERFORMANCE: More aggressive settings for large scenes
