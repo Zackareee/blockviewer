@@ -468,6 +468,8 @@ class SuperChunk {
     }
     this.meshes = [];
     this.hasBeenBuilt = false;
+    // Increment build version to invalidate any pending queued operations
+    this.buildVersion++;
   }
 }
 
