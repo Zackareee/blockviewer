@@ -681,6 +681,10 @@ export class SuperChunkManager {
       return;
     }
     
+    // Hide old meshes BEFORE creating new ones to prevent transparent overlap
+    // (which causes flickering/darkness during rebuilds)
+    this._hideOldMeshes(job.oldMeshes);
+    
     // Create meshes from worker result
     await this._createMeshesFromWorkerResult(job.superChunk, result.result);
     
@@ -2866,6 +2870,7 @@ export class SuperChunkManager {
         superChunk.rebuildPending = true;
         
         const oldMeshes = [...superChunk.meshes];
+        this._hideOldMeshes(oldMeshes);
         await this.buildSuperChunk(superChunk, true);
         this._disposeOldMeshes(oldMeshes);
         
@@ -3030,6 +3035,7 @@ export class SuperChunkManager {
       };
       
       const oldMeshes = [...superChunk.meshes];
+      this._hideOldMeshes(oldMeshes);
       
       try {
         const { result } = await this.superChunkWorkerPool.process({
@@ -3069,6 +3075,17 @@ export class SuperChunkManager {
       if (mesh.parent) mesh.parent.remove(mesh);
     }
   }
+  /**
+   * Helper to hide old meshes BEFORE creating new ones.
+   * This prevents transparent mesh overlap during rebuilds which causes
+   * incorrect alpha blending (flickering/darkness).
+   */
+  _hideOldMeshes(oldMeshes) {
+    for (const mesh of oldMeshes) {
+      mesh.visible = false;
+    }
+  }
+
   
   /**
    * Schedule rebuild using requestIdleCallback for non-blocking updates

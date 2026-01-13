@@ -1674,13 +1674,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             tNormals[dstBase + 10] = geom.normals[srcBase + 10];
             tNormals[dstBase + 11] = geom.normals[srcBase + 11];
             
-            // Self-AO: internal faces (no cullface) get mild self-shadowing
-            const tSelfAO = cullInfo.cullface ? 1.0 : 0.92;
-            const taoR = r * tSelfAO;
-            const taoG = g * tSelfAO;
-            const taoB = b * tSelfAO;
+            // Transparent models: NO self-AO - you can see through them, so internal
+            // shadowing doesn't make sense. Use full brightness (1.0).
+            // (Self-AO was causing glass panes to be darker than glass blocks)
+            const taoR = r;
+            const taoG = g;
+            const taoB = b;
             
-            // Set colors with self-AO applied (same for all 4 vertices)
+            // Set colors (same for all 4 vertices)
             tColors[dstBase] = taoR; tColors[dstBase + 1] = taoG; tColors[dstBase + 2] = taoB;
             tColors[dstBase + 3] = taoR; tColors[dstBase + 4] = taoG; tColors[dstBase + 5] = taoB;
             tColors[dstBase + 6] = taoR; tColors[dstBase + 7] = taoG; tColors[dstBase + 8] = taoB;
