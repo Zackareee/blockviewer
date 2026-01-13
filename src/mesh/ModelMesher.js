@@ -1547,14 +1547,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
                 oBlockLight[oVertexCount + vIdx] = light.blockLight;
               }
             } else {
-              oSkyLight[oVertexCount] = faceSkyLight;
-              oSkyLight[oVertexCount + 1] = faceSkyLight;
-              oSkyLight[oVertexCount + 2] = faceSkyLight;
-              oSkyLight[oVertexCount + 3] = faceSkyLight;
-              oBlockLight[oVertexCount] = faceBlockLight;
-              oBlockLight[oVertexCount + 1] = faceBlockLight;
-              oBlockLight[oVertexCount + 2] = faceBlockLight;
-              oBlockLight[oVertexCount + 3] = faceBlockLight;
+            oSkyLight[oVertexCount] = faceSkyLight;
+            oSkyLight[oVertexCount + 1] = faceSkyLight;
+            oSkyLight[oVertexCount + 2] = faceSkyLight;
+            oSkyLight[oVertexCount + 3] = faceSkyLight;
+            oBlockLight[oVertexCount] = faceBlockLight;
+            oBlockLight[oVertexCount + 1] = faceBlockLight;
+            oBlockLight[oVertexCount + 2] = faceBlockLight;
+            oBlockLight[oVertexCount + 3] = faceBlockLight;
             }
             
             oVertexCount += 4;
@@ -1704,14 +1704,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
                 tBlockLight[tVertexCount + vIdx] = light.blockLight;
               }
             } else {
-              tSkyLight[tVertexCount] = faceSkyLight;
-              tSkyLight[tVertexCount + 1] = faceSkyLight;
-              tSkyLight[tVertexCount + 2] = faceSkyLight;
-              tSkyLight[tVertexCount + 3] = faceSkyLight;
-              tBlockLight[tVertexCount] = faceBlockLight;
-              tBlockLight[tVertexCount + 1] = faceBlockLight;
-              tBlockLight[tVertexCount + 2] = faceBlockLight;
-              tBlockLight[tVertexCount + 3] = faceBlockLight;
+            tSkyLight[tVertexCount] = faceSkyLight;
+            tSkyLight[tVertexCount + 1] = faceSkyLight;
+            tSkyLight[tVertexCount + 2] = faceSkyLight;
+            tSkyLight[tVertexCount + 3] = faceSkyLight;
+            tBlockLight[tVertexCount] = faceBlockLight;
+            tBlockLight[tVertexCount + 1] = faceBlockLight;
+            tBlockLight[tVertexCount + 2] = faceBlockLight;
+            tBlockLight[tVertexCount + 3] = faceBlockLight;
             }
             
             tVertexCount += 4;
@@ -1864,14 +1864,14 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
                 blockLightArr[vertexCount + vIdx] = light.blockLight;
               }
             } else {
-              skyLightArr[vertexCount] = faceSkyLight;
-              skyLightArr[vertexCount + 1] = faceSkyLight;
-              skyLightArr[vertexCount + 2] = faceSkyLight;
-              skyLightArr[vertexCount + 3] = faceSkyLight;
-              blockLightArr[vertexCount] = faceBlockLight;
-              blockLightArr[vertexCount + 1] = faceBlockLight;
-              blockLightArr[vertexCount + 2] = faceBlockLight;
-              blockLightArr[vertexCount + 3] = faceBlockLight;
+            skyLightArr[vertexCount] = faceSkyLight;
+            skyLightArr[vertexCount + 1] = faceSkyLight;
+            skyLightArr[vertexCount + 2] = faceSkyLight;
+            skyLightArr[vertexCount + 3] = faceSkyLight;
+            blockLightArr[vertexCount] = faceBlockLight;
+            blockLightArr[vertexCount + 1] = faceBlockLight;
+            blockLightArr[vertexCount + 2] = faceBlockLight;
+            blockLightArr[vertexCount + 3] = faceBlockLight;
             }
             
             vertexCount += 4;

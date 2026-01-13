@@ -680,7 +680,7 @@ fn sample_smooth_light_at_vertex(
         }
         FaceDirection::None => {
             // Already handled above
-            (15, 0)
+        (15, 0)
         }
     }
 }
