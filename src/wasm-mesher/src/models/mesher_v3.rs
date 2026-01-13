@@ -548,28 +548,18 @@ const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
 fn calculate_face_ao_v3(
     _grid: &BinaryGrid,
     _lookups: &Lookups,
-    light_grid: Option<&LightGrid>,
-    world_x: i32,
-    world_y: i32,
-    world_z: i32,
+    _light_grid: Option<&LightGrid>,
+    _world_x: i32,
+    _world_y: i32,
+    _world_z: i32,
     _face: &BakedFace,
     _y_rotation: u8,
     _axis: u8,
     _is_flipped: bool,
 ) -> [VertexLight; 4] {
-    // SIMPLEST APPROACH: Just use the model block's own light value.
-    // Model blocks exist in air space, so their light value is always valid.
-    // This avoids all the complexity of face direction checking and adjacent sampling
-    // that was causing black faces.
-    
-    let (face_sky, face_block) = if let Some(lg) = light_grid {
-        // Get light directly at the model block's position
-        // Model blocks are non-opaque, so Minecraft stores the correct ambient light here
-        let light = lg.get_light(world_x, world_y, world_z);
-        (light.sky_light, light.block_light)
-    } else {
-        (15, 0)
-    };
+    // DEBUG: Force maximum brightness to isolate if issue is with light data
+    // If faces are still black with this, the issue is elsewhere (shader, vertex colors, etc.)
+    let (face_sky, face_block) = (15u8, 0u8);
     
     // Apply the same light to all 4 vertices of this face
     [
