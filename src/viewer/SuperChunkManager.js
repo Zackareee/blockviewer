@@ -3060,6 +3060,8 @@ export class SuperChunkManager {
    * Helper to dispose old meshes
    */
   _disposeOldMeshes(oldMeshes) {
+    const beforeCount = this.chunkManager.transparentModelMeshes?.length || 0;
+    let removedTransparent = 0;
     for (const mesh of oldMeshes) {
       if (this.chunkManager.solidMeshes) removeFromArray(this.chunkManager.solidMeshes, mesh);
       if (this.chunkManager.waterMeshes) removeFromArray(this.chunkManager.waterMeshes, mesh);
@@ -3067,9 +3069,18 @@ export class SuperChunkManager {
       if (this.chunkManager.glassMeshes) removeFromArray(this.chunkManager.glassMeshes, mesh);
       if (this.chunkManager.modelMeshes) removeFromArray(this.chunkManager.modelMeshes, mesh);
       if (this.chunkManager.beaconMeshes) removeFromArray(this.chunkManager.beaconMeshes, mesh);
-      if (this.chunkManager.transparentModelMeshes) removeFromArray(this.chunkManager.transparentModelMeshes, mesh);
+      if (this.chunkManager.transparentModelMeshes) {
+        const idx = this.chunkManager.transparentModelMeshes.indexOf(mesh);
+        if (idx !== -1) {
+          this.chunkManager.transparentModelMeshes.splice(idx, 1);
+          removedTransparent++;
+        }
+      }
       if (mesh.geometry) mesh.geometry.dispose();
       if (mesh.parent) mesh.parent.remove(mesh);
+    }
+    if (oldMeshes.length > 0) {
+      console.log(`[DEBUG] _disposeOldMeshes: disposed ${oldMeshes.length} meshes, removed ${removedTransparent} from transparentModelMeshes (before=${beforeCount}, after=${this.chunkManager.transparentModelMeshes?.length})`);
     }
   }
   
