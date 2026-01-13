@@ -1375,8 +1375,8 @@ function propagateSkyLight(grid, lightGrid, registry) {
   for (let id = 0; id < 4096; id++) {
     const info = registry.getInfo(id);
     if (info) {
-      isOpaque[id] = info.opaque ? 1 : 0;
-      isNonCube[id] = info.nonCube ? 1 : 0;
+      isOpaque[id] = info.isOpaque ? 1 : 0;
+      isNonCube[id] = info.isNonCube ? 1 : 0;
       if (info.name) {
         if (info.name.includes('glass') || info.name.includes('ice') || info.name.includes('leaves')) {
           isGlass[id] = 1;

@@ -461,6 +461,9 @@ export class BlockRegistry {
   _isNonCube(name) {
     // Exact match blocks that would otherwise overlap with full cube variants
     // e.g., 'brown_mushroom' vs 'brown_mushroom_block'
+    // 
+    // IMPORTANT: Blocks with geometry variants in the V3 model manifest MUST be here
+    // to prevent the greedy mesher from also meshing them, causing z-fighting.
     const EXACT_MATCH_NON_CUBES = new Set([
       'brown_mushroom', 'red_mushroom',  // Small mushrooms (not _block variants)
       'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
@@ -488,6 +491,26 @@ export class BlockRegistry {
       'dropper', 'dispenser',                 // Dispensers with 6-directional facing
       'observer',                              // Observer with 6-directional facing
       'command_block', 'chain_command_block', 'repeating_command_block',  // Command blocks
+      // Full-cube blocks with geometry variants (different textures per state)
+      // These are meshed by V3 model mesher, greedy mesher must skip them
+      'barrel',                              // 6-dir facing + open state
+      'bee_nest', 'beehive',                 // 4-dir facing + honey_level (texture changes)
+      'blast_furnace', 'furnace', 'smoker',  // 4-dir facing + lit state (texture changes)
+      'carved_pumpkin',                      // 4-dir facing
+      'jack_o_lantern',                      // 4-dir facing (same as carved_pumpkin)
+      'crafter',                             // 12-orientation + crafting + triggered states
+      'jigsaw',                              // 12-orientation
+      'loom',                                // 4-dir facing
+      'structure_block',                     // 4 mode variants (save/load/corner/data)
+      'trial_spawner',                       // ominous + spawner_state variants
+      'vault',                               // 4-dir facing + ominous + vault_state
+      // Copper bulbs - powered state changes texture
+      'copper_bulb', 'exposed_copper_bulb', 'weathered_copper_bulb', 'oxidized_copper_bulb',
+      'waxed_copper_bulb', 'waxed_exposed_copper_bulb', 'waxed_weathered_copper_bulb', 'waxed_oxidized_copper_bulb',
+      // Item frames - map property changes model
+      'item_frame', 'glow_item_frame',
+      // Light block - 16 level variants
+      'light',
     ]);
     
     if (EXACT_MATCH_NON_CUBES.has(name)) {

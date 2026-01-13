@@ -532,24 +532,22 @@ fn vertex_ao_value(side1: bool, side2: bool, corner: bool) -> u8 {
 }
 
 /// AO brightness levels for model blocks
-/// Using higher minimum (0.7) than full cubes to prevent extreme darkening
-/// Full cubes use [0.2, 0.6, 0.8, 1.0] but model blocks need gentler AO
-const AO_BRIGHTNESS: [f32; 4] = [0.7, 0.85, 0.95, 1.0];
+/// Matching the greedy mesher's AO values from ao.rs for consistency
+const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
 
 /// Calculate per-vertex lighting for a model face with smooth interpolation
 /// 
-/// For model blocks (stairs, slabs, etc.), we sample light at each vertex position
-/// to achieve smooth lighting gradients that blend between blocks, just like full cubes.
+/// For model blocks, we calculate AO directly at each vertex's world position.
+/// This avoids complex index mapping and works correctly regardless of rotation.
 ///
 /// For each vertex:
 /// 1. Calculate its world position (block pos + rotated vertex offset)
-/// 2. Sample light from the 4 blocks touching that vertex corner
-/// 3. Average the light values for smooth transitions
-///
-/// This ensures model blocks have the same smooth lighting as full cubes.
+/// 2. Determine which 3 neighbors affect this vertex based on face direction
+/// 3. Calculate AO from those neighbors
+/// 4. Sample smooth light for the vertex
 fn calculate_face_ao_v3(
-    _grid: &BinaryGrid,
-    _lookups: &Lookups,
+    grid: &BinaryGrid,
+    lookups: &Lookups,
     light_grid: Option<&LightGrid>,
     world_x: i32,
     world_y: i32,
@@ -562,39 +560,116 @@ fn calculate_face_ao_v3(
     // Get the transformed normal direction for determining sample plane
     let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
     
-    // Self-AO: internal faces (no cullface) get mild self-shadowing
-    let self_ao = if face.cullface.is_none() {
-        0.92  // Mild self-shadow for internal faces
-    } else {
-        1.0   // Boundary faces get full brightness
-    };
+    let mut result = [VertexLight { sky: 15, block: 0, ao: 1.0 }; 4];
     
-    // Sample light at each vertex position
-    let mut result = [VertexLight { sky: 15, block: 0, ao: self_ao }; 4];
-    
-    if let Some(lg) = light_grid {
-        for (i, vertex) in face.vertices.iter().enumerate() {
-            // Transform vertex position by rotation
-            let (rot_x, rot_y, rot_z) = apply_rotation_to_point(
-                vertex[0], vertex[1], vertex[2],
-                y_rotation, axis, is_flipped
-            );
-            
-            // Calculate world position of this vertex
-            let vx = world_x as f32 + rot_x;
-            let vy = world_y as f32 + rot_y;
-            let vz = world_z as f32 + rot_z;
-            
-            // Sample smooth light at this vertex position
-            let (sky, block) = sample_smooth_light_at_vertex(lg, vx, vy, vz, face_dir);
-            
-            result[i] = VertexLight { sky, block, ao: self_ao };
-        }
+    for (i, vertex) in face.vertices.iter().enumerate() {
+        // Transform vertex position by rotation
+        let (rot_x, rot_y, rot_z) = apply_rotation_to_point(
+            vertex[0], vertex[1], vertex[2],
+            y_rotation, axis, is_flipped
+        );
+        
+        // Calculate AO directly at this vertex's position
+        let ao_level = calculate_vertex_ao_direct(
+            grid, lookups,
+            world_x, world_y, world_z,
+            rot_x, rot_y, rot_z,
+            face_dir,
+        );
+        
+        // Sample light at the CENTER of the block face, not at vertex positions
+        // This avoids issues with corner vertices sampling from wrong blocks
+        let (sky, block) = if let Some(lg) = light_grid {
+            // Sample at block center + face offset
+            let (fx, fy, fz) = match face_dir {
+                FaceDirection::Up => (world_x as f32 + 0.5, world_y as f32 + 1.0, world_z as f32 + 0.5),
+                FaceDirection::Down => (world_x as f32 + 0.5, world_y as f32 - 0.5, world_z as f32 + 0.5),
+                FaceDirection::North => (world_x as f32 + 0.5, world_y as f32 + 0.5, world_z as f32 - 0.5),
+                FaceDirection::South => (world_x as f32 + 0.5, world_y as f32 + 0.5, world_z as f32 + 1.0),
+                FaceDirection::East => (world_x as f32 + 1.0, world_y as f32 + 0.5, world_z as f32 + 0.5),
+                FaceDirection::West => (world_x as f32 - 0.5, world_y as f32 + 0.5, world_z as f32 + 0.5),
+                FaceDirection::None => (world_x as f32 + 0.5, world_y as f32 + 0.5, world_z as f32 + 0.5),
+            };
+            let light = lg.get_light(fx.floor() as i32, fy.floor() as i32, fz.floor() as i32);
+            (light.sky_light, light.block_light)
+        } else {
+            (15, 0)
+        };
+        
+        result[i] = VertexLight { sky, block, ao: AO_BRIGHTNESS[ao_level as usize] };
     }
     
     result
 }
 
+/// Calculate AO directly at a vertex position
+/// 
+/// Based on the face direction and vertex position within the block (0-1 range),
+/// determine which 3 neighbors affect this vertex and calculate AO.
+fn calculate_vertex_ao_direct(
+    grid: &BinaryGrid,
+    lookups: &Lookups,
+    block_x: i32,
+    block_y: i32,
+    block_z: i32,
+    vx: f32, vy: f32, vz: f32,
+    face_dir: FaceDirection,
+) -> u8 {
+    // Determine which corner of the block this vertex is at
+    // Vertices at 0-side go to the negative neighbor, vertices at 1-side go to positive
+    let is_east = vx > 0.5;   // +X side
+    let is_up = vy > 0.5;     // +Y side  
+    let is_south = vz > 0.5;  // +Z side
+    
+    // Get the position in the air space where we sample AO
+    // This is one block out from the face in the face normal direction
+    let (sample_x, sample_y, sample_z) = match face_dir {
+        FaceDirection::Up => (block_x, block_y + 1, block_z),
+        FaceDirection::Down => (block_x, block_y - 1, block_z),
+        FaceDirection::North => (block_x, block_y, block_z - 1),
+        FaceDirection::South => (block_x, block_y, block_z + 1),
+        FaceDirection::East => (block_x + 1, block_y, block_z),
+        FaceDirection::West => (block_x - 1, block_y, block_z),
+        FaceDirection::None => return 3, // No AO for directionless faces
+    };
+    
+    // Based on face direction and vertex position, check the appropriate neighbors
+    let (side1, side2, corner) = match face_dir {
+        FaceDirection::Up | FaceDirection::Down => {
+            // Horizontal face - check X and Z neighbors
+            let x_offset = if is_east { 1 } else { -1 };
+            let z_offset = if is_south { 1 } else { -1 };
+            
+            let s1 = is_solid_for_ao(grid, lookups, sample_x + x_offset, sample_y, sample_z);
+            let s2 = is_solid_for_ao(grid, lookups, sample_x, sample_y, sample_z + z_offset);
+            let c = is_solid_for_ao(grid, lookups, sample_x + x_offset, sample_y, sample_z + z_offset);
+            (s1, s2, c)
+        }
+        FaceDirection::North | FaceDirection::South => {
+            // Z-facing face - check X and Y neighbors
+            let x_offset = if is_east { 1 } else { -1 };
+            let y_offset = if is_up { 1 } else { -1 };
+            
+            let s1 = is_solid_for_ao(grid, lookups, sample_x + x_offset, sample_y, sample_z);
+            let s2 = is_solid_for_ao(grid, lookups, sample_x, sample_y + y_offset, sample_z);
+            let c = is_solid_for_ao(grid, lookups, sample_x + x_offset, sample_y + y_offset, sample_z);
+            (s1, s2, c)
+        }
+        FaceDirection::East | FaceDirection::West => {
+            // X-facing face - check Y and Z neighbors
+            let y_offset = if is_up { 1 } else { -1 };
+            let z_offset = if is_south { 1 } else { -1 };
+            
+            let s1 = is_solid_for_ao(grid, lookups, sample_x, sample_y + y_offset, sample_z);
+            let s2 = is_solid_for_ao(grid, lookups, sample_x, sample_y, sample_z + z_offset);
+            let c = is_solid_for_ao(grid, lookups, sample_x, sample_y + y_offset, sample_z + z_offset);
+            (s1, s2, c)
+        }
+        FaceDirection::None => return 3,
+    };
+    
+    vertex_ao_value(side1, side2, corner)
+}
 /// Sample smooth light at a vertex position using bilinear interpolation
 /// in the plane perpendicular to the face normal.
 ///
