@@ -560,6 +560,15 @@ fn calculate_face_ao_v3(
     // Get the transformed normal direction for determining sample plane
     let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
     
+    // IMPORTANT: Disable per-vertex AO for model blocks (stairs, slabs, etc.)
+    // The full-cube AO algorithm doesn't work correctly for partial blocks:
+    // - Full cubes have faces at block boundaries, so sampling at block + direction works
+    // - Model blocks have faces anywhere within the block (stairs at y+0.5), so
+    //   sampling at block boundaries gives incorrect results (black faces)
+    // 
+    // Instead, we use ao: 1.0 (full brightness) for all model block vertices
+    // while still correctly sampling sky/block light.
+    
     let mut result = [VertexLight { sky: 15, block: 0, ao: 1.0 }; 4];
     
     for (i, vertex) in face.vertices.iter().enumerate() {
@@ -569,34 +578,21 @@ fn calculate_face_ao_v3(
             y_rotation, axis, is_flipped
         );
         
-        // Calculate AO directly at this vertex's position
-        let ao_level = calculate_vertex_ao_direct(
-            grid, lookups,
-            world_x, world_y, world_z,
-            rot_x, rot_y, rot_z,
-            face_dir,
-        );
-        
-        // Sample light at the CENTER of the block face, not at vertex positions
-        // This avoids issues with corner vertices sampling from wrong blocks
+        // Sample light at the actual vertex position for smooth lighting
         let (sky, block) = if let Some(lg) = light_grid {
-            // Sample at block center + face offset
-            let (fx, fy, fz) = match face_dir {
-                FaceDirection::Up => (world_x as f32 + 0.5, world_y as f32 + 1.0, world_z as f32 + 0.5),
-                FaceDirection::Down => (world_x as f32 + 0.5, world_y as f32 - 0.5, world_z as f32 + 0.5),
-                FaceDirection::North => (world_x as f32 + 0.5, world_y as f32 + 0.5, world_z as f32 - 0.5),
-                FaceDirection::South => (world_x as f32 + 0.5, world_y as f32 + 0.5, world_z as f32 + 1.0),
-                FaceDirection::East => (world_x as f32 + 1.0, world_y as f32 + 0.5, world_z as f32 + 0.5),
-                FaceDirection::West => (world_x as f32 - 0.5, world_y as f32 + 0.5, world_z as f32 + 0.5),
-                FaceDirection::None => (world_x as f32 + 0.5, world_y as f32 + 0.5, world_z as f32 + 0.5),
-            };
-            let light = lg.get_light(fx.floor() as i32, fy.floor() as i32, fz.floor() as i32);
-            (light.sky_light, light.block_light)
+            // Calculate world position of this vertex
+            let vx = world_x as f32 + rot_x;
+            let vy = world_y as f32 + rot_y;
+            let vz = world_z as f32 + rot_z;
+            
+            // Sample light using trilinear interpolation at vertex position
+            sample_smooth_light_at_vertex(lg, vx, vy, vz, face_dir)
         } else {
             (15, 0)
         };
         
-        result[i] = VertexLight { sky, block, ao: AO_BRIGHTNESS[ao_level as usize] };
+        // Use ao: 1.0 (no AO darkening) for model blocks
+        result[i] = VertexLight { sky, block, ao: 1.0 };
     }
     
     result

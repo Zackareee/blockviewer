@@ -2342,9 +2342,10 @@ export const NON_CUBE_PATTERNS = [
   
   // Note: Small mushrooms need a special check in the matching function
   // because their names overlap with mushroom_block which IS a full cube
+  // Note: 'nether_wart' is also exact-matched to avoid matching 'nether_wart_block'
   
-  // Crops
-  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush', 'nether_wart',
+  // Crops (nether_wart moved to EXACT_MATCH_NON_CUBES to avoid matching nether_wart_block)
+  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush',
   'melon_stem', 'pumpkin_stem', 'cocoa',
   
   // Rails (covers rail, powered_rail, detector_rail, activator_rail)
@@ -2473,6 +2474,7 @@ export const NON_CUBE_PATTERNS = [
 // Exact match blocks that would otherwise overlap with full cube variants
 const EXACT_MATCH_NON_CUBES = new Set([
   'brown_mushroom', 'red_mushroom',  // Small mushrooms (not _block variants)
+  'nether_wart',                      // Nether wart crop (not nether_wart_block)
   'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
   'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
   'snow',                              // Snow layers (not snow_block)

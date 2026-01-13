@@ -64,8 +64,8 @@ import { getBlockColorsNumeric, COLOR_PATTERNS_NUMERIC } from '../data/blockColo
 // Non-cube block patterns (blocks that need model-based rendering, not greedy meshing)
 // Glass panes and iron bars are included - they use multipart model rendering
 const NON_CUBE_PATTERNS = [
-  // Slabs, stairs, fences, walls, doors, trapdoors
-  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars', 'copper_bars',
+  // Slabs, stairs, fences, walls, doors, trapdoors, shelves
+  '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars', 'copper_bars', '_shelf',
   
   // Flowers
   'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',
@@ -86,9 +86,10 @@ const NON_CUBE_PATTERNS = [
   
   // Note: Small mushrooms need a special check because their names overlap with mushroom_block
   // We handle this in _isNonCube() with specific exact matching
+  // Note: 'nether_wart' is also exact-matched to avoid matching 'nether_wart_block'
   
-  // Crops
-  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush', 'nether_wart',
+  // Crops (nether_wart moved to EXACT_MATCH_NON_CUBES to avoid matching nether_wart_block)
+  'wheat', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush',
   'melon_stem', 'pumpkin_stem', 'cocoa',
   
   // Rails (covers rail, powered_rail, detector_rail, activator_rail)
@@ -466,6 +467,7 @@ export class BlockRegistry {
     // to prevent the greedy mesher from also meshing them, causing z-fighting.
     const EXACT_MATCH_NON_CUBES = new Set([
       'brown_mushroom', 'red_mushroom',  // Small mushrooms (not _block variants)
+      'nether_wart',                      // Nether wart crop (not nether_wart_block)
       'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
       'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
       'snow',                              // Snow layers (not snow_block)
@@ -504,10 +506,7 @@ export class BlockRegistry {
       'structure_block',                     // 4 mode variants (save/load/corner/data)
       'trial_spawner',                       // ominous + spawner_state variants
       'vault',                               // 4-dir facing + ominous + vault_state
-      // Copper bulbs - powered state changes texture
-      'copper_bulb', 'exposed_copper_bulb', 'weathered_copper_bulb', 'oxidized_copper_bulb',
-      'waxed_copper_bulb', 'waxed_exposed_copper_bulb', 'waxed_weathered_copper_bulb', 'waxed_oxidized_copper_bulb',
-      // Item frames - map property changes model
+    // Item frames - map property changes model
       'item_frame', 'glow_item_frame',
       // Light block - 16 level variants
       'light',

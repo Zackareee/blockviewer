@@ -579,9 +579,18 @@ function RegionScene({
     cloudColor: { r: 1.0, g: 1.0, b: 1.0 }, // Ambient brightness for particles
   });
   
+  // Detected biome from chunk data (for 3D biome-based fog/sky colors)
+  const [detectedBiome, setDetectedBiome] = useState(null);
+  
   // Callback for MinecraftSky to update colors
   const handleColorsChange = useCallback((colors) => {
     setSkyColors(colors);
+  }, []);
+  
+  // Callback for ChunkStreamer biome detection
+  const handleBiomeChange = useCallback((newBiome, oldBiome) => {
+    console.log(`[RegionViewer] Biome changed: ${oldBiome} -> ${newBiome}`);
+    setDetectedBiome(newBiome);
   }, []);
   
   // Create ChunkManager once - persists across HMR to keep world loaded
@@ -1169,6 +1178,7 @@ function RegionScene({
             stageProgress: progress.stageProgress || 0,
           });
         },
+        onBiomeChange: handleBiomeChange, // Detect biome from chunk data for sky/fog
       });
       streamerRef.current = streamer;
       
@@ -1320,9 +1330,9 @@ function RegionScene({
   
   // Wrap onCameraUpdate to also update ChunkStreamer
   const handleCameraUpdate = useCallback((state) => {
-    // Update chunk streamer with new position
+    // Update chunk streamer with new position (including Y for 3D biome detection)
     if (enableChunkStreaming && streamerRef.current) {
-      streamerRef.current.updatePlayerPosition(state.x, state.z);
+      streamerRef.current.updatePlayerPosition3D(state.x, state.y, state.z);
     }
     
     // Call original callback
@@ -1400,7 +1410,7 @@ function RegionScene({
         cloudOpacity={cloudsEnabled ? 0.8 : 0}
         onColorsChange={handleColorsChange}
         dimension={dimension}
-        biome={biome}
+        biome={detectedBiome || biome}
       />
       
       {/* Dynamic fog - uses colors from MinecraftSky */}

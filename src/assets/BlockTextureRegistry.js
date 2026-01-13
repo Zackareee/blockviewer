@@ -391,6 +391,23 @@ const MULTIFACE_BLOCKS = {
   // Hay block
   'hay_block': { top: 'block/hay_block_top', side: 'block/hay_block_side' },
   
+  // Lodestone and target
+  'lodestone': { top: 'block/lodestone_top', side: 'block/lodestone_side' },
+  'target': { top: 'block/target_top', side: 'block/target_side' },
+  
+  // Reinforced deepslate
+  'reinforced_deepslate': { top: 'block/reinforced_deepslate_top', side: 'block/reinforced_deepslate_side', bottom: 'block/reinforced_deepslate_bottom' },
+  
+  // Jukebox
+  'jukebox': { top: 'block/jukebox_top', side: 'block/jukebox_side' },
+  
+  // Sculk
+  'sculk_catalyst': { top: 'block/sculk_catalyst_top', side: 'block/sculk_catalyst_side', bottom: 'block/sculk_catalyst_bottom' },
+  
+  // Nylium (nether grass-like blocks)
+  'crimson_nylium': { top: 'block/crimson_nylium', side: 'block/crimson_nylium_side', bottom: 'block/netherrack' },
+  'warped_nylium': { top: 'block/warped_nylium', side: 'block/warped_nylium_side', bottom: 'block/netherrack' },
+  
   // Cactus
   'cactus': { top: 'block/cactus_top', side: 'block/cactus_side', bottom: 'block/cactus_bottom' },
   
@@ -408,6 +425,8 @@ const MULTIFACE_BLOCKS = {
   // Respawn anchor
   'respawn_anchor': { top: 'block/respawn_anchor_top_off', side: 'block/respawn_anchor_side0', bottom: 'block/respawn_anchor_bottom' },
   
+  // Bookshelves
+  'bookshelf': { top: 'block/oak_planks', side: 'block/bookshelf' },
   // Chiseled bookshelf (empty state - filled states handled separately)
   'chiseled_bookshelf': { top: 'block/chiseled_bookshelf_top', side: 'block/chiseled_bookshelf_side', front: 'block/chiseled_bookshelf_empty' },
   
@@ -822,8 +841,7 @@ const TEXTURE_MAPPINGS = {
   'infested_chiseled_stone_bricks': 'block/chiseled_stone_bricks',
   'infested_deepslate': 'block/deepslate',
   
-  // Reinforced deepslate
-  'reinforced_deepslate': 'block/reinforced_deepslate_side',
+  // Note: reinforced_deepslate moved to MULTIFACE_BLOCKS (has different top/bottom textures)
   
   // Suspicious blocks (use regular texture, animation handled separately)
   'suspicious_sand': 'block/suspicious_sand_0',
@@ -1044,8 +1062,7 @@ const TEXTURE_MAPPINGS = {
   // Dripstone
   'pointed_dripstone': 'block/pointed_dripstone_up_tip',
   
-  // Sculk blocks
-  'sculk_catalyst': 'block/sculk_catalyst_side',
+  // Sculk blocks (sculk_catalyst moved to MULTIFACE_BLOCKS)
   'sculk_sensor': 'block/sculk_sensor_side',
   'sculk_shrieker': 'block/sculk_shrieker_side',
   'calibrated_sculk_sensor': 'block/sculk_sensor_side',
@@ -1064,11 +1081,10 @@ const TEXTURE_MAPPINGS = {
   
   // Enchanting and utility
   'enchanting_table': 'block/enchanting_table_side',
-  'jukebox': 'block/jukebox_side',
+  // Note: jukebox moved to MULTIFACE_BLOCKS (has different top texture)
   'bell': 'block/bell_side',
-  'lodestone': 'block/lodestone_side',
+  // Note: lodestone and target moved to MULTIFACE_BLOCKS (have different top textures)
   'crafter': 'block/crafter_south',
-  'target': 'block/target_side',
   
   // Cauldrons
   'cauldron': 'block/cauldron_side',
@@ -1294,7 +1310,7 @@ const TEXTURE_MAPPINGS = {
   
   // Basic blocks
   'bedrock': 'block/bedrock',
-  'bookshelf': 'block/bookshelf',
+  // Note: bookshelf moved to MULTIFACE_BLOCKS (has oak_planks on top/bottom)
   'bricks': 'block/bricks',
   'clay': 'block/clay',
   'coarse_dirt': 'block/coarse_dirt',
@@ -1355,9 +1371,7 @@ const TEXTURE_MAPPINGS = {
   'gilded_blackstone': 'block/gilded_blackstone',
   'bamboo_mosaic': 'block/bamboo_mosaic',
   
-  // Nylium
-  'crimson_nylium': 'block/crimson_nylium',
-  'warped_nylium': 'block/warped_nylium',
+  // Note: nylium moved to MULTIFACE_BLOCKS (has different top textures)
   
   // Anvil
   'anvil': 'block/anvil_top',

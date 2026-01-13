@@ -1469,6 +1469,9 @@ function createFallbackSunTexture() {
  * - dimension: Current dimension ID ('overworld', 'the_nether', 'the_end')
  * - biome: Current biome ID (e.g., 'plains', 'desert', 'dark_forest')
  */
+// Fog transition speed - Minecraft uses ~5 seconds for full biome transition
+const FOG_LERP_SPEED = 0.4; // Per-second interpolation factor (higher = faster)
+
 export function MinecraftSky({
   enabled = true,
   timeOfDay = 0.35, // Default to mid-morning (pleasant lighting)
@@ -1485,16 +1488,26 @@ export function MinecraftSky({
   // Get biome-specific colors
   const biomeColors = useMemo(() => getBiomeColors(biome, dimension), [biome, dimension]);
   
-  // Calculate dynamic sky colors based on time of day, dimension, and biome
-  const colors = useMemo(() => {
-    // For dimensions with fixed time (Nether, End), use biome/dimension colors
+  // Calculate TARGET sky colors based on time of day, dimension, and biome
+  // These are the colors we're transitioning TOWARD
+  const targetColors = useMemo(() => {
+    // For dimensions with fixed time (Nether, End), use dimension fog colors
+    // We intentionally ignore biome sky colors here since these dimensions
+    // don't have visible skies - only fog/atmosphere matters
     if (!dimConfig.hasTimeOfDay) {
-      // Nether uses biome-specific fog colors
-      const fogColorHex = biomeColors.fogColorHex || dimConfig.fogColor;
-      const skyColorHex = biomeColors.skyColorHex || dimConfig.skyColor;
+      // For Nether, check for biome-specific fog colors (nether_wastes, crimson_forest, etc.)
+      // but fall back to dimension defaults. Ignore overworld biome colors like 'plains'
+      let fogColorHex = dimConfig.fogColor;
+      
+      // Check if this is a Nether-specific biome with custom fog
+      if (dimConfig.biomeFogColors && dimConfig.biomeFogColors[biome]) {
+        fogColorHex = dimConfig.biomeFogColors[biome];
+      }
+      
+      // Use fog color for both sky and fog since there's no visible sky
       return {
-        skyColor: new THREE.Color(skyColorHex),
-        horizonColor: new THREE.Color(skyColorHex), // Same as sky for Nether/End
+        skyColor: new THREE.Color(fogColorHex),
+        horizonColor: new THREE.Color(fogColorHex), // Same as sky for Nether/End
         fogColor: new THREE.Color(fogColorHex),
         cloudColor: new THREE.Color(fogColorHex), // Use fog color for cloud tinting
         brightness: dimConfig.ambientLight,
@@ -1502,7 +1515,61 @@ export function MinecraftSky({
     }
     // Overworld uses time-based colors with biome tinting
     return calculateSkyColors(timeOfDay, biomeColors);
-  }, [timeOfDay, dimConfig, biomeColors]);
+  }, [timeOfDay, dimConfig, biomeColors, biome]);
+  
+  // Interpolated colors (smoothly transition toward target)
+  const interpolatedColorsRef = useRef({
+    skyColor: targetColors.skyColor.clone(),
+    horizonColor: targetColors.horizonColor.clone(),
+    fogColor: targetColors.fogColor.clone(),
+    cloudColor: targetColors.cloudColor.clone(),
+    brightness: targetColors.brightness,
+  });
+  
+  // State to trigger re-renders when interpolated colors change significantly
+  const [colors, setColors] = useState(() => ({
+    skyColor: targetColors.skyColor.clone(),
+    horizonColor: targetColors.horizonColor.clone(),
+    fogColor: targetColors.fogColor.clone(),
+    cloudColor: targetColors.cloudColor.clone(),
+    brightness: targetColors.brightness,
+  }));
+  
+  // Helper to compute squared distance between two colors
+  const colorDistanceSquared = (a, b) => {
+    const dr = a.r - b.r;
+    const dg = a.g - b.g;
+    const db = a.b - b.b;
+    return dr * dr + dg * dg + db * db;
+  };
+  
+  // Smoothly interpolate colors each frame
+  useFrame((_, delta) => {
+    const ref = interpolatedColorsRef.current;
+    const lerpFactor = Math.min(1, FOG_LERP_SPEED * delta * 60); // Normalize to ~60fps
+    
+    // Lerp each color channel
+    ref.skyColor.lerp(targetColors.skyColor, lerpFactor);
+    ref.horizonColor.lerp(targetColors.horizonColor, lerpFactor);
+    ref.fogColor.lerp(targetColors.fogColor, lerpFactor);
+    ref.cloudColor.lerp(targetColors.cloudColor, lerpFactor);
+    ref.brightness += (targetColors.brightness - ref.brightness) * lerpFactor;
+    
+    // Check if colors changed significantly (avoid constant re-renders)
+    const skyDist = colorDistanceSquared(ref.skyColor, colors.skyColor);
+    const fogDist = colorDistanceSquared(ref.fogColor, colors.fogColor);
+    
+    // Update state if colors changed noticeably (threshold prevents micro-updates)
+    if (skyDist > 0.0001 || fogDist > 0.0001) {
+      setColors({
+        skyColor: ref.skyColor.clone(),
+        horizonColor: ref.horizonColor.clone(),
+        fogColor: ref.fogColor.clone(),
+        cloudColor: ref.cloudColor.clone(),
+        brightness: ref.brightness,
+      });
+    }
+  });
   
   // Calculate sunrise/sunset glow parameters
   const glowParams = useMemo(() => {

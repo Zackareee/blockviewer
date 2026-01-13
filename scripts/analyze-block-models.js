@@ -242,6 +242,11 @@ function classifyProperty(propName, propValue, blockName) {
     if (propName === 'waterlogged') return 'flag';
   }
   
+  // Nether portal: axis selects between different models (ns vs ew), not runtime rotation
+  if (blockName === 'nether_portal') {
+    if (propName === 'axis') return 'geometry';
+  }
+  
   // General rules
   if (ROTATION_PROPERTIES.has(propName)) return 'rotation';
   if (GEOMETRY_PROPERTIES.has(propName)) return 'geometry';

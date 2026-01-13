@@ -280,6 +280,11 @@ export class ChunkStreamer {
     this.onChunkLoaded = options.onChunkLoaded || null;
     this.onChunkUnloaded = options.onChunkUnloaded || null;
     this.onProgress = options.onProgress || null;
+    this.onBiomeChange = options.onBiomeChange || null; // Called when player enters new biome
+    
+    // Current biome tracking
+    this.currentBiome = null;
+    this.lastBiomeCheckY = 0; // Last Y position for biome check
     
     // State
     this.playerChunkX = 0;
@@ -682,6 +687,41 @@ export class ChunkStreamer {
   }
 
   /**
+   * Update player position with full 3D coordinates for biome detection
+   * Call this when camera moves to detect biome changes (for sky/fog color)
+   * @param {number} worldX - Player world X position
+   * @param {number} worldY - Player world Y position
+   * @param {number} worldZ - Player world Z position
+   */
+  updatePlayerPosition3D(worldX, worldY, worldZ) {
+    // Update chunk loading (2D)
+    this.updatePlayerPosition(worldX, worldZ);
+    
+    // Check biome at current position (throttled - only if moved significantly in Y)
+    const yDelta = Math.abs(worldY - this.lastBiomeCheckY);
+    const chunkChanged = this.playerChunkX !== Math.floor(this.lastPlayerX / CHUNK_SIZE) ||
+                         this.playerChunkZ !== Math.floor(this.lastPlayerZ / CHUNK_SIZE);
+    
+    // Check biome if moved to new chunk or moved 8+ blocks vertically (2 biome cells)
+    if (chunkChanged || yDelta >= 8) {
+      this.lastBiomeCheckY = worldY;
+      const biome = this.getBiomeAtPosition(worldX, worldY, worldZ);
+      
+      if (biome && biome !== this.currentBiome) {
+        const oldBiome = this.currentBiome;
+        this.currentBiome = biome;
+        
+        // Notify listeners of biome change
+        if (this.onBiomeChange) {
+          // Strip minecraft: prefix for simpler handling
+          const shortBiome = biome.replace('minecraft:', '');
+          this.onBiomeChange(shortBiome, oldBiome?.replace('minecraft:', '') || null);
+        }
+      }
+    }
+  }
+
+  /**
    * Update player look direction for predictive chunk loading
    * Minecraft-style: prioritize chunks in front of the player
    * @param {number} yaw - Player yaw in radians (0 = +Z, PI/2 = -X, PI = -Z, -PI/2 = +X)
@@ -912,6 +952,131 @@ export class ChunkStreamer {
       'cobweb', 'string',
     ]);
     return nonSolid.has(n) || n.startsWith('potted_') || n.endsWith('_sign') || n.endsWith('_button');
+  }
+
+  /**
+   * Get the biome at a world position
+   * Minecraft 1.18+ stores biomes as 4x4x4 cubes within each section (64 biomes per section)
+   * @param {number} worldX - World X coordinate
+   * @param {number} worldY - World Y coordinate
+   * @param {number} worldZ - World Z coordinate
+   * @returns {string|null} Biome ID (e.g., 'minecraft:plains', 'minecraft:soul_sand_valley') or null if not found
+   */
+  getBiomeAtPosition(worldX, worldY, worldZ) {
+    if (!this.superChunkManager) {
+      return null;
+    }
+    
+    const chunkX = Math.floor(worldX / CHUNK_SIZE);
+    const chunkZ = Math.floor(worldZ / CHUNK_SIZE);
+    
+    // Get the super-chunk containing this chunk
+    const superChunkKey = this.superChunkManager.getSuperChunkKey(chunkX, chunkZ);
+    const superChunk = this.superChunkManager.superChunks.get(superChunkKey);
+    
+    if (!superChunk) {
+      return null;
+    }
+    
+    // Get chunk data from super-chunk
+    const localKey = superChunk.getLocalKey(chunkX, chunkZ);
+    const chunkEntry = superChunk.loadedChunks.get(localKey);
+    
+    if (!chunkEntry || !chunkEntry.data) {
+      return null;
+    }
+    
+    try {
+      let chunkData = chunkEntry.data;
+      
+      // Decompress if needed
+      if (chunkEntry.isRawCompressed && chunkData.compressedData) {
+        const compressed = new Uint8Array(chunkData.compressedData);
+        const decompressed = chunkData.compressionType === 1 
+          ? pako.ungzip(compressed)
+          : pako.inflate(compressed);
+        chunkData = parseNBTRaw(decompressed.buffer).value;
+      }
+      
+      // Get sections from chunk data
+      const sections = chunkData.sections || chunkData.Level?.Sections || [];
+      if (!sections || sections.length === 0) {
+        return null;
+      }
+      
+      // Find the section containing this Y level
+      // Section Y is the section index (e.g., -4 for Y=-64 to -48, 0 for Y=0-15)
+      const sectionY = Math.floor(worldY / 16);
+      const section = sections.find(s => (s.Y ?? s.y) === sectionY);
+      
+      if (!section || !section.biomes) {
+        // Try to find any section with biome data as fallback
+        for (const s of sections) {
+          if (s.biomes && s.biomes.palette && s.biomes.palette.length > 0) {
+            // Return the first biome in the palette as a fallback
+            return s.biomes.palette[0];
+          }
+        }
+        return null;
+      }
+      
+      const biomes = section.biomes;
+      const palette = biomes.palette;
+      
+      if (!palette || palette.length === 0) {
+        return null;
+      }
+      
+      // Single biome for entire section
+      if (palette.length === 1 || !biomes.data || biomes.data.length === 0) {
+        return palette[0];
+      }
+      
+      // Calculate biome index within section
+      // Biomes are stored as 4x4x4 cubes, so divide by 4
+      const localX = ((Math.floor(worldX) % 16) + 16) % 16;
+      const localY = ((Math.floor(worldY) % 16) + 16) % 16;
+      const localZ = ((Math.floor(worldZ) % 16) + 16) % 16;
+      
+      const biomeX = Math.floor(localX / 4);
+      const biomeY = Math.floor(localY / 4);
+      const biomeZ = Math.floor(localZ / 4);
+      
+      // 4x4x4 = 64 biome entries per section
+      const biomeIndex = biomeY * 16 + biomeZ * 4 + biomeX;
+      
+      // Calculate bits per entry (minimum 1 bit, based on palette size)
+      const bitsPerEntry = Math.max(1, Math.ceil(Math.log2(palette.length)));
+      const entriesPerLong = Math.floor(64 / bitsPerEntry);
+      const mask = (1 << bitsPerEntry) - 1;
+      
+      // Calculate which long and which bits contain our biome
+      const longIndex = Math.floor(biomeIndex / entriesPerLong);
+      const bitOffset = (biomeIndex % entriesPerLong) * bitsPerEntry;
+      
+      const data = biomes.data;
+      if (longIndex >= data.length) {
+        return palette[0]; // Fallback to first biome
+      }
+      
+      let paletteIndex = 0;
+      const longValue = data[longIndex];
+      
+      if (typeof longValue === 'bigint') {
+        paletteIndex = Number((longValue >> BigInt(bitOffset)) & BigInt(mask));
+      } else {
+        paletteIndex = (longValue >>> bitOffset) & mask;
+      }
+      
+      if (paletteIndex < palette.length) {
+        return palette[paletteIndex];
+      }
+      
+      return palette[0]; // Fallback
+    } catch (e) {
+      console.error('[ChunkStreamer] getBiomeAtPosition error:', e);
+      return null;
+    }
   }
 
   /**

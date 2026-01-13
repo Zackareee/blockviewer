@@ -84,6 +84,12 @@ const TINT_TYPES = {
 const GRASS_TINT_TEXTURES = new Set([
   'grass_block_top', 'short_grass', 'tall_grass_top', 'tall_grass_bottom',
   'fern', 'large_fern_top', 'large_fern_bottom',
+  // Sugar cane uses grass colormap
+  'sugar_cane',
+  // Bush block (1.21.5+)
+  'bush',
+  // Bamboo sapling stages
+  'bamboo_stage0',
 ]);
 
 const FOLIAGE_TINT_TEXTURES = new Set([
@@ -442,17 +448,46 @@ function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
             uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
         }
       } else {
-        // Auto-generate UVs based on face
+        // Auto-generate UVs based on element bounds (Minecraft's default behavior)
+        // When UV is not specified, Minecraft maps element coordinates directly to texture coordinates
+        // This CROPS the texture rather than stretching it to fit the element
+        let u0, v0, u1, v1;
         switch (faceName) {
-          case 'down':
           case 'up':
-            uvs = [[0, 0], [1, 0], [1, 1], [0, 1]];
+            // Top face: X maps to U, Z maps to V
+            u0 = element.from[0] / 16; v0 = element.from[2] / 16;
+            u1 = element.to[0] / 16;   v1 = element.to[2] / 16;
+            uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+            break;
+          case 'down':
+            // Bottom face: X maps to U, (16-Z) maps to V (flipped Z)
+            u0 = element.from[0] / 16; v0 = (16 - element.to[2]) / 16;
+            u1 = element.to[0] / 16;   v1 = (16 - element.from[2]) / 16;
+            uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
             break;
           case 'north':
+            // North face (-Z): (16-X) maps to U, (16-Y) maps to V
+            u0 = (16 - element.to[0]) / 16;   v0 = (16 - element.to[1]) / 16;
+            u1 = (16 - element.from[0]) / 16; v1 = (16 - element.from[1]) / 16;
+            uvs = [[u1, v0], [u0, v0], [u0, v1], [u1, v1]];
+            break;
           case 'south':
+            // South face (+Z): X maps to U, (16-Y) maps to V
+            u0 = element.from[0] / 16; v0 = (16 - element.to[1]) / 16;
+            u1 = element.to[0] / 16;   v1 = (16 - element.from[1]) / 16;
+            uvs = [[u1, v0], [u0, v0], [u0, v1], [u1, v1]];
+            break;
           case 'west':
+            // West face (-X): Z maps to U, (16-Y) maps to V
+            u0 = element.from[2] / 16; v0 = (16 - element.to[1]) / 16;
+            u1 = element.to[2] / 16;   v1 = (16 - element.from[1]) / 16;
+            uvs = [[u1, v0], [u0, v0], [u0, v1], [u1, v1]];
+            break;
           case 'east':
-            uvs = [[1, 0], [0, 0], [0, 1], [1, 1]];
+            // East face (+X): (16-Z) maps to U, (16-Y) maps to V
+            u0 = (16 - element.to[2]) / 16;   v0 = (16 - element.to[1]) / 16;
+            u1 = (16 - element.from[2]) / 16; v1 = (16 - element.from[1]) / 16;
+            uvs = [[u1, v0], [u0, v0], [u0, v1], [u1, v1]];
             break;
           default:
             uvs = [[0, 0], [1, 0], [1, 1], [0, 1]];

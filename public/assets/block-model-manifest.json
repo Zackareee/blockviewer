@@ -1,6 +1,6 @@
 {
   "version": "1.21.1",
-  "generatedAt": "2026-01-12T02:12:38.271Z",
+  "generatedAt": "2026-01-13T11:05:14.600Z",
   "blocks": {
     "acacia_button": {
       "isMultipart": false,
@@ -27642,17 +27642,23 @@
     "nether_portal": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "nether_portal_ns",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "nether_portal_ew",
           "rotX": 0,
           "rotY": 0,
           "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [

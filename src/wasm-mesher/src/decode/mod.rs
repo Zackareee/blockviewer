@@ -91,7 +91,9 @@ fn is_rotatable_block(name: &str) -> bool {
     name.contains("basalt") ||
     name.contains("deepslate") ||
     name.contains("chain") ||
-    name.contains("muddy_mangrove_roots")
+    name.contains("muddy_mangrove_roots") ||
+    name.contains("bamboo_block") ||
+    name.contains("froglight")
 }
 
 /// Directional blocks (furnace, loom, carved_pumpkin, etc.)

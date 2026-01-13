@@ -1653,6 +1653,73 @@ export class SuperChunkManager {
       }
     }
     
+    // Merge grid data into debugGrid for block inspector lookups
+    // This is critical for getBlockDetails() to work with worker-processed chunks
+    if (result.grids && result.grids.grid && this.chunkManager) {
+      // Create debugGrid if it doesn't exist (may be null if particles were disabled)
+      if (!this.chunkManager.debugGrid) {
+        this.chunkManager.debugGrid = new BinaryGrid();
+      }
+      const gridData = result.grids.grid;
+      if (gridData.sections) {
+        for (const { key, data } of gridData.sections) {
+          // Merge section into debugGrid
+          this.chunkManager.debugGrid.sections.set(key, data);
+        }
+        // Update bounds
+        if (gridData.minChunkX < this.chunkManager.debugGrid.minChunkX) {
+          this.chunkManager.debugGrid.minChunkX = gridData.minChunkX;
+        }
+        if (gridData.maxChunkX > this.chunkManager.debugGrid.maxChunkX) {
+          this.chunkManager.debugGrid.maxChunkX = gridData.maxChunkX;
+        }
+        if (gridData.minChunkZ < this.chunkManager.debugGrid.minChunkZ) {
+          this.chunkManager.debugGrid.minChunkZ = gridData.minChunkZ;
+        }
+        if (gridData.maxChunkZ > this.chunkManager.debugGrid.maxChunkZ) {
+          this.chunkManager.debugGrid.maxChunkZ = gridData.maxChunkZ;
+        }
+        if (gridData.minSectionY < this.chunkManager.debugGrid.minSectionY) {
+          this.chunkManager.debugGrid.minSectionY = gridData.minSectionY;
+        }
+        if (gridData.maxSectionY > this.chunkManager.debugGrid.maxSectionY) {
+          this.chunkManager.debugGrid.maxSectionY = gridData.maxSectionY;
+        }
+        this.chunkManager.debugGrid.totalBlocks += gridData.totalBlocks || 0;
+      }
+    }
+    
+    // Store stateGrid and stateRegistry for block state lookups (needed for block inspector)
+    if (result.grids && result.grids.stateGrid && this.chunkManager) {
+      // Create or update debugStateGrid
+      if (!this.chunkManager.debugStateGrid) {
+        this.chunkManager.debugStateGrid = new BlockStateGrid();
+      }
+      
+      // Build worker-to-main state ID mapping
+      const workerToMainStateId = new Map();
+      if (result.grids.states) {
+        for (const { workerStateId, blockName, properties } of result.grids.states) {
+          const mainStateId = this.stateRegistry.register(blockName, properties);
+          workerToMainStateId.set(workerStateId, mainStateId);
+        }
+      }
+      
+      // Merge state grid sections with remapped IDs
+      for (const { key, data } of result.grids.stateGrid) {
+        const remappedData = new Uint16Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+          const workerStateId = data[i];
+          if (workerStateId !== 0) {
+            remappedData[i] = workerToMainStateId.get(workerStateId) || 0;
+          }
+        }
+        this.chunkManager.debugStateGrid.sections.set(key, remappedData);
+      }
+      
+      this.chunkManager.debugStateRegistry = this.stateRegistry;
+    }
+    
     // Legacy fallback: Build model meshes from grids for multipart blocks
     // V3 handles non-multipart model blocks (stairs, slabs, doors, etc.)
     // Legacy handles multipart blocks (fences, walls, panes, redstone_wire, etc.)
