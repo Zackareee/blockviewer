@@ -1391,11 +1391,17 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             oNormals[dstBase + 10] = geom.normals[srcBase + 10];
             oNormals[dstBase + 11] = geom.normals[srcBase + 11];
             
-            // Set colors
-            oColors[dstBase] = r; oColors[dstBase + 1] = g; oColors[dstBase + 2] = b;
-            oColors[dstBase + 3] = r; oColors[dstBase + 4] = g; oColors[dstBase + 5] = b;
-            oColors[dstBase + 6] = r; oColors[dstBase + 7] = g; oColors[dstBase + 8] = b;
-            oColors[dstBase + 9] = r; oColors[dstBase + 10] = g; oColors[dstBase + 11] = b;
+            // Self-AO: internal faces (no cullface) get mild self-shadowing
+            const oSelfAO = cullInfo.cullface ? 1.0 : 0.92;
+            const oaoR = r * oSelfAO;
+            const oaoG = g * oSelfAO;
+            const oaoB = b * oSelfAO;
+            
+            // Set colors with self-AO applied
+            oColors[dstBase] = oaoR; oColors[dstBase + 1] = oaoG; oColors[dstBase + 2] = oaoB;
+            oColors[dstBase + 3] = oaoR; oColors[dstBase + 4] = oaoG; oColors[dstBase + 5] = oaoB;
+            oColors[dstBase + 6] = oaoR; oColors[dstBase + 7] = oaoG; oColors[dstBase + 8] = oaoB;
+            oColors[dstBase + 9] = oaoR; oColors[dstBase + 10] = oaoG; oColors[dstBase + 11] = oaoB;
             
             // Copy UVs
             if (geom.uvs) {
@@ -1526,11 +1532,17 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             tNormals[dstBase + 10] = geom.normals[srcBase + 10];
             tNormals[dstBase + 11] = geom.normals[srcBase + 11];
             
-            // Set colors (same for all 4 vertices)
-            tColors[dstBase] = r; tColors[dstBase + 1] = g; tColors[dstBase + 2] = b;
-            tColors[dstBase + 3] = r; tColors[dstBase + 4] = g; tColors[dstBase + 5] = b;
-            tColors[dstBase + 6] = r; tColors[dstBase + 7] = g; tColors[dstBase + 8] = b;
-            tColors[dstBase + 9] = r; tColors[dstBase + 10] = g; tColors[dstBase + 11] = b;
+            // Self-AO: internal faces (no cullface) get mild self-shadowing
+            const tSelfAO = cullInfo.cullface ? 1.0 : 0.92;
+            const taoR = r * tSelfAO;
+            const taoG = g * tSelfAO;
+            const taoB = b * tSelfAO;
+            
+            // Set colors with self-AO applied (same for all 4 vertices)
+            tColors[dstBase] = taoR; tColors[dstBase + 1] = taoG; tColors[dstBase + 2] = taoB;
+            tColors[dstBase + 3] = taoR; tColors[dstBase + 4] = taoG; tColors[dstBase + 5] = taoB;
+            tColors[dstBase + 6] = taoR; tColors[dstBase + 7] = taoG; tColors[dstBase + 8] = taoB;
+            tColors[dstBase + 9] = taoR; tColors[dstBase + 10] = taoG; tColors[dstBase + 11] = taoB;
             
             // Copy UVs if present
             if (geom.uvs) {
@@ -1664,11 +1676,18 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             normals[dstBase + 10] = geom.normals[srcBase + 10];
             normals[dstBase + 11] = geom.normals[srcBase + 11];
             
-            // Set colors (same for all 4 vertices)
-            colors[dstBase] = r; colors[dstBase + 1] = g; colors[dstBase + 2] = b;
-            colors[dstBase + 3] = r; colors[dstBase + 4] = g; colors[dstBase + 5] = b;
-            colors[dstBase + 6] = r; colors[dstBase + 7] = g; colors[dstBase + 8] = b;
-            colors[dstBase + 9] = r; colors[dstBase + 10] = g; colors[dstBase + 11] = b;
+            // Self-AO: internal faces (no cullface) get mild self-shadowing
+            // This creates subtle darkening in stair corners and internal geometry
+            const selfAO = cullInfo.cullface ? 1.0 : 0.92;
+            const aoR = r * selfAO;
+            const aoG = g * selfAO;
+            const aoB = b * selfAO;
+            
+            // Set colors with self-AO applied (same for all 4 vertices)
+            colors[dstBase] = aoR; colors[dstBase + 1] = aoG; colors[dstBase + 2] = aoB;
+            colors[dstBase + 3] = aoR; colors[dstBase + 4] = aoG; colors[dstBase + 5] = aoB;
+            colors[dstBase + 6] = aoR; colors[dstBase + 7] = aoG; colors[dstBase + 8] = aoB;
+            colors[dstBase + 9] = aoR; colors[dstBase + 10] = aoG; colors[dstBase + 11] = aoB;
             
             // Copy UVs if present
             if (geom.uvs) {

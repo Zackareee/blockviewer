@@ -537,15 +537,14 @@ fn vertex_ao_value(side1: bool, side2: bool, corner: bool) -> u8 {
 const AO_BRIGHTNESS: [f32; 4] = [0.7, 0.85, 0.95, 1.0];
 
 /// Calculate per-vertex lighting for a model face
-/// NOTE: We intentionally skip per-vertex AO for model blocks because:
-/// 1. Model block faces don't align to block boundaries
-/// 2. The full-cube AO algorithm samples at block+direction, which is wrong
-///    for partial blocks where faces can be anywhere within the block
-/// 3. Adjacent partial blocks (stairs next to stairs) would incorrectly
-///    cause extreme darkening because the algorithm treats them as solid
+/// 
+/// For model blocks (stairs, slabs, etc.), we use a different approach than full cubes:
+/// 1. Sample light at the face's actual world position (not block boundary)
+/// 2. Apply self-AO for internal faces (faces without cullface)
+/// 3. No block-boundary AO (partial blocks are AO-transparent)
 ///
-/// Instead, we use uniform lighting with full brightness (ao=1.0).
-/// Light values (sky/block) are still sampled correctly.
+/// This ensures model blocks are properly lit based on their actual geometry,
+/// not the simplified block grid.
 fn calculate_face_ao_v3(
     _grid: &BinaryGrid,
     _lookups: &Lookups,
@@ -558,16 +557,30 @@ fn calculate_face_ao_v3(
     axis: u8,
     is_flipped: bool,
 ) -> [VertexLight; 4] {
-    // Transform face direction to get sampling direction
+    // Calculate face center in block-local space (0-1)
+    let center_x = (face.vertices[0][0] + face.vertices[1][0] + face.vertices[2][0] + face.vertices[3][0]) / 4.0;
+    let center_y = (face.vertices[0][1] + face.vertices[1][1] + face.vertices[2][1] + face.vertices[3][1]) / 4.0;
+    let center_z = (face.vertices[0][2] + face.vertices[1][2] + face.vertices[2][2] + face.vertices[3][2]) / 4.0;
+    
+    // Transform face center by rotation (apply the same transform as the vertices)
+    let (rot_x, rot_y, rot_z) = apply_rotation_to_point(center_x, center_y, center_z, y_rotation, axis, is_flipped);
+    
+    // Get the transformed normal direction
     let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
-    let (dx, dy, dz) = direction_offset(face_dir);
+    let (nx, ny, nz) = direction_offset(face_dir);
     
-    // Sample position is in the direction the face is pointing
-    let sample_x = world_x + dx;
-    let sample_y = world_y + dy;
-    let sample_z = world_z + dz;
+    // Calculate world position of face center
+    let face_world_x = world_x as f32 + rot_x;
+    let face_world_y = world_y as f32 + rot_y;
+    let face_world_z = world_z as f32 + rot_z;
     
-    // Get base light at the sample position
+    // Sample position: offset by normal to sample in the air space the face is looking into
+    // Use a small offset (0.5) to get the adjacent block's light
+    let sample_x = (face_world_x + nx as f32 * 0.5).floor() as i32;
+    let sample_y = (face_world_y + ny as f32 * 0.5).floor() as i32;
+    let sample_z = (face_world_z + nz as f32 * 0.5).floor() as i32;
+    
+    // Get light at the sample position
     let (base_sky, base_block) = if let Some(lg) = light_grid {
         let light = lg.get_light(sample_x, sample_y, sample_z);
         (light.sky_light, light.block_light)
@@ -575,13 +588,51 @@ fn calculate_face_ao_v3(
         (15, 0)
     };
     
-    // No per-vertex AO for model blocks - use full brightness
+    // Self-AO: internal faces (no cullface) get mild self-shadowing
+    // This creates the subtle darkening in stair corners
+    let self_ao = if face.cullface.is_none() {
+        0.92  // Mild self-shadow for internal faces
+    } else {
+        1.0   // Boundary faces get full brightness
+    };
+    
     [
-        VertexLight { sky: base_sky, block: base_block, ao: 1.0 },
-        VertexLight { sky: base_sky, block: base_block, ao: 1.0 },
-        VertexLight { sky: base_sky, block: base_block, ao: 1.0 },
-        VertexLight { sky: base_sky, block: base_block, ao: 1.0 },
+        VertexLight { sky: base_sky, block: base_block, ao: self_ao },
+        VertexLight { sky: base_sky, block: base_block, ao: self_ao },
+        VertexLight { sky: base_sky, block: base_block, ao: self_ao },
+        VertexLight { sky: base_sky, block: base_block, ao: self_ao },
     ]
+}
+
+/// Apply rotation transform to a point in block-local space (0-1)
+fn apply_rotation_to_point(x: f32, y: f32, z: f32, y_rotation: u8, axis: u8, is_flipped: bool) -> (f32, f32, f32) {
+    // Center the point around (0.5, 0.5, 0.5) for rotation
+    let cx = x - 0.5;
+    let cy = y - 0.5;
+    let cz = z - 0.5;
+    
+    // Apply Y rotation (0=0°, 1=90°, 2=180°, 3=270°)
+    let (rx, rz) = match y_rotation {
+        0 => (cx, cz),
+        1 => (-cz, cx),  // 90° CW
+        2 => (-cx, -cz), // 180°
+        3 => (cz, -cx),  // 270° CW
+        _ => (cx, cz),
+    };
+    
+    // Apply axis rotation and flip
+    let (fx, fy, fz) = match (axis, is_flipped) {
+        (0, false) => (rx, cy, rz),      // No axis rotation
+        (0, true) => (rx, -cy, rz),      // Y-flip only
+        (1, false) => (cy, -rx, rz),     // X-axis rotation
+        (1, true) => (-cy, -rx, rz),     // X-axis with flip
+        (2, false) => (rx, -rz, cy),     // Z-axis rotation
+        (2, true) => (rx, rz, cy),       // Z-axis with flip
+        _ => (rx, cy, rz),
+    };
+    
+    // Re-center
+    (fx + 0.5, fy + 0.5, fz + 0.5)
 }
 
 /// Calculate AO values for 4 vertices of a face based on direction

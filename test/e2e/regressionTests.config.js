@@ -101,10 +101,11 @@ export const testCases = [
 ];
 
 /**
- * Additional test cases that use different world files
- * These are run separately from the main tests
+ * Additional test cases that use different world files (hermitcraft)
+ * Tests AOv3 lighting system with real-world block arrangements
  */
 export const hermitcraftTestCases = [
+  // Stair AO test - verifies stairs don't have black faces when touching other blocks
   {
     name: 'stair_ao_hermitcraft',
     description: 'Stair AO test - should have no black faces with smooth lighting',
@@ -119,6 +120,22 @@ export const hermitcraftTestCases = [
       renderDistance: 6,
     },
     waitMs: 5000, // Wait for chunks to load
+  },
+  // Wall AO test - verifies walls (multipart blocks) are properly lit
+  {
+    name: 'wall_ao_hermitcraft',
+    description: 'Wall AO test - walls should not appear overly dark',
+    worldFile: 'hermitcraft10.zip',
+    x: -456.1,
+    y: 77.6,
+    z: -78.5,
+    yaw: 180,
+    pitch: 44,
+    settings: {
+      smoothLighting: true,
+      renderDistance: 6,
+    },
+    waitMs: 5000,
   },
 ];
 
