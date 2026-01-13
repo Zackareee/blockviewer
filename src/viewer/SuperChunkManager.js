@@ -379,6 +379,10 @@ class SuperChunk {
     // Prevent concurrent rebuilds (race condition fix)
     // When true, a rebuild is in progress - skip new rebuild requests
     this.rebuildPending = false;
+    
+    // Build version counter - incremented each time the super chunk is rebuilt
+    // Used to detect stale queued operations (e.g., model mesh builds)
+    this.buildVersion = 0;
   }
 
   /**
@@ -603,7 +607,13 @@ export class SuperChunkManager {
     
     let processed = 0;
     while (this._modelMeshQueue.length > 0) {
-      const { superChunk, gridsData } = this._modelMeshQueue.shift();
+      const { superChunk, gridsData, buildVersion } = this._modelMeshQueue.shift();
+      
+      // Skip stale queue items from previous builds
+      if (buildVersion !== superChunk.buildVersion) {
+        continue;
+      }
+      
       try {
         const modelResult = await this._buildModelMeshesFromWorkerGrids(gridsData);
         if (modelResult) {
@@ -653,6 +663,15 @@ export class SuperChunkManager {
    * @private
    */
   async _finalizeWorkerResult(job, result) {
+    // Skip stale jobs from previous builds - this can happen if a super chunk
+    // was rebuilt while its previous job was still queued
+    if (job.buildVersion !== undefined && job.buildVersion !== job.superChunk.buildVersion) {
+      // Dispose old meshes even for stale jobs to prevent memory leaks
+      this._disposeOldMeshes(job.oldMeshes);
+      this._pendingWorkerJobs--;
+      return;
+    }
+    
     // Create meshes from worker result
     await this._createMeshesFromWorkerResult(job.superChunk, result.result);
     
@@ -1242,6 +1261,8 @@ export class SuperChunkManager {
     } else {
       // Clear the meshes array but don't dispose - caller will do it
       superChunk.meshes = [];
+      // Increment build version to invalidate any pending queued operations
+      superChunk.buildVersion++;
     }
     
     if (superChunk.isEmpty()) {
@@ -1638,7 +1659,12 @@ export class SuperChunkManager {
       this._modelMeshQueue = [];
     }
     
-    this._modelMeshQueue.push({ superChunk, gridsData });
+    // Store the current build version to detect stale queue items
+    this._modelMeshQueue.push({ 
+      superChunk, 
+      gridsData,
+      buildVersion: superChunk.buildVersion,
+    });
     
     // Schedule processing if not already scheduled
     if (!this._modelMeshScheduled) {
@@ -1658,7 +1684,18 @@ export class SuperChunkManager {
     if (!this._modelMeshQueue || this._modelMeshQueue.length === 0) return;
     
     // Process one model mesh per idle callback
-    const { superChunk, gridsData } = this._modelMeshQueue.shift();
+    const { superChunk, gridsData, buildVersion } = this._modelMeshQueue.shift();
+    
+    // Skip if this is stale data from an old build
+    // The super chunk may have been rebuilt since this was queued
+    if (buildVersion !== superChunk.buildVersion) {
+      // Schedule next immediately - this one was stale
+      if (this._modelMeshQueue.length > 0) {
+        this._modelMeshScheduled = true;
+        setTimeout(() => this._processModelMeshQueue(), 0);
+      }
+      return;
+    }
     
     try {
       const modelResult = await this._buildModelMeshesFromWorkerGrids(gridsData);
@@ -2863,6 +2900,9 @@ export class SuperChunkManager {
       // Store old meshes to dispose after new ones are ready
       const oldMeshes = [...superChunk.meshes];
       superChunk.meshes = [];
+      // Increment build version to invalidate any pending queued operations
+      superChunk.buildVersion++;
+      const buildVersion = superChunk.buildVersion;
       
       // Collect job data - IMPORTANT: clone ArrayBuffers for parallel dispatch
       const chunks = [];
@@ -2892,6 +2932,7 @@ export class SuperChunkManager {
         key,
         superChunk,
         oldMeshes,
+        buildVersion,
         jobData: { chunks, neighbors, bounds, priority: 0, superChunkKey: key },
       });
       
