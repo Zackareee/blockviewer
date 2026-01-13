@@ -545,14 +545,17 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   // Track stair half: 0=bottom (normal), 1=top (upside-down)
   const stateStairHalf = new Uint8Array(maxStateId);
   
-  // Track wall/fence blocks - same type adjacent can cull shared faces
-  // Value is a unique ID per wall/fence material type
+  // Track wall/fence/pane blocks - same type adjacent can cull shared faces
+  // Value is a unique ID per wall/fence/pane material type
   const stateWallType = new Uint16Array(maxStateId);
   const stateFenceType = new Uint16Array(maxStateId);
+  const statePaneType = new Uint16Array(maxStateId); // glass panes, iron bars
   let nextWallTypeId = 1;
   let nextFenceTypeId = 1;
+  let nextPaneTypeId = 1;
   const wallTypeMap = new Map(); // blockName → typeId
   const fenceTypeMap = new Map(); // blockName → typeId
+  const paneTypeMap = new Map(); // blockName → typeId
   
   // Track blocks that are "opaque for their occupied portion"
   // These can cull faces of adjacent partial blocks when they overlap
@@ -687,6 +690,15 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             fenceTypeMap.set(blockName, nextFenceTypeId++);
           }
           stateFenceType[stateId] = fenceTypeMap.get(blockName);
+        }
+        
+        // Detect glass panes and iron bars for pane-to-pane culling
+        // These are thin transparent blocks that overlap when adjacent
+        if (blockName.includes('glass_pane') || blockName === 'iron_bars') {
+          if (!paneTypeMap.has(blockName)) {
+            paneTypeMap.set(blockName, nextPaneTypeId++);
+          }
+          statePaneType[stateId] = paneTypeMap.get(blockName);
         }
         
         // Track blocks that emit particles (torches, etc.)
@@ -914,6 +926,7 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
       const myStairHalf = stateStairHalf[stateId]; // 0=bottom, 1=top
       const myWallType = stateWallType[stateId];
       const myFenceType = stateFenceType[stateId];
+      const myPaneType = statePaneType[stateId];
       
       // Helper to get neighbor state ID (inline for performance)
       let neighborStateId;
@@ -1180,6 +1193,25 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
                 (cf === 'north' && nNorth) || (cf === 'south' && nSouth) ||
                 (cf === 'west' && nWest) || (cf === 'east' && nEast)) {
               continue; // Skip this face - neighbor is full opaque cube
+            }
+            
+            // Pane-to-pane culling: glass panes and iron bars with cullface should
+            // cull against adjacent same-type panes to prevent overlapping faces
+            if (myPaneType > 0) {
+              let paneCullNeighbor = 0;
+              if (cf === 'north' && lz > 0) {
+                paneCullNeighbor = statePaneType[stateSection[i - 16]];
+              } else if (cf === 'south' && lz < 15) {
+                paneCullNeighbor = statePaneType[stateSection[i + 16]];
+              } else if (cf === 'west' && lx > 0) {
+                paneCullNeighbor = statePaneType[stateSection[i - 1]];
+              } else if (cf === 'east' && lx < 15) {
+                paneCullNeighbor = statePaneType[stateSection[i + 1]];
+              }
+              // Cull if neighbor is ANY pane type (they all have the same thin geometry)
+              if (paneCullNeighbor > 0) {
+                continue;
+              }
             }
           }
           
