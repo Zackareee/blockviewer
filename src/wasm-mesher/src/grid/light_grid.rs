@@ -156,7 +156,7 @@ impl LightGrid {
                 LightValue::new(0, 0)
             } else {
                 // Outside bounds or no Minecraft data - default to bright (safe fallback)
-                LightValue::new(MAX_LIGHT, 0)
+            LightValue::new(MAX_LIGHT, 0)
             }
         }
     }

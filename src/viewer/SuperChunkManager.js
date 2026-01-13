@@ -375,6 +375,10 @@ class SuperChunk {
     
     // Track if we've ever been built
     this.hasBeenBuilt = false;
+    
+    // Prevent concurrent rebuilds (race condition fix)
+    // When true, a rebuild is in progress - skip new rebuild requests
+    this.rebuildPending = false;
   }
 
   /**
@@ -511,6 +515,12 @@ export class SuperChunkManager {
     // When multiple workers complete at once, we queue results and process 1-2 per frame
     this.completionQueue = new SuperChunkCompletionQueue();
     this._pendingWorkerJobs = 0;
+    
+    // Disable neighbor rebuilds to improve performance
+    // The race condition fix (rebuildPending flag) prevents duplicate meshes,
+    // so neighbor rebuilds are optional for visual polish (water levels, lighting)
+    // Set to true to disable rebuilds entirely (fastest, slight visual artifacts at edges)
+    this._disableNeighborRebuilds = options.disableNeighborRebuilds ?? false;
   }
   
   /**
@@ -653,6 +663,9 @@ export class SuperChunkManager {
     const isFirstBuild = !job.superChunk.hasBeenBuilt;
     job.superChunk.isDirty = false;
     job.superChunk.hasBeenBuilt = true;
+    
+    // Clear rebuild pending flag (allows future rebuilds)
+    job.superChunk.rebuildPending = false;
     
     // Mark neighbors for rebuild on first build
     this._markNeighborsDirtyAfterBuild(job.superChunk, isFirstBuild);
@@ -2233,19 +2246,21 @@ export class SuperChunkManager {
     // would cause an infinite loop
     if (!isFirstBuild) return;
     
+    // Skip neighbor marking entirely if disabled
+    // The race condition fix (rebuildPending flag) prevents duplicate meshes,
+    // so neighbor rebuilds are optional for visual polish only
+    if (this._disableNeighborRebuilds) return;
+    
     const sx = superChunk.superX;
     const sz = superChunk.superZ;
     
-    // Check all 8 adjacent super-chunks
+    // Only mark cardinal neighbors (N, S, E, W) - corners rarely have visible artifacts
+    // This reduces rebuild overhead by 50% (4 instead of 8 neighbors)
     const neighborOffsets = [
       { dx: -1, dz: 0 },  // West
       { dx: 1, dz: 0 },   // East
       { dx: 0, dz: -1 },  // North
       { dx: 0, dz: 1 },   // South
-      { dx: -1, dz: -1 }, // Northwest
-      { dx: 1, dz: -1 },  // Northeast
-      { dx: -1, dz: 1 },  // Southwest
-      { dx: 1, dz: 1 },   // Southeast
     ];
     
     for (const { dx, dz } of neighborOffsets) {
@@ -2798,9 +2813,17 @@ export class SuperChunkManager {
       
       const superChunk = this.superChunks.get(key);
       if (superChunk) {
+        // Skip if a rebuild is already in progress (race condition prevention)
+        if (superChunk.rebuildPending) {
+          continue;
+        }
+        superChunk.rebuildPending = true;
+        
         const oldMeshes = [...superChunk.meshes];
         await this.buildSuperChunk(superChunk, true);
         this._disposeOldMeshes(oldMeshes);
+        
+        superChunk.rebuildPending = false;
         rebuiltCount++;
       }
       this.dirtySet.delete(key);
@@ -2825,9 +2848,17 @@ export class SuperChunkManager {
       const superChunk = this.superChunks.get(key);
       if (!superChunk) continue;
       
+      // Skip if a rebuild is already in progress (race condition prevention)
+      if (superChunk.rebuildPending) {
+        continue;
+      }
+      
       // Check if we can use worker pool for this chunk
       const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
       if (!hasRawCompressed) continue;
+      
+      // Mark as rebuild pending to prevent concurrent rebuilds
+      superChunk.rebuildPending = true;
       
       // Store old meshes to dispose after new ones are ready
       const oldMeshes = [...superChunk.meshes];
@@ -2883,6 +2914,8 @@ export class SuperChunkManager {
         })
         .catch(error => {
           console.warn(`[SuperChunkManager] Worker failed for ${job.key}:`, error.message);
+          // Clear rebuild pending flag on error
+          job.superChunk.rebuildPending = false;
           // Re-add to dirty set for retry
           this.dirtySet.add(job.key);
           this._pendingWorkerJobs--;
@@ -2908,11 +2941,18 @@ export class SuperChunkManager {
         continue;
       }
       
+      // Skip if a rebuild is already in progress (race condition prevention)
+      if (superChunk.rebuildPending) {
+        continue;
+      }
+      
       // Check if we can use worker pool
       const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
       if (!hasRawCompressed || !this.useSuperChunkWorkerPool) {
         continue; // Skip - let normal rebuild handle it
       }
+      
+      superChunk.rebuildPending = true;
       
       // Collect chunks and neighbors
       const chunks = [];
@@ -2926,7 +2966,10 @@ export class SuperChunkManager {
         });
       }
       
-      if (chunks.length === 0) continue;
+      if (chunks.length === 0) {
+        superChunk.rebuildPending = false;
+        continue;
+      }
       
       const neighbors = this._collectNeighborDataForWorker(superChunk, true);
       const bounds = {
@@ -2954,6 +2997,7 @@ export class SuperChunkManager {
         console.warn(`[SuperChunkManager] Boundary repair failed for ${key}:`, error.message);
       }
       
+      superChunk.rebuildPending = false;
       this.boundaryDirtySet.delete(key);
       this.dirtySet.delete(key);
     }
@@ -3191,6 +3235,12 @@ export class SuperChunkManager {
       const superChunk = this.superChunks.get(key);
       // Rebuild if super-chunk exists - it's in boundaryDirtySet so needs fixing
       if (superChunk) {
+        // Skip if a rebuild is already in progress (race condition prevention)
+        if (superChunk.rebuildPending) {
+          continue;
+        }
+        superChunk.rebuildPending = true;
+        
         // Store old meshes to remove AFTER new ones are ready
         const oldMeshes = [...superChunk.meshes];
         
@@ -3209,6 +3259,7 @@ export class SuperChunkManager {
           if (mesh.parent) mesh.parent.remove(mesh);
         }
         
+        superChunk.rebuildPending = false;
         rebuiltCount++;
       }
       // Remove from both sets
