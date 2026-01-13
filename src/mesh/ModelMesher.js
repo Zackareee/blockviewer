@@ -364,6 +364,69 @@ function getPositionRotation(x, y, z) {
   return Number(result & 3n);
 }
 
+/**
+ * Sample smooth light at a vertex position by averaging the 4 adjacent blocks
+ * in the plane perpendicular to the face normal.
+ * 
+ * @param {LightGrid} lightGrid - Light data
+ * @param {number} vx, vy, vz - Vertex world position
+ * @param {string} faceDirName - Face direction ('up', 'down', 'north', 'south', 'east', 'west')
+ * @returns {{skyLight: number, blockLight: number}} Averaged light at vertex
+ */
+function sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName) {
+  // Determine which 4 blocks to sample based on face direction
+  // We sample in the plane perpendicular to the face normal
+  let offsets, baseX, baseY, baseZ;
+  
+  switch (faceDirName) {
+    case 'up':
+    case 'down': {
+      // Horizontal face - sample in XZ plane
+      baseX = Math.floor(vx);
+      baseY = faceDirName === 'up' ? Math.floor(vy + 0.5) : Math.floor(vy - 0.5);
+      baseZ = Math.floor(vz);
+      offsets = [[-1, 0, -1], [0, 0, -1], [-1, 0, 0], [0, 0, 0]];
+      break;
+    }
+    case 'north':
+    case 'south': {
+      // Vertical face perpendicular to Z - sample in XY plane
+      baseX = Math.floor(vx);
+      baseY = Math.floor(vy);
+      baseZ = faceDirName === 'north' ? Math.floor(vz - 0.5) : Math.floor(vz + 0.5);
+      offsets = [[-1, -1, 0], [0, -1, 0], [-1, 0, 0], [0, 0, 0]];
+      break;
+    }
+    case 'east':
+    case 'west': {
+      // Vertical face perpendicular to X - sample in YZ plane
+      baseX = faceDirName === 'east' ? Math.floor(vx + 0.5) : Math.floor(vx - 0.5);
+      baseY = Math.floor(vy);
+      baseZ = Math.floor(vz);
+      offsets = [[0, -1, -1], [0, 0, -1], [0, -1, 0], [0, 0, 0]];
+      break;
+    }
+    default: {
+      // No clear direction - sample at vertex position
+      const light = lightGrid.getLight(Math.floor(vx), Math.floor(vy), Math.floor(vz));
+      return { skyLight: light.skyLight, blockLight: light.blockLight };
+    }
+  }
+  
+  // Sample light from the 4 positions and average
+  let totalSky = 0, totalBlock = 0;
+  for (const [dx, dy, dz] of offsets) {
+    const light = lightGrid.getLight(baseX + dx, baseY + dy, baseZ + dz);
+    totalSky += light.skyLight;
+    totalBlock += light.blockLight;
+  }
+  
+  return {
+    skyLight: totalSky / 4,
+    blockLight: totalBlock / 4,
+  };
+}
+
 // Initial buffer sizes (will grow as needed)
 // Use larger initial allocation to reduce resize operations
 const INITIAL_VERTEX_COUNT = 200000;
@@ -1438,14 +1501,28 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             oSingleSidedFlags[oVertexCount + 1] = oSingleSidedValue;
             oSingleSidedFlags[oVertexCount + 2] = oSingleSidedValue;
             oSingleSidedFlags[oVertexCount + 3] = oSingleSidedValue;
-            oSkyLight[oVertexCount] = faceSkyLight;
-            oSkyLight[oVertexCount + 1] = faceSkyLight;
-            oSkyLight[oVertexCount + 2] = faceSkyLight;
-            oSkyLight[oVertexCount + 3] = faceSkyLight;
-            oBlockLight[oVertexCount] = faceBlockLight;
-            oBlockLight[oVertexCount + 1] = faceBlockLight;
-            oBlockLight[oVertexCount + 2] = faceBlockLight;
-            oBlockLight[oVertexCount + 3] = faceBlockLight;
+            
+            // Per-vertex smooth light sampling for overlay model blocks
+            const oFaceDirName = cullInfo.faceDirection || cullInfo.cullface || 'up';
+            if (lightGrid) {
+              for (let vIdx = 0; vIdx < 4; vIdx++) {
+                const vx = oPositions[dstBase + vIdx * 3];
+                const vy = oPositions[dstBase + vIdx * 3 + 1];
+                const vz = oPositions[dstBase + vIdx * 3 + 2];
+                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, oFaceDirName);
+                oSkyLight[oVertexCount + vIdx] = light.skyLight;
+                oBlockLight[oVertexCount + vIdx] = light.blockLight;
+              }
+            } else {
+              oSkyLight[oVertexCount] = faceSkyLight;
+              oSkyLight[oVertexCount + 1] = faceSkyLight;
+              oSkyLight[oVertexCount + 2] = faceSkyLight;
+              oSkyLight[oVertexCount + 3] = faceSkyLight;
+              oBlockLight[oVertexCount] = faceBlockLight;
+              oBlockLight[oVertexCount + 1] = faceBlockLight;
+              oBlockLight[oVertexCount + 2] = faceBlockLight;
+              oBlockLight[oVertexCount + 3] = faceBlockLight;
+            }
             
             oVertexCount += 4;
             
@@ -1581,14 +1658,28 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             tSingleSidedFlags[tVertexCount + 1] = tSingleSidedValue;
             tSingleSidedFlags[tVertexCount + 2] = tSingleSidedValue;
             tSingleSidedFlags[tVertexCount + 3] = tSingleSidedValue;
-            tSkyLight[tVertexCount] = faceSkyLight;
-            tSkyLight[tVertexCount + 1] = faceSkyLight;
-            tSkyLight[tVertexCount + 2] = faceSkyLight;
-            tSkyLight[tVertexCount + 3] = faceSkyLight;
-            tBlockLight[tVertexCount] = faceBlockLight;
-            tBlockLight[tVertexCount + 1] = faceBlockLight;
-            tBlockLight[tVertexCount + 2] = faceBlockLight;
-            tBlockLight[tVertexCount + 3] = faceBlockLight;
+            
+            // Per-vertex smooth light sampling for transparent model blocks
+            const tFaceDirName = cullInfo.faceDirection || cullInfo.cullface || 'up';
+            if (lightGrid) {
+              for (let vIdx = 0; vIdx < 4; vIdx++) {
+                const vx = tPositions[dstBase + vIdx * 3];
+                const vy = tPositions[dstBase + vIdx * 3 + 1];
+                const vz = tPositions[dstBase + vIdx * 3 + 2];
+                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, tFaceDirName);
+                tSkyLight[tVertexCount + vIdx] = light.skyLight;
+                tBlockLight[tVertexCount + vIdx] = light.blockLight;
+              }
+            } else {
+              tSkyLight[tVertexCount] = faceSkyLight;
+              tSkyLight[tVertexCount + 1] = faceSkyLight;
+              tSkyLight[tVertexCount + 2] = faceSkyLight;
+              tSkyLight[tVertexCount + 3] = faceSkyLight;
+              tBlockLight[tVertexCount] = faceBlockLight;
+              tBlockLight[tVertexCount + 1] = faceBlockLight;
+              tBlockLight[tVertexCount + 2] = faceBlockLight;
+              tBlockLight[tVertexCount + 3] = faceBlockLight;
+            }
             
             tVertexCount += 4;
             
@@ -1726,14 +1817,29 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             singleSidedFlags[vertexCount + 1] = singleSidedValue;
             singleSidedFlags[vertexCount + 2] = singleSidedValue;
             singleSidedFlags[vertexCount + 3] = singleSidedValue;
-            skyLightArr[vertexCount] = faceSkyLight;
-            skyLightArr[vertexCount + 1] = faceSkyLight;
-            skyLightArr[vertexCount + 2] = faceSkyLight;
-            skyLightArr[vertexCount + 3] = faceSkyLight;
-            blockLightArr[vertexCount] = faceBlockLight;
-            blockLightArr[vertexCount + 1] = faceBlockLight;
-            blockLightArr[vertexCount + 2] = faceBlockLight;
-            blockLightArr[vertexCount + 3] = faceBlockLight;
+            
+            // Per-vertex smooth light sampling for model blocks
+            // Sample light at each vertex's actual world position for smooth gradients
+            const faceDirName = cullInfo.faceDirection || cullInfo.cullface || 'up';
+            if (lightGrid) {
+              for (let vIdx = 0; vIdx < 4; vIdx++) {
+                const vx = positions[dstBase + vIdx * 3];
+                const vy = positions[dstBase + vIdx * 3 + 1];
+                const vz = positions[dstBase + vIdx * 3 + 2];
+                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName);
+                skyLightArr[vertexCount + vIdx] = light.skyLight;
+                blockLightArr[vertexCount + vIdx] = light.blockLight;
+              }
+            } else {
+              skyLightArr[vertexCount] = faceSkyLight;
+              skyLightArr[vertexCount + 1] = faceSkyLight;
+              skyLightArr[vertexCount + 2] = faceSkyLight;
+              skyLightArr[vertexCount + 3] = faceSkyLight;
+              blockLightArr[vertexCount] = faceBlockLight;
+              blockLightArr[vertexCount + 1] = faceBlockLight;
+              blockLightArr[vertexCount + 2] = faceBlockLight;
+              blockLightArr[vertexCount + 3] = faceBlockLight;
+            }
             
             vertexCount += 4;
             

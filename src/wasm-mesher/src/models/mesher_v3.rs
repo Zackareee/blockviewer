@@ -536,15 +536,17 @@ fn vertex_ao_value(side1: bool, side2: bool, corner: bool) -> u8 {
 /// Full cubes use [0.2, 0.6, 0.8, 1.0] but model blocks need gentler AO
 const AO_BRIGHTNESS: [f32; 4] = [0.7, 0.85, 0.95, 1.0];
 
-/// Calculate per-vertex lighting for a model face
+/// Calculate per-vertex lighting for a model face with smooth interpolation
 /// 
-/// For model blocks (stairs, slabs, etc.), we use a different approach than full cubes:
-/// 1. Sample light at the face's actual world position (not block boundary)
-/// 2. Apply self-AO for internal faces (faces without cullface)
-/// 3. No block-boundary AO (partial blocks are AO-transparent)
+/// For model blocks (stairs, slabs, etc.), we sample light at each vertex position
+/// to achieve smooth lighting gradients that blend between blocks, just like full cubes.
 ///
-/// This ensures model blocks are properly lit based on their actual geometry,
-/// not the simplified block grid.
+/// For each vertex:
+/// 1. Calculate its world position (block pos + rotated vertex offset)
+/// 2. Sample light from the 4 blocks touching that vertex corner
+/// 3. Average the light values for smooth transitions
+///
+/// This ensures model blocks have the same smooth lighting as full cubes.
 fn calculate_face_ao_v3(
     _grid: &BinaryGrid,
     _lookups: &Lookups,
@@ -557,51 +559,129 @@ fn calculate_face_ao_v3(
     axis: u8,
     is_flipped: bool,
 ) -> [VertexLight; 4] {
-    // Calculate face center in block-local space (0-1)
-    let center_x = (face.vertices[0][0] + face.vertices[1][0] + face.vertices[2][0] + face.vertices[3][0]) / 4.0;
-    let center_y = (face.vertices[0][1] + face.vertices[1][1] + face.vertices[2][1] + face.vertices[3][1]) / 4.0;
-    let center_z = (face.vertices[0][2] + face.vertices[1][2] + face.vertices[2][2] + face.vertices[3][2]) / 4.0;
-    
-    // Transform face center by rotation (apply the same transform as the vertices)
-    let (rot_x, rot_y, rot_z) = apply_rotation_to_point(center_x, center_y, center_z, y_rotation, axis, is_flipped);
-    
-    // Get the transformed normal direction
+    // Get the transformed normal direction for determining sample plane
     let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
-    let (nx, ny, nz) = direction_offset(face_dir);
-    
-    // Calculate world position of face center
-    let face_world_x = world_x as f32 + rot_x;
-    let face_world_y = world_y as f32 + rot_y;
-    let face_world_z = world_z as f32 + rot_z;
-    
-    // Sample position: offset by normal to sample in the air space the face is looking into
-    // Use a small offset (0.5) to get the adjacent block's light
-    let sample_x = (face_world_x + nx as f32 * 0.5).floor() as i32;
-    let sample_y = (face_world_y + ny as f32 * 0.5).floor() as i32;
-    let sample_z = (face_world_z + nz as f32 * 0.5).floor() as i32;
-    
-    // Get light at the sample position
-    let (base_sky, base_block) = if let Some(lg) = light_grid {
-        let light = lg.get_light(sample_x, sample_y, sample_z);
-        (light.sky_light, light.block_light)
-    } else {
-        (15, 0)
-    };
     
     // Self-AO: internal faces (no cullface) get mild self-shadowing
-    // This creates the subtle darkening in stair corners
     let self_ao = if face.cullface.is_none() {
         0.92  // Mild self-shadow for internal faces
     } else {
         1.0   // Boundary faces get full brightness
     };
     
-    [
-        VertexLight { sky: base_sky, block: base_block, ao: self_ao },
-        VertexLight { sky: base_sky, block: base_block, ao: self_ao },
-        VertexLight { sky: base_sky, block: base_block, ao: self_ao },
-        VertexLight { sky: base_sky, block: base_block, ao: self_ao },
-    ]
+    // Sample light at each vertex position
+    let mut result = [VertexLight { sky: 15, block: 0, ao: self_ao }; 4];
+    
+    if let Some(lg) = light_grid {
+        for (i, vertex) in face.vertices.iter().enumerate() {
+            // Transform vertex position by rotation
+            let (rot_x, rot_y, rot_z) = apply_rotation_to_point(
+                vertex[0], vertex[1], vertex[2],
+                y_rotation, axis, is_flipped
+            );
+            
+            // Calculate world position of this vertex
+            let vx = world_x as f32 + rot_x;
+            let vy = world_y as f32 + rot_y;
+            let vz = world_z as f32 + rot_z;
+            
+            // Sample smooth light at this vertex position
+            let (sky, block) = sample_smooth_light_at_vertex(lg, vx, vy, vz, face_dir);
+            
+            result[i] = VertexLight { sky, block, ao: self_ao };
+        }
+    }
+    
+    result
+}
+
+/// Sample smooth light at a vertex position by averaging the 4 adjacent blocks
+/// in the plane perpendicular to the face normal.
+fn sample_smooth_light_at_vertex(
+    light_grid: &LightGrid,
+    vx: f32, vy: f32, vz: f32,
+    face_dir: FaceDirection,
+) -> (u8, u8) {
+    // Determine which 4 blocks to sample based on face direction
+    // We sample in the plane perpendicular to the face normal
+    let (offsets, sample_at) = match face_dir {
+        FaceDirection::Up | FaceDirection::Down => {
+            // Horizontal face - sample in XZ plane
+            // The vertex is at a corner, sample the 4 blocks touching it
+            let base_x = vx.floor() as i32;
+            let base_y = if face_dir == FaceDirection::Up { 
+                (vy + 0.5).floor() as i32  // Sample above for up face
+            } else { 
+                (vy - 0.5).floor() as i32  // Sample below for down face
+            };
+            let base_z = vz.floor() as i32;
+            (
+                [(-1, 0, -1), (0, 0, -1), (-1, 0, 0), (0, 0, 0)],
+                (base_x, base_y, base_z)
+            )
+        }
+        FaceDirection::North | FaceDirection::South => {
+            // Vertical face perpendicular to Z - sample in XY plane
+            let base_x = vx.floor() as i32;
+            let base_y = vy.floor() as i32;
+            let base_z = if face_dir == FaceDirection::North {
+                (vz - 0.5).floor() as i32
+            } else {
+                (vz + 0.5).floor() as i32
+            };
+            (
+                [(-1, -1, 0), (0, -1, 0), (-1, 0, 0), (0, 0, 0)],
+                (base_x, base_y, base_z)
+            )
+        }
+        FaceDirection::East | FaceDirection::West => {
+            // Vertical face perpendicular to X - sample in YZ plane
+            let base_x = if face_dir == FaceDirection::East {
+                (vx + 0.5).floor() as i32
+            } else {
+                (vx - 0.5).floor() as i32
+            };
+            let base_y = vy.floor() as i32;
+            let base_z = vz.floor() as i32;
+            (
+                [(0, -1, -1), (0, 0, -1), (0, -1, 0), (0, 0, 0)],
+                (base_x, base_y, base_z)
+            )
+        }
+        FaceDirection::None => {
+            // No clear direction - sample at vertex position (cross-model plants, etc.)
+            let base_x = vx.floor() as i32;
+            let base_y = vy.floor() as i32;
+            let base_z = vz.floor() as i32;
+            // Just sample the single block the vertex is in
+            (
+                [(0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)],
+                (base_x, base_y, base_z)
+            )
+        }
+    };
+    
+    // Sample light from the 4 positions and average
+    let mut total_sky: u32 = 0;
+    let mut total_block: u32 = 0;
+    let mut count: u32 = 0;
+    
+    for (dx, dy, dz) in offsets.iter() {
+        let sx = sample_at.0 + dx;
+        let sy = sample_at.1 + dy;
+        let sz = sample_at.2 + dz;
+        
+        let light = light_grid.get_light(sx, sy, sz);
+        total_sky += light.sky_light as u32;
+        total_block += light.block_light as u32;
+        count += 1;
+    }
+    
+    if count > 0 {
+        ((total_sky / count) as u8, (total_block / count) as u8)
+    } else {
+        (15, 0)
+    }
 }
 
 /// Apply rotation transform to a point in block-local space (0-1)
