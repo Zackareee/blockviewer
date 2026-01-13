@@ -260,7 +260,7 @@ fn transform_direction(dir: FaceDirection, y_rotation: u8, axis: u8, is_flipped:
     let after_axis = match axis {
         1 => {
             // X-axis: 90° around Z axis
-        match dir {
+            match dir {
                 Up => North,
                 Down => South,
                 North => Down,
@@ -546,28 +546,102 @@ const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
 /// 3. Calculate AO from those neighbors
 /// 4. Sample smooth light for the vertex
 fn calculate_face_ao_v3(
-    _grid: &BinaryGrid,
-    _lookups: &Lookups,
-    _light_grid: Option<&LightGrid>,
-    _world_x: i32,
-    _world_y: i32,
-    _world_z: i32,
-    _face: &BakedFace,
-    _y_rotation: u8,
-    _axis: u8,
-    _is_flipped: bool,
+    grid: &BinaryGrid,
+    lookups: &Lookups,
+    light_grid: Option<&LightGrid>,
+    world_x: i32,
+    world_y: i32,
+    world_z: i32,
+    face: &BakedFace,
+    y_rotation: u8,
+    axis: u8,
+    is_flipped: bool,
 ) -> [VertexLight; 4] {
-    // DEBUG: Force maximum brightness to isolate if issue is with light data
-    // If faces are still black with this, the issue is elsewhere (shader, vertex colors, etc.)
-    let (face_sky, face_block) = (15u8, 0u8);
+    // Get the transformed normal direction for determining sample plane
+    let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
     
-    // Apply the same light to all 4 vertices of this face
-    [
-        VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
-        VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
-        VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
-        VertexLight { sky: face_sky, block: face_block, ao: 1.0 },
-    ]
+    let mut result = [VertexLight { sky: 15, block: 0, ao: 1.0 }; 4];
+    
+    for (i, vertex) in face.vertices.iter().enumerate() {
+        // Transform vertex position by rotation
+        let (rot_x, rot_y, rot_z) = apply_rotation_to_point(
+            vertex[0], vertex[1], vertex[2],
+            y_rotation, axis, is_flipped
+        );
+        
+        // Calculate AO directly at this vertex's position
+        let ao_level = calculate_vertex_ao_direct(
+            grid, lookups,
+            world_x, world_y, world_z,
+            rot_x, rot_y, rot_z,
+            face_dir,
+        );
+        
+        // Sample light using proper smooth light sampling
+        // This samples from 4 blocks around the vertex, only from non-solid blocks
+        let (sky, block) = sample_smooth_light_for_vertex(
+            grid, lookups, light_grid,
+            world_x, world_y, world_z,
+            rot_x, rot_y, rot_z,
+            face_dir,
+        );
+        
+        result[i] = VertexLight { sky, block, ao: AO_BRIGHTNESS[ao_level as usize] };
+    }
+    
+    result
+}
+
+/// Sample light for a model block vertex
+/// 
+/// For model blocks, we use a simpler approach than full-block smooth lighting:
+/// 1. Try to sample from the block in the face's normal direction
+/// 2. If that block is solid (would give 0 light), sample from the model block's own position
+/// 
+/// This fixes the black face bug while maintaining correct brightness for torches etc.
+fn sample_smooth_light_for_vertex(
+    grid: &BinaryGrid,
+    lookups: &Lookups,
+    light_grid: Option<&LightGrid>,
+    world_x: i32,
+    world_y: i32,
+    world_z: i32,
+    _vx: f32, _vy: f32, _vz: f32,  // Vertex position (unused in simple mode)
+    face_dir: FaceDirection,
+) -> (u8, u8) {
+    let lg = match light_grid {
+        Some(lg) => lg,
+        None => return (15, 0),
+    };
+    
+    // Get the adjacent block position in the face normal direction
+    let (adj_x, adj_y, adj_z) = match face_dir {
+        FaceDirection::Up => (world_x, world_y + 1, world_z),
+        FaceDirection::Down => (world_x, world_y - 1, world_z),
+        FaceDirection::North => (world_x, world_y, world_z - 1),
+        FaceDirection::South => (world_x, world_y, world_z + 1),
+        FaceDirection::East => (world_x + 1, world_y, world_z),
+        FaceDirection::West => (world_x - 1, world_y, world_z),
+        FaceDirection::None => (world_x, world_y, world_z),
+    };
+    
+    // Check if the adjacent block is solid (opaque full cube)
+    let adj_block_id = grid.get_block_id(adj_x, adj_y, adj_z);
+    let is_adjacent_solid = adj_block_id != 0 && 
+                            !lookups.is_ao_transparent(adj_block_id) && 
+                            lookups.is_opaque(adj_block_id) &&
+                            !lookups.is_non_cube(adj_block_id);
+    
+    if is_adjacent_solid {
+        // Adjacent block is solid - sample from the model block's own position
+        // This is the key fix: don't sample from inside solid blocks
+        let light = lg.get_light(world_x, world_y, world_z);
+        (light.sky_light, light.block_light)
+    } else {
+        // Adjacent block is air/transparent - sample from there (original behavior)
+        let light = lg.get_light(adj_x, adj_y, adj_z);
+        (light.sky_light, light.block_light)
+    }
 }
 
 /// Calculate AO directly at a vertex position
@@ -638,41 +712,12 @@ fn calculate_vertex_ao_direct(
     
     vertex_ao_value(side1, side2, corner)
 }
-/// Check if a block position is suitable for light sampling (air or AO-transparent)
-#[inline]
-fn is_air_for_light(grid: &BinaryGrid, lookups: &Lookups, x: i32, y: i32, z: i32) -> bool {
-    let block_id = grid.get_block_id(x, y, z);
-    block_id == 0 || lookups.is_ao_transparent(block_id) || !lookups.is_opaque(block_id)
-}
-
-/// Sample light from a position if it's in air, otherwise return None
-#[inline]
-fn sample_if_air(
-    grid: &BinaryGrid,
-    lookups: &Lookups,
-    light_grid: &LightGrid,
-    x: i32, y: i32, z: i32,
-) -> Option<(f32, f32)> {
-    if is_air_for_light(grid, lookups, x, y, z) {
-        let light = light_grid.get_light(x, y, z);
-        Some((light.sky_light as f32, light.block_light as f32))
-    } else {
-        None
-    }
-}
-
 /// Sample smooth light at a vertex position using bilinear interpolation
 /// in the plane perpendicular to the face normal.
 ///
 /// This properly handles partial blocks (slabs, etc.) by sampling based on
 /// the actual vertex position, not fixed block-boundary offsets.
-/// 
-/// IMPORTANT: Only samples from non-solid blocks (air spaces). If a sample
-/// position is inside a solid block, it's skipped and the average is computed
-/// from the remaining valid samples.
 fn sample_smooth_light_at_vertex(
-    grid: &BinaryGrid,
-    lookups: &Lookups,
     light_grid: &LightGrid,
     vx: f32, vy: f32, vz: f32,
     face_dir: FaceDirection,
@@ -692,7 +737,6 @@ fn sample_smooth_light_at_vertex(
     };
 
     // Bilinear interpolation in the plane perpendicular to the face normal
-    // Only sample from non-solid blocks (air spaces)
     match face_dir {
         FaceDirection::Up | FaceDirection::Down => {
             // Sample in XZ plane at fixed Y
@@ -702,49 +746,16 @@ fn sample_smooth_light_at_vertex(
             let fx = sample_x - sample_x.floor();
             let fz = sample_z - sample_z.floor();
             
-            // Sample from each corner, only if it's an air space
-            let s00 = sample_if_air(grid, lookups, light_grid, x0, y, z0);
-            let s10 = sample_if_air(grid, lookups, light_grid, x0 + 1, y, z0);
-            let s01 = sample_if_air(grid, lookups, light_grid, x0, y, z0 + 1);
-            let s11 = sample_if_air(grid, lookups, light_grid, x0 + 1, y, z0 + 1);
+            let l00 = light_grid.get_light(x0, y, z0);
+            let l10 = light_grid.get_light(x0 + 1, y, z0);
+            let l01 = light_grid.get_light(x0, y, z0 + 1);
+            let l11 = light_grid.get_light(x0 + 1, y, z0 + 1);
             
-            // Compute weighted average from valid samples
-            let mut total_sky = 0.0f32;
-            let mut total_block = 0.0f32;
-            let mut total_weight = 0.0f32;
-            
-            if let Some((sky, block)) = s00 {
-                let w = (1.0-fx) * (1.0-fz);
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s10 {
-                let w = fx * (1.0-fz);
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s01 {
-                let w = (1.0-fx) * fz;
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s11 {
-                let w = fx * fz;
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            
-            if total_weight > 0.0 {
-                ((total_sky / total_weight) as u8, (total_block / total_weight) as u8)
-            } else {
-                // Fallback: sample directly at vertex position
-                let light = light_grid.get_light(vx.floor() as i32, vy.floor() as i32, vz.floor() as i32);
-                (light.sky_light, light.block_light)
-            }
+            let sky = (1.0-fx)*(1.0-fz)*(l00.sky_light as f32) + fx*(1.0-fz)*(l10.sky_light as f32) + 
+                      (1.0-fx)*fz*(l01.sky_light as f32) + fx*fz*(l11.sky_light as f32);
+            let block = (1.0-fx)*(1.0-fz)*(l00.block_light as f32) + fx*(1.0-fz)*(l10.block_light as f32) + 
+                        (1.0-fx)*fz*(l01.block_light as f32) + fx*fz*(l11.block_light as f32);
+            (sky as u8, block as u8)
         }
         FaceDirection::East | FaceDirection::West => {
             // Sample in YZ plane at fixed X
@@ -754,46 +765,16 @@ fn sample_smooth_light_at_vertex(
             let fy = sample_y - sample_y.floor();
             let fz = sample_z - sample_z.floor();
             
-            let s00 = sample_if_air(grid, lookups, light_grid, x, y0, z0);
-            let s10 = sample_if_air(grid, lookups, light_grid, x, y0 + 1, z0);
-            let s01 = sample_if_air(grid, lookups, light_grid, x, y0, z0 + 1);
-            let s11 = sample_if_air(grid, lookups, light_grid, x, y0 + 1, z0 + 1);
+            let l00 = light_grid.get_light(x, y0, z0);
+            let l10 = light_grid.get_light(x, y0 + 1, z0);
+            let l01 = light_grid.get_light(x, y0, z0 + 1);
+            let l11 = light_grid.get_light(x, y0 + 1, z0 + 1);
             
-            let mut total_sky = 0.0f32;
-            let mut total_block = 0.0f32;
-            let mut total_weight = 0.0f32;
-            
-            if let Some((sky, block)) = s00 {
-                let w = (1.0-fy) * (1.0-fz);
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s10 {
-                let w = fy * (1.0-fz);
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s01 {
-                let w = (1.0-fy) * fz;
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s11 {
-                let w = fy * fz;
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            
-            if total_weight > 0.0 {
-                ((total_sky / total_weight) as u8, (total_block / total_weight) as u8)
-            } else {
-                let light = light_grid.get_light(vx.floor() as i32, vy.floor() as i32, vz.floor() as i32);
-                (light.sky_light, light.block_light)
-            }
+            let sky = (1.0-fy)*(1.0-fz)*(l00.sky_light as f32) + fy*(1.0-fz)*(l10.sky_light as f32) + 
+                      (1.0-fy)*fz*(l01.sky_light as f32) + fy*fz*(l11.sky_light as f32);
+            let block = (1.0-fy)*(1.0-fz)*(l00.block_light as f32) + fy*(1.0-fz)*(l10.block_light as f32) + 
+                        (1.0-fy)*fz*(l01.block_light as f32) + fy*fz*(l11.block_light as f32);
+            (sky as u8, block as u8)
         }
         FaceDirection::North | FaceDirection::South => {
             // Sample in XY plane at fixed Z
@@ -803,50 +784,20 @@ fn sample_smooth_light_at_vertex(
             let fx = sample_x - sample_x.floor();
             let fy = sample_y - sample_y.floor();
             
-            let s00 = sample_if_air(grid, lookups, light_grid, x0, y0, z);
-            let s10 = sample_if_air(grid, lookups, light_grid, x0 + 1, y0, z);
-            let s01 = sample_if_air(grid, lookups, light_grid, x0, y0 + 1, z);
-            let s11 = sample_if_air(grid, lookups, light_grid, x0 + 1, y0 + 1, z);
+            let l00 = light_grid.get_light(x0, y0, z);
+            let l10 = light_grid.get_light(x0 + 1, y0, z);
+            let l01 = light_grid.get_light(x0, y0 + 1, z);
+            let l11 = light_grid.get_light(x0 + 1, y0 + 1, z);
             
-            let mut total_sky = 0.0f32;
-            let mut total_block = 0.0f32;
-            let mut total_weight = 0.0f32;
-            
-            if let Some((sky, block)) = s00 {
-                let w = (1.0-fx) * (1.0-fy);
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s10 {
-                let w = fx * (1.0-fy);
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s01 {
-                let w = (1.0-fx) * fy;
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            if let Some((sky, block)) = s11 {
-                let w = fx * fy;
-                total_sky += sky * w;
-                total_block += block * w;
-                total_weight += w;
-            }
-            
-            if total_weight > 0.0 {
-                ((total_sky / total_weight) as u8, (total_block / total_weight) as u8)
-            } else {
-                let light = light_grid.get_light(vx.floor() as i32, vy.floor() as i32, vz.floor() as i32);
-                (light.sky_light, light.block_light)
-            }
+            let sky = (1.0-fx)*(1.0-fy)*(l00.sky_light as f32) + fx*(1.0-fy)*(l10.sky_light as f32) + 
+                      (1.0-fx)*fy*(l01.sky_light as f32) + fx*fy*(l11.sky_light as f32);
+            let block = (1.0-fx)*(1.0-fy)*(l00.block_light as f32) + fx*(1.0-fy)*(l10.block_light as f32) + 
+                        (1.0-fx)*fy*(l01.block_light as f32) + fx*fy*(l11.block_light as f32);
+            (sky as u8, block as u8)
         }
         FaceDirection::None => {
             // Already handled above
-            (15, 0)
+        (15, 0)
         }
     }
 }

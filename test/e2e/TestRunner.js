@@ -567,13 +567,17 @@ export function compareScreenshots(baselinePath, currentPath, diffPath, config =
     { threshold: config.pixelThreshold }
   );
   
-  fs.writeFileSync(diffPath, PNG.sync.write(diff));
-  
   const totalPixels = width * height;
   const diffPercentage = (diffPixels / totalPixels) * 100;
+  const match = diffPercentage <= config.maxDiffPercentage;
+  
+  // Only write diff image when there's an actual mismatch
+  if (!match) {
+    fs.writeFileSync(diffPath, PNG.sync.write(diff));
+  }
   
   return {
-    match: diffPercentage <= config.maxDiffPercentage,
+    match,
     diffPixels,
     diffPercentage,
     totalPixels,
