@@ -25,7 +25,32 @@ const BLOCK_ID_MASK = 0x0FFF, LEVEL_MASK = 0xF000, LEVEL_SHIFT = 12;
 const MIN_Y = -64;
 const MAX_Y = 321;
 
+// Axis encoding for rotatable blocks (stored in bits 12-13 of block data)
+// Axis values: 0 = y (default), 1 = x, 2 = z
+const AXIS_Y = 0;
+const AXIS_X = 1;
+const AXIS_Z = 2;
+const AXIS_SHIFT = 12;
+
 const AIR_BLOCKS = new Set(['air', 'cave_air', 'void_air', 'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']);
+
+// Rotatable blocks (logs, pillars, etc.) - pattern matching for block names
+function isRotatableBlock(name) {
+  return name.includes('_log') || 
+         name.includes('_wood') ||
+         name.includes('_stem') ||
+         name.includes('_hyphae') ||
+         name.includes('quartz_pillar') ||
+         name.includes('purpur_pillar') ||
+         name.includes('bone_block') ||
+         name.includes('hay_block') ||
+         name.includes('basalt') ||
+         (name.includes('deepslate') && !name.includes('tiles') && !name.includes('bricks')) ||
+         name.includes('chain') ||
+         name.includes('muddy_mangrove_roots') ||
+         name.includes('bamboo_block') ||
+         name.includes('froglight');
+}
 
 const UNDERWATER_BLOCKS = new Set([
   'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
@@ -1172,6 +1197,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
       const isAir = new Uint8Array(palette.length);
       const levels = new Int8Array(palette.length);
       const isWaterlogged = new Uint8Array(palette.length);
+      const axisValues = new Uint8Array(palette.length); // Axis for rotatable blocks
       
       for (let i = 0; i < palette.length; i++) {
         const entry = palette[i];
@@ -1190,10 +1216,6 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
         if (modelStates && !isAir[i] && modelStateLookup.isModelBlock(shortName)) {
           const ms = modelStateLookup.getModelState(shortName, props);
           modelStates[i] = ms;
-          // Debug logging disabled for performance
-          // if (ms !== 0 && totalBlocks < 5) {
-          //   console.log(`[V3 Debug] Found model block: ${shortName}, state=0x${ms.toString(16)}`);
-          // }
         }
         
         if (name.includes('water') || name.includes('lava')) {
@@ -1204,6 +1226,17 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
             isWaterlogged[i] = 1;
           } else if (UNDERWATER_BLOCKS.has(name)) {
             isWaterlogged[i] = 1;
+          }
+        }
+        
+        // Extract axis for rotatable blocks (logs, pillars, etc.)
+        if (isRotatableBlock(shortName) && props?.axis) {
+          if (props.axis === 'x') {
+            axisValues[i] = AXIS_X;
+          } else if (props.axis === 'z') {
+            axisValues[i] = AXIS_Z;
+          } else {
+            axisValues[i] = AXIS_Y;
           }
         }
       }
@@ -1225,8 +1258,18 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
       
       if (palette.length === 1 || !blockData || blockData.length === 0) {
         if (!isAir[0]) {
-          const lv = isWaterlogged[0] ? 8 : (levels[0] >= 0 ? levels[0] : 0);
-          const val = (blockIds[0] & 0x0FFF) | ((lv & 0xF) << 12);
+          // Encode metadata: fluid level > waterlogged > axis for rotatable blocks
+          let metadata;
+          if (levels[0] >= 0) {
+            metadata = levels[0]; // Fluid level
+          } else if (isWaterlogged[0]) {
+            metadata = 8; // Waterlogged marker
+          } else if (axisValues[0] > 0) {
+            metadata = axisValues[0]; // Axis for rotatable blocks (1=x, 2=z)
+          } else {
+            metadata = 0;
+          }
+          const val = (blockIds[0] & 0x0FFF) | ((metadata & 0xF) << 12);
           gridSection.fill(val);
           if (stateSection && stateIds) stateSection.fill(stateIds[0]);
           
@@ -1261,8 +1304,18 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
       for (let i = 0; i < S3; i++) {
         const pi = indices[i];
         if (pi < palette.length && !isAir[pi]) {
-          const lv = isWaterlogged[pi] ? 8 : (levels[pi] >= 0 ? levels[pi] : 0);
-          gridSection[i] = (blockIds[pi] & 0x0FFF) | ((lv & 0xF) << 12);
+          // Encode metadata: fluid level > waterlogged > axis for rotatable blocks
+          let metadata;
+          if (levels[pi] >= 0) {
+            metadata = levels[pi]; // Fluid level
+          } else if (isWaterlogged[pi]) {
+            metadata = 8; // Waterlogged marker
+          } else if (axisValues[pi] > 0) {
+            metadata = axisValues[pi]; // Axis for rotatable blocks (1=x, 2=z)
+          } else {
+            metadata = 0;
+          }
+          gridSection[i] = (blockIds[pi] & 0x0FFF) | ((metadata & 0xF) << 12);
           if (stateSection && stateIds) stateSection[i] = stateIds[pi];
           
           // V3: Store model state if this is a model block

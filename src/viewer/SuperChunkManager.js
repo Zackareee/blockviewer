@@ -1104,7 +1104,12 @@ export class SuperChunkManager {
             name.includes('_stem') || name.includes('_hyphae') ||
             name.includes('bone_block') || name.includes('hay_block') ||
             name.includes('quartz_pillar') || name.includes('purpur_pillar') ||
-            name.includes('basalt') || name.includes('deepslate') && !name.includes('tiles') && !name.includes('bricks')) {
+            name.includes('basalt') ||
+            (name.includes('deepslate') && !name.includes('tiles') && !name.includes('bricks')) ||
+            name.includes('chain') ||
+            name.includes('muddy_mangrove_roots') ||
+            name.includes('bamboo_block') ||
+            name.includes('froglight')) {
           isRotatable[id] = 1;
         }
         

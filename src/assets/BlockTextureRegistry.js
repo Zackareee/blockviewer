@@ -270,6 +270,11 @@ const ROTATABLE_BLOCKS = new Set([
   
   // Froglights
   'ochre_froglight', 'pearlescent_froglight', 'verdant_froglight',
+  
+  // Chains (have axis property for vertical/horizontal orientation)
+  'chain', 'iron_chain',
+  'copper_chain', 'exposed_copper_chain', 'weathered_copper_chain', 'oxidized_copper_chain',
+  'waxed_copper_chain', 'waxed_exposed_copper_chain', 'waxed_weathered_copper_chain', 'waxed_oxidized_copper_chain',
 ]);
 
 /**
