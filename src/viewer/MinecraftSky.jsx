@@ -21,9 +21,9 @@ import { getBiomeColors, hexToRgb } from '../data/biomeColors.js';
 
 // Paths to Minecraft textures in public folder
 // Using original Minecraft textures for accurate rendering
-const SUN_TEXTURE_PATH = '/textures/sun_original.png';
-const MOON_TEXTURE_PATH = '/textures/moon_full.png';
-const CLOUDS_TEXTURE_PATH = '/textures/clouds_original.png';
+const SUN_TEXTURE_PATH = `${import.meta.env.BASE_URL}textures/sun_original.png`;
+const MOON_TEXTURE_PATH = `${import.meta.env.BASE_URL}textures/moon_full.png`;
+const CLOUDS_TEXTURE_PATH = `${import.meta.env.BASE_URL}textures/clouds_original.png`;
 
 // Minecraft sky constants
 const SKY_RADIUS = 1000; // Size of sky dome
@@ -918,7 +918,7 @@ function VoidDarkness({ minY = -64 }) {
 }
 
 // Path to End sky texture
-const END_SKY_TEXTURE_PATH = '/textures/1.21.11+Template/assets/minecraft/textures/environment/end_sky.png';
+const END_SKY_TEXTURE_PATH = `${import.meta.env.BASE_URL}textures/1.21.11+Template/assets/minecraft/textures/environment/end_sky.png`;
 
 /**
  * EndSkyCube - Renders the End dimension's cube skybox

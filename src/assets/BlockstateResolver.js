@@ -6,7 +6,7 @@
  * Supports loading from texture packs with fallback to bundled assets.
  */
 
-const ASSETS_BASE = '/textures/1.21.11+Template/assets/minecraft';
+const ASSETS_BASE = `${import.meta.env.BASE_URL}textures/1.21.11+Template/assets/minecraft`;
 
 // Legacy block names that were renamed in Minecraft 1.21+
 // Maps old block names to new block names

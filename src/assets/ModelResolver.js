@@ -7,7 +7,7 @@
  */
 
 // Base path to assets
-const ASSETS_BASE = '/textures/1.21.11+Template/assets/minecraft';
+const ASSETS_BASE = `${import.meta.env.BASE_URL}textures/1.21.11+Template/assets/minecraft`;
 
 // Legacy block names that were renamed in Minecraft 1.21+
 // Maps old model paths to new model paths
