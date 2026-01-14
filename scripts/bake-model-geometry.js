@@ -195,18 +195,11 @@ function resolveTexture(textureRef, textures) {
 function rotateVertex(v, rotX, rotY) {
   let [x, y, z] = v;
   
-  // Rotate around Y axis
-  if (rotY !== 0) {
-    const radY = (rotY * Math.PI) / 180;
-    const cosY = Math.cos(radY);
-    const sinY = Math.sin(radY);
-    const newX = (x - 0.5) * cosY - (z - 0.5) * sinY + 0.5;
-    const newZ = (x - 0.5) * sinY + (z - 0.5) * cosY + 0.5;
-    x = newX;
-    z = newZ;
-  }
+  // Minecraft rotation order: X first, then Y
+  // This matches ModelGeometry.js which uses combined matrix Y * X
+  // (matrix multiplication order is reverse of application order)
   
-  // Rotate around X axis
+  // Rotate around X axis FIRST
   if (rotX !== 0) {
     const radX = (rotX * Math.PI) / 180;
     const cosX = Math.cos(radX);
@@ -217,22 +210,26 @@ function rotateVertex(v, rotX, rotY) {
     z = newZ;
   }
   
+  // Rotate around Y axis SECOND
+  if (rotY !== 0) {
+    const radY = (rotY * Math.PI) / 180;
+    const cosY = Math.cos(radY);
+    const sinY = Math.sin(radY);
+    const newX = (x - 0.5) * cosY - (z - 0.5) * sinY + 0.5;
+    const newZ = (x - 0.5) * sinY + (z - 0.5) * cosY + 0.5;
+    x = newX;
+    z = newZ;
+  }
+  
   return [x, y, z];
 }
 
 function rotateNormal(n, rotX, rotY) {
   let [x, y, z] = n;
   
-  if (rotY !== 0) {
-    const radY = (rotY * Math.PI) / 180;
-    const cosY = Math.cos(radY);
-    const sinY = Math.sin(radY);
-    const newX = x * cosY - z * sinY;
-    const newZ = x * sinY + z * cosY;
-    x = newX;
-    z = newZ;
-  }
+  // Minecraft rotation order: X first, then Y (same as rotateVertex)
   
+  // Rotate around X axis FIRST
   if (rotX !== 0) {
     const radX = (rotX * Math.PI) / 180;
     const cosX = Math.cos(radX);
@@ -240,6 +237,17 @@ function rotateNormal(n, rotX, rotY) {
     const newY = y * cosX - z * sinX;
     const newZ = y * sinX + z * cosX;
     y = newY;
+    z = newZ;
+  }
+  
+  // Rotate around Y axis SECOND
+  if (rotY !== 0) {
+    const radY = (rotY * Math.PI) / 180;
+    const cosY = Math.cos(radY);
+    const sinY = Math.sin(radY);
+    const newX = x * cosY - z * sinY;
+    const newZ = x * sinY + z * cosY;
+    x = newX;
     z = newZ;
   }
   
@@ -253,14 +261,9 @@ function rotateCullface(cullface, rotX, rotY) {
   
   let result = cullface;
   
-  // Y rotation
-  if (rotY !== 0 && ['north', 'east', 'south', 'west'].includes(result)) {
-    const idx = rotations.indexOf(result);
-    const steps = Math.round(rotY / 90) % 4;
-    result = rotations[(idx + steps + 4) % 4];
-  }
+  // Minecraft rotation order: X first, then Y
   
-  // X rotation (only affects up/down/north/south)
+  // X rotation FIRST (only affects up/down/north/south)
   if (rotX !== 0) {
     const xRotations = ['north', 'down', 'south', 'up'];
     if (xRotations.includes(result)) {
@@ -268,6 +271,13 @@ function rotateCullface(cullface, rotX, rotY) {
       const steps = Math.round(rotX / 90) % 4;
       result = xRotations[(idx + steps + 4) % 4];
     }
+  }
+  
+  // Y rotation SECOND
+  if (rotY !== 0 && ['north', 'east', 'south', 'west'].includes(result)) {
+    const idx = rotations.indexOf(result);
+    const steps = Math.round(rotY / 90) % 4;
+    result = rotations[(idx + steps + 4) % 4];
   }
   
   return result;
