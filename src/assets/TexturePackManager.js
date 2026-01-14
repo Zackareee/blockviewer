@@ -65,8 +65,8 @@ class TexturePackManager {
     this.isLoaded = false;
     this.loading = null;
     
-    // Default pack path
-    this.defaultPackPath = '/textures/minecraft.zip';
+    // Default pack path (uses Vite base URL for GitHub Pages compatibility)
+    this.defaultPackPath = `${import.meta.env.BASE_URL}textures/minecraft.zip`;
     
     // Fallback manager (for cascading lookups)
     this.fallbackManager = null;

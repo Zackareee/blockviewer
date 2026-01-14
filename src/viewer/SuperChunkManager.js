@@ -898,9 +898,9 @@ export class SuperChunkManager {
       let textureRemapping = null;
       try {
         const [bakedResponse, manifestResponse, texturesResponse] = await Promise.all([
-          fetch('/assets/baked-models.bin'),
-          fetch('/assets/block-model-manifest.json'),
-          fetch('/assets/baked-models-textures.json'),
+          fetch(`${import.meta.env.BASE_URL}assets/baked-models.bin`),
+          fetch(`${import.meta.env.BASE_URL}assets/block-model-manifest.json`),
+          fetch(`${import.meta.env.BASE_URL}assets/baked-models-textures.json`),
         ]);
         
         if (bakedResponse.ok && manifestResponse.ok) {

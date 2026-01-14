@@ -1271,7 +1271,7 @@ export async function loadBakedModelsV3() {
   }
   
   try {
-    const response = await fetch('/assets/baked-models.bin');
+    const response = await fetch(`${import.meta.env.BASE_URL}assets/baked-models.bin`);
     if (!response.ok) {
       throw new Error(`Failed to fetch: ${response.status}`);
     }
