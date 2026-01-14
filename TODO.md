@@ -11,7 +11,7 @@
 - [ ] Fix biome tinting on lilypads and pumpkin stems
 - [ ] Fix beacon beam active status
 - [ ] Fix chains not appearing
-- [ ] Make GitHub Action
+- [x] Make GitHub Action
 - [ ] Make superflat loading landing page
 - [ ] Make underwater HUD effect
 - [ ] Fix lighting depth and brightness/color
