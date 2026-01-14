@@ -1294,12 +1294,15 @@ void main() {
     lightColor = vec3(faceShade);
   }
   
-  // Apply per-vertex AO (stored in vertex color)
-  // Ensure aoColor is never zero - if vColor is (0,0,0), something is wrong with the color attribute
-  // Default to (1,1,1) if vColor appears to be missing/zero
-  vec3 aoColor = vColor.rgb;
-  if (aoColor.r < 0.01 && aoColor.g < 0.01 && aoColor.b < 0.01) {
-    aoColor = vec3(1.0); // Fallback to white (no AO) if color is missing
+  // Apply per-vertex AO (stored in vertex color) only when smooth lighting is enabled
+  // When smooth lighting is off, skip AO for uniform brightness
+  vec3 aoColor = vec3(1.0);
+  if (uUseLightmap > 0.5) {
+    // Ensure aoColor is never zero - if vColor is (0,0,0), something is wrong with the color attribute
+    aoColor = vColor.rgb;
+    if (aoColor.r < 0.01 && aoColor.g < 0.01 && aoColor.b < 0.01) {
+      aoColor = vec3(1.0); // Fallback to white (no AO) if color is missing
+    }
   }
   vec3 litColor = finalColor * lightColor * aoColor;
   

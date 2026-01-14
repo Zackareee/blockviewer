@@ -592,13 +592,15 @@ fn calculate_face_ao_v3(
     result
 }
 
-/// Sample light for a model block vertex
+/// Sample smooth light for a model block vertex
 /// 
-/// For model blocks, we use a simpler approach than full-block smooth lighting:
-/// 1. Try to sample from the block in the face's normal direction
-/// 2. If that block is solid (would give 0 light), sample from the model block's own position
+/// This implements Minecraft's smooth lighting algorithm:
+/// 1. Calculate the vertex's world position
+/// 2. Sample light from 4 blocks around the vertex in the face's plane
+/// 3. Only include light from NON-SOLID blocks (air, transparent)
+/// 4. Average the valid samples
 /// 
-/// This fixes the black face bug while maintaining correct brightness for torches etc.
+/// This fixes the black face bug where sampling from solid blocks returns (0, 0).
 fn sample_smooth_light_for_vertex(
     grid: &BinaryGrid,
     lookups: &Lookups,
@@ -606,7 +608,7 @@ fn sample_smooth_light_for_vertex(
     world_x: i32,
     world_y: i32,
     world_z: i32,
-    _vx: f32, _vy: f32, _vz: f32,  // Vertex position (unused in simple mode)
+    vx: f32, vy: f32, vz: f32,  // Vertex position within block (0-1 range)
     face_dir: FaceDirection,
 ) -> (u8, u8) {
     let lg = match light_grid {
@@ -614,32 +616,77 @@ fn sample_smooth_light_for_vertex(
         None => return (15, 0),
     };
     
-    // Get the adjacent block position in the face normal direction
-    let (adj_x, adj_y, adj_z) = match face_dir {
-        FaceDirection::Up => (world_x, world_y + 1, world_z),
-        FaceDirection::Down => (world_x, world_y - 1, world_z),
-        FaceDirection::North => (world_x, world_y, world_z - 1),
-        FaceDirection::South => (world_x, world_y, world_z + 1),
-        FaceDirection::East => (world_x + 1, world_y, world_z),
-        FaceDirection::West => (world_x - 1, world_y, world_z),
-        FaceDirection::None => (world_x, world_y, world_z),
+    // Calculate world position of the vertex
+    let vertex_world_x = world_x as f32 + vx;
+    let vertex_world_y = world_y as f32 + vy;
+    let vertex_world_z = world_z as f32 + vz;
+    
+    // Offset slightly in the face normal direction to sample from "air space" in front of face
+    let (sample_x, sample_y, sample_z) = match face_dir {
+        FaceDirection::Up => (vertex_world_x, vertex_world_y + 0.1, vertex_world_z),
+        FaceDirection::Down => (vertex_world_x, vertex_world_y - 0.1, vertex_world_z),
+        FaceDirection::North => (vertex_world_x, vertex_world_y, vertex_world_z - 0.1),
+        FaceDirection::South => (vertex_world_x, vertex_world_y, vertex_world_z + 0.1),
+        FaceDirection::East => (vertex_world_x + 0.1, vertex_world_y, vertex_world_z),
+        FaceDirection::West => (vertex_world_x - 0.1, vertex_world_y, vertex_world_z),
+        FaceDirection::None => (vertex_world_x, vertex_world_y, vertex_world_z),
     };
     
-    // Check if the adjacent block is solid (opaque full cube)
-    let adj_block_id = grid.get_block_id(adj_x, adj_y, adj_z);
-    let is_adjacent_solid = adj_block_id != 0 && 
-                            !lookups.is_ao_transparent(adj_block_id) && 
-                            lookups.is_opaque(adj_block_id) &&
-                            !lookups.is_non_cube(adj_block_id);
+    // Sample 4 blocks around this position in the plane perpendicular to the face normal
+    // This is Minecraft's smooth lighting algorithm
+    let mut total_sky = 0.0f32;
+    let mut total_block = 0.0f32;
+    let mut count = 0;
     
-    if is_adjacent_solid {
-        // Adjacent block is solid - sample from the model block's own position
-        // This is the key fix: don't sample from inside solid blocks
-        let light = lg.get_light(world_x, world_y, world_z);
-        (light.sky_light, light.block_light)
+    // Get the 4 sample positions based on face direction
+    let offsets: [(i32, i32, i32); 4] = match face_dir {
+        FaceDirection::Up | FaceDirection::Down => {
+            // Sample in XZ plane
+            [(-1, 0, -1), (0, 0, -1), (-1, 0, 0), (0, 0, 0)]
+        }
+        FaceDirection::East | FaceDirection::West => {
+            // Sample in YZ plane
+            [(0, -1, -1), (0, 0, -1), (0, -1, 0), (0, 0, 0)]
+        }
+        FaceDirection::North | FaceDirection::South => {
+            // Sample in XY plane
+            [(-1, -1, 0), (0, -1, 0), (-1, 0, 0), (0, 0, 0)]
+        }
+        FaceDirection::None => {
+            // Fallback: just use center
+            [(0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)]
+        }
+    };
+    
+    let base_x = sample_x.floor() as i32;
+    let base_y = sample_y.floor() as i32;
+    let base_z = sample_z.floor() as i32;
+    
+    for (dx, dy, dz) in offsets {
+        let sx = base_x + dx;
+        let sy = base_y + dy;
+        let sz = base_z + dz;
+        
+        // Check if this block is solid - if so, don't sample light from it
+        let block_id = grid.get_block_id(sx, sy, sz);
+        let is_solid = block_id != 0 && 
+                       !lookups.is_ao_transparent(block_id) && 
+                       lookups.is_opaque(block_id);
+        
+        if !is_solid {
+            let light = lg.get_light(sx, sy, sz);
+            total_sky += light.sky_light as f32;
+            total_block += light.block_light as f32;
+            count += 1;
+        }
+    }
+    
+    if count > 0 {
+        ((total_sky / count as f32).round() as u8, (total_block / count as f32).round() as u8)
     } else {
-        // Adjacent block is air/transparent - sample from there (original behavior)
-        let light = lg.get_light(adj_x, adj_y, adj_z);
+        // All neighbors solid - sample from the current block (the model block itself)
+        // Model blocks are typically non-solid, so they should have reasonable light values
+        let light = lg.get_light(world_x, world_y, world_z);
         (light.sky_light, light.block_light)
     }
 }
