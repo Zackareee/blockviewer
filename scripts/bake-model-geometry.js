@@ -279,10 +279,16 @@ function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
   }
   
   const faces = [];
+  let hasNoShade = false;  // Track if any element has shade: false
   
   for (const element of model.elements) {
     const from = element.from.map(v => v / 16);
     const to = element.to.map(v => v / 16);
+    
+    // Check for shade: false on element (torches, lanterns, etc.)
+    if (element.shade === false) {
+      hasNoShade = true;
+    }
     
     if (!element.faces) continue;
     
@@ -520,7 +526,7 @@ function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
     }
   }
   
-  return { faces, hasAO: model.ambientocclusion };
+  return { faces, hasAO: model.ambientocclusion, hasNoShade: hasNoShade };
 }
 
 function writeBinary(manifest) {
@@ -557,18 +563,27 @@ function writeBinary(manifest) {
         key: variantKey,
         faces: geometry.faces,
         hasAO: geometry.hasAO,
+        hasNoShade: geometry.hasNoShade,
       });
       
       bakedVariants++;
       bakedFaces += geometry.faces.length;
     }
     
+    // Check if any variant has no-shade (e.g., torches)
+    const hasNoShade = variants.some(v => v.hasNoShade);
+    
     // CRITICAL: Include ALL blocks, even with 0 variants, to keep indices aligned
     // with ModelStateLookup which assigns indices to all manifest blocks.
     // Blocks with 0 variants simply won't render any geometry.
+    const mergedFlags = {
+      ...(blockInfo.flags || {}),
+      noShade: hasNoShade || (blockInfo.flags && blockInfo.flags.noShade),
+    };
+    
     blockDataList.push({
       name: blockName,
-      flags: blockInfo.flags || {},
+      flags: mergedFlags,
       variants,
     });
   }
