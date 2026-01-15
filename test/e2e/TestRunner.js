@@ -73,6 +73,22 @@ export function ensureDirectories(config = DEFAULT_CONFIG) {
 }
 
 /**
+ * Clean diff and current directories before running tests
+ * This removes stale files from previous test runs
+ */
+export function cleanTestDirectories(config = DEFAULT_CONFIG) {
+  [config.currentDir, config.diffDir].forEach(dir => {
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        const filePath = path.join(dir, file);
+        fs.unlinkSync(filePath);
+      }
+    }
+  });
+}
+
+/**
  * Start the Vite dev server
  */
 export function startDevServer(config = DEFAULT_CONFIG) {

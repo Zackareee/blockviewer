@@ -20,6 +20,7 @@ import {
   colors,
   DEFAULT_CONFIG,
   ensureDirectories,
+  cleanTestDirectories,
   startDevServer,
   createDriver,
   waitForAppLoaded,
@@ -356,6 +357,7 @@ async function runTests() {
   }
   
   ensureDirectories(CONFIG);
+  cleanTestDirectories(CONFIG);
   
   // Start dev server
   console.log(`${colors.dim}  Starting Vite dev server on port ${CONFIG.devServerPort}...${colors.reset}`);

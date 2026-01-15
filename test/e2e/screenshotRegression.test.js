@@ -84,6 +84,20 @@ function ensureDirectories() {
 }
 
 /**
+ * Clean diff and current directories before running tests
+ */
+function cleanTestDirectories() {
+  [CONFIG.currentDir, CONFIG.diffDir].forEach(dir => {
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        fs.unlinkSync(path.join(dir, file));
+      }
+    }
+  });
+}
+
+/**
  * Start the Vite dev server
  */
 function startDevServer() {
@@ -399,8 +413,9 @@ async function runTests() {
     console.log(`${colors.dim}  Mode: Compare against baseline${colors.reset}`);
   }
   
-  // Ensure directories exist
+  // Ensure directories exist and clean old files
   ensureDirectories();
+  cleanTestDirectories();
   
   // Verify test region exists
   if (!fs.existsSync(CONFIG.testRegionPath)) {

@@ -667,6 +667,7 @@ class WorkerBlockRegistry {
   }
   
   getInfo(id) { return this.idToInfo[id]; }
+  getBlockInfo(id) { return this.idToInfo[id]; } // Alias for ModelMesher compatibility
   isOpaque(id) { return this.idToInfo[id]?.isOpaque || false; }
   isFluid(id) { return this.idToInfo[id]?.isFluid || false; }
   isWater(id) { return this.idToInfo[id]?.name?.includes('water') || false; }

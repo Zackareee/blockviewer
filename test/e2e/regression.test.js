@@ -23,6 +23,7 @@ import {
   colors,
   DEFAULT_CONFIG,
   ensureDirectories,
+  cleanTestDirectories,
   startDevServer,
   createDriver,
   waitForAppLoaded,
@@ -211,8 +212,9 @@ async function runTests() {
     console.log(`${colors.dim}  Tests: ${cases.length}${colors.reset}`);
   }
   
-  // Ensure directories
+  // Ensure directories and clean old files
   ensureDirectories(CONFIG);
+  cleanTestDirectories(CONFIG);
   
   // Check if world file exists
   if (!fs.existsSync(CONFIG.worldFile)) {

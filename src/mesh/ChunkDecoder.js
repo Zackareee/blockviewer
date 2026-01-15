@@ -13,10 +13,13 @@ import { BlockStateGrid } from './BlockStateGrid.js';
 import { isNonCubeBlock } from './ModelMesher.js';
 import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
 import { hasEmitter } from '../particles/ParticleEmitter.js';
-import { AIR_BLOCKS, UNDERWATER_BLOCKS, FLUID_CONTAINER_BLOCKS } from './workers/shared.js';
+import { 
+  AIR_BLOCKS, UNDERWATER_BLOCKS, FLUID_CONTAINER_BLOCKS,
+  AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT,
+} from './workers/shared.js';
 
 // Re-export axis constants for other modules
-export { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT } from './workers/shared.js';
+export { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT };
 export const AXIS_MASK = 0x3000; // Bits 12-13
 
 // Facing encoding for directional blocks (stored in bits 12-13, same as axis - mutually exclusive)
