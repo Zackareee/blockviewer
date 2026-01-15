@@ -267,17 +267,11 @@ class TextureAtlas {
     // Draw grass colormap to top half (0-255) if available
     if (colormaps.grass) {
       ctx.drawImage(colormaps.grass, 0, 0, 256, 256);
-      console.log('[TextureAtlas] Added grass colormap');
-    } else {
-      console.log('[TextureAtlas] No grass colormap, using default green');
     }
     
     // Draw foliage colormap to bottom half (256-511) if available
     if (colormaps.foliage) {
       ctx.drawImage(colormaps.foliage, 0, 256, 256, 256);
-      console.log('[TextureAtlas] Added foliage colormap');
-    } else {
-      console.log('[TextureAtlas] No foliage colormap, using default green');
     }
     
     // Create Three.js texture
@@ -295,8 +289,6 @@ class TextureAtlas {
     // Use NoColorSpace to prevent any gamma correction
     this.colormapTexture.colorSpace = THREE.NoColorSpace;
     this.colormapTexture.needsUpdate = true;
-    
-    console.log('[TextureAtlas] Built colormap texture (256x512)');
   }
   
   /**
@@ -546,10 +538,6 @@ class TextureAtlas {
     this.colorLookupTexture.minFilter = THREE.NearestFilter;
     this.colorLookupTexture.needsUpdate = true;
     
-    console.log(`[TextureAtlas] Built color lookup: ${matchedCount}/${Object.keys(blockColors).length} blocks matched`);
-    if (missedNames.length > 0) {
-      console.log(`[TextureAtlas] Sample unmatched blocks:`, missedNames.join(', '));
-    }
   }
 
   /**
@@ -570,47 +558,21 @@ class TextureAtlas {
     // Set the texture path to index mapping
     this.textureIndexLookup.setTexturePathMapping(this.texturePathToIndex);
     
-    // Debug: log the path mapping
-    console.log(`[TextureAtlas] texturePathToIndex has ${this.texturePathToIndex.size} entries`);
-    this.textureIndexLookup.debugPathMapping();
-    
     // Find a reasonable default texture (stone if available, otherwise first texture)
     const defaultPath = this.texturePathToIndex.has('block/stone') 
       ? 'block/stone' 
       : Array.from(this.texturePathToIndex.keys())[0];
     const defaultIndex = this.texturePathToIndex.get(defaultPath) || 0;
-    console.log(`[TextureAtlas] Default texture: '${defaultPath}' -> index ${defaultIndex}`);
     this.textureIndexLookup.setDefaultIndex(defaultIndex);
-    
-    // Log registry state
-    console.log(`[TextureAtlas] BlockRegistry has ${blockRegistry.idToInfo.length} entries`);
     
     // Register all blocks from the registry
     const idToInfo = blockRegistry.idToInfo;
-    let registeredCount = 0;
-    let foundCount = 0;
-    
-    // Debug: register a few blocks with detailed logging
-    const debugBlocks = ['minecraft:stone', 'minecraft:dirt', 'minecraft:grass_block', 'minecraft:oak_planks'];
     
     for (let blockId = 0; blockId < idToInfo.length; blockId++) {
       const info = idToInfo[blockId];
       if (info && info.name) {
-        const shouldDebug = debugBlocks.includes(info.name);
-        const found = this.textureIndexLookup.registerBlock(blockId, info.name, shouldDebug);
-        registeredCount++;
-        if (found) foundCount++;
+        this.textureIndexLookup.registerBlock(blockId, info.name, false);
       }
-    }
-    
-    console.log(`[TextureAtlas] Built texture index lookup: ${registeredCount} blocks registered, ${foundCount} found textures, ${this.texturePathToIndex.size} atlas textures`);
-    
-    // Debug: log sample indices to verify they match the current atlas
-    const samplePaths = ['block/stone', 'block/dirt', 'block/grass_block_top', 'block/grass_block_side'];
-    console.log('[TextureAtlas] Sample atlas positions (should differ between packs):');
-    for (const path of samplePaths) {
-      const idx = this.texturePathToIndex.get(path);
-      console.log(`  ${path}: index=${idx !== undefined ? idx : 'NOT FOUND'}`);
     }
     
     return this.textureIndexLookup;
@@ -645,10 +607,6 @@ class TextureAtlas {
       x: BORDER_SIZE / this.atlasWidth,
       y: BORDER_SIZE / this.atlasHeight,
     };
-    
-    console.log(`[TextureAtlas] Material data: atlas ${this.atlasWidth}x${this.atlasHeight}, tiles ${this.tilesPerRow}x${this.tilesPerCol}, resolution ${this.textureSize}x${this.textureSize}`);
-    console.log(`[TextureAtlas] UV sizes: tile=${tileUV.x.toFixed(4)}, texture=${textureUV.x.toFixed(4)}, border=${borderUV.x.toFixed(4)}`);
-    console.log(`[TextureAtlas] Colormap texture: ${this.colormapTexture ? 'available' : 'not available'}`);
     
     return {
       atlas: this.texture,
@@ -795,7 +753,6 @@ class TextureAtlas {
     for (const path of preferredTextures) {
       const bitmap = packManager.getTexture(path);
       if (isValidTexture(bitmap)) {
-        console.log(`[TextureAtlas] Detected ${bitmap.width}x${bitmap.width} resolution from ${path} (source: ${bitmap.width}x${bitmap.height})`);
         return bitmap.width;
       }
     }
@@ -804,13 +761,11 @@ class TextureAtlas {
     for (const path of texturePaths) {
       const bitmap = packManager.getTexture(path);
       if (isValidTexture(bitmap)) {
-        console.log(`[TextureAtlas] Detected ${bitmap.width}x${bitmap.width} resolution from ${path} (source: ${bitmap.width}x${bitmap.height})`);
         return bitmap.width;
       }
     }
     
     // Default to standard Minecraft resolution
-    console.log(`[TextureAtlas] Could not detect resolution, defaulting to ${DEFAULT_TEXTURE_SIZE}x${DEFAULT_TEXTURE_SIZE}`);
     return DEFAULT_TEXTURE_SIZE;
   }
 

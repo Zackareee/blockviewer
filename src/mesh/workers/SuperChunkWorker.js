@@ -16,48 +16,15 @@
 import pako from 'pako';
 import { ModelStateLookup } from './ModelStateLookup.js';
 import { buildMultipartMeshes, combineMeshes } from './MultipartMesher.js';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const S = 16, S2 = 256, S3 = 4096;
-const BLOCK_ID_MASK = 0x0FFF, LEVEL_MASK = 0xF000, LEVEL_SHIFT = 12;
-const MIN_Y = -64;
-const MAX_Y = 321;
-
-// Axis encoding for rotatable blocks (stored in bits 12-13 of block data)
-// Axis values: 0 = y (default), 1 = x, 2 = z
-const AXIS_Y = 0;
-const AXIS_X = 1;
-const AXIS_Z = 2;
-const AXIS_SHIFT = 12;
-
-const AIR_BLOCKS = new Set(['air', 'cave_air', 'void_air', 'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']);
-
-// Rotatable blocks (logs, pillars, etc.) - pattern matching for block names
-function isRotatableBlock(name) {
-  return name.includes('_log') || 
-         name.includes('_wood') ||
-         name.includes('_stem') ||
-         name.includes('_hyphae') ||
-         name.includes('quartz_pillar') ||
-         name.includes('purpur_pillar') ||
-         name.includes('bone_block') ||
-         name.includes('hay_block') ||
-         name.includes('basalt') ||
-         (name.includes('deepslate') && !name.includes('tiles') && !name.includes('bricks')) ||
-         name.includes('chain') ||
-         name.includes('muddy_mangrove_roots') ||
-         name.includes('bamboo_block') ||
-         name.includes('froglight');
-}
-
-const UNDERWATER_BLOCKS = new Set([
-  'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
-  'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp', 
-  'minecraft:kelp_plant', 'minecraft:bubble_column'
-]);
+import {
+  S, S2, S3, MIN_Y, MAX_Y,
+  BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT,
+  AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT,
+  AIR_BLOCKS, UNDERWATER_BLOCKS,
+  isRotatableBlock,
+  parseSectionKey,
+  sectionToWorldY,
+} from './shared.js';
 
 // Check if native DecompressionStream is available
 const hasNativeDecompress = typeof DecompressionStream !== 'undefined';
@@ -1020,11 +987,6 @@ function buildEndPortalMesh(grid, registry) {
 // ============================================================================
 
 function makeSectionKey(cx, cz, sy) { return `${cx},${cz},${sy}`; }
-function parseSectionKey(key) {
-  const p = key.split(',');
-  return { chunkX: +p[0], chunkZ: +p[1], sectionY: +p[2] };
-}
-function sectionToWorldY(sy) { return sy * S + MIN_Y; }
 
 class WorkerBinaryGrid {
   constructor() {

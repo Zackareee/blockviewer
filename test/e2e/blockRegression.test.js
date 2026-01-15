@@ -199,7 +199,7 @@ const CONFIG = {
   currentDir: path.join(PROJECT_ROOT, 'test', 'e2e', 'current', 'blocks'),
   diffDir: path.join(PROJECT_ROOT, 'test', 'e2e', 'diff', 'blocks'),
   worldFile: path.join(PROJECT_ROOT, 'test', 'world_files', 'debug_world.zip'),
-  blocksFile: path.join(PROJECT_ROOT, 'debug_world_blocks.json'),
+  blocksFile: path.join(PROJECT_ROOT, 'test', 'fixtures', 'debug_world_blocks.json'),
 };
 
 // FOV and distance tuned to show mostly just the target block
@@ -340,7 +340,7 @@ async function runTests() {
   // Load block data
   if (!fs.existsSync(CONFIG.blocksFile)) {
     console.error(`${colors.red}Error: ${CONFIG.blocksFile} not found${colors.reset}`);
-    console.error(`Run: node scripts/extract-world-blocks.cjs test/world_files/debug_world.zip debug_world_blocks.json`);
+    console.error(`Run: node scripts/extract-world-blocks.cjs test/world_files/debug_world.zip test/fixtures/debug_world_blocks.json`);
     process.exit(1);
   }
   

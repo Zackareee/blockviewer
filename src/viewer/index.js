@@ -11,8 +11,6 @@ export { RegionViewer } from './RegionViewer';
 export { ChunkManager } from './ChunkManager';
 export { ChunkStreamer } from './ChunkStreamer';
 export { SpectatorControls } from './SpectatorControls';
-export { createSolidMaterial } from './materials/SolidMaterial';
 export { createWaterMaterial } from './materials/WaterMaterial';
 export { createLavaMaterial } from './materials/LavaMaterial';
-export { createGlassMaterial } from './materials/GlassMaterial';
 

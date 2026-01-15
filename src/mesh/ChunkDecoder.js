@@ -13,13 +13,10 @@ import { BlockStateGrid } from './BlockStateGrid.js';
 import { isNonCubeBlock } from './ModelMesher.js';
 import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
 import { hasEmitter } from '../particles/ParticleEmitter.js';
+import { AIR_BLOCKS, UNDERWATER_BLOCKS, FLUID_CONTAINER_BLOCKS } from './workers/shared.js';
 
-// Axis encoding for rotatable blocks (stored in bits 12-13 of block data)
-// Axis values: 0 = y (default), 1 = x, 2 = z
-export const AXIS_Y = 0;
-export const AXIS_X = 1;
-export const AXIS_Z = 2;
-export const AXIS_SHIFT = 12;
+// Re-export axis constants for other modules
+export { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT } from './workers/shared.js';
 export const AXIS_MASK = 0x3000; // Bits 12-13
 
 // Facing encoding for directional blocks (stored in bits 12-13, same as axis - mutually exclusive)
@@ -43,10 +40,7 @@ const BIT_OFFSETS = Array.from({ length: 16 }, (_, i) =>
   Array.from({ length: 64 }, (_, j) => BigInt(j * i))
 );
 
-// Air block names for quick lookup
-const AIR_BLOCKS = new Set([
-  'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'air', 'cave_air', 'void_air'
-]);
+// AIR_BLOCKS imported from shared.js
 
 /**
  * Unpack nibble-packed light data (2048 bytes -> 4096 values)
@@ -64,19 +58,7 @@ function unpackLightData(data) {
   return unpacked;
 }
 
-// Blocks that inherently exist in water and should always render water
-const UNDERWATER_BLOCKS = new Set([
-  'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
-  'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp', 
-  'minecraft:kelp_plant', 'minecraft:bubble_column'
-]);
-
-// Blocks that contain fluid in their name but aren't actual fluid blocks
-// These have internal fluid as part of their model, not as a separate water block
-const FLUID_CONTAINER_BLOCKS = new Set([
-  'water_cauldron', 'lava_cauldron', 'powder_snow_cauldron',
-  'minecraft:water_cauldron', 'minecraft:lava_cauldron', 'minecraft:powder_snow_cauldron'
-]);
+// UNDERWATER_BLOCKS and FLUID_CONTAINER_BLOCKS imported from shared.js
 
 /**
  * Unpack block indices from packed long array (Minecraft 1.16+ format)

@@ -13,10 +13,8 @@
  */
 
 import * as THREE from 'three';
-// SolidMaterial no longer used - using TexturedMaterial for all blocks
 import { createWaterMaterial, updateWaterMaterialAtlas } from './materials/WaterMaterial';
 import { createLavaMaterial, updateLavaMaterialAtlas } from './materials/LavaMaterial';
-import { createGlassMaterial } from './materials/GlassMaterial';
 import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createTranslucentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled, setMaterialFastPath, setMaterialFog } from './materials/TexturedMaterial';
 import { createInstancedModelMaterial, createInstancedMesh, createCrossGeometry } from './materials/InstancedModelMaterial';
 import { createEndPortalMaterial, updateEndPortalTextures, setEndPortalYRange } from './materials/EndPortalMaterial';
@@ -123,7 +121,6 @@ export class ChunkManager {
     
     // Generate lightmap texture for Minecraft-style lighting
     this.lightmap = generateLightmap(DAYTIME_PARAMS);
-    console.log('[ChunkManager] Generated lightmap texture');
     
     // Shared materials with Y-slice uniforms
     // Use textured material that supports both textures and vertex colors
@@ -252,7 +249,6 @@ export class ChunkManager {
     // Update lava material (animated textures)
     updateLavaMaterialAtlas(this.lavaMaterial, atlasData);
     
-    console.log(`[ChunkManager] Texture mode: ${mode}, using textures: ${useTextures}`);
   }
   
   /**
@@ -267,7 +263,6 @@ export class ChunkManager {
     setMaterialLightingEnabled(this.modelMaterial, enabled);
     setMaterialLightingEnabled(this.transparentModelMaterial, enabled);
     setMaterialLightingEnabled(this.overlayModelMaterial, enabled);
-    console.log(`[ChunkManager] Lighting: ${enabled ? 'enabled' : 'disabled'}`);
   }
   
   /**
@@ -287,7 +282,6 @@ export class ChunkManager {
       return 0;
     }
     
-    console.log('[ChunkManager] Starting GPU warmup...');
     const startTime = performance.now();
     
     // Create a simple triangle geometry for warmup
@@ -347,7 +341,6 @@ export class ChunkManager {
     warmupGeometry.dispose();
     
     const elapsed = performance.now() - startTime;
-    console.log(`[ChunkManager] GPU warmup complete: ${materialsToWarmup.length} materials in ${elapsed.toFixed(1)}ms`);
     
     return elapsed;
   }
@@ -377,7 +370,6 @@ export class ChunkManager {
     if (this.instancedMaterial?.uniforms?.uUseRGSS) {
       this.instancedMaterial.uniforms.uUseRGSS.value = value;
     }
-    console.log(`[ChunkManager] RGSS anti-aliasing: ${enabled ? 'enabled' : 'disabled'}`);
   }
   
   /**
@@ -390,15 +382,11 @@ export class ChunkManager {
     
     if (this.glassMaterial?.uniforms?.uContinuousGlass) {
       this.glassMaterial.uniforms.uContinuousGlass.value = value;
-      console.log(`[ChunkManager] Glass material uContinuousGlass set to ${value}`);
-    } else {
-      console.warn('[ChunkManager] Glass material missing uContinuousGlass uniform!');
     }
     // Also update transparent model material for glass panes
     if (this.transparentModelMaterial?.uniforms?.uContinuousGlass) {
       this.transparentModelMaterial.uniforms.uContinuousGlass.value = value;
     }
-    console.log(`[ChunkManager] Continuous glass: ${enabled ? 'enabled' : 'disabled'}`);
   }
   
   /**
@@ -927,7 +915,6 @@ export class ChunkManager {
     if (this.instancedMaterial?.uniforms?.uMaxDistance) {
       this.instancedMaterial.uniforms.uMaxDistance.value = distance;
     }
-    console.log(`[ChunkManager] Partial block distance set to ${distance === 0 ? 'unlimited' : distance + ' blocks'}`);
   }
   
   /**
@@ -945,7 +932,6 @@ export class ChunkManager {
    */
   setRenderDistance(distance) {
     this.renderDistance = distance;
-    console.log(`[ChunkManager] Render distance set to ${distance === 0 ? 'unlimited' : distance + ' chunks'}`);
     
     // Update beacon beam manager render distance (convert chunks to blocks)
     if (this.beaconBeamManager) {
@@ -970,7 +956,6 @@ export class ChunkManager {
   setParticleDistance(distance) {
     const distanceBlocks = distance * 16;
     this.particleEmitterManager.setMaxDistance(distanceBlocks);
-    console.log(`[ChunkManager] Particle distance set to ${distance} chunks (${distanceBlocks} blocks)`);
   }
   
   /**
@@ -993,7 +978,6 @@ export class ChunkManager {
       }
     }
     
-    console.log(`[ChunkManager] Particle quality set to ${quality}`);
   }
   
   /**
@@ -1015,8 +999,6 @@ export class ChunkManager {
     setMaterialFog(this.modelMaterial, fogParams);
     setMaterialFog(this.transparentModelMaterial, fogParams);
     setMaterialFog(this.overlayModelMaterial, fogParams);
-    
-    console.log(`[ChunkManager] Fog ${enabled ? 'enabled' : 'disabled'}${enabled ? ` (${start}-${end} blocks)` : ''}`);
   }
   
   /**
@@ -1128,12 +1110,10 @@ export class ChunkManager {
     updateMeshArrayVisibility(this.overlayModelMeshes, modelMaxDistSq);
     updateMeshArrayVisibility(this.instancedMeshes, modelMaxDistSq);
     
-    // Only log when there's a significant change (avoid spam)
+    // Track visibility state for internal use
     if (hiddenCount > 0 && !this._lastVisibilityLog) {
-      console.log(`[ChunkManager] Render distance culling: ${visibleCount} visible, ${hiddenCount} hidden (terrain: ${renderDistanceChunks} chunks, detail: ${detailDistanceChunks} chunks)`);
       this._lastVisibilityLog = true;
     } else if (hiddenCount === 0 && this._lastVisibilityLog) {
-      console.log(`[ChunkManager] All ${visibleCount} chunks visible`);
       this._lastVisibilityLog = false;
     }
   }
@@ -1355,7 +1335,6 @@ export class ChunkManager {
       chunks.push(chunk);
     }
     
-    console.log(`[ChunkManager] Split mesh into ${chunks.length} spatial chunks (${chunkSize}x${chunkSize} blocks each)`);
     return chunks;
   }
 
@@ -1437,7 +1416,6 @@ export class ChunkManager {
     
     // Check if full-detail mesh needs splitting - if so, we can't use LOD properly
     if (meshData.indices.length > MAX_INDICES_PER_DRAW) {
-      console.log('[ChunkManager] Mesh too large for LOD, using split meshes without LOD');
       return this._addMeshesToScene(meshData, material, group, meshArray);
     }
     
@@ -1464,31 +1442,20 @@ export class ChunkManager {
     lod.addLevel(mesh0, 0);
     
     // Helper to add LOD level with proper positioning
-    let lodLevelsAdded = 1; // Start at 1 for LOD0
-    const addLodLevel = (lodData, distance, levelName) => {
-      if (!lodData) {
-        console.log(`[LOD] ${levelName} skipped - no data`);
-        return;
-      }
+    const addLodLevel = (lodData, distance) => {
+      if (!lodData) return;
       const geom = RegionMeshBuilder.createGeometry(lodData);
-      if (!geom) {
-        console.log(`[LOD] ${levelName} skipped - no geometry`);
-        return;
-      }
+      if (!geom) return;
       const mesh = new THREE.Mesh(geom, material);
       mesh.frustumCulled = true;
       mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
       lod.addLevel(mesh, distance);
-      lodLevelsAdded++;
-      console.log(`[LOD] ${levelName} added at distance ${distance}, ${lodData.triangleCount} tris`);
     };
     
-    addLodLevel(lodMeshes.lod1, LOD_DISTANCE_1, 'LOD1');
-    addLodLevel(lodMeshes.lod2, LOD_DISTANCE_2, 'LOD2');
-    addLodLevel(lodMeshes.lod3, LOD_DISTANCE_3, 'LOD3');
-    addLodLevel(lodMeshes.lod4, LOD_DISTANCE_4, 'LOD4');
-    
-    console.log(`[LOD] Total ${lodLevelsAdded} levels added to LOD object`);
+    addLodLevel(lodMeshes.lod1, LOD_DISTANCE_1);
+    addLodLevel(lodMeshes.lod2, LOD_DISTANCE_2);
+    addLodLevel(lodMeshes.lod3, LOD_DISTANCE_3);
+    addLodLevel(lodMeshes.lod4, LOD_DISTANCE_4);
     
     // Position LOD at mesh center for distance calculation
     lod.position.copy(meshCenter);
@@ -1694,7 +1661,6 @@ export class ChunkManager {
       this.instancedMeshes.push(instancedMesh);
       drawCalls++;
       
-      console.log(`[ChunkManager] ✓ Instanced ${blockName}: ${instanceCount.toLocaleString()} instances (1 draw call)`);
     }
     
     return drawCalls;
@@ -1730,9 +1696,6 @@ export class ChunkManager {
       this.beaconBeamManager.addBeacon(beacon.x, beacon.y, beacon.z);
     }
     
-    if (beacons.length > 0) {
-      console.log(`[ChunkManager] Registered ${beacons.length} beacons`);
-    }
   }
 
   /**
@@ -1765,8 +1728,6 @@ export class ChunkManager {
       }
       return 'air';
     });
-    
-    console.log('[ChunkManager] Beacon beam manager initialized');
   }
 
   /**
@@ -1778,9 +1739,6 @@ export class ChunkManager {
     
     this.entitySystem.addEntities(entities);
     
-    if (entities.length > 0) {
-      console.log(`[ChunkManager] Registered ${entities.length} entities`);
-    }
   }
 
   /**
@@ -1805,8 +1763,6 @@ export class ChunkManager {
     
     // Add entity group to scene
     this.scene.add(this.entitySystem.group);
-    
-    console.log('[ChunkManager] Entity system initialized');
   }
 
   /**
@@ -1841,7 +1797,6 @@ export class ChunkManager {
       
       if (this.endPortalMaterial) {
         updateEndPortalTextures(this.endPortalMaterial, endSkyTexture, endPortalTexture);
-        console.log('[ChunkManager] End portal textures loaded (end_sky.png + end_portal.png)');
       }
     } catch (error) {
       console.warn('[ChunkManager] Failed to load end portal textures:', error.message);
@@ -1881,8 +1836,6 @@ export class ChunkManager {
       // Fallback: simple floor at Y = 0
       return y < 0;
     });
-    
-    console.log('[ChunkManager] Particle system initialized, atlas isBuilt:', particleAtlas?.isBuilt);
   }
   
   /**
@@ -1891,7 +1844,6 @@ export class ChunkManager {
    */
   updateParticleAtlas(particleAtlas) {
     if (!this.particlesEnabled || !this.particleSystem) {
-      console.log('[ChunkManager] Particle system not available for atlas update');
       return;
     }
     
@@ -1901,7 +1853,6 @@ export class ChunkManager {
     }
     
     this.particleSystem.setAtlas(particleAtlas);
-    console.log('[ChunkManager] Particle atlas updated');
   }
 
   /**
@@ -2745,12 +2696,6 @@ export class ChunkManager {
     const startTime = performance.now();
     const { onRegionStart, onRegionComplete, onStageChange, enableLOD = true } = options;
     
-    // Note: Streaming loader uses simplified worker that doesn't collect particle emitters
-    // Particles (torch flames, smoke) only work with progressive or loadChunks paths
-    if (this.particlesEnabled && this.particleSystem) {
-      console.log('[ChunkManager] Note: Particle effects disabled in streaming mode (use progressive loading for particles)');
-    }
-    
     this.clear();
     
     if (!this.streamingLoader) {
@@ -3208,7 +3153,6 @@ export class ChunkManager {
     
     // Check if full-detail mesh is too large for LOD
     if (solidData.indices.length > MAX_INDICES_PER_DRAW) {
-      console.log('[ChunkManager] Mesh too large for LOD, using regular mesh');
       return this._addMeshFromBuffers(solidData, material, group, meshArray);
     }
     
@@ -3231,8 +3175,7 @@ export class ChunkManager {
     lod.addLevel(mesh0, 0);
     
     // Add LOD levels
-    let lodLevelsAdded = 1;
-    const addLodLevel = (lodData, distance, levelName) => {
+    const addLodLevel = (lodData, distance) => {
       if (!lodData) return;
       const geom = this._createGeometryFromBuffers(lodData);
       if (!geom) return;
@@ -3240,16 +3183,12 @@ export class ChunkManager {
       mesh.frustumCulled = true;
       mesh.position.set(-meshCenter.x, -meshCenter.y, -meshCenter.z);
       lod.addLevel(mesh, distance);
-      lodLevelsAdded++;
-      console.log(`[LOD] ${levelName} added at distance ${distance}, ${lodData.triangleCount} tris`);
     };
     
-    addLodLevel(lodMeshes.lod1, LOD_DISTANCE_1, 'LOD1');
-    addLodLevel(lodMeshes.lod2, LOD_DISTANCE_2, 'LOD2');
-    addLodLevel(lodMeshes.lod3, LOD_DISTANCE_3, 'LOD3');
-    addLodLevel(lodMeshes.lod4, LOD_DISTANCE_4, 'LOD4');
-    
-    console.log(`[LOD] Total ${lodLevelsAdded} levels added to LOD object`);
+    addLodLevel(lodMeshes.lod1, LOD_DISTANCE_1);
+    addLodLevel(lodMeshes.lod2, LOD_DISTANCE_2);
+    addLodLevel(lodMeshes.lod3, LOD_DISTANCE_3);
+    addLodLevel(lodMeshes.lod4, LOD_DISTANCE_4);
     
     // Position LOD at mesh center for distance calculation
     lod.position.copy(meshCenter);
@@ -3640,7 +3579,6 @@ export class ChunkManager {
     
     if (groups[groupName]) {
       groups[groupName].visible = visible;
-      console.log(`[ChunkManager] ${groupName} group: ${visible ? 'VISIBLE' : 'HIDDEN'}`);
     }
   }
   
@@ -3654,7 +3592,6 @@ export class ChunkManager {
     setMaterialFastPath(this.modelMaterial, enabled);
     setMaterialFastPath(this.transparentModelMaterial, enabled);
     setMaterialFastPath(this.overlayModelMaterial, enabled);
-    console.log(`[ChunkManager] Fast path mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
   
   /**

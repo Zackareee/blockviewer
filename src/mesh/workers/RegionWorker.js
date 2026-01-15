@@ -11,6 +11,13 @@
  */
 
 import pako from 'pako';
+import {
+  S, S2, S3, MIN_Y, MAX_Y,
+  BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT,
+  AIR_BLOCKS, UNDERWATER_BLOCKS,
+  parseSectionKey,
+  sectionToWorldY,
+} from './shared.js';
 
 // ============================================================================
 // Decompression Helpers
@@ -329,15 +336,7 @@ const BLOCK_COLORS = getBlockColorsNumeric();
 // Convert pattern format for worker usage
 const COLOR_PATTERNS = COLOR_PATTERNS_NUMERIC.map(({ pattern, color }) => [pattern, color]);
 
-const AIR_BLOCKS = new Set(['air', 'cave_air', 'void_air', 'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']);
-
-// Blocks that inherently exist in water and should always render water
-// These don't have waterlogged property because they can only exist in water
-const UNDERWATER_BLOCKS = new Set([
-  'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
-  'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp', 
-  'minecraft:kelp_plant', 'minecraft:bubble_column'
-]);
+// AIR_BLOCKS and UNDERWATER_BLOCKS imported from shared.js
 
 class WorkerBlockRegistry {
   constructor() {
@@ -400,17 +399,10 @@ class WorkerBlockRegistry {
 // Binary Grid
 // ============================================================================
 
-const S = 16, S2 = 256, S3 = 4096;
-const BLOCK_ID_MASK = 0x0FFF, LEVEL_MASK = 0xF000, LEVEL_SHIFT = 12;
-const MIN_Y = -64;
-const MAX_Y = 321; // Exclusive upper bound (blocks can exist at Y=320)
+// S, S2, S3, MIN_Y, MAX_Y, BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT imported from shared.js
+// parseSectionKey, sectionToWorldY imported from shared.js
 
 function makeSectionKey(cx, cz, sy) { return `${cx},${cz},${sy}`; }
-function parseSectionKey(key) {
-  const p = key.split(',');
-  return { chunkX: +p[0], chunkZ: +p[1], sectionY: +p[2] };
-}
-function sectionToWorldY(sy) { return sy * S + MIN_Y; }
 
 class WorkerBinaryGrid {
   constructor() {

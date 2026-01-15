@@ -4,7 +4,7 @@
  * 
  * Usage: node scripts/extract-world-blocks.js <input.zip|input_folder> <output.json>
  * 
- * Example: node scripts/extract-world-blocks.js test/world_files/debug_world.zip debug_world_blocks.json
+ * Example: node scripts/extract-world-blocks.js test/world_files/debug_world.zip test/fixtures/debug_world_blocks.json
  * 
  * Output format:
  * {
@@ -45,7 +45,7 @@ const zlib = require('zlib');
 const args = process.argv.slice(2);
 if (args.length < 2) {
   console.log('Usage: node scripts/extract-world-blocks.cjs <input.zip|input_folder> <output.json> [--with-positions]');
-  console.log('Example: node scripts/extract-world-blocks.cjs test/world_files/debug_world.zip debug_world_blocks.json');
+  console.log('Example: node scripts/extract-world-blocks.cjs test/world_files/debug_world.zip test/fixtures/debug_world_blocks.json');
   console.log('');
   console.log('Options:');
   console.log('  --with-positions  Include all block positions (large output)');

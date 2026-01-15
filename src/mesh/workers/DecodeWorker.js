@@ -8,23 +8,12 @@
 // Import block registry (will be recreated from transferred data)
 import { BlockRegistry } from '../BlockRegistry.js';
 import { BinaryGrid, SECTION_SIZE, MIN_Y, MAX_Y } from '../BinaryGrid.js';
+import { AIR_BLOCKS, UNDERWATER_BLOCKS, isAirBlock } from './shared.js';
 
 // Pre-computed BigInt bit offsets for common bitsPerBlock values (4-15)
 const BIT_OFFSETS = Array.from({ length: 16 }, (_, i) => 
   Array.from({ length: 64 }, (_, j) => BigInt(j * i))
 );
-
-// Air block names for quick lookup
-const AIR_BLOCKS = new Set([
-  'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'air', 'cave_air', 'void_air'
-]);
-
-// Blocks that inherently exist in water and should always render water
-const UNDERWATER_BLOCKS = new Set([
-  'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
-  'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp', 
-  'minecraft:kelp_plant', 'minecraft:bubble_column'
-]);
 
 /**
  * Unpack block indices from packed long array
@@ -56,13 +45,7 @@ function unpackBlockIndices(data, bitsPerBlock, totalBlocks) {
   return indices;
 }
 
-/**
- * Check if a block name is air
- */
-function isAirBlock(name) {
-  if (!name) return true;
-  return AIR_BLOCKS.has(name) || name.endsWith(':air');
-}
+// isAirBlock imported from shared.js
 
 /**
  * Extract fluid level from block properties

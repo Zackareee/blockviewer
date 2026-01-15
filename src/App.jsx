@@ -211,7 +211,6 @@ function App() {
       // Initialize ModelTextureMapper with preloaded resolvers
       const modelTextureMapper = getModelTextureMapper();
       modelTextureMapper.init(modelResolver, blockstateResolver);
-      console.log('[App] ModelTextureMapper initialized for data-driven texture mapping');
       
       const atlas = getTextureAtlas();
       await atlas.build(pm);
@@ -221,35 +220,17 @@ function App() {
       // but we need them registered now to build the texture index lookup
       const blockRegistry = getBlockRegistry();
       const blockNames = Object.keys(BLOCK_COLORS);
-      console.log(`[App] Pre-registering ${blockNames.length} blocks from BLOCK_COLORS...`);
       
       for (const blockName of blockNames) {
         blockRegistry.registerBlock(blockName);
       }
       
-      // Verify registration worked
-      const registrySize = blockRegistry.idToInfo.length;
-      console.log(`[App] Pre-registered ${blockNames.length} blocks, registry now has ${registrySize} entries`);
-      
-      // Log a few sample blocks to verify IDs
-      const sampleBlocks = ['minecraft:stone', 'minecraft:dirt', 'minecraft:grass_block', 'minecraft:oak_planks'];
-      for (const name of sampleBlocks) {
-        const id = blockRegistry.nameToId.get(name);
-        console.log(`[App]   ${name} -> ID ${id}`);
-      }
-      
       // Build the TextureIndexLookup which maps (blockId, face) -> atlas index
-      // This now uses ModelTextureMapper (data-driven) with BlockTextureRegistry as fallback
       atlas.buildTextureIndexLookup(blockRegistry);
-      
-      // Log ModelTextureMapper stats
-      const mapperStats = modelTextureMapper.getStats();
-      console.log(`[App] ModelTextureMapper stats: ${mapperStats.hitCount} blocks from models, ${mapperStats.missCount} using fallback`);
       
       // Build particle atlas for torch flames, smoke, etc.
       const pAtlas = getParticleAtlas();
-      const particleBuildSuccess = await pAtlas.build(pm);
-      console.log('[App] Particle atlas built:', particleBuildSuccess, 'isBuilt:', pAtlas.isBuilt, 'textures:', pAtlas.particleLookup?.size || 0);
+      await pAtlas.build(pm);
       // Wrap in new object to trigger React state change (atlas is singleton, same reference)
       setParticleAtlas({ atlas: pAtlas, version: Date.now() });
       
@@ -308,7 +289,6 @@ function App() {
       const modelTextureMapper = getModelTextureMapper();
       modelTextureMapper.clearCache();
       modelTextureMapper.init(modelResolver, blockstateResolver);
-      console.log('[App] ModelTextureMapper re-initialized for custom pack');
       
       const atlas = getTextureAtlas();
       await atlas.build(customPack);
@@ -316,25 +296,17 @@ function App() {
       // Pre-register all known blocks from BLOCK_COLORS to the registry
       const blockRegistry = getBlockRegistry();
       const blockNames = Object.keys(BLOCK_COLORS);
-      console.log(`[App] Pre-registering ${blockNames.length} blocks for custom pack...`);
       
       for (const blockName of blockNames) {
         blockRegistry.registerBlock(blockName);
       }
       
-      console.log(`[App] Registry now has ${blockRegistry.idToInfo.length} entries`);
-      
       // Build the TextureIndexLookup which maps (blockId, face) -> atlas index
       atlas.buildTextureIndexLookup(blockRegistry);
       
-      // Log ModelTextureMapper stats
-      const mapperStats = modelTextureMapper.getStats();
-      console.log(`[App] ModelTextureMapper stats: ${mapperStats.hitCount} blocks from models, ${mapperStats.missCount} using fallback`);
-      
       // Rebuild particle atlas for the custom texture pack
       const pAtlas = getParticleAtlas();
-      const particleBuildSuccess = await pAtlas.build(customPack);
-      console.log('[App] Particle atlas rebuilt for custom pack:', particleBuildSuccess, 'textures:', pAtlas.particleLookup?.size || 0);
+      await pAtlas.build(customPack);
       // Wrap in new object to trigger React state change (atlas is singleton, same reference)
       setParticleAtlas({ atlas: pAtlas, version: Date.now() });
       
@@ -562,10 +534,8 @@ function App() {
         name: filename,
         arrayBuffer: async () => {
           if (cachedBuffer) {
-            console.log(`[App] Using cached data for ${filename}`);
             return cachedBuffer;
           }
-          console.log(`[App] Extracting ${filename} from zip on-demand...`);
           cachedBuffer = await zipFile.async('arraybuffer');
           return cachedBuffer;
         },

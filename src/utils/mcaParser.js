@@ -1,5 +1,6 @@
 import pako from 'pako';
 import { parseNBTRaw } from './nbtParser';
+import { AIR_BLOCKS, UNDERWATER_BLOCKS, isAirBlock } from '../mesh/workers/shared.js';
 
 const SECTOR_SIZE = 4096;
 const CHUNKS_PER_REGION = 32;
@@ -298,22 +299,11 @@ function unpackBlockIndices(data, bitsPerBlock, totalBlocks) {
   return indices;
 }
 
-// Air block name set for O(1) lookup
-const AIR_BLOCKS = new Set([
-  'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'air'
-]);
+// AIR_BLOCKS and UNDERWATER_BLOCKS imported from shared.js
 
-// Blocks that inherently exist in water and should always render water
-const UNDERWATER_BLOCKS = new Set([
-  'seagrass', 'tall_seagrass', 'kelp', 'kelp_plant', 'bubble_column',
-  'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp', 
-  'minecraft:kelp_plant', 'minecraft:bubble_column'
-]);
-
-// Fast air check - avoid string operations in hot path
+// Fast air check - use isAirBlock from shared.js
 function isAirBlockFast(name) {
-  if (!name) return true;
-  return AIR_BLOCKS.has(name) || name.endsWith(':air');
+  return isAirBlock(name);
 }
 
 // Pre-process palette to extract block names, air mask, and fluid levels

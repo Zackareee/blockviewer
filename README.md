@@ -66,7 +66,7 @@ npm run test:regression:update
 
 ### Single Block Tests
 
-Test individual block rendering using coordinates from `debug_world_blocks.json`. Captures isometric screenshots of each block for regression testing.
+Test individual block rendering using coordinates from `test/fixtures/debug_world_blocks.json`. Captures isometric screenshots of each block for regression testing.
 
 #### Setting Up Block Tests (First Time)
 
@@ -81,9 +81,9 @@ test/world_files/debug_world.zip
 
 **Step 2: Extract block registry from the world**
 
-Run the extraction script to generate `debug_world_blocks.json`:
+Run the extraction script to generate `test/fixtures/debug_world_blocks.json`:
 ```bash
-node scripts/extract-world-blocks.cjs test/world_files/debug_world.zip debug_world_blocks.json
+node scripts/extract-world-blocks.cjs test/world_files/debug_world.zip test/fixtures/debug_world_blocks.json
 ```
 
 This scans every chunk in the world and outputs a JSON file containing:
