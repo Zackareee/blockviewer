@@ -1658,6 +1658,16 @@ export class SuperChunkManager {
       }
     }
     
+    // Register particle emitters from worker (multipart meshing)
+    if (result.particleEmitters && result.particleEmitters.length > 0) {
+      const emitterManager = this.chunkManager.particleEmitterManager;
+      if (emitterManager) {
+        for (const emitter of result.particleEmitters) {
+          emitterManager.addEmitter(emitter.blockType, emitter.x, emitter.y, emitter.z, emitter.properties);
+        }
+      }
+    }
+    
     // Merge grid data into debugGrid for block inspector lookups
     // This is critical for getBlockDetails() to work with worker-processed chunks
     if (result.grids && result.grids.grid && this.chunkManager) {
@@ -1726,10 +1736,10 @@ export class SuperChunkManager {
     }
     
     // Legacy fallback: Build model meshes from grids for multipart blocks
-    // V3 handles non-multipart model blocks (stairs, slabs, doors, etc.)
-    // Legacy handles multipart blocks (fences, walls, panes, redstone_wire, etc.)
-    // Both can run in parallel since they handle different block types
-    if (result.grids) {
+    // Only needed if worker didn't handle multipart meshing (fallback case)
+    // When multipartMeshed is true, worker already built multipart meshes
+    const workerHandledMultipart = result.v3Debug?.multipartMeshed === true;
+    if (result.grids && !workerHandledMultipart) {
       // Queue model mesh building for next idle callback to avoid blocking this frame
       this._queueModelMeshBuild(superChunk, result.grids);
     }

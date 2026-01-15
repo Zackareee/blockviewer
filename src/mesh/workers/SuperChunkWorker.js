@@ -15,6 +15,7 @@
 
 import pako from 'pako';
 import { ModelStateLookup } from './ModelStateLookup.js';
+import { buildMultipartMeshes, combineMeshes } from './MultipartMesher.js';
 
 // ============================================================================
 // Constants
@@ -2906,78 +2907,117 @@ async function processSuperChunk(data) {
     modelStateLookupReady: !!modelStateLookup,
   };
   
+  // Collect model meshes from V3 (WASM) and multipart (JS) meshers
+  // Then combine and add transferables only once at the end
+  let v3Meshes = null;
+  let multipartMeshes = null;
+  
+  // V3 Model Meshing (non-multipart blocks: stairs, slabs, torches, etc.)
   if (v3Enabled) {
     try {
       const serialized = modelStateGrid.serializeForWasm();
       result.v3Debug.serializedBytes = serialized.byteLength;
       
-      const modelMeshes = wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds);
-      result.v3Debug.opaqueVerts = modelMeshes.modelOpaque?.vertexCount ?? 0;
-      result.v3Debug.transVerts = modelMeshes.modelTransparent?.vertexCount ?? 0;
+      v3Meshes = wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds);
+      result.v3Debug.opaqueVerts = v3Meshes.modelOpaque?.vertexCount ?? 0;
+      result.v3Debug.transVerts = v3Meshes.modelTransparent?.vertexCount ?? 0;
       
-      // Add model opaque mesh
-      if (modelMeshes.modelOpaque && modelMeshes.modelOpaque.vertexCount > 0) {
-        result.modelOpaque = modelMeshes.modelOpaque;
-        transferables.push(
-          modelMeshes.modelOpaque.positions.buffer,
-          modelMeshes.modelOpaque.normals.buffer,
-          modelMeshes.modelOpaque.uvs.buffer,
-          modelMeshes.modelOpaque.colors.buffer,
-          modelMeshes.modelOpaque.texIndices.buffer,
-          modelMeshes.modelOpaque.tintTypes.buffer,
-          modelMeshes.modelOpaque.skyLight.buffer,
-          modelMeshes.modelOpaque.blockLight.buffer,
-          modelMeshes.modelOpaque.shadeFlags.buffer,
-          modelMeshes.modelOpaque.indices.buffer
-        );
+      // Beacon positions from V3
+      if (v3Meshes.beaconPositions && v3Meshes.beaconPositions.length > 0) {
+        result.beaconPositions = v3Meshes.beaconPositions;
       }
-      
-      // Add model transparent mesh
-      if (modelMeshes.modelTransparent && modelMeshes.modelTransparent.vertexCount > 0) {
-        result.modelTransparent = modelMeshes.modelTransparent;
-        transferables.push(
-          modelMeshes.modelTransparent.positions.buffer,
-          modelMeshes.modelTransparent.normals.buffer,
-          modelMeshes.modelTransparent.uvs.buffer,
-          modelMeshes.modelTransparent.colors.buffer,
-          modelMeshes.modelTransparent.texIndices.buffer,
-          modelMeshes.modelTransparent.tintTypes.buffer,
-          modelMeshes.modelTransparent.skyLight.buffer,
-          modelMeshes.modelTransparent.blockLight.buffer,
-          modelMeshes.modelTransparent.shadeFlags.buffer,
-          modelMeshes.modelTransparent.indices.buffer
-        );
-      }
-      
-      // Add model overlay mesh
-      if (modelMeshes.modelOverlay && modelMeshes.modelOverlay.vertexCount > 0) {
-        result.modelOverlay = modelMeshes.modelOverlay;
-        transferables.push(
-          modelMeshes.modelOverlay.positions.buffer,
-          modelMeshes.modelOverlay.normals.buffer,
-          modelMeshes.modelOverlay.uvs.buffer,
-          modelMeshes.modelOverlay.colors.buffer,
-          modelMeshes.modelOverlay.texIndices.buffer,
-          modelMeshes.modelOverlay.tintTypes.buffer,
-          modelMeshes.modelOverlay.skyLight.buffer,
-          modelMeshes.modelOverlay.blockLight.buffer,
-          modelMeshes.modelOverlay.shadeFlags.buffer,
-          modelMeshes.modelOverlay.indices.buffer
-        );
-      }
-      
-      // Add beacon positions
-      if (modelMeshes.beaconPositions && modelMeshes.beaconPositions.length > 0) {
-        result.beaconPositions = modelMeshes.beaconPositions;
-      }
-      
-      // Keep grids so legacy mesher can render multipart blocks (fences, walls, panes, redstone_wire)
-      // V3 handles non-multipart model blocks, legacy handles multipart
-      // result.grids is NOT cleared
     } catch (e) {
       console.warn('[SuperChunkWorker] V3 model meshing failed:', e.message);
-      // Fall back to returning grids for main thread model meshing
     }
+  }
+  
+  // Multipart meshing in worker (fences, walls, glass panes, redstone_wire, etc.)
+  // This replaces main thread model meshing - no more grids sent to main thread
+  if (stateRegistry && stateRegistry.states && stateRegistry.states.length > 0) {
+    try {
+      const offset = { x: 0, y: 0, z: 0 };
+      multipartMeshes = buildMultipartMeshes(
+        grid,
+        stateGrid,
+        blockRegistry,
+        stateRegistry,
+        offset,
+        {
+          textureIndexLookup,
+          lightGrid,
+          bounds,
+          tintTypeLookup,
+        }
+      );
+      
+      if (multipartMeshes) {
+        result.v3Debug.multipartMeshed = true;
+        result.v3Debug.multipartOpaqueVerts = multipartMeshes.opaque?.vertexCount ?? 0;
+        result.v3Debug.multipartTransVerts = multipartMeshes.transparent?.vertexCount ?? 0;
+        
+        // Particle emitters from multipart meshing
+        if (multipartMeshes.particleEmitters && multipartMeshes.particleEmitters.length > 0) {
+          result.particleEmitters = multipartMeshes.particleEmitters;
+        }
+      }
+      
+      // Keep grids for debug inspector but mark that multipart meshing was done
+      // Main thread will skip model mesh building when this flag is set
+    } catch (e) {
+      console.warn('[SuperChunkWorker] Multipart meshing failed:', e.message, e.stack);
+      // Keep grids as fallback for main thread
+    }
+  }
+  
+  // Combine V3 and multipart meshes, then add to transferables
+  const combined = combineMeshes(v3Meshes, multipartMeshes);
+  
+  if (combined.modelOpaque && combined.modelOpaque.vertexCount > 0) {
+    result.modelOpaque = combined.modelOpaque;
+    transferables.push(
+      combined.modelOpaque.positions.buffer,
+      combined.modelOpaque.normals.buffer,
+      combined.modelOpaque.uvs.buffer,
+      combined.modelOpaque.colors.buffer,
+      combined.modelOpaque.texIndices.buffer,
+      combined.modelOpaque.tintTypes.buffer,
+      combined.modelOpaque.skyLight.buffer,
+      combined.modelOpaque.blockLight.buffer,
+      combined.modelOpaque.shadeFlags.buffer,
+      combined.modelOpaque.indices.buffer
+    );
+  }
+  
+  if (combined.modelTransparent && combined.modelTransparent.vertexCount > 0) {
+    result.modelTransparent = combined.modelTransparent;
+    transferables.push(
+      combined.modelTransparent.positions.buffer,
+      combined.modelTransparent.normals.buffer,
+      combined.modelTransparent.uvs.buffer,
+      combined.modelTransparent.colors.buffer,
+      combined.modelTransparent.texIndices.buffer,
+      combined.modelTransparent.tintTypes.buffer,
+      combined.modelTransparent.skyLight.buffer,
+      combined.modelTransparent.blockLight.buffer,
+      combined.modelTransparent.shadeFlags.buffer,
+      combined.modelTransparent.indices.buffer
+    );
+  }
+  
+  if (combined.modelOverlay && combined.modelOverlay.vertexCount > 0) {
+    result.modelOverlay = combined.modelOverlay;
+    transferables.push(
+      combined.modelOverlay.positions.buffer,
+      combined.modelOverlay.normals.buffer,
+      combined.modelOverlay.uvs.buffer,
+      combined.modelOverlay.colors.buffer,
+      combined.modelOverlay.texIndices.buffer,
+      combined.modelOverlay.tintTypes.buffer,
+      combined.modelOverlay.skyLight.buffer,
+      combined.modelOverlay.blockLight.buffer,
+      combined.modelOverlay.shadeFlags.buffer,
+      combined.modelOverlay.indices.buffer
+    );
   }
   
   const totalTime = performance.now() - startTime;
