@@ -1598,88 +1598,108 @@ export class SuperChunkManager {
 
   /**
    * Create Three.js meshes from worker result
-   * Solid/water/lava/glass meshes come from worker
-   * Model meshes are built on main thread using serialized grids
    * 
-   * All meshes for a super-chunk are created together to avoid visual popping.
+   * QUEUED: All mesh creation is now routed through meshCreationQueue
+   * This prevents frame drops by spreading mesh creation across frames.
+   * Solid meshes are prioritized for quick visual feedback.
    */
   async _createMeshesFromWorkerResult(superChunk, result) {
-    // Debug logging disabled for performance
-    // if (result.v3Debug) {
-    //   console.log(`[V3 Debug] Worker result:`, result.v3Debug);
-    // }
+    // Queue all meshes for gradual creation (prevents frame drops)
+    // Priority: solid first for quick visual feedback, then models, then transparent
     
-    // Solid mesh
+    // Solid mesh (highest priority - shows terrain immediately)
     if (result.solid && result.solid.positions.length > 0) {
-      const mesh = this._createMesh(result.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
-      if (mesh) {
-        superChunk.meshes.push(mesh);
-        this.chunkManager.solidMeshes.push(mesh);
-      }
+      this.meshCreationQueue.add({
+        meshData: result.solid,
+        material: this.chunkManager.solidMaterial,
+        group: this.chunkManager.solidGroup,
+        superChunk,
+        meshType: 'solid',
+        meshArray: this.chunkManager.solidMeshes,
+      });
     }
     
-    // Water mesh
-    if (result.water && result.water.positions.length > 0) {
-      const mesh = this._createMesh(result.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
-      if (mesh) {
-        mesh.renderOrder = 2;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.waterMeshes.push(mesh);
-      }
+    // Model opaque (second priority - shows blocks)
+    if (result.modelOpaque && result.modelOpaque.positions?.length > 0) {
+      this.meshCreationQueue.add({
+        meshData: result.modelOpaque,
+        material: this.chunkManager.modelMaterial,
+        group: this.chunkManager.modelGroup,
+        superChunk,
+        meshType: 'modelOpaque',
+        meshArray: this.chunkManager.modelMeshes,
+      });
     }
     
-    // Lava mesh
-    if (result.lava && result.lava.positions.length > 0) {
-      const mesh = this._createMesh(result.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
-      if (mesh) {
-        mesh.renderOrder = 3;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.lavaMeshes.push(mesh);
-      }
+    // Model overlay (torch glow, etc.)
+    if (result.modelOverlay && result.modelOverlay.positions?.length > 0) {
+      this.meshCreationQueue.add({
+        meshData: result.modelOverlay,
+        material: this.chunkManager.overlayMaterial,
+        group: this.chunkManager.overlayGroup,
+        superChunk,
+        meshType: 'modelOverlay',
+        renderOrder: 0.1,
+        meshArray: this.chunkManager.overlayMeshes,
+      });
     }
     
     // Glass mesh
     if (result.glass && result.glass.positions.length > 0) {
-      const mesh = this._createMesh(result.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
-      if (mesh) {
-        mesh.renderOrder = 1;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.glassMeshes.push(mesh);
-      }
+      this.meshCreationQueue.add({
+        meshData: result.glass,
+        material: this.chunkManager.glassMaterial,
+        group: this.chunkManager.glassGroup,
+        superChunk,
+        meshType: 'glass',
+        renderOrder: 1,
+        meshArray: this.chunkManager.glassMeshes,
+      });
     }
     
-    // V3: Model meshes come directly from worker WASM
-    // Track if V3 produced any model meshes to skip legacy fallback
-    let v3ProducedModels = false;
-    
-    if (result.modelOpaque && result.modelOpaque.positions?.length > 0) {
-      const mesh = this._createMesh(result.modelOpaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
-      if (mesh) {
-        superChunk.meshes.push(mesh);
-        this.chunkManager.modelMeshes.push(mesh);
-        v3ProducedModels = true;
-      }
-    }
-    
+    // Model transparent (glass panes, etc.)
     if (result.modelTransparent && result.modelTransparent.positions?.length > 0) {
-      const mesh = this._createMesh(result.modelTransparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
-      if (mesh) {
-        mesh.renderOrder = 0.5;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.transparentModelMeshes.push(mesh);
-        v3ProducedModels = true;
-      }
+      this.meshCreationQueue.add({
+        meshData: result.modelTransparent,
+        material: this.chunkManager.transparentModelMaterial,
+        group: this.chunkManager.transparentModelGroup,
+        superChunk,
+        meshType: 'modelTransparent',
+        renderOrder: 0.5,
+        meshArray: this.chunkManager.transparentModelMeshes,
+      });
     }
     
-    if (result.modelOverlay && result.modelOverlay.positions?.length > 0) {
-      const mesh = this._createMesh(result.modelOverlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
-      if (mesh) {
-        mesh.renderOrder = 0.1;
-        superChunk.meshes.push(mesh);
-        this.chunkManager.overlayMeshes?.push(mesh);
-        v3ProducedModels = true;
-      }
+    // Water mesh
+    if (result.water && result.water.positions.length > 0) {
+      this.meshCreationQueue.add({
+        meshData: result.water,
+        material: this.chunkManager.waterMaterial,
+        group: this.chunkManager.waterGroup,
+        superChunk,
+        meshType: 'water',
+        renderOrder: 2,
+        meshArray: this.chunkManager.waterMeshes,
+      });
     }
+    
+    // Lava mesh
+    if (result.lava && result.lava.positions.length > 0) {
+      this.meshCreationQueue.add({
+        meshData: result.lava,
+        material: this.chunkManager.lavaMaterial,
+        group: this.chunkManager.lavaGroup,
+        superChunk,
+        meshType: 'lava',
+        renderOrder: 3,
+        meshArray: this.chunkManager.lavaMeshes,
+      });
+    }
+    
+    // Track if V3 produced model meshes (for fallback detection)
+    const v3ProducedModels = !!(result.modelOpaque?.positions?.length > 0 ||
+                                result.modelTransparent?.positions?.length > 0 ||
+                                result.modelOverlay?.positions?.length > 0);
     
     // Register beacon positions
     if (result.beaconPositions && result.beaconPositions.length > 0) {
