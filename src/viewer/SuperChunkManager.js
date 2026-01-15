@@ -65,7 +65,13 @@ class MeshCreationQueue {
     this.queue = [];
     
     // Per-frame time budget in milliseconds
-    this.frameBudgetMs = 3.0;
+    // TUNED: Reduced from 3ms to 2ms for highly detailed worlds
+    // At 60fps, each frame has ~16ms total - leaving more headroom reduces stutter
+    this.frameBudgetMs = 2.0;
+    
+    // Maximum meshes per frame (prevents one huge mesh from blocking)
+    // For worst-case detailed worlds, limit to 2 meshes even if time allows
+    this.maxMeshesPerFrame = 2;
     
     // Priority order: solid first for quick visual feedback, then models, then transparent
     this.priorityOrder = ['solid', 'modelOpaque', 'modelOverlay', 'glass', 'modelTransparent', 'water', 'lava'];
@@ -80,6 +86,19 @@ class MeshCreationQueue {
     
     // Callbacks for when chunks complete
     this._onChunkComplete = null;
+  }
+  
+  /**
+   * Configure the queue for different performance scenarios
+   * @param {Object} options - { frameBudgetMs, maxMeshesPerFrame }
+   */
+  configure(options = {}) {
+    if (options.frameBudgetMs !== undefined) {
+      this.frameBudgetMs = options.frameBudgetMs;
+    }
+    if (options.maxMeshesPerFrame !== undefined) {
+      this.maxMeshesPerFrame = options.maxMeshesPerFrame;
+    }
   }
   
   /**
@@ -125,6 +144,11 @@ class MeshCreationQueue {
     this.isProcessing = true;
     
     while (this.queue.length > 0) {
+      // Check mesh count limit first (for worst-case detailed worlds)
+      if (this.processedThisFrame >= this.maxMeshesPerFrame) {
+        break;
+      }
+      
       const elapsed = performance.now() - startTime;
       if (elapsed >= this.frameBudgetMs) {
         // Budget exhausted, continue next frame
@@ -542,6 +566,18 @@ export class SuperChunkManager {
    */
   setMeshingSpeed(speed) {
     this.meshingSpeed = Math.max(1, Math.min(4, speed));
+  }
+  
+  /**
+   * Configure mesh creation queue for detailed worlds
+   * Call this before loading large/detailed worlds to reduce stutter
+   * 
+   * @param {Object} options
+   * @param {number} options.frameBudgetMs - Max ms per frame for mesh creation (default: 2)
+   * @param {number} options.maxMeshesPerFrame - Max meshes to create per frame (default: 2)
+   */
+  configureMeshQueue(options = {}) {
+    this.meshCreationQueue.configure(options);
   }
   
   /**
@@ -1668,70 +1704,35 @@ export class SuperChunkManager {
       }
     }
     
-    // Merge grid data into debugGrid for block inspector lookups
-    // This is critical for getBlockDetails() to work with worker-processed chunks
+    // OPTIMIZED: Merge grid data into debugGrid for block lookups
+    // Only merge sections - skip expensive bounds updates (computed lazily if needed)
     if (result.grids && result.grids.grid && this.chunkManager) {
-      // Create debugGrid if it doesn't exist (may be null if particles were disabled)
       if (!this.chunkManager.debugGrid) {
         this.chunkManager.debugGrid = new BinaryGrid();
       }
       const gridData = result.grids.grid;
       if (gridData.sections) {
+        // Fast path: just set sections, skip bounds checks
         for (const { key, data } of gridData.sections) {
-          // Merge section into debugGrid
           this.chunkManager.debugGrid.sections.set(key, data);
         }
-        // Update bounds
-        if (gridData.minChunkX < this.chunkManager.debugGrid.minChunkX) {
-          this.chunkManager.debugGrid.minChunkX = gridData.minChunkX;
-        }
-        if (gridData.maxChunkX > this.chunkManager.debugGrid.maxChunkX) {
-          this.chunkManager.debugGrid.maxChunkX = gridData.maxChunkX;
-        }
-        if (gridData.minChunkZ < this.chunkManager.debugGrid.minChunkZ) {
-          this.chunkManager.debugGrid.minChunkZ = gridData.minChunkZ;
-        }
-        if (gridData.maxChunkZ > this.chunkManager.debugGrid.maxChunkZ) {
-          this.chunkManager.debugGrid.maxChunkZ = gridData.maxChunkZ;
-        }
-        if (gridData.minSectionY < this.chunkManager.debugGrid.minSectionY) {
-          this.chunkManager.debugGrid.minSectionY = gridData.minSectionY;
-        }
-        if (gridData.maxSectionY > this.chunkManager.debugGrid.maxSectionY) {
-          this.chunkManager.debugGrid.maxSectionY = gridData.maxSectionY;
-        }
-        this.chunkManager.debugGrid.totalBlocks += gridData.totalBlocks || 0;
+        // Mark bounds as dirty - will be recomputed on first access if needed
+        this.chunkManager.debugGrid._boundsDirty = true;
       }
     }
     
-    // Store stateGrid and stateRegistry for block state lookups (needed for block inspector)
+    // DEFERRED: Store raw state grid data for lazy remapping
+    // State remapping is expensive (~1-3ms for detailed worlds) and only needed for block inspector
+    // Store raw data and remap on-demand when getBlockDetails() is called
     if (result.grids && result.grids.stateGrid && this.chunkManager) {
-      // Create or update debugStateGrid
-      if (!this.chunkManager.debugStateGrid) {
-        this.chunkManager.debugStateGrid = new BlockStateGrid();
+      if (!this.chunkManager._pendingStateGrids) {
+        this.chunkManager._pendingStateGrids = [];
       }
-      
-      // Build worker-to-main state ID mapping
-      const workerToMainStateId = new Map();
-      if (result.grids.states) {
-        for (const { workerStateId, blockName, properties } of result.grids.states) {
-          const mainStateId = this.stateRegistry.register(blockName, properties);
-          workerToMainStateId.set(workerStateId, mainStateId);
-        }
-      }
-      
-      // Merge state grid sections with remapped IDs
-      for (const { key, data } of result.grids.stateGrid) {
-        const remappedData = new Uint16Array(data.length);
-        for (let i = 0; i < data.length; i++) {
-          const workerStateId = data[i];
-          if (workerStateId !== 0) {
-            remappedData[i] = workerToMainStateId.get(workerStateId) || 0;
-          }
-        }
-        this.chunkManager.debugStateGrid.sections.set(key, remappedData);
-      }
-      
+      // Store raw grid data with state mappings for later remapping
+      this.chunkManager._pendingStateGrids.push({
+        stateGrid: result.grids.stateGrid,
+        states: result.grids.states,
+      });
       this.chunkManager.debugStateRegistry = this.stateRegistry;
     }
     

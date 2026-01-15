@@ -435,6 +435,11 @@ export class ChunkManager {
     const isWaterlogged = !isFluid && blockData.level === 8;
     
     // Look up block state properties from stateGrid/stateRegistry
+    // LAZY REMAPPING: Process pending state grids on first access
+    if (this._pendingStateGrids && this._pendingStateGrids.length > 0) {
+      this._flushPendingStateGrids();
+    }
+    
     let blockStateProperties = null;
     if (this.debugStateGrid && this.debugStateRegistry) {
       const stateInfo = this._getBlockState(worldX, worldY, worldZ);
@@ -537,6 +542,47 @@ export class ChunkManager {
       blockName: state.blockName,
       properties: state.properties || {},
     };
+  }
+  
+  /**
+   * Flush pending state grids - perform lazy remapping
+   * This is called on first getBlockDetails() access to avoid blocking chunk loading
+   * @private
+   */
+  _flushPendingStateGrids() {
+    if (!this._pendingStateGrids || this._pendingStateGrids.length === 0) return;
+    
+    // Create debugStateGrid if needed
+    if (!this.debugStateGrid) {
+      this.debugStateGrid = new BlockStateGrid();
+    }
+    
+    // Process all pending grids
+    for (const pending of this._pendingStateGrids) {
+      // Build worker-to-main state ID mapping
+      const workerToMainStateId = new Map();
+      if (pending.states) {
+        for (const { workerStateId, blockName, properties } of pending.states) {
+          const mainStateId = this.debugStateRegistry.register(blockName, properties);
+          workerToMainStateId.set(workerStateId, mainStateId);
+        }
+      }
+      
+      // Merge state grid sections with remapped IDs
+      for (const { key, data } of pending.stateGrid) {
+        const remappedData = new Uint16Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+          const workerStateId = data[i];
+          if (workerStateId !== 0) {
+            remappedData[i] = workerToMainStateId.get(workerStateId) || 0;
+          }
+        }
+        this.debugStateGrid.sections.set(key, remappedData);
+      }
+    }
+    
+    // Clear pending queue
+    this._pendingStateGrids = [];
   }
   
   /**
