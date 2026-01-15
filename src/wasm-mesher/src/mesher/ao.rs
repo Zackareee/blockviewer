@@ -9,7 +9,8 @@ use crate::lookup::Lookups;
 use crate::types::Face;
 
 /// AO brightness levels (0=darkest, 3=brightest)
-pub const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
+/// These match Minecraft's actual AO values
+pub const AO_BRIGHTNESS: [f32; 4] = [0.2, 0.6, 0.8, 1.0];
 
 /// Vertex AO values for a face (4 corners)
 #[derive(Debug, Clone, Copy, Default)]

@@ -106,7 +106,8 @@ export class ModelStateLookup {
   
   /**
    * Check if a block is a model block (has pre-baked geometry)
-   * Returns true if the block has variants in the manifest.
+   * Returns true if the block has variants in the manifest AND is not a multipart block.
+   * Multipart blocks are handled by the JS MultipartMesher instead.
    * @param {string} blockName - Block name (without minecraft:)
    * @returns {boolean} True if this is a model block with geometry
    */
@@ -115,9 +116,47 @@ export class ModelStateLookup {
     if (!this.blockNameToIndex.has(normalized)) {
       return false;
     }
+    
+    // Check if this is a multipart block by metadata flag
+    const metadata = this.blockMetadata.get(normalized);
+    if (metadata && metadata.isMultipart) {
+      return false;
+    }
+    
+    // Also check multipart patterns - these blocks are handled by JS MultipartMesher
+    // even if they don't have multipart blockstate format
+    if (this._isMultipartByPattern(normalized)) {
+      return false;
+    }
+    
     // Only return true if the block has variants (geometry)
     const variants = this.blockVariants.get(normalized);
     return variants && variants.size > 0;
+  }
+  
+  /**
+   * Check if a block is handled by multipart mesher based on name patterns
+   * @private
+   */
+  _isMultipartByPattern(blockName) {
+    // Patterns that indicate multipart meshing (must match ModelMesher.js MULTIPART_PATTERNS)
+    const patterns = [
+      '_fence', '_wall', '_pane', 'iron_bars', 'copper_bars',
+      'redstone_wire', 'tripwire',
+      'chorus_plant', 'vine', 'glow_lichen',
+      'fire', 'soul_fire',
+      'mushroom_block',
+      'shelf',
+      'brewing_stand',
+    ];
+    
+    // Exact matches
+    const exactMatches = new Set(['bamboo', 'chorus_plant']);
+    if (exactMatches.has(blockName)) {
+      return true;
+    }
+    
+    return patterns.some(pattern => blockName.includes(pattern));
   }
   
   /**

@@ -292,7 +292,8 @@ fn transform_direction(dir: FaceDirection, y_rotation: u8, axis: u8, is_flipped:
         after_axis
     };
     
-    // Finally apply Y-axis rotation (CCW to match rotate_vertex)
+    // Finally apply Y-axis rotation (CW to match apply_rotation_to_point)
+    // CW looking from above: North → East → South → West → North
     if y_rotation == 0 {
         return after_flip;
     }
@@ -300,33 +301,33 @@ fn transform_direction(dir: FaceDirection, y_rotation: u8, axis: u8, is_flipped:
     match after_flip {
         North => {
             match y_rotation {
-                1 => West,  // CCW: North -> West
-                2 => South,
-                3 => East,  // CCW: North -> East
+                1 => East,  // 90° CW: North -> East
+                2 => South, // 180°
+                3 => West,  // 270° CW: North -> West
                 _ => North,
             }
         }
         East => {
             match y_rotation {
-                1 => North, // CCW: East -> North
-                2 => West,
-                3 => South, // CCW: East -> South
+                1 => South, // 90° CW: East -> South
+                2 => West,  // 180°
+                3 => North, // 270° CW: East -> North
                 _ => East,
             }
         }
         South => {
             match y_rotation {
-                1 => East,  // CCW: South -> East
-                2 => North,
-                3 => West,  // CCW: South -> West
+                1 => West,  // 90° CW: South -> West
+                2 => North, // 180°
+                3 => East,  // 270° CW: South -> East
                 _ => South,
             }
         }
         West => {
             match y_rotation {
-                1 => South, // CCW: West -> South
-                2 => East,
-                3 => North, // CCW: West -> North
+                1 => North, // 90° CW: West -> North
+                2 => East,  // 180°
+                3 => South, // 270° CW: West -> South
                 _ => West,
             }
         }
@@ -533,7 +534,8 @@ fn vertex_ao_value(side1: bool, side2: bool, corner: bool) -> u8 {
 
 /// AO brightness levels for model blocks
 /// Matching the greedy mesher's AO values from ao.rs for consistency
-const AO_BRIGHTNESS: [f32; 4] = [0.5, 0.7, 0.85, 1.0];
+/// These match Minecraft's actual AO values
+const AO_BRIGHTNESS: [f32; 4] = [0.2, 0.6, 0.8, 1.0];
 
 /// Calculate per-vertex lighting for a model face with smooth interpolation
 /// 
@@ -557,8 +559,13 @@ fn calculate_face_ao_v3(
     axis: u8,
     is_flipped: bool,
 ) -> [VertexLight; 4] {
-    // Get the transformed normal direction for determining sample plane
-    let face_dir = transform_direction(face.direction, y_rotation, axis, is_flipped);
+    // Transform the face normal by rotation and compute direction from it
+    // This is more reliable than transforming the direction enum
+    let (rot_nx, rot_ny, rot_nz) = apply_rotation_to_normal(
+        face.normal[0], face.normal[1], face.normal[2],
+        y_rotation, axis, is_flipped
+    );
+    let face_dir = direction_from_normal(rot_nx, rot_ny, rot_nz);
     
     let mut result = [VertexLight { sky: 15, block: 0, ao: 1.0 }; 4];
     
@@ -590,6 +597,47 @@ fn calculate_face_ao_v3(
     }
     
     result
+}
+
+/// Apply rotation to a normal vector (doesn't need centering like points)
+fn apply_rotation_to_normal(nx: f32, ny: f32, nz: f32, y_rotation: u8, axis: u8, is_flipped: bool) -> (f32, f32, f32) {
+    // Apply Y rotation first
+    let (rx, rz) = match y_rotation {
+        0 => (nx, nz),
+        1 => (-nz, nx),  // 90° CW
+        2 => (-nx, -nz), // 180°
+        3 => (nz, -nx),  // 270° CW
+        _ => (nx, nz),
+    };
+    
+    // Apply axis rotation and flip
+    let (fx, fy, fz) = match (axis, is_flipped) {
+        (0, false) => (rx, ny, rz),      // No axis rotation
+        (0, true) => (rx, -ny, rz),      // Y-flip only
+        (1, false) => (ny, -rx, rz),     // X-axis rotation
+        (1, true) => (-ny, -rx, rz),     // X-axis with flip
+        (2, false) => (rx, -rz, ny),     // Z-axis rotation
+        (2, true) => (rx, rz, ny),       // Z-axis with flip
+        _ => (rx, ny, rz),
+    };
+    
+    (fx, fy, fz)
+}
+
+/// Determine face direction from a normal vector
+fn direction_from_normal(nx: f32, ny: f32, nz: f32) -> FaceDirection {
+    // Find dominant axis
+    let abs_x = nx.abs();
+    let abs_y = ny.abs();
+    let abs_z = nz.abs();
+    
+    if abs_y >= abs_x && abs_y >= abs_z {
+        if ny > 0.0 { FaceDirection::Up } else { FaceDirection::Down }
+    } else if abs_x >= abs_z {
+        if nx > 0.0 { FaceDirection::East } else { FaceDirection::West }
+    } else {
+        if nz > 0.0 { FaceDirection::South } else { FaceDirection::North }
+    }
 }
 
 /// Sample smooth light for a model block vertex
@@ -695,6 +743,9 @@ fn sample_smooth_light_for_vertex(
 /// 
 /// Based on the face direction and vertex position within the block (0-1 range),
 /// determine which 3 neighbors affect this vertex and calculate AO.
+/// 
+/// For partial blocks (slabs, path blocks), we check neighbors at the same block level
+/// so that adjacent full cubes that extend above the partial block cause proper occlusion.
 fn calculate_vertex_ao_direct(
     grid: &BinaryGrid,
     lookups: &Lookups,
@@ -705,59 +756,89 @@ fn calculate_vertex_ao_direct(
     face_dir: FaceDirection,
 ) -> u8 {
     // Determine which corner of the block this vertex is at
-    // Vertices at 0-side go to the negative neighbor, vertices at 1-side go to positive
-    let is_east = vx > 0.5;   // +X side
-    let is_up = vy > 0.5;     // +Y side  
-    let is_south = vz > 0.5;  // +Z side
+    // Use >= 0.5 threshold so vertices at exactly 0.5 (like slab edges) are treated correctly
+    let is_east = vx >= 0.5;   // +X side
+    let is_up = vy >= 0.5;     // +Y side  
+    let is_south = vz >= 0.5;  // +Z side
     
-    // Get the position in the air space where we sample AO
-    // This is one block out from the face in the face normal direction
-    let (sample_x, sample_y, sample_z) = match face_dir {
-        FaceDirection::Up => (block_x, block_y + 1, block_z),
-        FaceDirection::Down => (block_x, block_y - 1, block_z),
-        FaceDirection::North => (block_x, block_y, block_z - 1),
-        FaceDirection::South => (block_x, block_y, block_z + 1),
-        FaceDirection::East => (block_x + 1, block_y, block_z),
-        FaceDirection::West => (block_x - 1, block_y, block_z),
-        FaceDirection::None => return 3, // No AO for directionless faces
-    };
+    let x_offset = if is_east { 1 } else { -1 };
+    let y_offset = if is_up { 1 } else { -1 };
+    let z_offset = if is_south { 1 } else { -1 };
     
-    // Based on face direction and vertex position, check the appropriate neighbors
-    let (side1, side2, corner) = match face_dir {
-        FaceDirection::Up | FaceDirection::Down => {
-            // Horizontal face - check X and Z neighbors
-            let x_offset = if is_east { 1 } else { -1 };
-            let z_offset = if is_south { 1 } else { -1 };
+    match face_dir {
+        FaceDirection::Up => {
+            // For upward-facing surfaces, we need to consider the vertex's actual height:
+            // - If the face is AT the block boundary (vy >= 0.95), use standard algorithm
+            // - If the face is BELOW the block boundary (vy < 0.95), check same level
+            //   but with softer AO (only consider direct neighbors, not corners)
             
-            let s1 = is_solid_for_ao(grid, lookups, sample_x + x_offset, sample_y, sample_z);
-            let s2 = is_solid_for_ao(grid, lookups, sample_x, sample_y, sample_z + z_offset);
-            let c = is_solid_for_ao(grid, lookups, sample_x + x_offset, sample_y, sample_z + z_offset);
-            (s1, s2, c)
-        }
-        FaceDirection::North | FaceDirection::South => {
-            // Z-facing face - check X and Y neighbors
-            let x_offset = if is_east { 1 } else { -1 };
-            let y_offset = if is_up { 1 } else { -1 };
+            let face_at_boundary = vy >= 0.95;
             
-            let s1 = is_solid_for_ao(grid, lookups, sample_x + x_offset, sample_y, sample_z);
-            let s2 = is_solid_for_ao(grid, lookups, sample_x, sample_y + y_offset, sample_z);
-            let c = is_solid_for_ao(grid, lookups, sample_x + x_offset, sample_y + y_offset, sample_z);
-            (s1, s2, c)
+            if face_at_boundary {
+                // Standard algorithm: check at level above
+                let sy = block_y + 1;
+                let s1 = is_solid_for_ao(grid, lookups, block_x + x_offset, sy, block_z);
+                let s2 = is_solid_for_ao(grid, lookups, block_x, sy, block_z + z_offset);
+                let c = is_solid_for_ao(grid, lookups, block_x + x_offset, sy, block_z + z_offset);
+                vertex_ao_value(s1, s2, c)
+            } else {
+                // Partial block: softer AO - only check direct side neighbors
+                // Skip corner check to avoid overly dark corners
+                let s1 = is_solid_for_ao(grid, lookups, block_x + x_offset, block_y, block_z);
+                let s2 = is_solid_for_ao(grid, lookups, block_x, block_y, block_z + z_offset);
+                // Softer: only count sides, ignore corner for partial blocks
+                // This gives max AO level of 1 (from two sides) instead of 0 (from two sides + corner)
+                if s1 && s2 {
+                    1 // Both sides solid, but no corner penalty
+                } else if s1 || s2 {
+                    2 // One side solid
+                } else {
+                    3 // No occlusion
+                }
+            }
         }
-        FaceDirection::East | FaceDirection::West => {
-            // X-facing face - check Y and Z neighbors
-            let y_offset = if is_up { 1 } else { -1 };
-            let z_offset = if is_south { 1 } else { -1 };
-            
-            let s1 = is_solid_for_ao(grid, lookups, sample_x, sample_y + y_offset, sample_z);
-            let s2 = is_solid_for_ao(grid, lookups, sample_x, sample_y, sample_z + z_offset);
-            let c = is_solid_for_ao(grid, lookups, sample_x, sample_y + y_offset, sample_z + z_offset);
-            (s1, s2, c)
+        FaceDirection::Down => {
+            // For downward-facing surfaces, sample at level below
+            let sy = block_y - 1;
+            let s1 = is_solid_for_ao(grid, lookups, block_x + x_offset, sy, block_z);
+            let s2 = is_solid_for_ao(grid, lookups, block_x, sy, block_z + z_offset);
+            let c = is_solid_for_ao(grid, lookups, block_x + x_offset, sy, block_z + z_offset);
+            vertex_ao_value(s1, s2, c)
         }
-        FaceDirection::None => return 3,
-    };
-    
-    vertex_ao_value(side1, side2, corner)
+        FaceDirection::North => {
+            // North face (-Z): sample in XY plane at z-1
+            let sz = block_z - 1;
+            let s1 = is_solid_for_ao(grid, lookups, block_x + x_offset, block_y, sz);
+            let s2 = is_solid_for_ao(grid, lookups, block_x, block_y + y_offset, sz);
+            let c = is_solid_for_ao(grid, lookups, block_x + x_offset, block_y + y_offset, sz);
+            vertex_ao_value(s1, s2, c)
+        }
+        FaceDirection::South => {
+            // South face (+Z): sample in XY plane at z+1
+            let sz = block_z + 1;
+            let s1 = is_solid_for_ao(grid, lookups, block_x + x_offset, block_y, sz);
+            let s2 = is_solid_for_ao(grid, lookups, block_x, block_y + y_offset, sz);
+            let c = is_solid_for_ao(grid, lookups, block_x + x_offset, block_y + y_offset, sz);
+            vertex_ao_value(s1, s2, c)
+        }
+        FaceDirection::East => {
+            // East face (+X): sample in YZ plane at x+1
+            let sx = block_x + 1;
+            let s1 = is_solid_for_ao(grid, lookups, sx, block_y + y_offset, block_z);
+            let s2 = is_solid_for_ao(grid, lookups, sx, block_y, block_z + z_offset);
+            let c = is_solid_for_ao(grid, lookups, sx, block_y + y_offset, block_z + z_offset);
+            vertex_ao_value(s1, s2, c)
+        }
+        FaceDirection::West => {
+            // West face (-X): sample in YZ plane at x-1
+            let sx = block_x - 1;
+            let s1 = is_solid_for_ao(grid, lookups, sx, block_y + y_offset, block_z);
+            let s2 = is_solid_for_ao(grid, lookups, sx, block_y, block_z + z_offset);
+            let c = is_solid_for_ao(grid, lookups, sx, block_y + y_offset, block_z + z_offset);
+            vertex_ao_value(s1, s2, c)
+        }
+        FaceDirection::None => 3, // Fully lit for directionless faces
+    }
 }
 /// Sample smooth light at a vertex position using bilinear interpolation
 /// in the plane perpendicular to the face normal.
@@ -1124,10 +1205,19 @@ mod tests {
     fn test_transform_direction() {
         use FaceDirection::*;
         
-        // North + 90° rotation = East
-        assert_eq!(transform_direction(North, 1, false), East);
+        // North + 90° CW rotation = East
+        assert_eq!(transform_direction(North, 1, 0, false), East);
         
         // Up + flip = Down
-        assert_eq!(transform_direction(Up, 0, true), Down);
+        assert_eq!(transform_direction(Up, 0, 0, true), Down);
+        
+        // East + 90° CW = South
+        assert_eq!(transform_direction(East, 1, 0, false), South);
+        
+        // South + 90° CW = West
+        assert_eq!(transform_direction(South, 1, 0, false), West);
+        
+        // West + 90° CW = North
+        assert_eq!(transform_direction(West, 1, 0, false), North);
     }
 }

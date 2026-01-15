@@ -11,6 +11,7 @@ import { isRotatableBlock, getBlockSideOverlay } from '../assets/BlockTextureReg
 import { buildFaceTintTypeLookup, TINT_TYPE } from '../data/biomeTinting.js';
 import { getRandomRotationRegistry } from '../assets/RandomRotationRegistry.js';
 import { buildFluidMeshes } from './FluidMesher.js';
+import { AO_BRIGHTNESS, calculateCornerAO, shouldFlipQuadTriangulation } from './AmbientOcclusion.js';
 
 const S = 16;
 const S2 = 256;
@@ -231,7 +232,7 @@ function sampleVertexLight(lightGrid, x, y, z, aoLevel, blockGrid, isOpaque, isA
   // AO 1 = 2 neighbors blocked = 70%
   // AO 2 = 1 neighbor blocked = 85%
   // AO 3 = fully exposed = 100%
-  const aoBrightness = [0.5, 0.7, 0.85, 1.0];
+  const aoBrightness = [0.2, 0.6, 0.8, 1.0];
   const ao = aoBrightness[aoLevel];
   
   return {
@@ -304,7 +305,7 @@ function sampleSmoothLight(lightGrid, x, y, z, nx, ny, nz, blockGrid, isOpaque, 
   // Convert 4-block count to AO level (0-3)
   // 0 solid → AO 3, 1 solid → AO 2, 2 solid → AO 1, 3-4 solid → AO 0
   const aoLevel = Math.max(0, 3 - solidCount);
-  const aoBrightness = [0.5, 0.7, 0.85, 1.0];
+  const aoBrightness = [0.2, 0.6, 0.8, 1.0];
   const ao = aoBrightness[aoLevel];
   
   let avgSky, avgBlock;
@@ -379,6 +380,286 @@ function getTopFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTranspare
   const ao3 = computeAO(-1, 0, 0, -1);
   
   return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Get AO for all 4 vertices of a BOTTOM face (-Y normal)
+ * 
+ * Face vertices (looking up from -Y):
+ *     V0(x,y,z) ---------- V1(x+1,y,z)
+ *          |                    |
+ *          |      FACE          |
+ *          |                    |
+ *     V3(x,y,z+1) -------- V2(x+1,y,z+1)
+ * 
+ * Sample Y = blockY - 1 (one block below the solid block)
+ */
+function getBottomFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
+  const y = blockY - 1; // Sample in air space below block
+  
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  const n = isSolidForAO(blockX, y, blockZ - 1);
+  const s = isSolidForAO(blockX, y, blockZ + 1);
+  const e = isSolidForAO(blockX + 1, y, blockZ);
+  const w = isSolidForAO(blockX - 1, y, blockZ);
+  const ne = isSolidForAO(blockX + 1, y, blockZ - 1);
+  const nw = isSolidForAO(blockX - 1, y, blockZ - 1);
+  const se = isSolidForAO(blockX + 1, y, blockZ + 1);
+  const sw = isSolidForAO(blockX - 1, y, blockZ + 1);
+  
+  // V0: corner at (-X, -Z) - check West and North
+  const ao0 = calculateCornerAO(w, n, nw);
+  // V1: corner at (+X, -Z) - check East and North
+  const ao1 = calculateCornerAO(e, n, ne);
+  // V2: corner at (+X, +Z) - check East and South
+  const ao2 = calculateCornerAO(e, s, se);
+  // V3: corner at (-X, +Z) - check West and South
+  const ao3 = calculateCornerAO(w, s, sw);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Get AO for all 4 vertices of a NORTH face (-Z normal)
+ * 
+ * Face vertices (looking from -Z toward +Z):
+ *     V0(x+w,y,z) ------- V1(x,y,z)
+ *          |                    |
+ *          |      FACE          |
+ *          |                    |
+ *     V3(x+w,y+h,z) ----- V2(x,y+h,z)
+ * 
+ * Sample Z = blockZ - 1 (one block in front of face)
+ */
+function getNorthFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
+  const z = blockZ - 1; // Sample in air space in front of face
+  
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  const u = isSolidForAO(blockX, blockY + 1, z);
+  const d = isSolidForAO(blockX, blockY - 1, z);
+  const e = isSolidForAO(blockX + 1, blockY, z);
+  const w = isSolidForAO(blockX - 1, blockY, z);
+  const ue = isSolidForAO(blockX + 1, blockY + 1, z);
+  const uw = isSolidForAO(blockX - 1, blockY + 1, z);
+  const de = isSolidForAO(blockX + 1, blockY - 1, z);
+  const dw = isSolidForAO(blockX - 1, blockY - 1, z);
+  
+  // North face vertex order in FastMesher: V0(x+w, y, z), V1(x, y, z), V2(x, y+h, z), V3(x+w, y+h, z)
+  // V0: corner at (+X, -Y) - check East and Down
+  const ao0 = calculateCornerAO(e, d, de);
+  // V1: corner at (-X, -Y) - check West and Down
+  const ao1 = calculateCornerAO(w, d, dw);
+  // V2: corner at (-X, +Y) - check West and Up
+  const ao2 = calculateCornerAO(w, u, uw);
+  // V3: corner at (+X, +Y) - check East and Up
+  const ao3 = calculateCornerAO(e, u, ue);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Get AO for all 4 vertices of a SOUTH face (+Z normal)
+ * 
+ * Face vertices: V0(x, y, z+1), V1(x+w, y, z+1), V2(x+w, y+h, z+1), V3(x, y+h, z+1)
+ * Sample Z = blockZ + 1 (one block behind face)
+ */
+function getSouthFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
+  const z = blockZ + 1; // Sample in air space behind face
+  
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  const u = isSolidForAO(blockX, blockY + 1, z);
+  const d = isSolidForAO(blockX, blockY - 1, z);
+  const e = isSolidForAO(blockX + 1, blockY, z);
+  const w = isSolidForAO(blockX - 1, blockY, z);
+  const ue = isSolidForAO(blockX + 1, blockY + 1, z);
+  const uw = isSolidForAO(blockX - 1, blockY + 1, z);
+  const de = isSolidForAO(blockX + 1, blockY - 1, z);
+  const dw = isSolidForAO(blockX - 1, blockY - 1, z);
+  
+  // South face vertex order: V0(x, y, z+1), V1(x+w, y, z+1), V2(x+w, y+h, z+1), V3(x, y+h, z+1)
+  // V0: corner at (-X, -Y) - check West and Down
+  const ao0 = calculateCornerAO(w, d, dw);
+  // V1: corner at (+X, -Y) - check East and Down
+  const ao1 = calculateCornerAO(e, d, de);
+  // V2: corner at (+X, +Y) - check East and Up
+  const ao2 = calculateCornerAO(e, u, ue);
+  // V3: corner at (-X, +Y) - check West and Up
+  const ao3 = calculateCornerAO(w, u, uw);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Get AO for all 4 vertices of an EAST face (+X normal)
+ * 
+ * Face vertices: V0(x+1, y, z), V1(x+1, y+h, z), V2(x+1, y+h, z+w), V3(x+1, y, z+w)
+ * Sample X = blockX + 1 (one block to the right of face)
+ */
+function getEastFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
+  const x = blockX + 1; // Sample in air space to the right of face
+  
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  const u = isSolidForAO(x, blockY + 1, blockZ);
+  const d = isSolidForAO(x, blockY - 1, blockZ);
+  const n = isSolidForAO(x, blockY, blockZ - 1);
+  const s = isSolidForAO(x, blockY, blockZ + 1);
+  const un = isSolidForAO(x, blockY + 1, blockZ - 1);
+  const us = isSolidForAO(x, blockY + 1, blockZ + 1);
+  const dn = isSolidForAO(x, blockY - 1, blockZ - 1);
+  const ds = isSolidForAO(x, blockY - 1, blockZ + 1);
+  
+  // East face vertex order: V0(x+1, y, z), V1(x+1, y+h, z), V2(x+1, y+h, z+w), V3(x+1, y, z+w)
+  // V0: corner at (-Z, -Y) - check North and Down
+  const ao0 = calculateCornerAO(n, d, dn);
+  // V1: corner at (-Z, +Y) - check North and Up
+  const ao1 = calculateCornerAO(n, u, un);
+  // V2: corner at (+Z, +Y) - check South and Up
+  const ao2 = calculateCornerAO(s, u, us);
+  // V3: corner at (+Z, -Y) - check South and Down
+  const ao3 = calculateCornerAO(s, d, ds);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Get AO for all 4 vertices of a WEST face (-X normal)
+ * 
+ * Face vertices: V0(x, y, z+w), V1(x, y+h, z+w), V2(x, y+h, z), V3(x, y, z)
+ * Sample X = blockX - 1 (one block to the left of face)
+ */
+function getWestFaceAO(blockX, blockY, blockZ, blockGrid, isOpaque, isAOTransparent) {
+  const x = blockX - 1; // Sample in air space to the left of face
+  
+  const isSolidForAO = (bx, by, bz) => {
+    const blockId = blockGrid.getBlockId(bx, by, bz);
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  const u = isSolidForAO(x, blockY + 1, blockZ);
+  const d = isSolidForAO(x, blockY - 1, blockZ);
+  const n = isSolidForAO(x, blockY, blockZ - 1);
+  const s = isSolidForAO(x, blockY, blockZ + 1);
+  const un = isSolidForAO(x, blockY + 1, blockZ - 1);
+  const us = isSolidForAO(x, blockY + 1, blockZ + 1);
+  const dn = isSolidForAO(x, blockY - 1, blockZ - 1);
+  const ds = isSolidForAO(x, blockY - 1, blockZ + 1);
+  
+  // West face vertex order: V0(x, y, z+w), V1(x, y+h, z+w), V2(x, y+h, z), V3(x, y, z)
+  // V0: corner at (+Z, -Y) - check South and Down
+  const ao0 = calculateCornerAO(s, d, ds);
+  // V1: corner at (+Z, +Y) - check South and Up
+  const ao1 = calculateCornerAO(s, u, us);
+  // V2: corner at (-Z, +Y) - check North and Up
+  const ao2 = calculateCornerAO(n, u, un);
+  // V3: corner at (-Z, -Y) - check North and Down
+  const ao3 = calculateCornerAO(n, d, dn);
+  
+  return [ao0, ao1, ao2, ao3];
+}
+
+/**
+ * Sample vertex light with proper 3-neighbor AO applied
+ * This replaces the legacy sampleSmoothLight for all faces
+ */
+function sampleVertexLightWithAO(lightGrid, x, y, z, aoLevel, blockGrid, isOpaque, isAOTransparent, plane) {
+  const isSolidForAO = (blockId) => {
+    if (blockId === 0) return false;
+    if (isAOTransparent && isAOTransparent[blockId]) return false;
+    return isOpaque[blockId] === 1;
+  };
+  
+  // Sample light from 4 blocks touching this vertex corner
+  // Average light from non-solid blocks only
+  let totalSky = 0;
+  let totalBlock = 0;
+  let count = 0;
+  
+  if (plane === 'xz') {
+    // Top/Bottom face - sample in XZ plane
+    for (let dx = -1; dx <= 0; dx++) {
+      for (let dz = -1; dz <= 0; dz++) {
+        const blockId = blockGrid.getBlockId(x + dx, y, z + dz);
+        if (!isSolidForAO(blockId)) {
+          const light = lightGrid.getLight(x + dx, y, z + dz);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          count++;
+        }
+      }
+    }
+  } else if (plane === 'yz') {
+    // East/West face - sample in YZ plane
+    for (let dy = -1; dy <= 0; dy++) {
+      for (let dz = -1; dz <= 0; dz++) {
+        const blockId = blockGrid.getBlockId(x, y + dy, z + dz);
+        if (!isSolidForAO(blockId)) {
+          const light = lightGrid.getLight(x, y + dy, z + dz);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          count++;
+        }
+      }
+    }
+  } else {
+    // North/South face - sample in XY plane
+    for (let dx = -1; dx <= 0; dx++) {
+      for (let dy = -1; dy <= 0; dy++) {
+        const blockId = blockGrid.getBlockId(x + dx, y + dy, z);
+        if (!isSolidForAO(blockId)) {
+          const light = lightGrid.getLight(x + dx, y + dy, z);
+          totalSky += light.skyLight;
+          totalBlock += light.blockLight;
+          count++;
+        }
+      }
+    }
+  }
+  
+  // Get average light, or fallback to direct sample
+  let avgSky, avgBlock;
+  if (count > 0) {
+    avgSky = totalSky / count;
+    avgBlock = totalBlock / count;
+  } else {
+    // All sampled positions are solid - vertex is in a corner
+    const light = lightGrid.getLight(x, y, z);
+    avgSky = light.skyLight;
+    avgBlock = light.blockLight;
+  }
+  
+  // Apply AO brightness multiplier
+  const ao = AO_BRIGHTNESS[aoLevel];
+  
+  return {
+    skyLight: avgSky * ao,
+    blockLight: avgBlock * ao,
+  };
 }
 
 /**
@@ -897,7 +1178,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             // This properly averages block light from neighboring blocks, avoiding
             // discontinuities near light sources like torches.
             // AO brightness multipliers
-            const aoBrightness = [0.5, 0.7, 0.85, 1.0];
+            const aoBrightness = [0.2, 0.6, 0.8, 1.0];
             
             // Sample light at each vertex corner position
             // Vertex positions: V0(x, y, z+h), V1(x+w, y, z+h), V2(x+w, y, z), V3(x, y, z)
@@ -922,8 +1203,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
           
           sVC += 4;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          // Apply quad triangulation flip based on AO
+          if (shouldFlipQuadTriangulation(startAO)) {
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 3; sIdx[sIC++] = sv;
+          } else {
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          }
         }
       }
     }
@@ -954,6 +1241,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
       
       if (!hasFaces) continue;
       
+      // Greedy merge with strict AO and light matching (same as TOP face)
       visited.fill(0);
       const blockY = baseY + ly; // Block Y position for BOTTOM face
       
@@ -966,12 +1254,22 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           const worldX = baseX + ii;
           const worldZ = baseZ + jj;
           
+          // Get AO signature of starting block's 4 corners
+          const startAO = getBottomFaceAO(worldX, blockY, worldZ, grid, isOpaque, isAOTransparent);
+          
           // Get light of starting block for merge checking
           const startLight = lightGrid ? getFaceLightForMerge(lightGrid, worldX, blockY, worldZ, 'bottom') : { skyLight: 15, blockLight: 0 };
           
+          // Helper to check if block can merge (same AO signature)
+          const canMergeAO = (bx, bz) => {
+            const checkAO = getBottomFaceAO(bx, blockY, bz, grid, isOpaque, isAOTransparent);
+            return checkAO[0] === startAO[0] && checkAO[1] === startAO[1] && 
+                   checkAO[2] === startAO[2] && checkAO[3] === startAO[3];
+          };
+          
           let w = 1;
           while (ii + w < S && !visited[mi + w] && mask[mi + w] === bid) {
-            // Check block light - don't merge blocks with different lighting
+            if (!canMergeAO(worldX + w, worldZ)) break;
             if (lightGrid) {
               const checkLight = getFaceLightForMerge(lightGrid, worldX + w, blockY, worldZ, 'bottom');
               if (!canMergeBlockLight(startLight, checkLight, 0)) break;
@@ -984,7 +1282,7 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
             for (let k = 0; k < w; k++) {
               const ci = (jj + h) * S + ii + k;
               if (visited[ci] || mask[ci] !== bid) break outer;
-              // Check block light
+              if (!canMergeAO(worldX + k, worldZ + h)) break outer;
               if (lightGrid) {
                 const checkLight = getFaceLightForMerge(lightGrid, worldX + k, blockY, worldZ + h, 'bottom');
                 if (!canMergeBlockLight(startLight, checkLight, 0)) break outer;
@@ -1029,16 +1327,16 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_DOWN];
           
-          // Per-vertex smooth lighting for BOTTOM face (-Y)
+          // Per-vertex lighting with Minecraft-style AO (same as TOP face)
           // Vertex positions: V0(x, y, z), V1(x+w, y, z), V2(x+w, y, z+h), V3(x, y, z+h)
           let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, -1, 0, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, -1, 0, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, 0, -1, 0, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, 0, -1, 0, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY, faceWorldZ, startAO[0], grid, isOpaque, isAOTransparent, 'xz');
+            const l1 = sampleVertexLightWithAO(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, startAO[1], grid, isOpaque, isAOTransparent, 'xz');
+            const l2 = sampleVertexLightWithAO(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ + h, startAO[2], grid, isOpaque, isAOTransparent, 'xz');
+            const l3 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY, faceWorldZ + h, startAO[3], grid, isOpaque, isAOTransparent, 'xz');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -1056,8 +1354,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
           
           sVC += 4;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          // Apply quad triangulation flip based on AO
+          if (shouldFlipQuadTriangulation(startAO)) {
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 3; sIdx[sIC++] = sv;
+          } else {
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          }
         }
       }
     }
@@ -1131,16 +1435,22 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_EAST];
           
-          // Per-vertex smooth lighting for EAST face (+X)
+          // Calculate proper 3-neighbor AO for EAST face
+          const blockWorldX = baseX + lx;
+          const blockWorldY = baseY + jj;
+          const blockWorldZ = baseZ + ii;
+          const faceAO = getEastFaceAO(blockWorldX, blockWorldY, blockWorldZ, grid, isOpaque, isAOTransparent);
+          
+          // Per-vertex lighting with Minecraft-style AO
           // Vertex positions: V0(x, y, z), V1(x, y+h, z), V2(x, y+h, z+w), V3(x, y, z+w)
           let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, 1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, 1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY, faceWorldZ, faceAO[0], grid, isOpaque, isAOTransparent, 'yz');
+            const l1 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, faceAO[1], grid, isOpaque, isAOTransparent, 'yz');
+            const l2 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, faceAO[2], grid, isOpaque, isAOTransparent, 'yz');
+            const l3 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, faceAO[3], grid, isOpaque, isAOTransparent, 'yz');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -1158,8 +1468,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
           
           sVC += 4;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          // Apply quad triangulation flip based on AO
+          if (shouldFlipQuadTriangulation(faceAO)) {
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 3; sIdx[sIC++] = sv;
+          } else {
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          }
           
           // Add tinted overlay for grass block sides (rendered with glass material for proper alpha)
           if (needsSideOverlay[bid] && ensureCapacity('g', 1)) {
@@ -1256,16 +1572,22 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_WEST];
           
-          // Per-vertex smooth lighting for WEST face (-X)
+          // Calculate proper 3-neighbor AO for WEST face
+          const blockWorldX = baseX + lx;
+          const blockWorldY = baseY + jj;
+          const blockWorldZ = baseZ + ii;
+          const faceAO = getWestFaceAO(blockWorldX, blockWorldY, blockWorldZ, grid, isOpaque, isAOTransparent);
+          
+          // Per-vertex lighting with Minecraft-style AO
           // Vertex positions: V0(x, y, z+w), V1(x, y+h, z+w), V2(x, y+h, z), V3(x, y, z)
           let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, -1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, -1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, -1, 0, 0, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, -1, 0, 0, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY, faceWorldZ + w, faceAO[0], grid, isOpaque, isAOTransparent, 'yz');
+            const l1 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ + w, faceAO[1], grid, isOpaque, isAOTransparent, 'yz');
+            const l2 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, faceAO[2], grid, isOpaque, isAOTransparent, 'yz');
+            const l3 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY, faceWorldZ, faceAO[3], grid, isOpaque, isAOTransparent, 'yz');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -1283,8 +1605,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
           
           sVC += 4;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          // Apply quad triangulation flip based on AO
+          if (shouldFlipQuadTriangulation(faceAO)) {
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 3; sIdx[sIC++] = sv;
+          } else {
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          }
           
           // Add tinted overlay for grass block sides
           if (needsSideOverlay[bid] && ensureCapacity('g', 1)) {
@@ -1381,16 +1709,22 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_SOUTH];
           
-          // Per-vertex smooth lighting for SOUTH face (+Z)
+          // Calculate proper 3-neighbor AO for SOUTH face
+          const blockWorldX = baseX + ii;
+          const blockWorldY = baseY + jj;
+          const blockWorldZ = baseZ + lz;
+          const faceAO = getSouthFaceAO(blockWorldX, blockWorldY, blockWorldZ, grid, isOpaque, isAOTransparent);
+          
+          // Per-vertex lighting with Minecraft-style AO
           // Vertex positions: V0(x, y, z), V1(x+w, y, z), V2(x+w, y+h, z), V3(x, y+h, z)
           let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 0, 0, 1, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY, faceWorldZ, faceAO[0], grid, isOpaque, isAOTransparent, 'xy');
+            const l1 = sampleVertexLightWithAO(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, faceAO[1], grid, isOpaque, isAOTransparent, 'xy');
+            const l2 = sampleVertexLightWithAO(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, faceAO[2], grid, isOpaque, isAOTransparent, 'xy');
+            const l3 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, faceAO[3], grid, isOpaque, isAOTransparent, 'xy');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -1408,8 +1742,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
           
           sVC += 4;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          // Apply quad triangulation flip based on AO
+          if (shouldFlipQuadTriangulation(faceAO)) {
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 3; sIdx[sIC++] = sv;
+          } else {
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          }
           
           // Add tinted overlay for grass block sides
           if (needsSideOverlay[bid] && ensureCapacity('g', 1)) {
@@ -1505,16 +1845,22 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           }
           const tintType = faceTintTypeLookup[bid * 6 + FACE_NORTH];
           
-          // Per-vertex smooth lighting for NORTH face (-Z)
+          // Calculate proper 3-neighbor AO for NORTH face
+          const blockWorldX = baseX + ii;
+          const blockWorldY = baseY + jj;
+          const blockWorldZ = baseZ + lz;
+          const faceAO = getNorthFaceAO(blockWorldX, blockWorldY, blockWorldZ, grid, isOpaque, isAOTransparent);
+          
+          // Per-vertex lighting with Minecraft-style AO
           // Vertex positions: V0(x+w, y, z), V1(x, y, z), V2(x, y+h, z), V3(x+w, y+h, z)
           let skyL0 = 15, skyL1 = 15, skyL2 = 15, skyL3 = 15;
           let blockL0 = 0, blockL1 = 0, blockL2 = 0, blockL3 = 0;
           
           if (lightGrid) {
-            const l0 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
-            const l1 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
-            const l2 = sampleSmoothLight(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
-            const l3 = sampleSmoothLight(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, 0, 0, -1, grid, isOpaque, isAOTransparent);
+            const l0 = sampleVertexLightWithAO(lightGrid, faceWorldX + w, faceWorldY, faceWorldZ, faceAO[0], grid, isOpaque, isAOTransparent, 'xy');
+            const l1 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY, faceWorldZ, faceAO[1], grid, isOpaque, isAOTransparent, 'xy');
+            const l2 = sampleVertexLightWithAO(lightGrid, faceWorldX, faceWorldY + h, faceWorldZ, faceAO[2], grid, isOpaque, isAOTransparent, 'xy');
+            const l3 = sampleVertexLightWithAO(lightGrid, faceWorldX + w, faceWorldY + h, faceWorldZ, faceAO[3], grid, isOpaque, isAOTransparent, 'xy');
             skyL0 = l0.skyLight; blockL0 = l0.blockLight;
             skyL1 = l1.skyLight; blockL1 = l1.blockLight;
             skyL2 = l2.skyLight; blockL2 = l2.blockLight;
@@ -1532,8 +1878,14 @@ export function buildGridMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 }, 
           sBlockLight[sVC] = blockL0; sBlockLight[sVC + 1] = blockL1; sBlockLight[sVC + 2] = blockL2; sBlockLight[sVC + 3] = blockL3;
           
           sVC += 4;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
-          sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          // Apply quad triangulation flip based on AO
+          if (shouldFlipQuadTriangulation(faceAO)) {
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+            sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 3; sIdx[sIC++] = sv;
+          } else {
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 1; sIdx[sIC++] = sv + 2;
+            sIdx[sIC++] = sv; sIdx[sIC++] = sv + 2; sIdx[sIC++] = sv + 3;
+          }
           
           // Add tinted overlay for grass block sides
           if (needsSideOverlay[bid] && ensureCapacity('g', 1)) {

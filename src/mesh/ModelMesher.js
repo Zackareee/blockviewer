@@ -13,6 +13,7 @@ import { BlockCategory } from './BlockRegistry.js';
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
 import { buildTintTypeLookup } from '../data/biomeTinting.js';
 import { hasEmitter } from '../particles/ParticleEmitter.js';
+import { AO_BRIGHTNESS, getVertexAO, shouldFlipQuadTriangulation } from './AmbientOcclusion.js';
 
 // ============================================================================
 // LOOKUP TABLE CACHE
@@ -366,7 +367,7 @@ function getPositionRotation(x, y, z) {
 
 /**
  * Sample smooth light at a vertex position using bilinear interpolation
- * in the plane perpendicular to the face normal.
+ * in the plane perpendicular to the face normal, with AO applied.
  * 
  * This properly handles partial blocks (slabs, etc.) by sampling based on
  * the actual vertex position, not fixed block-boundary offsets.
@@ -374,9 +375,10 @@ function getPositionRotation(x, y, z) {
  * @param {LightGrid} lightGrid - Light data
  * @param {number} vx, vy, vz - Vertex world position
  * @param {string} faceDirName - Face direction ('up', 'down', 'north', 'south', 'east', 'west')
- * @returns {{skyLight: number, blockLight: number}} Interpolated light at vertex
+ * @param {number} aoLevel - AO level 0-3 (default 3 = no occlusion)
+ * @returns {{skyLight: number, blockLight: number}} Interpolated light at vertex with AO applied
  */
-function sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName) {
+function sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName, aoLevel = 3) {
   // Offset into the air space in front of the face
   let sampleX = vx, sampleY = vy, sampleZ = vz;
   switch (faceDirName) {
@@ -387,6 +389,8 @@ function sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName) {
     case 'north': sampleZ -= 0.5; break;
     case 'south': sampleZ += 0.5; break;
   }
+
+  let skyLight, blockLight;
 
   // Bilinear interpolation in the plane perpendicular to the face normal
   switch (faceDirName) {
@@ -404,12 +408,11 @@ function sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName) {
       const l01 = lightGrid.getLight(x0, y, z0 + 1);
       const l11 = lightGrid.getLight(x0 + 1, y, z0 + 1);
       
-      return {
-        skyLight: (1-fx)*(1-fz)*l00.skyLight + fx*(1-fz)*l10.skyLight + 
-                  (1-fx)*fz*l01.skyLight + fx*fz*l11.skyLight,
-        blockLight: (1-fx)*(1-fz)*l00.blockLight + fx*(1-fz)*l10.blockLight + 
-                    (1-fx)*fz*l01.blockLight + fx*fz*l11.blockLight,
-      };
+      skyLight = (1-fx)*(1-fz)*l00.skyLight + fx*(1-fz)*l10.skyLight + 
+                 (1-fx)*fz*l01.skyLight + fx*fz*l11.skyLight;
+      blockLight = (1-fx)*(1-fz)*l00.blockLight + fx*(1-fz)*l10.blockLight + 
+                   (1-fx)*fz*l01.blockLight + fx*fz*l11.blockLight;
+      break;
     }
     case 'east':
     case 'west': {
@@ -425,12 +428,11 @@ function sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName) {
       const l01 = lightGrid.getLight(x, y0, z0 + 1);
       const l11 = lightGrid.getLight(x, y0 + 1, z0 + 1);
       
-      return {
-        skyLight: (1-fy)*(1-fz)*l00.skyLight + fy*(1-fz)*l10.skyLight + 
-                  (1-fy)*fz*l01.skyLight + fy*fz*l11.skyLight,
-        blockLight: (1-fy)*(1-fz)*l00.blockLight + fy*(1-fz)*l10.blockLight + 
-                    (1-fy)*fz*l01.blockLight + fy*fz*l11.blockLight,
-      };
+      skyLight = (1-fy)*(1-fz)*l00.skyLight + fy*(1-fz)*l10.skyLight + 
+                 (1-fy)*fz*l01.skyLight + fy*fz*l11.skyLight;
+      blockLight = (1-fy)*(1-fz)*l00.blockLight + fy*(1-fz)*l10.blockLight + 
+                   (1-fy)*fz*l01.blockLight + fy*fz*l11.blockLight;
+      break;
     }
     case 'north':
     case 'south': {
@@ -446,18 +448,26 @@ function sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName) {
       const l01 = lightGrid.getLight(x0, y0 + 1, z);
       const l11 = lightGrid.getLight(x0 + 1, y0 + 1, z);
       
-      return {
-        skyLight: (1-fx)*(1-fy)*l00.skyLight + fx*(1-fy)*l10.skyLight + 
-                  (1-fx)*fy*l01.skyLight + fx*fy*l11.skyLight,
-        blockLight: (1-fx)*(1-fy)*l00.blockLight + fx*(1-fy)*l10.blockLight + 
-                    (1-fx)*fy*l01.blockLight + fx*fy*l11.blockLight,
-      };
+      skyLight = (1-fx)*(1-fy)*l00.skyLight + fx*(1-fy)*l10.skyLight + 
+                 (1-fx)*fy*l01.skyLight + fx*fy*l11.skyLight;
+      blockLight = (1-fx)*(1-fy)*l00.blockLight + fx*(1-fy)*l10.blockLight + 
+                   (1-fx)*fy*l01.blockLight + fx*fy*l11.blockLight;
+      break;
     }
     default: {
       const light = lightGrid.getLight(Math.floor(vx), Math.floor(vy), Math.floor(vz));
-      return { skyLight: light.skyLight, blockLight: light.blockLight };
+      skyLight = light.skyLight;
+      blockLight = light.blockLight;
+      break;
     }
   }
+  
+  // Apply AO brightness multiplier
+  const aoBrightness = AO_BRIGHTNESS[Math.max(0, Math.min(3, aoLevel))];
+  return {
+    skyLight: skyLight * aoBrightness,
+    blockLight: blockLight * aoBrightness,
+  };
 }
 
 // Initial buffer sizes (will grow as needed)
@@ -514,6 +524,15 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
   
   // Use cached lookup tables (built once per registry, reused for all chunks)
   const { colorR, colorG, colorB, isFullOpaqueCube, tintTypeLookup } = getCachedModelLookupTables(registry);
+
+  // Create an isSolidForAO checker for ambient occlusion calculations
+  // This checks if a block at the given world coordinates is solid for AO purposes
+  const isSolidForAO = (x, y, z) => {
+    const blockId = grid.getBlockId(x, y, z);
+    if (blockId === 0) return false;
+    // Non-cube blocks and transparent blocks don't block AO
+    return isFullOpaqueCube[blockId] === 1;
+  };
 
   // ========================================================================
   // PRE-CACHE: Collect all unique state IDs and pre-compute their metadata
@@ -1580,14 +1599,20 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             oSingleSidedFlags[oVertexCount + 2] = oSingleSidedValue;
             oSingleSidedFlags[oVertexCount + 3] = oSingleSidedValue;
             
-            // Per-vertex smooth light sampling for overlay model blocks
-            const oFaceDirName = cullInfo.faceDirection || cullInfo.cullface || 'up';
+            // Per-vertex smooth light sampling with AO for overlay model blocks
+            const oFaceDirName = cullInfo.faceDirection || cullInfo.cullface || null;
+            const oVertexAOs = [3, 3, 3, 3]; // Default: no occlusion
             if (lightGrid) {
               for (let vIdx = 0; vIdx < 4; vIdx++) {
                 const vx = oPositions[dstBase + vIdx * 3];
                 const vy = oPositions[dstBase + vIdx * 3 + 1];
                 const vz = oPositions[dstBase + vIdx * 3 + 2];
-                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, oFaceDirName);
+                let aoLevel = 3;
+                if (oFaceDirName) {
+                  aoLevel = getVertexAO(vx, vy, vz, oFaceDirName, isSolidForAO);
+                }
+                oVertexAOs[vIdx] = aoLevel;
+                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, oFaceDirName || 'up', aoLevel);
                 oSkyLight[oVertexCount + vIdx] = light.skyLight;
                 oBlockLight[oVertexCount + vIdx] = light.blockLight;
               }
@@ -1604,13 +1629,22 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             
             oVertexCount += 4;
             
-            // Emit indices
-            oIndices[oIndexCount] = dstVertexStart;
-            oIndices[oIndexCount + 1] = dstVertexStart + 2;
-            oIndices[oIndexCount + 2] = dstVertexStart + 1;
-            oIndices[oIndexCount + 3] = dstVertexStart;
-            oIndices[oIndexCount + 4] = dstVertexStart + 3;
-            oIndices[oIndexCount + 5] = dstVertexStart + 2;
+            // Emit indices with AO-based quad triangulation flip
+            if (shouldFlipQuadTriangulation(oVertexAOs)) {
+              oIndices[oIndexCount] = dstVertexStart + 1;
+              oIndices[oIndexCount + 1] = dstVertexStart + 3;
+              oIndices[oIndexCount + 2] = dstVertexStart + 2;
+              oIndices[oIndexCount + 3] = dstVertexStart + 1;
+              oIndices[oIndexCount + 4] = dstVertexStart;
+              oIndices[oIndexCount + 5] = dstVertexStart + 3;
+            } else {
+              oIndices[oIndexCount] = dstVertexStart;
+              oIndices[oIndexCount + 1] = dstVertexStart + 2;
+              oIndices[oIndexCount + 2] = dstVertexStart + 1;
+              oIndices[oIndexCount + 3] = dstVertexStart;
+              oIndices[oIndexCount + 4] = dstVertexStart + 3;
+              oIndices[oIndexCount + 5] = dstVertexStart + 2;
+            }
             oIndexCount += 6;
           } else if (isTransparent) {
             // Ensure capacity for transparent buffers (4 verts per quad face)
@@ -1738,14 +1772,20 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             tSingleSidedFlags[tVertexCount + 2] = tSingleSidedValue;
             tSingleSidedFlags[tVertexCount + 3] = tSingleSidedValue;
             
-            // Per-vertex smooth light sampling for transparent model blocks
-            const tFaceDirName = cullInfo.faceDirection || cullInfo.cullface || 'up';
+            // Per-vertex smooth light sampling with AO for transparent model blocks
+            const tFaceDirName = cullInfo.faceDirection || cullInfo.cullface || null;
+            const tVertexAOs = [3, 3, 3, 3]; // Default: no occlusion
             if (lightGrid) {
               for (let vIdx = 0; vIdx < 4; vIdx++) {
                 const vx = tPositions[dstBase + vIdx * 3];
                 const vy = tPositions[dstBase + vIdx * 3 + 1];
                 const vz = tPositions[dstBase + vIdx * 3 + 2];
-                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, tFaceDirName);
+                let aoLevel = 3;
+                if (tFaceDirName) {
+                  aoLevel = getVertexAO(vx, vy, vz, tFaceDirName, isSolidForAO);
+                }
+                tVertexAOs[vIdx] = aoLevel;
+                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, tFaceDirName || 'up', aoLevel);
                 tSkyLight[tVertexCount + vIdx] = light.skyLight;
                 tBlockLight[tVertexCount + vIdx] = light.blockLight;
               }
@@ -1762,13 +1802,22 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             
             tVertexCount += 4;
             
-            // Emit indices for transparent mesh (two triangles forming a quad)
-            tIndices[tIndexCount] = dstVertexStart;
-            tIndices[tIndexCount + 1] = dstVertexStart + 2;
-            tIndices[tIndexCount + 2] = dstVertexStart + 1;
-            tIndices[tIndexCount + 3] = dstVertexStart;
-            tIndices[tIndexCount + 4] = dstVertexStart + 3;
-            tIndices[tIndexCount + 5] = dstVertexStart + 2;
+            // Emit indices for transparent mesh with AO-based quad triangulation flip
+            if (shouldFlipQuadTriangulation(tVertexAOs)) {
+              tIndices[tIndexCount] = dstVertexStart + 1;
+              tIndices[tIndexCount + 1] = dstVertexStart + 3;
+              tIndices[tIndexCount + 2] = dstVertexStart + 2;
+              tIndices[tIndexCount + 3] = dstVertexStart + 1;
+              tIndices[tIndexCount + 4] = dstVertexStart;
+              tIndices[tIndexCount + 5] = dstVertexStart + 3;
+            } else {
+              tIndices[tIndexCount] = dstVertexStart;
+              tIndices[tIndexCount + 1] = dstVertexStart + 2;
+              tIndices[tIndexCount + 2] = dstVertexStart + 1;
+              tIndices[tIndexCount + 3] = dstVertexStart;
+              tIndices[tIndexCount + 4] = dstVertexStart + 3;
+              tIndices[tIndexCount + 5] = dstVertexStart + 2;
+            }
             tIndexCount += 6;
           } else {
             // Ensure capacity for opaque buffers (4 verts per quad face)
@@ -1897,15 +1946,25 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             singleSidedFlags[vertexCount + 2] = singleSidedValue;
             singleSidedFlags[vertexCount + 3] = singleSidedValue;
             
-            // Per-vertex smooth light sampling for model blocks
+            // Per-vertex smooth light sampling with AO for model blocks
             // Sample light at each vertex's actual world position for smooth gradients
-            const faceDirName = cullInfo.faceDirection || cullInfo.cullface || 'up';
+            // Calculate AO based on surrounding solid blocks
+            const faceDirName = cullInfo.faceDirection || cullInfo.cullface || null;
+            const vertexAOs = [3, 3, 3, 3]; // Default: no occlusion
             if (lightGrid) {
               for (let vIdx = 0; vIdx < 4; vIdx++) {
                 const vx = positions[dstBase + vIdx * 3];
                 const vy = positions[dstBase + vIdx * 3 + 1];
                 const vz = positions[dstBase + vIdx * 3 + 2];
-                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName);
+                
+                // Only calculate AO for axis-aligned faces with known direction
+                // Non-axis-aligned faces (cross patterns, angled faces) skip AO
+                let aoLevel = 3; // Default: fully lit
+                if (faceDirName) {
+                  aoLevel = getVertexAO(vx, vy, vz, faceDirName, isSolidForAO);
+                }
+                vertexAOs[vIdx] = aoLevel;
+                const light = sampleSmoothLightAtVertex(lightGrid, vx, vy, vz, faceDirName || 'up', aoLevel);
                 skyLightArr[vertexCount + vIdx] = light.skyLight;
                 blockLightArr[vertexCount + vIdx] = light.blockLight;
               }
@@ -1922,14 +1981,25 @@ export function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offse
             
             vertexCount += 4;
             
-            // Emit indices for opaque mesh (two triangles forming a quad)
-            // Front face winding: 0,2,1 and 0,3,2
-            indices[indexCount] = dstVertexStart;
-            indices[indexCount + 1] = dstVertexStart + 2;
-            indices[indexCount + 2] = dstVertexStart + 1;
-            indices[indexCount + 3] = dstVertexStart;
-            indices[indexCount + 4] = dstVertexStart + 3;
-            indices[indexCount + 5] = dstVertexStart + 2;
+            // Emit indices for opaque mesh with AO-based quad triangulation flip
+            // This prevents diagonal shadow artifacts on slabs and stairs
+            if (shouldFlipQuadTriangulation(vertexAOs)) {
+              // Flipped winding: 1,3,2 and 1,0,3
+              indices[indexCount] = dstVertexStart + 1;
+              indices[indexCount + 1] = dstVertexStart + 3;
+              indices[indexCount + 2] = dstVertexStart + 2;
+              indices[indexCount + 3] = dstVertexStart + 1;
+              indices[indexCount + 4] = dstVertexStart;
+              indices[indexCount + 5] = dstVertexStart + 3;
+            } else {
+              // Standard winding: 0,2,1 and 0,3,2
+              indices[indexCount] = dstVertexStart;
+              indices[indexCount + 1] = dstVertexStart + 2;
+              indices[indexCount + 2] = dstVertexStart + 1;
+              indices[indexCount + 3] = dstVertexStart;
+              indices[indexCount + 4] = dstVertexStart + 3;
+              indices[indexCount + 5] = dstVertexStart + 2;
+            }
             indexCount += 6;
             
             // For cross-model plants (shade: false), emit backface with reversed winding
