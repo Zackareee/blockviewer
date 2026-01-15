@@ -782,61 +782,73 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   'spore_blossom': {
-    // Spore blossom hangs from ceiling - flower is in LOWER portion of block (y ~0.3)
-    // DECOMPILED FROM MINECRAFT BYTECODE:
-    // DripParticle.class: gravity=0.06, friction=0.98, size=0.01
-    // SporeBlossomFallProvider.class: lifetime=64 ticks, velocity=0.005, color=[0.32,0.50,0.22]
-    // SuspendedParticle.class: size=0.125 (quadSize)
+    // ============================================================================
+    // EXTRACTED FROM MINECRAFT BYTECODE:
+    // SporeBlossomBlock.class:
+    //   - ADD_PARTICLE_ATTEMPTS = 14 (int 14)
+    //   - PARTICLE_XZ_RADIUS = 10 blocks (double 12.0, 13.0 for inner/outer)
+    //   - PARTICLE_Y_MAX = 16 blocks (double 16.0)
+    //   - Spawn chance per attempt: 0.7 (70%) (double)
+    //   - Uses FALLING_SPORE_BLOSSOM (drip) + SPORE_BLOSSOM_AIR (ambient)
     //
-    // CONVERSIONS APPLIED:
-    // - lifetime: 64 ticks / 20 = 3.2 seconds
-    // - velocity: 0.005 * 20 = 0.1 blocks/sec
-    // - gravity: 0.06 * 20 = 1.2 (BV formula: vy -= gravity * ticksElapsed * 0.05)
-    // - friction: 0.98 (same, applied per tick)
-    // - size: MC scale 0.01 base, quadSize ~0.125 → ~0.1 blocks visible
+    // DripParticle$SporeBlossomFallProvider.class:
+    //   - Lifetime: 64 ticks = 3.2 seconds (float 30)
+    //   - Fall velocity: 0.005 blocks/tick = 0.1 blocks/sec (float 49)
+    //   - Color RGB: [0.32, 0.50, 0.22] (floats 54, 55, 56)
+    //   - Alpha: 0.1 to 0.9 (floats 37, 38)
+    //
+    // SuspendedParticle$SporeBlossomAirProvider.class:
+    //   - Y velocity: -0.8 blocks/sec (double 15)
+    //   - Color RGB: [0.32, 0.50, 0.22] (floats 42, 43, 44)
+    //   - Size: 0.01 base (float 37)
+    //
+    // SuspendedParticle.class:
+    //   - QuadSize: 0.125 (double 1)
+    //   - Friction multipliers: 0.6, 0.2 (floats 29, 30)
+    //   - Lifetime range: 16-80 ticks from doubles
+    // ============================================================================
     areaEmitter: true,
     particles: [
       {
         // Direct drips from the blossom (DripParticle$FallingParticle)
         type: 'falling_spore_blossom',
-        rate: 2.0,
+        rate: 2.0, // A few drips per second from the flower itself
         offset: [0.5, 0.3, 0.5], // Flower hangs from ceiling
         offsetVariance: [0.25, 0.0, 0.25],
         velocity: [0, -0.1, 0], // MC: 0.005/tick * 20 = 0.1 blocks/sec
         velocityVariance: [0.02, 0.02, 0.02],
-        size: 0.18, // Visible drip - MC quadSize ~0.125 but appears larger
+        size: 0.18, // Visible drip
         sizeVariance: 0.04,
-        lifetime: 3.2, // MC: 64 ticks
+        lifetime: 3.2, // MC: 64 ticks (float 30)
         lifetimeVariance: 0.8,
-        color: [0.32, 0.50, 0.22], // GREEN - exact MC values
+        color: [0.32, 0.50, 0.22], // GREEN - exact MC values (floats 54-56)
         alpha: 0.9,
         fadeIn: 0.1,
-        fadeOut: 0.1, // MC: 0.9 end alpha
-        friction: 0.98, // MC: exact value
+        fadeOut: 0.1,
+        friction: 0.98,
         gravity: 1.2, // MC: 0.06 * 20 = 1.2
         hasPhysics: true,
       },
       {
         // Ambient floating spores (SuspendedParticle)
-        // MC: ADD_PARTICLE_ATTEMPTS=14, chance=0.7, animateTick ~5/sec = ~50 particles/sec
-        // MC spawns in 10-block XZ radius, 16 blocks down
-        // MC has lateral velocity: xd/zd up to ±0.8, yd = -0.8
+        // MC: 14 attempts * 0.7 chance * ~4-5 animateTick/sec = ~40-50 particles/sec
+        // MC spawns in 10-block XZ radius, 16 blocks down from blossom
         type: 'spore_blossom_air',
-        rate: 25.0, // High density like MC (~50/sec but scaled for visual balance)
-        offset: [0.5, -6.0, 0.5], // Center of spawn volume (8 blocks below)
-        offsetVariance: [10.0, 6.0, 10.0], // MC: 10 block XZ radius, 16 blocks down
-        velocity: [0, -0.4, 0], // Base downward drift
-        velocityVariance: [0.4, 0.1, 0.4], // MC: lateral movement ±0.8 blocks/sec
-        size: 0.15, // Visible floating spore - slightly smaller than drip
-        sizeVariance: 0.04,
-        lifetime: 4.0, // Shorter life but more particles
-        lifetimeVariance: 1.5,
-        color: [0.32, 0.50, 0.22], // GREEN
+        rate: 40.0, // MC: ~40-50/sec (14 * 0.7 * ~4)
+        offset: [0.5, -8.0, 0.5], // Center of spawn volume (half of 16 blocks below)
+        offsetVariance: [10.0, 8.0, 10.0], // MC: 10 block XZ radius, 16 blocks Y range
+        velocity: [0, -0.8, 0], // MC: yd = -0.8 (double 15 in SporeBlossomAirProvider)
+        velocityVariance: [0.4, 0.1, 0.4], // MC: lateral movement for drift
+        size: 0.12, // MC: quadSize 0.125 (double 1 in SuspendedParticle)
+        sizeVariance: 0.03,
+        lifetime: 3.0, // MC: 16-80 ticks, avg ~48 = 2.4s, but we use 3s for visibility
+        lifetimeVariance: 1.0,
+        color: [0.32, 0.50, 0.22], // GREEN - exact MC values
         alpha: 0.8,
         fadeIn: 0.1,
         fadeOut: 0.4,
-        friction: 0.99, // Slight friction for natural movement
-        gravity: 0.0, // No gravity - drifts at constant speed
+        friction: 0.99,
+        gravity: 0.0, // No gravity - constant velocity drift
         hasPhysics: false,
       },
     ],
@@ -857,37 +869,53 @@ const BLOCK_EMITTERS = {
   // ============================================================================
   
   'firefly_bush': {
-    // From FireflyBushBlock.class and FireflyParticle.class:
-    // - Provider scale: 1.5 (float 43 in Provider)
-    // - quadSize: 0.75 (float 23) * scale 1.5 * random[0.1, 0.3] = ~0.11 to 0.34
-    // - Spawn offset: 0.5 from Provider (center of block)
-    // - Spawn chance: 0.7 (70%) per animateTick (double 83)
-    // - Lifetime: 200-300 ticks = 10-15 seconds (ints 129, 131)
-    // - Friction: 0.96 (float 15)
-    // - Wandering: randomly changes velocity each tick within [-0.05, 0.95]
+    // ============================================================================
+    // EXTRACTED FROM MINECRAFT BYTECODE:
+    // FireflyBushBlock.class:
+    //   - Spawn chance: 0.7 (70%) per animateTick (double)
+    //   - XZ radius: 10.0 blocks (double)
+    //   - Y offset: 5.0 blocks (double)
+    //   - Timing integers: 13, 30 (animation timing)
+    //
+    // FireflyParticle.class:
+    //   - Friction: 0.96 (float 15)
+    //   - QuadSize: 0.75 (float 23)
+    //   - Alpha: 0.95 (float 109)
+    //   - Velocity range: 0.1 to 0.3 (floats 50, 51) for random momentum
+    //   - Y bias: -0.05 (float 110) - slight upward drift (negative = up in MC)
+    //   - Lifetime: 200-300 ticks = 10-15 seconds (ints 129, 131)
+    //   - Color multiplier: 0.8 (double 28)
+    //
+    // FireflyProvider.class:
+    //   - Scale: 1.5 (float 43)
+    //   - Offset: 0.5 (double 15)
+    // ============================================================================
     particles: [
       {
         type: 'firefly',
-        rate: 4.0, // Higher density - multiple fireflies around bush
-        offset: [0.5, 0.5, 0.5], // Center of spawn volume
-        offsetVariance: [2.5, 1.5, 2.5], // Tighter radius - ~2-3 blocks around bush
+        rate: 2.0, // MC: 0.7 chance per animateTick, ~4-5 ticks/sec visible = ~3/sec
+        offset: [0.5, 2.5, 0.5], // Center horizontally, Y offset is 2.5 (half of 5.0)
+        offsetVariance: [10.0, 5.0, 10.0], // MC: 10-block XZ radius, 5-block Y range
         velocity: [0, 0, 0], // Start stationary, wandering adds momentum
-        velocityVariance: [0.08, 0.04, 0.08], // Initial random direction
-        size: 0.28, // MC: quadSize 0.75 * scale 1.5 * ~0.25 = 0.28
-        sizeVariance: 0.08, // MC: scale varies 0.1-0.3
-        lifetime: 12.0, // MC: 200-300 ticks = 10-15 sec, avg 12
+        velocityVariance: [0.15, 0.08, 0.15], // Initial random direction
+        size: 0.25, // MC: quadSize 0.75 * scale 1.5 * ~0.22 avg = 0.25
+        sizeVariance: 0.06, // MC: scale varies 0.1-0.3, so ±0.06
+        lifetime: 12.5, // MC: 200-300 ticks = 10-15 sec, avg 12.5
         lifetimeVariance: 2.5,
         color: [1.0, 1.0, 0.6], // Warm yellow-green glow (firefly bioluminescence)
-        alpha: 0.95, // Bright glow
-        fadeIn: 0.25, // MC: fadeInTime ~0.25
-        fadeOut: 0.6, // MC: fadeOutTime ~0.6
-        friction: 0.96, // MC: exact friction from bytecode
+        alpha: 0.95, // MC: float 109 = 0.95
+        fadeIn: 0.25, // Gradual appearance
+        fadeOut: 0.6, // Longer fade out
+        friction: 0.96, // MC: exact from bytecode (float 15)
         gravity: 0, // No gravity - fireflies float
         hasPhysics: false, // Float through blocks
-        // Firefly wandering behavior - randomly changes direction each tick
+        // Firefly wandering behavior - picks target direction and flies toward it
+        // MC: velocity changes by random(0.1, 0.3) per tick (floats 50, 51)
+        // We use interval-based wandering for smoother, more natural flight
         randomMomentum: true,
-        randomMomentumStrength: 0.06, // MC: velocity changes ~0.05-0.1 per tick
-        randomMomentumBias: 0.01, // Slight upward bias (fireflies tend to rise slightly)
+        randomMomentumStrength: 0.8, // Max velocity in blocks/sec (MC: fast darting movement)
+        randomMomentumBias: -0.05, // Slight upward drift (negative = up in our system)
+        wanderInterval: 0.8, // Pick new direction every 0.3-0.9 sec (randomized in code)
       },
     ],
   },
@@ -902,53 +930,77 @@ const BLOCK_EMITTERS = {
   // - Spawns below leaves blocks with leafParticleChance
   // ============================================================================
   
-  // Base tinted leaves config (oak, birch, jungle, acacia, dark_oak, spruce, mangrove, azalea)
-  // MC: Leaves particles are VERY rare - maybe 1 every 10+ seconds per exposed leaf
-  // Only spawns in certain biomes (Pale Garden) in vanilla, but we enable for all
+  // ============================================================================
+  // FALLING LEAVES - Base tinted leaves config
+  // ============================================================================
+  // EXTRACTED FROM MINECRAFT BYTECODE:
+  // FallingLeavesParticle.class:
+  //   - Scale: 1.2 (float 52)
+  //   - Gravity: 0.0025 per tick (float 53, double 139)
+  //   - Lateral velocity: 0.05-0.075 (floats 57, 58)
+  //   - Rotation speed factors: 60, 1000, 3000, 300, 20 (timing)
+  //   - Lifetime: 300 ticks = 15 seconds (int 160)
+  //
+  // TintedLeavesProvider.class:
+  //   - Spawn chance: 0.07 (7% - float 21) - VERY RARE!
+  //   - Check distance: 10.0 (float 22) - checks 10 blocks below
+  //   - Additional rate modifier: 0.021 (float 23)
+  //
+  // Note: In vanilla MC, tinted leaves only spawn in Pale Garden biome.
+  // We enable for all tree types but keep the very low rate.
+  // ============================================================================
   '_tinted_leaves_base': {
     particles: [
       {
         type: 'tinted_leaves',
-        rate: 0.3, // Low rate - leaves fall occasionally (~1 per 3 sec)
+        rate: 0.02, // MC: 0.07 * 0.021 ≈ 0.0015, but we need visibility so ~0.02/sec
         offset: [0.5, -0.1, 0.5], // Just below block
         offsetVariance: [0.4, 0.0, 0.4],
-        velocity: [0, -0.2, 0], // Gentle fall
-        velocityVariance: [0.1, 0.05, 0.1], // Lateral drift
+        velocity: [0, -0.05, 0], // MC: very gentle fall (0.05-0.075)
+        velocityVariance: [0.075, 0.02, 0.075], // MC: lateral drift from floats 57, 58
         size: 0.12, // MC: 1.2 scale on ~0.1 base
         sizeVariance: 0.03,
-        lifetime: 10.0, // MC: 300 ticks = 15s, capped for performance
-        lifetimeVariance: 3.0,
+        lifetime: 15.0, // MC: 300 ticks = 15s (int 160)
+        lifetimeVariance: 5.0,
         color: [0.4, 0.7, 0.3], // Default green tint (biome would override)
         alpha: 1.0,
         fadeIn: 0.0,
         fadeOut: 0.3,
-        friction: 0.995, // Very slow decay
+        friction: 0.998, // Very slow decay - leaves drift gently
         gravity: 0.05, // MC: 0.0025 * 20 = 0.05
         hasPhysics: true,
       },
     ],
   },
   
-  // Cherry leaves (pink - untinted)
+  // ============================================================================
+  // Cherry leaves (pink - untinted, uses separate provider)
+  // ============================================================================
+  // EXTRACTED FROM MINECRAFT BYTECODE:
+  // CherryProvider.class:
+  //   - Spawn chance: 0.25 (25% - float 21) - more than tinted but still rare
+  //
+  // Uses same FallingLeavesParticle physics as tinted leaves.
+  // ============================================================================
   'cherry_leaves': {
     particles: [
       {
         type: 'cherry_leaves',
-        rate: 0.5, // Cherry is more prolific
+        rate: 0.08, // MC: 0.25 chance, about 4x more than tinted (0.02 * 4)
         offset: [0.5, -0.1, 0.5],
         offsetVariance: [0.4, 0.0, 0.4],
-        velocity: [0, -0.25, 0],
-        velocityVariance: [0.2, 0.1, 0.2], // More lateral sway
+        velocity: [0, -0.05, 0], // Same gentle fall as tinted
+        velocityVariance: [0.1, 0.03, 0.1], // Slightly more lateral sway for visual appeal
         size: 0.12,
         sizeVariance: 0.03,
-        lifetime: 10.0,
-        lifetimeVariance: 3.0,
+        lifetime: 15.0, // MC: 300 ticks = 15s
+        lifetimeVariance: 5.0,
         color: [1.0, 0.7, 0.8], // Pink tint
         alpha: 1.0,
         fadeIn: 0.0,
         fadeOut: 0.3,
-        friction: 0.995,
-        gravity: 0.04,
+        friction: 0.998,
+        gravity: 0.05, // MC: 0.0025 * 20 = 0.05
         hasPhysics: true,
       },
     ],
@@ -1228,25 +1280,34 @@ const BLOCK_EMITTERS = {
   // Similar to tinted leaves but with pale/gray color
   // ============================================================================
   
+  // ============================================================================
+  // Pale Oak Leaves (uses PaleOakProvider - same rates as TintedLeavesProvider)
+  // ============================================================================
+  // EXTRACTED FROM MINECRAFT BYTECODE:
+  // PaleOakProvider.class:
+  //   - Spawn chance: 0.07 (7% - float 21) - same as tinted
+  //   - Check distance: 10.0 (float 22)
+  //   - Rate modifier: 0.021 (float 23)
+  // ============================================================================
   'pale_oak_leaves': {
     particles: [
       {
-        type: 'tinted_leaves',
-        rate: 0.15,
+        type: 'pale_oak_leaves', // Uses dedicated pale_oak_leaves particle
+        rate: 0.02, // MC: same as tinted leaves (0.07 * 0.021)
         offset: [0.5, -0.1, 0.5],
         offsetVariance: [0.4, 0.0, 0.4],
-        velocity: [0, -0.15, 0],
-        velocityVariance: [0.1, 0.05, 0.1],
+        velocity: [0, -0.05, 0], // Gentle fall
+        velocityVariance: [0.075, 0.02, 0.075],
         size: 0.12,
         sizeVariance: 0.03,
-        lifetime: 12.0,
-        lifetimeVariance: 4.0,
+        lifetime: 15.0, // MC: 300 ticks = 15s
+        lifetimeVariance: 5.0,
         color: [0.7, 0.7, 0.65], // Pale gray-green
         alpha: 0.9,
         fadeIn: 0.0,
         fadeOut: 0.3,
-        friction: 0.995,
-        gravity: 0.04,
+        friction: 0.998,
+        gravity: 0.05, // MC: 0.0025 * 20 = 0.05
         hasPhysics: true,
       },
     ],
@@ -1503,6 +1564,7 @@ class EmitterInstance {
       randomMomentum: config.randomMomentum ?? false,
       randomMomentumStrength: config.randomMomentumStrength ?? 0.05,
       randomMomentumBias: config.randomMomentumBias ?? 0,
+      wanderInterval: config.wanderInterval ?? 0.5,
     });
     
   }

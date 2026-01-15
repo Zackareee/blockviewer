@@ -1408,7 +1408,54 @@ export function createTransparentModelMaterial(atlasData = null, useTextures = f
     side: THREE.FrontSide, // Single-sided to hide back faces through transparent surfaces
     vertexColors: true,
     transparent: true,     // Enable transparency/alpha blending
-    depthWrite: true,      // Still write to depth buffer to maintain proper ordering
+    depthWrite: true,      // Write to depth buffer to properly occlude fluids behind
+  });
+  
+  return material;
+}
+
+/**
+ * Create a textured material for translucent model blocks (slime, honey - blocks with inner cubes)
+ * Uses depthWrite: false so inner cube shows through outer shell
+ */
+export function createTranslucentModelMaterial(atlasData = null, useTextures = false, lightmap = null) {
+  const { atlas, colormap, animationData, frameSequence, hasColormap, size, sizePixels, tileUV, textureUV, borderUV, totalTiles, sequenceLength } = getAtlasUniforms(atlasData);
+  
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uMinY: { value: -64 },
+      uMaxY: { value: 320 },
+      uMaxDistance: { value: 48.0 },
+      uFastPath: { value: 0.0 },
+      uAtlas: { value: atlas },
+      uColormap: { value: colormap },
+      uLightmap: { value: lightmap || defaultTexture },
+      uAnimationData: { value: animationData },
+      uFrameSequence: { value: frameSequence },
+      uUseTextures: { value: useTextures ? 1.0 : 0.0 },
+      uUseTinting: { value: hasColormap ? 1.0 : 0.0 },
+      uUseLightmap: { value: lightmap ? 1.0 : 0.0 },
+      uTime: { value: 0.0 },
+      uTotalTiles: { value: totalTiles },
+      uSequenceLength: { value: sequenceLength },
+      uAtlasSize: { value: size },
+      uAtlasSizePixels: { value: sizePixels },
+      uTileUV: { value: tileUV },
+      uTextureUV: { value: textureUV },
+      uBorderUV: { value: borderUV },
+      uUseRGSS: { value: 1.0 },
+      uFogColor: { value: new THREE.Vector3(120/255, 167/255, 255/255) },
+      uFogStart: { value: 100.0 },
+      uFogEnd: { value: 200.0 },
+      uFogEnabled: { value: 0.0 },
+      uContinuousGlass: { value: 0.0 },
+    },
+    vertexShader: modelVertexShader,
+    fragmentShader: modelFragmentShader,
+    side: THREE.DoubleSide, // DoubleSide so we can see inner cube faces from outside
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,     // No depth write - inner cube shows through outer shell
   });
   
   return material;

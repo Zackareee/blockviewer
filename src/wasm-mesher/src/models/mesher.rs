@@ -15,6 +15,8 @@ pub struct ModelMeshResult {
     pub opaque: ModelMeshData,
     /// Transparent model faces (glass panes, leaves, etc.)
     pub transparent: ModelMeshData,
+    /// Translucent model faces (slime, honey - blocks with inner cubes that need depthWrite: false)
+    pub translucent: ModelMeshData,
     /// Overlay faces (grass overlay on grass block, etc.)
     pub overlay: ModelMeshData,
     /// Particle emitter positions
@@ -28,6 +30,7 @@ impl ModelMeshResult {
         Self {
             opaque: ModelMeshData::new(),
             transparent: ModelMeshData::new(),
+            translucent: ModelMeshData::new(),
             overlay: ModelMeshData::new(),
             particle_emitters: Vec::new(),
             beacon_positions: Vec::new(),

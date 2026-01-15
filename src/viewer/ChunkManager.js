@@ -17,11 +17,13 @@ import * as THREE from 'three';
 import { createWaterMaterial, updateWaterMaterialAtlas } from './materials/WaterMaterial';
 import { createLavaMaterial, updateLavaMaterialAtlas } from './materials/LavaMaterial';
 import { createGlassMaterial } from './materials/GlassMaterial';
-import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled, setMaterialFastPath, setMaterialFog } from './materials/TexturedMaterial';
+import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createTranslucentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled, setMaterialFastPath, setMaterialFog } from './materials/TexturedMaterial';
 import { createInstancedModelMaterial, createInstancedMesh, createCrossGeometry } from './materials/InstancedModelMaterial';
+import { createEndPortalMaterial, updateEndPortalTextures, setEndPortalYRange } from './materials/EndPortalMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
+import { BlockStateGrid } from '../mesh/BlockStateGrid';
 import { getBlockRegistry } from '../mesh/BlockRegistry';
 import { generateLightmap, DAYTIME_PARAMS, getLightmapParamsForTime } from '../mesh/LightmapGenerator';
 import { ParticleSystem } from '../particles/ParticleSystem';
@@ -82,32 +84,38 @@ export class ChunkManager {
     this.glassGroup = new THREE.Group(); // Glass and transparent blocks
     this.modelGroup = new THREE.Group(); // Opaque non-cube blocks (slabs, stairs, flowers, etc.)
     this.transparentModelGroup = new THREE.Group(); // Transparent non-cube blocks (glass panes, iron bars)
+    this.translucentModelGroup = new THREE.Group(); // Translucent blocks with inner cubes (slime, honey) - depthWrite: false
     this.overlayModelGroup = new THREE.Group(); // Overlay effects (torch bulb glow) - rendered with depthWrite: false
     // Render order for proper depth sorting:
     // 0: Solid blocks and opaque model blocks (write to depth)
     // 0.5: Transparent model blocks (glass panes, iron bars - write to depth)
-    // 1: Full glass blocks, leaves, grass overlays (transparent, write to depth)
-    //    These must render BEFORE water so underwater objects get properly tinted
-    // Render order for transparent objects (all use depthWrite: false):
-    // 0.5: Transparent partial blocks (glass panes, iron bars) - render before fluids for proper depth
+    // 0.6: Glass/leaves blocks (transparent, writes depth) - render BEFORE fluids
+    //      so underwater leaves/blocks appear correctly (water blends on top)
+    // 0.75: Translucent model blocks (slime, honey - no depth write, inner cube visible through outer)
     // 1: Water (transparent, no depth write)
     // 2: Lava (transparent, no depth write)
-    // 3: Glass blocks (transparent, no depth write) - render AFTER fluids so fluids show through
-    // 4: Overlay effects (no depth write)
+    // 3: Overlay effects (no depth write)
     // Particles render at order 10 (set in ParticleSystem)
     this.modelGroup.renderOrder = 0; // Same as solid - opaque partial blocks
     this.transparentModelGroup.renderOrder = 0.5; // Render BEFORE water so depth is correct
+    this.glassGroup.renderOrder = 0.6; // Glass/leaves render BEFORE fluids so underwater objects look correct
+    this.translucentModelGroup.renderOrder = 0.75; // Translucent blocks (slime, honey) render after transparent but before water
     this.waterGroup.renderOrder = 1;
     this.lavaGroup.renderOrder = 2;
-    this.glassGroup.renderOrder = 3; // Glass renders AFTER fluids so water/lava behind glass is visible
-    this.overlayModelGroup.renderOrder = 4; // Overlay renders last (but doesn't write to depth)
+    this.overlayModelGroup.renderOrder = 3; // Overlay renders last (but doesn't write to depth)
+    // End portal group (for end_portal and end_gateway blocks)
+    this.endPortalGroup = new THREE.Group();
+    this.endPortalGroup.renderOrder = 0; // Same as solid (opaque, writes depth)
+    
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
     scene.add(this.lavaGroup);
     scene.add(this.glassGroup);
     scene.add(this.modelGroup);
     scene.add(this.transparentModelGroup);
+    scene.add(this.translucentModelGroup);
     scene.add(this.overlayModelGroup);
+    scene.add(this.endPortalGroup);
     
     // Create materials based on texture mode
     // When textures are enabled, use textured materials that can fall back to vertex colors
@@ -126,8 +134,13 @@ export class ChunkManager {
     this.glassMaterial = createTexturedGlassMaterial(this.textureAtlas, useTextures, this.lightmap);
     this.modelMaterial = createTexturedModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Opaque non-cube blocks
     this.transparentModelMaterial = createTransparentModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Transparent non-cube blocks (glass panes, iron bars)
+    this.translucentModelMaterial = createTranslucentModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Translucent blocks (slime, honey)
     this.overlayModelMaterial = createOverlayModelMaterial(this.textureAtlas, useTextures, this.lightmap); // Overlay glow effects (torch bulbs)
     this.instancedMaterial = createInstancedModelMaterial(this.textureAtlas, useTextures, this.lightmap); // GPU instanced grass/flowers
+    this.endPortalMaterial = createEndPortalMaterial(); // End portal shader effect
+    
+    // Load end_sky texture for end portal effect (async)
+    this._loadEndPortalTextures();
     
     // Group for instanced meshes
     this.instancedGroup = new THREE.Group();
@@ -141,8 +154,10 @@ export class ChunkManager {
     this.glassMeshes = []; // Glass and transparent block meshes
     this.modelMeshes = []; // Opaque non-cube block meshes
     this.transparentModelMeshes = []; // Transparent non-cube block meshes (glass panes, iron bars)
+    this.translucentModelMeshes = []; // Translucent block meshes (slime, honey)
     this.overlayModelMeshes = []; // Overlay glow effect meshes (torch bulbs)
     this.instancedMeshes = []; // GPU instanced meshes (grass, flowers)
+    this.endPortalMeshes = []; // End portal and end gateway meshes
     
     // Stats
     this.totalBlocks = 0;
@@ -189,9 +204,10 @@ export class ChunkManager {
     this.entitySystem = new EntitySystem();
     this.entitiesEnabled = options.enableEntities !== false;
     
-    // Enable debug grid for particle collision detection (needs block data)
-    // This stores block IDs so particles can collide with blocks
-    this.debugGrid = this.particlesEnabled ? new BinaryGrid() : null;
+    // Enable debug grid for particle collision detection AND block inspector
+    // This stores block IDs so particles can collide with blocks and inspector can look up block info
+    // Always create it since block inspector needs it regardless of particle settings
+    this.debugGrid = new BinaryGrid();
     
     // Additional debug data for block inspector
     this.debugStateGrid = null;      // BlockStateGrid for block state properties
@@ -252,6 +268,88 @@ export class ChunkManager {
     setMaterialLightingEnabled(this.transparentModelMaterial, enabled);
     setMaterialLightingEnabled(this.overlayModelMaterial, enabled);
     console.log(`[ChunkManager] Lighting: ${enabled ? 'enabled' : 'disabled'}`);
+  }
+  
+  /**
+   * Pre-warm GPU by uploading materials and compiling shaders
+   * Call this once after renderer is available to avoid stalls during gameplay
+   * 
+   * This creates small temporary meshes with each material, triggers a render
+   * to compile shaders and upload textures, then cleans up.
+   * 
+   * @param {THREE.WebGLRenderer} renderer - The Three.js renderer
+   * @param {THREE.Camera} camera - The camera to render with
+   * @returns {number} Time taken in milliseconds
+   */
+  warmupGPU(renderer, camera) {
+    if (!renderer || !camera) {
+      console.warn('[ChunkManager] Cannot warmup GPU: missing renderer or camera');
+      return 0;
+    }
+    
+    console.log('[ChunkManager] Starting GPU warmup...');
+    const startTime = performance.now();
+    
+    // Create a simple triangle geometry for warmup
+    const warmupGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0.5, 1, 0]);
+    const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+    const colors = new Float32Array([1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    const texIndices = new Float32Array([0, 0, 0]);
+    const skyLight = new Float32Array([15, 15, 15]);
+    const blockLight = new Float32Array([0, 0, 0]);
+    
+    warmupGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    warmupGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    warmupGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    warmupGeometry.setAttribute('texIndex', new THREE.BufferAttribute(texIndices, 1));
+    warmupGeometry.setAttribute('skyLight', new THREE.BufferAttribute(skyLight, 1));
+    warmupGeometry.setAttribute('blockLight', new THREE.BufferAttribute(blockLight, 1));
+    
+    // Create temporary group far away from camera
+    const warmupGroup = new THREE.Group();
+    warmupGroup.position.set(-10000, -10000, -10000);
+    this.scene.add(warmupGroup);
+    
+    // All materials to warmup
+    const materialsToWarmup = [
+      this.solidMaterial,
+      this.waterMaterial,
+      this.lavaMaterial,
+      this.glassMaterial,
+      this.modelMaterial,
+      this.transparentModelMaterial,
+      this.overlayModelMaterial,
+    ].filter(m => m); // Filter out null/undefined
+    
+    const meshes = [];
+    
+    // Create a mesh for each material
+    for (const material of materialsToWarmup) {
+      const mesh = new THREE.Mesh(warmupGeometry, material);
+      mesh.frustumCulled = false; // Force render even if out of view
+      warmupGroup.add(mesh);
+      meshes.push(mesh);
+    }
+    
+    // Render once to trigger shader compilation and texture uploads
+    try {
+      renderer.render(this.scene, camera);
+    } catch (e) {
+      console.warn('[ChunkManager] GPU warmup render failed:', e.message);
+    }
+    
+    // Clean up
+    for (const mesh of meshes) {
+      warmupGroup.remove(mesh);
+    }
+    this.scene.remove(warmupGroup);
+    warmupGeometry.dispose();
+    
+    const elapsed = performance.now() - startTime;
+    console.log(`[ChunkManager] GPU warmup complete: ${materialsToWarmup.length} materials in ${elapsed.toFixed(1)}ms`);
+    
+    return elapsed;
   }
   
   /**
@@ -812,6 +910,7 @@ export class ChunkManager {
     this.transparentModelMaterial.uniforms.uMaxY.value = maxY;
     this.overlayModelMaterial.uniforms.uMinY.value = minY;
     this.overlayModelMaterial.uniforms.uMaxY.value = maxY;
+    setEndPortalYRange(this.endPortalMaterial, minY, maxY);
   }
 
   /**
@@ -1025,6 +1124,7 @@ export class ChunkManager {
     const modelMaxDistSq = Math.min(detailDistanceBlocksSq, renderDistanceBlocksSq);
     updateMeshArrayVisibility(this.modelMeshes, modelMaxDistSq);
     updateMeshArrayVisibility(this.transparentModelMeshes, modelMaxDistSq);
+    updateMeshArrayVisibility(this.translucentModelMeshes, modelMaxDistSq);
     updateMeshArrayVisibility(this.overlayModelMeshes, modelMaxDistSq);
     updateMeshArrayVisibility(this.instancedMeshes, modelMaxDistSq);
     
@@ -1050,6 +1150,7 @@ export class ChunkManager {
       this.glassMeshes,
       this.modelMeshes,
       this.transparentModelMeshes,
+      this.translucentModelMeshes,
       this.overlayModelMeshes,
       this.instancedMeshes,
     ];
@@ -1718,6 +1819,37 @@ export class ChunkManager {
   }
 
   /**
+   * Load the end_sky.png texture for the end portal effect
+   * Called during initialization (async, non-blocking)
+   */
+  async _loadEndPortalTextures() {
+    try {
+      const loader = new THREE.TextureLoader();
+      const basePath = `${import.meta.env.BASE_URL}textures/1.21.11+Template/assets/minecraft/textures`;
+      
+      // Load both textures in parallel
+      // Sampler0: end_sky.png (purple noise texture)
+      // Sampler1: end_portal.png (dark starfield texture)
+      const [endSkyTexture, endPortalTexture] = await Promise.all([
+        new Promise((resolve, reject) => {
+          loader.load(`${basePath}/environment/end_sky.png`, resolve, undefined, reject);
+        }),
+        new Promise((resolve, reject) => {
+          loader.load(`${basePath}/entity/end_portal.png`, resolve, undefined, reject);
+        }),
+      ]);
+      
+      if (this.endPortalMaterial) {
+        updateEndPortalTextures(this.endPortalMaterial, endSkyTexture, endPortalTexture);
+        console.log('[ChunkManager] End portal textures loaded (end_sky.png + end_portal.png)');
+      }
+    } catch (error) {
+      console.warn('[ChunkManager] Failed to load end portal textures:', error.message);
+      // The EndPortalMaterial uses dark placeholders
+    }
+  }
+
+  /**
    * Initialize the particle system with the particle atlas
    * @param {ParticleAtlas} particleAtlas - The particle texture atlas
    */
@@ -1789,8 +1921,13 @@ export class ChunkManager {
    */
   updateParticles(deltaTime, time, camera) {
     // Process queued mesh creation (spread across frames)
+    // Pass camera position for movement-aware budgeting
     if (this._meshQueueProcessor) {
-      this._meshQueueProcessor();
+      if (camera) {
+        this._meshQueueProcessor(camera.position.x, camera.position.y, camera.position.z);
+      } else {
+        this._meshQueueProcessor();
+      }
     }
     
     if (!this.particlesEnabled || !this.particleSystem) return;
@@ -1875,7 +2012,7 @@ export class ChunkManager {
         collectEmitters: this.particleQuality !== 'off',
         smoothLighting: this.smoothLightingEnabled,
       });
-      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, entities, offset, stats, _grid, _stateGrid, _stateRegistry, _blockEntities } = result;
+      const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, translucentModelMesh, overlayModelMesh, instanceGroups: ig3, particleEmitters, beaconPositions, entities, offset, stats, _grid, _stateGrid, _stateRegistry, _blockEntities } = result;
       
       // Register particle emitters for torches and other light sources
       if (particleEmitters && this.particlesEnabled) {
@@ -1920,6 +2057,7 @@ export class ChunkManager {
       // Model meshes use smaller 32-block spatial chunks for better frustum culling
       if (modelMesh) this._addMeshesToScene(modelMesh, this.modelMaterial, this.modelGroup, this.modelMeshes, undefined, 32);
       if (transparentModelMesh) this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5, 32);
+      if (translucentModelMesh) this._addMeshesToScene(translucentModelMesh, this.translucentModelMaterial, this.translucentModelGroup, this.translucentModelMeshes, 0.75, 32);
       if (overlayModelMesh) this._addMeshesToScene(overlayModelMesh, this.overlayModelMaterial, this.overlayModelGroup, this.overlayModelMeshes, 4, 32);
       
       // Add GPU-instanced meshes for repeated blocks
@@ -2059,7 +2197,7 @@ export class ChunkManager {
         onStageChange?.(index, totalRegions, regionName, 'adding', 0);
         
         // Step 3: Add to scene immediately (user sees progress)
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, particleEmitters, beaconPositions, offset, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, translucentModelMesh, overlayModelMesh, instanceGroups, lodMeshes, modelLodMeshes, particleEmitters, beaconPositions, offset, stats } = result;
         
         // Set world offset for beacon beam manager (beacons use world coords, meshes use render coords)
         if (offset && this.beaconBeamManager) {
@@ -2145,6 +2283,12 @@ export class ChunkManager {
           } else {
             drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5, 32);
           }
+        }
+        
+        // Add translucent model meshes (slime, honey - blocks with inner cubes)
+        // Uses depthWrite: false so inner cube shows through outer shell
+        if (translucentModelMesh) {
+          drawCalls += this._addMeshesToScene(translucentModelMesh, this.translucentModelMaterial, this.translucentModelGroup, this.translucentModelMeshes, 0.75, 32);
         }
         onStageChange?.(index, totalRegions, regionName, 'adding', 85);
         
@@ -2378,7 +2522,7 @@ export class ChunkManager {
         // Stage 4: Adding to scene
         onStageChange?.(index, totalRegions, regionName, 'adding', 0);
         
-        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, beaconPositions: bp2, offset: off2, stats } = result;
+        const { solidMesh, waterMesh, lavaMesh, glassMesh, modelMesh, transparentModelMesh, translucentModelMesh, overlayModelMesh, instanceGroups: ig2, lodMeshes, modelLodMeshes, particleEmitters: pe2, beaconPositions: bp2, offset: off2, stats } = result;
         
         // Set world offset for beacon beam manager (beacons use world coords, meshes use render coords)
         if (off2 && this.beaconBeamManager) {
@@ -2464,6 +2608,12 @@ export class ChunkManager {
           } else {
             drawCalls += this._addMeshesToScene(transparentModelMesh, this.transparentModelMaterial, this.transparentModelGroup, this.transparentModelMeshes, 0.5, 32);
           }
+        }
+        
+        // Add translucent model meshes (slime, honey - blocks with inner cubes)
+        // Uses depthWrite: false so inner cube shows through outer shell
+        if (translucentModelMesh) {
+          drawCalls += this._addMeshesToScene(translucentModelMesh, this.translucentModelMaterial, this.translucentModelGroup, this.translucentModelMeshes, 0.75, 32);
         }
         onStageChange?.(index, totalRegions, regionName, 'adding', 85);
         
@@ -3380,6 +3530,7 @@ export class ChunkManager {
     this.transparentModelMaterial.dispose();
     this.overlayModelMaterial.dispose();
     this.instancedMaterial.dispose();
+    this.endPortalMaterial.dispose();
     
     this.scene.remove(this.solidGroup);
     this.scene.remove(this.waterGroup);

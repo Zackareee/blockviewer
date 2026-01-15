@@ -331,6 +331,9 @@ pub struct BlockProperties {
     /// Flower amount for pink petals
     pub flower_amount: Option<String>,
     
+    /// Segment amount for leaf litter
+    pub segment_amount: Option<String>,
+    
     /// Connection states for fences/walls
     pub north: Option<String>,
     pub east: Option<String>,

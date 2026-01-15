@@ -75,10 +75,17 @@ const FACE_VERTICES = {
 };
 
 // Texture name → tint type mapping
+// Must match TINT_TYPE values in src/data/biomeTinting.js:
+// NONE=0, GRASS=1, FOLIAGE=2, SPRUCE=3, BIRCH=4, WATER=5, REDSTONE=6, DRY_FOLIAGE=7, STEM=8
 const TINT_TYPES = {
   grass: 1,
   foliage: 2,
-  water: 3,
+  spruce: 3,
+  birch: 4,
+  water: 5,
+  redstone: 6,
+  dry_foliage: 7,
+  stem: 8,
 };
 
 const GRASS_TINT_TEXTURES = new Set([
@@ -93,8 +100,31 @@ const GRASS_TINT_TEXTURES = new Set([
 ]);
 
 const FOLIAGE_TINT_TEXTURES = new Set([
-  'oak_leaves', 'birch_leaves', 'spruce_leaves', 'jungle_leaves',
-  'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves', 'vine',
+  'oak_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves',
+  'vine',
+  // Lily pad uses foliage colormap
+  'lily_pad',
+  // Seagrass
+  'seagrass', 'tall_seagrass_top', 'tall_seagrass_bottom',
+  // Pink petals (stems are tinted)
+  'pink_petals',
+]);
+
+// Spruce and birch have fixed colors, not colormap-based
+const SPRUCE_TINT_TEXTURES = new Set(['spruce_leaves']);
+const BIRCH_TINT_TEXTURES = new Set(['birch_leaves']);
+
+// Pumpkin/melon stems have special growth-stage coloring
+const STEM_TINT_TEXTURES = new Set([
+  'pumpkin_stem', 'melon_stem',
+  'attached_pumpkin_stem', 'attached_melon_stem',
+]);
+
+// Dry foliage (pale garden biome)
+const DRY_FOLIAGE_TINT_TEXTURES = new Set([
+  'pale_oak_leaves', 'pale_moss', 'pale_hanging_moss',
+  'short_dry_grass', 'tall_dry_grass',
+  'leaf_litter', // Uses dry foliage tint, not regular foliage
 ]);
 
 // Model cache
@@ -121,9 +151,13 @@ function getTextureIndex(textureName) {
 
 function getTintType(textureName) {
   const normalized = textureName.replace('minecraft:', '').replace('block/', '');
-  if (GRASS_TINT_TEXTURES.has(normalized)) return 1;
-  if (FOLIAGE_TINT_TEXTURES.has(normalized)) return 2;
-  if (normalized.includes('water')) return 3;
+  if (GRASS_TINT_TEXTURES.has(normalized)) return TINT_TYPES.grass;        // 1
+  if (FOLIAGE_TINT_TEXTURES.has(normalized)) return TINT_TYPES.foliage;    // 2
+  if (SPRUCE_TINT_TEXTURES.has(normalized)) return TINT_TYPES.spruce;      // 3
+  if (BIRCH_TINT_TEXTURES.has(normalized)) return TINT_TYPES.birch;        // 4
+  if (normalized.includes('water')) return TINT_TYPES.water;               // 5
+  if (DRY_FOLIAGE_TINT_TEXTURES.has(normalized)) return TINT_TYPES.dry_foliage; // 7
+  if (STEM_TINT_TEXTURES.has(normalized)) return TINT_TYPES.stem;          // 8
   return 0;
 }
 
@@ -662,6 +696,7 @@ function writeBinary(manifest) {
     if (block.flags.hasPositionOffset) flags |= 0x02;
     if (block.flags.isTransparent) flags |= 0x04;
     if (block.flags.noShade) flags |= 0x08;
+    if (block.flags.hasInnerCube) flags |= 0x10;
     buffer.writeUInt8(flags, offset); offset += 1;
     
     for (const variant of block.variants) {

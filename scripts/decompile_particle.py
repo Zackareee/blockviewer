@@ -335,59 +335,173 @@ SPAWN RATE:
   Example: MC 0.3 (30% per animateTick) → BV ~1.2/sec
 """)
 
-def find_particle_class(name):
-    """Find a particle class file by name"""
-    base_dir = Path("minecraft_versions/1.21.11_unobfuscated/net/minecraft/client/particle")
+def find_class_file(name):
+    """Find a class file by name in particle OR block directories"""
+    search_dirs = [
+        Path("minecraft_versions/1.21.11_unobfuscated/net/minecraft/client/particle"),
+        Path("minecraft_versions/1.21.11_unobfuscated/net/minecraft/world/level/block"),
+    ]
     
-    if not base_dir.exists():
-        print(f"Error: Particle directory not found: {base_dir}")
-        return None
+    all_matches = []
     
-    # Try exact match first
-    exact = base_dir / f"{name}.class"
-    if exact.exists():
-        return str(exact)
+    for base_dir in search_dirs:
+        if not base_dir.exists():
+            continue
+        
+        # Try exact match first
+        exact = base_dir / f"{name}.class"
+        if exact.exists():
+            return str(exact)
+        
+        # Try with Provider suffix (for particle classes)
+        provider = base_dir / f"{name}Provider.class"
+        if provider.exists():
+            return str(provider)
+        
+        # Try with Block suffix (for block classes)
+        block = base_dir / f"{name}Block.class"
+        if block.exists():
+            return str(block)
+        
+        # Try with Particle suffix
+        particle = base_dir / f"{name}Particle.class"
+        if particle.exists():
+            return str(particle)
+        
+        # Search for partial matches
+        matches = list(base_dir.glob(f"*{name}*.class"))
+        all_matches.extend(matches)
     
-    # Try with Provider suffix
-    provider = base_dir / f"{name}Provider.class"
-    if provider.exists():
-        return str(provider)
-    
-    # Search for partial matches
-    matches = list(base_dir.glob(f"*{name}*.class"))
-    if matches:
-        print(f"Found {len(matches)} matching files:")
-        for m in matches[:10]:
-            print(f"  {m.name}")
-        if len(matches) > 10:
-            print(f"  ... and {len(matches) - 10} more")
+    if all_matches:
+        print(f"Found {len(all_matches)} matching files:")
+        for m in sorted(all_matches, key=lambda x: x.name)[:15]:
+            print(f"  {m.parent.name}/{m.name}")
+        if len(all_matches) > 15:
+            print(f"  ... and {len(all_matches) - 15} more")
         print()
-        return str(matches[0])
+        return str(all_matches[0])
     
     return None
+
+
+def find_related_classes(name):
+    """Find all related classes (particle + block + providers) for a given name"""
+    search_dirs = [
+        Path("minecraft_versions/1.21.11_unobfuscated/net/minecraft/client/particle"),
+        Path("minecraft_versions/1.21.11_unobfuscated/net/minecraft/world/level/block"),
+    ]
+    
+    related = []
+    search_terms = [name]
+    
+    # Add common variations
+    if 'Block' not in name and 'Particle' not in name:
+        search_terms.extend([f"{name}Block", f"{name}Particle"])
+    
+    for base_dir in search_dirs:
+        if not base_dir.exists():
+            continue
+        
+        for term in search_terms:
+            # Find all classes containing this term
+            matches = list(base_dir.glob(f"*{term}*.class"))
+            related.extend(matches)
+    
+    # Remove duplicates and sort
+    unique = list(set(related))
+    return sorted(unique, key=lambda x: x.name)
+
+def analyze_all_related(name):
+    """Analyze all related classes for a given name"""
+    related = find_related_classes(name)
+    
+    if not related:
+        print(f"No related classes found for '{name}'")
+        return
+    
+    print("=" * 80)
+    print(f"ANALYZING ALL RELATED CLASSES FOR: {name}")
+    print("=" * 80)
+    print(f"Found {len(related)} related class files\n")
+    
+    for filepath in related:
+        try:
+            analysis = analyze_particle_class(str(filepath))
+            
+            # Skip if no numeric constants
+            if not analysis['floats'] and not analysis['doubles'] and not analysis['integers']:
+                continue
+            
+            print(f"--- {filepath.parent.name}/{filepath.name} ---")
+            
+            if analysis['floats']:
+                print("  Floats:")
+                for idx, value in sorted(analysis['floats'], key=lambda x: x[0]):
+                    print(f"    [{idx:3d}] {value:.6f}")
+            
+            if analysis['doubles']:
+                print("  Doubles:")
+                for idx, value in sorted(analysis['doubles'], key=lambda x: x[0]):
+                    print(f"    [{idx:3d}] {value:.6f}")
+            
+            if analysis['integers']:
+                useful_ints = [(i, v) for i, v in analysis['integers'] if 0 <= v < 1000]
+                if useful_ints:
+                    print("  Integers (0-999):")
+                    for idx, value in sorted(useful_ints, key=lambda x: x[0]):
+                        print(f"    [{idx:3d}] {value}")
+            
+            print()
+            
+        except Exception as e:
+            print(f"  Error: {e}")
+            print()
+
 
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
+        print("\nSearches both particle AND block class directories.")
         print("\nAvailable particle classes:")
         base_dir = Path("minecraft_versions/1.21.11_unobfuscated/net/minecraft/client/particle")
         if base_dir.exists():
-            classes = sorted([f.name for f in base_dir.glob("*.class") if 'Provider' in f.name])
+            classes = sorted([f.name for f in base_dir.glob("*.class") if 'Provider' in f.name or 'Particle' in f.name])
             for c in classes[:20]:
                 print(f"  {c}")
             if len(classes) > 20:
                 print(f"  ... and {len(classes) - 20} more")
+        
+        print("\nExample block classes with particles:")
+        block_dir = Path("minecraft_versions/1.21.11_unobfuscated/net/minecraft/world/level/block")
+        if block_dir.exists():
+            # Show some common particle-emitting blocks
+            particle_blocks = ['Torch', 'Campfire', 'Candle', 'Spore', 'Firefly', 'Leaves', 'Lava', 'Fire']
+            for term in particle_blocks:
+                matches = list(block_dir.glob(f"*{term}*.class"))
+                if matches:
+                    print(f"  {matches[0].name}")
         return
     
     target = sys.argv[1]
+    
+    # Check for --all flag to analyze all related classes
+    analyze_related = '--all' in sys.argv or '-a' in sys.argv
+    
+    if analyze_related:
+        # Remove flags from target if present
+        target = [arg for arg in sys.argv[1:] if not arg.startswith('-')][0]
+        analyze_all_related(target)
+        print_conversion_guide()
+        return
     
     # Check if it's a file path or a name
     if os.path.exists(target):
         filepath = target
     else:
-        filepath = find_particle_class(target)
+        filepath = find_class_file(target)
         if not filepath:
-            print(f"Error: Could not find particle class for '{target}'")
+            print(f"Error: Could not find class for '{target}'")
+            print(f"Try: python3 {sys.argv[0]} {target} --all")
             return
     
     print(f"\nAnalyzing: {filepath}\n")
@@ -424,6 +538,27 @@ def main():
   hasPhysics: true,             // Collide with blocks?
 }
 """)
+        
+        # Suggest related classes
+        print()
+        print("=" * 80)
+        print("RELATED CLASSES (use --all to analyze all)")
+        print("=" * 80)
+        # Extract base name for searching
+        base_name = os.path.basename(filepath).replace('.class', '')
+        # Remove common suffixes/prefixes for better matching
+        for suffix in ['Block', 'Particle', 'Provider', '$']:
+            idx = base_name.find(suffix)
+            if idx > 0:
+                base_name = base_name[:idx]
+                break
+        
+        related = find_related_classes(base_name)
+        if related:
+            for r in related[:10]:
+                print(f"  {r.parent.name}/{r.name}")
+            if len(related) > 10:
+                print(f"  ... and {len(related) - 10} more")
         
     except Exception as e:
         print(f"Error analyzing class file: {e}")

@@ -88,8 +88,6 @@ const FOLIAGE_TINTED_BLOCKS = new Set([
   'minecraft:fern',
   'minecraft:large_fern',
   'minecraft:potted_fern',
-  // Leaf litter
-  'minecraft:leaf_litter',
   // Lily pad
   'minecraft:lily_pad',
   // Seagrass (underwater plants)
@@ -130,6 +128,8 @@ const DRY_FOLIAGE_TINTED_BLOCKS = new Set([
   // Dry grass variants (1.21+)
   'minecraft:short_dry_grass',
   'minecraft:tall_dry_grass',
+  // Leaf litter (uses dry foliage, not regular foliage)
+  'minecraft:leaf_litter',
 ]);
 
 // Block names with stem tint (pumpkin/melon stems)

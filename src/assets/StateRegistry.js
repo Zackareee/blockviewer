@@ -24,6 +24,20 @@ const TEXTURE_ROTATION_BLOCKS = new Set([
   'leaf_litter',
 ]);
 
+// Patterns for transparent PARTIAL blocks that need special rendering
+// These blocks use single-sided rendering with transparency
+// Note: Full cube transparent blocks (ice, glass) are handled by FastMesher, not here
+const TRANSPARENT_MODEL_PATTERNS = [
+  '_pane',           // Glass panes (all stained variants)
+  'iron_bars',       // Iron bars
+  'copper_bars',     // Copper bars
+  'slime_block',     // Translucent with inner cube
+  'honey_block',     // Translucent with inner cube
+  'nether_portal',   // Portal effect
+  'powder_snow',     // Hollow translucent block
+  'mangrove_roots',  // See-through roots
+];
+
 // Blocks that have random Y-rotation in their blockstate (as variant arrays)
 // but need actual MODEL rotation applied at render time by ModelMesher.
 // For these blocks, we only store the base (non-rotated) geometry.
@@ -224,6 +238,18 @@ class StateRegistry {
       // Pass model path and uvlock for proper caching and UV handling
       const geom = this.modelGeometry.getGeometry(model, rotX, rotY, modelPath, uvlock);
       if (geom) {
+        // Set transparency flag based on block name patterns
+        // Note: packed_ice and blue_ice are OPAQUE, not transparent
+        const isPackedOrBlueIce = state.blockName.includes('packed_ice') || state.blockName.includes('blue_ice');
+        geom.isTransparent = !isPackedOrBlueIce && TRANSPARENT_MODEL_PATTERNS.some(pattern => state.blockName.includes(pattern));
+        
+        // Set overlay flag based on whether any face is an overlay (torch bulb panels, etc.)
+        geom.isOverlay = geom.cullFaces?.some(face => face.overlay) || false;
+        
+        // Set shade flag based on whether any face has shading enabled
+        // Default to true if no explicit shade info (most blocks use shading)
+        geom.hasShade = geom.cullFaces?.some(face => face.shade !== false) ?? true;
+        
         state.geometry.push(geom);
         if (!geom.isFullCube) {
           state.isFullCube = false;

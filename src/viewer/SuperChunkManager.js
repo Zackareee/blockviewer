@@ -69,9 +69,20 @@ class MeshCreationQueue {
     // At 60fps, each frame has ~16ms total - leaving more headroom reduces stutter
     this.frameBudgetMs = 2.0;
     
+    // Movement-aware budgeting: reduce budget during camera movement
+    this.movingBudgetMs = 0.5;  // Very small budget during fast movement
+    this.normalBudgetMs = 2.0;  // Normal budget when stationary
+    
     // Maximum meshes per frame (prevents one huge mesh from blocking)
     // For worst-case detailed worlds, limit to 2 meshes even if time allows
     this.maxMeshesPerFrame = 2;
+    this.movingMaxMeshes = 1;   // Only 1 mesh during movement
+    this.normalMaxMeshes = 2;   // Normal limit when stationary
+    
+    // Camera movement tracking
+    this._cameraMovingFast = false;
+    this._lastCameraPos = { x: 0, y: 0, z: 0 };
+    this._movementThreshold = 2.0; // Movement speed threshold (blocks/frame)
     
     // Priority order: solid first for quick visual feedback, then models, then transparent
     this.priorityOrder = ['solid', 'modelOpaque', 'modelOverlay', 'glass', 'modelTransparent', 'water', 'lava'];
@@ -89,15 +100,64 @@ class MeshCreationQueue {
   }
   
   /**
+   * Update camera position to detect movement
+   * Call this each frame before processFrame
+   * 
+   * @param {number} x - Camera X position
+   * @param {number} y - Camera Y position
+   * @param {number} z - Camera Z position
+   */
+  updateCameraPosition(x, y, z) {
+    const dx = x - this._lastCameraPos.x;
+    const dy = y - this._lastCameraPos.y;
+    const dz = z - this._lastCameraPos.z;
+    const distSq = dx * dx + dy * dy + dz * dz;
+    
+    this._cameraMovingFast = distSq > this._movementThreshold * this._movementThreshold;
+    
+    this._lastCameraPos.x = x;
+    this._lastCameraPos.y = y;
+    this._lastCameraPos.z = z;
+    
+    // Dynamically adjust budget based on movement
+    if (this._cameraMovingFast) {
+      this.frameBudgetMs = this.movingBudgetMs;
+      this.maxMeshesPerFrame = this.movingMaxMeshes;
+    } else {
+      this.frameBudgetMs = this.normalBudgetMs;
+      this.maxMeshesPerFrame = this.normalMaxMeshes;
+    }
+  }
+  
+  /**
+   * Check if camera is currently moving fast
+   * @returns {boolean}
+   */
+  isCameraMovingFast() {
+    return this._cameraMovingFast;
+  }
+  
+  /**
    * Configure the queue for different performance scenarios
-   * @param {Object} options - { frameBudgetMs, maxMeshesPerFrame }
+   * @param {Object} options - { frameBudgetMs, maxMeshesPerFrame, movingBudgetMs, movingMaxMeshes }
    */
   configure(options = {}) {
     if (options.frameBudgetMs !== undefined) {
+      this.normalBudgetMs = options.frameBudgetMs;
       this.frameBudgetMs = options.frameBudgetMs;
     }
     if (options.maxMeshesPerFrame !== undefined) {
+      this.normalMaxMeshes = options.maxMeshesPerFrame;
       this.maxMeshesPerFrame = options.maxMeshesPerFrame;
+    }
+    if (options.movingBudgetMs !== undefined) {
+      this.movingBudgetMs = options.movingBudgetMs;
+    }
+    if (options.movingMaxMeshes !== undefined) {
+      this.movingMaxMeshes = options.movingMaxMeshes;
+    }
+    if (options.movementThreshold !== undefined) {
+      this._movementThreshold = options.movementThreshold;
     }
   }
   
@@ -241,6 +301,8 @@ class MeshCreationQueue {
  * When multiple workers complete at once, we queue their results and process
  * 1 super-chunk per frame to avoid lag spikes. Each super-chunk creates
  * all its meshes together (no visual popping).
+ * 
+ * Supports movement-aware processing: skips processing during fast camera movement.
  */
 class SuperChunkCompletionQueue {
   constructor() {
@@ -248,6 +310,18 @@ class SuperChunkCompletionQueue {
     this.isProcessing = false;
     this.maxPerFrame = 1; // Max super-chunks to process per frame (keep low - each is expensive)
     this.onComplete = null; // Callback when a super-chunk is processed
+    
+    // Movement-aware processing
+    this._skipDuringMovement = true; // Skip processing during fast camera movement
+    this._cameraMovingFast = false;
+  }
+  
+  /**
+   * Update whether camera is moving fast
+   * @param {boolean} isMoving
+   */
+  setCameraMovingFast(isMoving) {
+    this._cameraMovingFast = isMoving;
   }
   
   /**
@@ -259,11 +333,17 @@ class SuperChunkCompletionQueue {
   
   /**
    * Process queued super-chunks with a per-frame limit
+   * Skips processing during fast camera movement to maintain smooth frame rates
    * @param {Function} processFn - Function to process a single result: (job, result) => Promise<void>
    * @returns {Promise<number>} Number of super-chunks processed
    */
   async process(processFn) {
     if (this.queue.length === 0) return 0;
+    
+    // Skip during fast camera movement to prioritize smooth frame rates
+    if (this._skipDuringMovement && this._cameraMovingFast) {
+      return 0;
+    }
     
     this.isProcessing = true;
     let processed = 0;
@@ -319,6 +399,102 @@ class SuperChunkCompletionQueue {
    */
   clear() {
     this.queue = [];
+  }
+}
+
+/**
+ * VisibilityWarmupQueue - Staggers mesh visibility to spread GPU buffer uploads
+ * 
+ * When a mesh is first rendered, Three.js uploads its buffers to the GPU.
+ * This can cause frame drops if many meshes become visible at once.
+ * 
+ * This queue:
+ * 1. Creates meshes with visible = false (no GPU upload yet)
+ * 2. Makes 1-2 meshes visible per frame (staggered GPU uploads)
+ * 3. Respects camera movement (skips during fast movement)
+ */
+class VisibilityWarmupQueue {
+  constructor() {
+    this.queue = [];
+    this.maxPerFrame = 2;           // Max meshes to make visible per frame
+    this.movingMaxPerFrame = 0;     // Skip during fast movement
+    this._cameraMovingFast = false;
+  }
+  
+  /**
+   * Add a mesh to the warmup queue
+   * @param {THREE.Mesh} mesh - Mesh to make visible later
+   */
+  add(mesh) {
+    if (!mesh) return;
+    this.queue.push(mesh);
+  }
+  
+  /**
+   * Update whether camera is moving fast
+   * @param {boolean} isMoving
+   */
+  setCameraMovingFast(isMoving) {
+    this._cameraMovingFast = isMoving;
+  }
+  
+  /**
+   * Process queued meshes - make some visible this frame
+   * @returns {number} Number of meshes made visible
+   */
+  processFrame() {
+    if (this.queue.length === 0) return 0;
+    
+    const limit = this._cameraMovingFast ? this.movingMaxPerFrame : this.maxPerFrame;
+    if (limit === 0) return 0;
+    
+    let processed = 0;
+    while (this.queue.length > 0 && processed < limit) {
+      const mesh = this.queue.shift();
+      if (mesh && !mesh.visible) {
+        mesh.visible = true;
+        processed++;
+      }
+    }
+    
+    return processed;
+  }
+  
+  /**
+   * Make all queued meshes visible immediately
+   * Use when immediate visibility is needed
+   */
+  processAll() {
+    let processed = 0;
+    while (this.queue.length > 0) {
+      const mesh = this.queue.shift();
+      if (mesh && !mesh.visible) {
+        mesh.visible = true;
+        processed++;
+      }
+    }
+    return processed;
+  }
+  
+  /**
+   * Clear the queue without making meshes visible
+   */
+  clear() {
+    this.queue = [];
+  }
+  
+  /**
+   * Get queue length
+   */
+  get length() {
+    return this.queue.length;
+  }
+  
+  /**
+   * Check if queue is empty
+   */
+  get isEmpty() {
+    return this.queue.length === 0;
   }
 }
 
@@ -553,6 +729,13 @@ export class SuperChunkManager {
     this.completionQueue = new SuperChunkCompletionQueue();
     this._pendingWorkerJobs = 0;
     
+    // Visibility warmup queue - staggers GPU buffer uploads
+    // Meshes are created invisible and made visible 1-2 per frame
+    this.visibilityWarmupQueue = new VisibilityWarmupQueue();
+    
+    // Enable/disable visibility staggering (can be toggled for debugging)
+    this._staggerVisibility = options.staggerVisibility ?? true;
+    
     // Disable neighbor rebuilds to improve performance
     // The race condition fix (rebuildPending flag) prevents duplicate meshes,
     // so neighbor rebuilds are optional for visual polish (water levels, lighting)
@@ -581,17 +764,52 @@ export class SuperChunkManager {
   }
   
   /**
+   * Update camera position for movement-aware mesh queue budgeting
+   * Call this each frame before processQueuedMeshes
+   * 
+   * @param {number} x - Camera X position
+   * @param {number} y - Camera Y position
+   * @param {number} z - Camera Z position
+   */
+  updateCameraPosition(x, y, z) {
+    this.meshCreationQueue.updateCameraPosition(x, y, z);
+    const isMovingFast = this.meshCreationQueue.isCameraMovingFast();
+    // Also update completion queue and visibility queue with movement status
+    this.completionQueue.setCameraMovingFast(isMovingFast);
+    this.visibilityWarmupQueue.setCameraMovingFast(isMovingFast);
+  }
+  
+  /**
+   * Check if camera is moving fast (useful for disabling other operations)
+   * @returns {boolean}
+   */
+  isCameraMovingFast() {
+    return this.meshCreationQueue.isCameraMovingFast();
+  }
+  
+  /**
    * Process queued mesh creation with per-frame budget
    * Call this each frame in the render loop for smooth chunk loading
+   * Budget is automatically reduced during camera movement
+   * 
+   * Also processes visibility warmup queue for staggered GPU uploads
    * 
    * @returns {number} Number of meshes created this frame
    */
   processQueuedMeshes() {
-    if (this.meshCreationQueue.isEmpty) return 0;
+    let count = 0;
     
-    const count = this.meshCreationQueue.processFrame(
-      (meshData, material, group) => this._createMesh(meshData, material, group)
-    );
+    // Process mesh creation queue
+    if (!this.meshCreationQueue.isEmpty) {
+      count = this.meshCreationQueue.processFrame(
+        (meshData, material, group) => this._createMesh(meshData, material, group)
+      );
+    }
+    
+    // Process visibility warmup queue (staggers GPU uploads)
+    if (!this.visibilityWarmupQueue.isEmpty) {
+      this.visibilityWarmupQueue.processFrame();
+    }
     
     return count;
   }
@@ -606,13 +824,17 @@ export class SuperChunkManager {
   /**
    * Flush all pending meshes immediately (no time budget)
    * Use for tests or when immediate completion is required
+   * Also makes all queued meshes visible immediately
    * 
    * @returns {number} Number of meshes created
    */
   flushMeshQueue() {
-    return this.meshCreationQueue.processAll(
+    const count = this.meshCreationQueue.processAll(
       (meshData, material, group) => this._createMesh(meshData, material, group)
     );
+    // Also flush visibility warmup queue
+    this.visibilityWarmupQueue.processAll();
+    return count;
   }
   
   /**
@@ -1598,117 +1820,119 @@ export class SuperChunkManager {
 
   /**
    * Create Three.js meshes from worker result
+   * Solid/water/lava/glass meshes come from worker
+   * Model meshes are built on main thread using serialized grids
    * 
-   * QUEUED: All mesh creation is now routed through meshCreationQueue
-   * This prevents frame drops by spreading mesh creation across frames.
-   * Solid meshes are prioritized for quick visual feedback.
+   * All meshes for a super-chunk are created together to avoid visual popping.
    */
   async _createMeshesFromWorkerResult(superChunk, result) {
-    // Queue all meshes for gradual creation (prevents frame drops)
-    // Priority: solid first for quick visual feedback, then models, then transparent
+    // Debug logging disabled for performance
+    // if (result.v3Debug) {
+    //   console.log(`[V3 Debug] Worker result:`, result.v3Debug);
+    // }
     
-    // Solid mesh (highest priority - shows terrain immediately)
+    // Solid mesh
     if (result.solid && result.solid.positions.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.solid,
-        material: this.chunkManager.solidMaterial,
-        group: this.chunkManager.solidGroup,
-        superChunk,
-        meshType: 'solid',
-        meshArray: this.chunkManager.solidMeshes,
-      });
-    }
-    
-    // Model opaque (second priority - shows blocks)
-    if (result.modelOpaque && result.modelOpaque.positions?.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.modelOpaque,
-        material: this.chunkManager.modelMaterial,
-        group: this.chunkManager.modelGroup,
-        superChunk,
-        meshType: 'modelOpaque',
-        meshArray: this.chunkManager.modelMeshes,
-      });
-    }
-    
-    // Model overlay (torch glow, etc.)
-    if (result.modelOverlay && result.modelOverlay.positions?.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.modelOverlay,
-        material: this.chunkManager.overlayMaterial,
-        group: this.chunkManager.overlayGroup,
-        superChunk,
-        meshType: 'modelOverlay',
-        renderOrder: 0.1,
-        meshArray: this.chunkManager.overlayMeshes,
-      });
-    }
-    
-    // Glass mesh
-    if (result.glass && result.glass.positions.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.glass,
-        material: this.chunkManager.glassMaterial,
-        group: this.chunkManager.glassGroup,
-        superChunk,
-        meshType: 'glass',
-        renderOrder: 1,
-        meshArray: this.chunkManager.glassMeshes,
-      });
-    }
-    
-    // Model transparent (glass panes, etc.)
-    if (result.modelTransparent && result.modelTransparent.positions?.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.modelTransparent,
-        material: this.chunkManager.transparentModelMaterial,
-        group: this.chunkManager.transparentModelGroup,
-        superChunk,
-        meshType: 'modelTransparent',
-        renderOrder: 0.5,
-        meshArray: this.chunkManager.transparentModelMeshes,
-      });
+      const mesh = this._createMesh(result.solid, this.chunkManager.solidMaterial, this.chunkManager.solidGroup);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.solidMeshes.push(mesh);
+      }
     }
     
     // Water mesh
     if (result.water && result.water.positions.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.water,
-        material: this.chunkManager.waterMaterial,
-        group: this.chunkManager.waterGroup,
-        superChunk,
-        meshType: 'water',
-        renderOrder: 2,
-        meshArray: this.chunkManager.waterMeshes,
-      });
+      const mesh = this._createMesh(result.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
+      if (mesh) {
+        mesh.renderOrder = 1; // Water renders after glass/leaves
+        superChunk.meshes.push(mesh);
+        this.chunkManager.waterMeshes.push(mesh);
+      }
     }
     
     // Lava mesh
     if (result.lava && result.lava.positions.length > 0) {
-      this.meshCreationQueue.add({
-        meshData: result.lava,
-        material: this.chunkManager.lavaMaterial,
-        group: this.chunkManager.lavaGroup,
-        superChunk,
-        meshType: 'lava',
-        renderOrder: 3,
-        meshArray: this.chunkManager.lavaMeshes,
-      });
+      const mesh = this._createMesh(result.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
+      if (mesh) {
+        mesh.renderOrder = 2; // Lava renders after water
+        superChunk.meshes.push(mesh);
+        this.chunkManager.lavaMeshes.push(mesh);
+      }
     }
     
-    // Track if V3 produced model meshes (for fallback detection)
-    const v3ProducedModels = !!(result.modelOpaque?.positions?.length > 0 ||
-                                result.modelTransparent?.positions?.length > 0 ||
-                                result.modelOverlay?.positions?.length > 0);
+    // Glass mesh
+    if (result.glass && result.glass.positions.length > 0) {
+      const mesh = this._createMesh(result.glass, this.chunkManager.glassMaterial, this.chunkManager.glassGroup);
+      if (mesh) {
+        mesh.renderOrder = 1;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.glassMeshes.push(mesh);
+      }
+    }
     
-    // Register beacon positions
+    // V3: Model meshes come directly from worker WASM
+    // Track if V3 produced any model meshes to skip legacy fallback
+    let v3ProducedModels = false;
+    
+    if (result.modelOpaque && result.modelOpaque.positions?.length > 0) {
+      const mesh = this._createMesh(result.modelOpaque, this.chunkManager.modelMaterial, this.chunkManager.modelGroup);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.modelMeshes.push(mesh);
+        v3ProducedModels = true;
+      }
+    }
+    
+    if (result.modelTransparent && result.modelTransparent.positions?.length > 0) {
+      const mesh = this._createMesh(result.modelTransparent, this.chunkManager.transparentModelMaterial, this.chunkManager.transparentModelGroup);
+      if (mesh) {
+        mesh.renderOrder = 0.5;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.transparentModelMeshes.push(mesh);
+        v3ProducedModels = true;
+      }
+    }
+    
+    if (result.modelOverlay && result.modelOverlay.positions?.length > 0) {
+      const mesh = this._createMesh(result.modelOverlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
+      if (mesh) {
+        mesh.renderOrder = 0.1;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.overlayMeshes?.push(mesh);
+        v3ProducedModels = true;
+      }
+    }
+    
+    // End portal mesh (end_portal and end_gateway blocks with special shader effect)
+    if (result.endPortal && result.endPortal.positions?.length > 0) {
+      const mesh = this._createEndPortalMesh(result.endPortal);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.endPortalMeshes.push(mesh);
+      }
+    }
+    
+    // Register beacon positions (filtered by activation status)
+    // Beacons with Levels = 0 (no valid pyramid) are excluded
     if (result.beaconPositions && result.beaconPositions.length > 0) {
       const beaconManager = this.chunkManager.beaconBeamManager;
       if (beaconManager) {
+        // Build inactive set from worker result
+        const inactiveSet = result.inactiveBeacons 
+          ? new Set(result.inactiveBeacons) 
+          : new Set();
+        
         for (let i = 0; i < result.beaconPositions.length; i += 3) {
           const x = result.beaconPositions[i];
           const y = result.beaconPositions[i + 1];
           const z = result.beaconPositions[i + 2];
+          
+          // Skip inactive beacons (Levels = 0, no valid pyramid)
+          const key = `${x},${y},${z}`;
+          if (inactiveSet.has(key)) {
+            continue;
+          }
+          
           beaconManager.addBeacon(x, y, z);
         }
       }
@@ -2095,7 +2319,7 @@ export class SuperChunkManager {
     if (meshResult.water && meshResult.water.positions.length > 0) {
       const mesh = this._createMesh(meshResult.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
       if (mesh) {
-        mesh.renderOrder = 2;
+        mesh.renderOrder = 1; // Water renders after glass/leaves
         superChunk.meshes.push(mesh);
         this.chunkManager.waterMeshes.push(mesh);
       }
@@ -2104,7 +2328,7 @@ export class SuperChunkManager {
     if (meshResult.lava && meshResult.lava.positions.length > 0) {
       const mesh = this._createMesh(meshResult.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
       if (mesh) {
-        mesh.renderOrder = 3;
+        mesh.renderOrder = 2; // Lava renders after water
         superChunk.meshes.push(mesh);
         this.chunkManager.lavaMeshes.push(mesh);
       }
@@ -2257,7 +2481,7 @@ export class SuperChunkManager {
       const data = this._convertArraysToTypedArrays(meshData.water);
       const mesh = this._createMesh(data, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
       if (mesh) {
-        mesh.renderOrder = 2;
+        mesh.renderOrder = 1; // Water renders after glass/leaves
         superChunk.meshes.push(mesh);
         this.chunkManager.waterMeshes.push(mesh);
       }
@@ -2268,7 +2492,7 @@ export class SuperChunkManager {
       const data = this._convertArraysToTypedArrays(meshData.lava);
       const mesh = this._createMesh(data, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
       if (mesh) {
-        mesh.renderOrder = 3;
+        mesh.renderOrder = 2; // Lava renders after water
         superChunk.meshes.push(mesh);
         this.chunkManager.lavaMeshes.push(mesh);
       }
@@ -2535,7 +2759,7 @@ export class SuperChunkManager {
       if (meshResult.water && meshResult.water.positions.length > 0) {
         const mesh = this._createMesh(meshResult.water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
         if (mesh) {
-          mesh.renderOrder = 2;
+          mesh.renderOrder = 1; // Water renders after glass/leaves
           superChunk.meshes.push(mesh);
           this.chunkManager.waterMeshes.push(mesh);
         }
@@ -2544,7 +2768,7 @@ export class SuperChunkManager {
       if (meshResult.lava && meshResult.lava.positions.length > 0) {
         const mesh = this._createMesh(meshResult.lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
         if (mesh) {
-          mesh.renderOrder = 3;
+          mesh.renderOrder = 2; // Lava renders after water
           superChunk.meshes.push(mesh);
           this.chunkManager.lavaMeshes.push(mesh);
         }
@@ -2694,7 +2918,7 @@ export class SuperChunkManager {
     if (water && water.positions.length > 0) {
       const mesh = this._createMesh(water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
       if (mesh) {
-        mesh.renderOrder = 2;
+        mesh.renderOrder = 1; // Water renders after glass/leaves
         superChunk.meshes.push(mesh);
         this.chunkManager.waterMeshes.push(mesh);
       }
@@ -2703,7 +2927,7 @@ export class SuperChunkManager {
     if (lava && lava.positions.length > 0) {
       const mesh = this._createMesh(lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
       if (mesh) {
-        mesh.renderOrder = 3;
+        mesh.renderOrder = 2; // Lava renders after water
         superChunk.meshes.push(mesh);
         this.chunkManager.lavaMeshes.push(mesh);
       }
@@ -2904,17 +3128,59 @@ export class SuperChunkManager {
     }
     
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeBoundingSphere();
+    
+    // Use pre-computed bounds from worker if available (avoids main thread computation)
+    // This is a significant performance win as computeBoundingSphere iterates all vertices
+    if (data.boundingSphere) {
+      geometry.boundingSphere = new THREE.Sphere(
+        new THREE.Vector3(
+          data.boundingSphere.center.x,
+          data.boundingSphere.center.y,
+          data.boundingSphere.center.z
+        ),
+        data.boundingSphere.radius
+      );
+    } else {
+      // Fallback for meshes without pre-computed bounds
+      geometry.computeBoundingSphere();
+    }
     
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = true;
     
-    // Store super-chunk center for visibility calculations
-    geometry.computeBoundingBox();
-    const center = new THREE.Vector3();
-    geometry.boundingBox.getCenter(center);
-    mesh.userData.chunkCenterX = center.x;
-    mesh.userData.chunkCenterZ = center.z;
+    // Use pre-computed bounding box from worker if available
+    if (data.boundingBox) {
+      geometry.boundingBox = new THREE.Box3(
+        new THREE.Vector3(
+          data.boundingBox.min.x,
+          data.boundingBox.min.y,
+          data.boundingBox.min.z
+        ),
+        new THREE.Vector3(
+          data.boundingBox.max.x,
+          data.boundingBox.max.y,
+          data.boundingBox.max.z
+        )
+      );
+      const center = new THREE.Vector3();
+      geometry.boundingBox.getCenter(center);
+      mesh.userData.chunkCenterX = center.x;
+      mesh.userData.chunkCenterZ = center.z;
+    } else {
+      // Fallback: compute bounding box for visibility calculations
+      geometry.computeBoundingBox();
+      const center = new THREE.Vector3();
+      geometry.boundingBox.getCenter(center);
+      mesh.userData.chunkCenterX = center.x;
+      mesh.userData.chunkCenterZ = center.z;
+    }
+    
+    // Stagger visibility: start invisible, queue for warmup
+    // This spreads GPU buffer uploads across frames
+    if (this._staggerVisibility) {
+      mesh.visible = false;
+      this.visibilityWarmupQueue.add(mesh);
+    }
     
     group.add(mesh);
     
@@ -3388,17 +3654,126 @@ export class SuperChunkManager {
     }
     
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
-    geometry.computeBoundingSphere();
+    
+    // Use pre-computed bounds from worker if available (avoids main thread computation)
+    if (meshData.boundingSphere) {
+      geometry.boundingSphere = new THREE.Sphere(
+        new THREE.Vector3(
+          meshData.boundingSphere.center.x,
+          meshData.boundingSphere.center.y,
+          meshData.boundingSphere.center.z
+        ),
+        meshData.boundingSphere.radius
+      );
+    } else {
+      geometry.computeBoundingSphere();
+    }
     
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = true;
     
-    // Store super-chunk center for visibility calculations
-    geometry.computeBoundingBox();
-    const center = new THREE.Vector3();
-    geometry.boundingBox.getCenter(center);
-    mesh.userData.chunkCenterX = center.x;
-    mesh.userData.chunkCenterZ = center.z;
+    // Use pre-computed bounding box from worker if available
+    if (meshData.boundingBox) {
+      geometry.boundingBox = new THREE.Box3(
+        new THREE.Vector3(
+          meshData.boundingBox.min.x,
+          meshData.boundingBox.min.y,
+          meshData.boundingBox.min.z
+        ),
+        new THREE.Vector3(
+          meshData.boundingBox.max.x,
+          meshData.boundingBox.max.y,
+          meshData.boundingBox.max.z
+        )
+      );
+      const center = new THREE.Vector3();
+      geometry.boundingBox.getCenter(center);
+      mesh.userData.chunkCenterX = center.x;
+      mesh.userData.chunkCenterZ = center.z;
+    } else {
+      // Fallback: compute bounding box for visibility calculations
+      geometry.computeBoundingBox();
+      const center = new THREE.Vector3();
+      geometry.boundingBox.getCenter(center);
+      mesh.userData.chunkCenterX = center.x;
+      mesh.userData.chunkCenterZ = center.z;
+    }
+    
+    // Stagger visibility: start invisible, queue for warmup
+    // This spreads GPU buffer uploads across frames
+    if (this._staggerVisibility) {
+      mesh.visible = false;
+      this.visibilityWarmupQueue.add(mesh);
+    }
+    
+    group.add(mesh);
+    
+    return mesh;
+  }
+  
+  /**
+   * Create a mesh specifically for end portal blocks (end_portal and end_gateway)
+   * Uses the end portal material with its special shader effect
+   * 
+   * @param {Object} meshData - Mesh data with positions, normals, indices
+   * @returns {THREE.Mesh|null} The created mesh or null if invalid
+   */
+  _createEndPortalMesh(meshData) {
+    if (!meshData) return null;
+    if (!meshData.positions || meshData.positions.length === 0) return null;
+    if (!meshData.normals || meshData.normals.length === 0) return null;
+    if (!meshData.indices || meshData.indices.length === 0) return null;
+    
+    const material = this.chunkManager.endPortalMaterial;
+    const group = this.chunkManager.endPortalGroup;
+    if (!material || !group) return null;
+    
+    const geometry = new THREE.BufferGeometry();
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
+    geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
+    
+    // Use pre-computed bounds from worker if available
+    if (meshData.boundingSphere) {
+      geometry.boundingSphere = new THREE.Sphere(
+        new THREE.Vector3(
+          meshData.boundingSphere.center.x,
+          meshData.boundingSphere.center.y,
+          meshData.boundingSphere.center.z
+        ),
+        meshData.boundingSphere.radius
+      );
+    } else {
+      geometry.computeBoundingSphere();
+    }
+    
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = true;
+    
+    // Use pre-computed bounding box from worker if available
+    if (meshData.boundingBox) {
+      geometry.boundingBox = new THREE.Box3(
+        new THREE.Vector3(
+          meshData.boundingBox.min.x,
+          meshData.boundingBox.min.y,
+          meshData.boundingBox.min.z
+        ),
+        new THREE.Vector3(
+          meshData.boundingBox.max.x,
+          meshData.boundingBox.max.y,
+          meshData.boundingBox.max.z
+        )
+      );
+    } else {
+      geometry.computeBoundingBox();
+    }
+    
+    // Stagger visibility like other meshes
+    if (this._staggerVisibility) {
+      mesh.visible = false;
+      this.visibilityWarmupQueue.add(mesh);
+    }
     
     group.add(mesh);
     

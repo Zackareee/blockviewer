@@ -156,12 +156,11 @@ pub fn mesh_models_v3(
                         (15, 0)
                     };
                     
-                    // Select target mesh
-                    let target = if block.is_transparent() {
-                        &mut result.transparent
-                    } else {
-                        &mut result.opaque
-                    };
+                    // Determine if this block needs per-face mesh selection
+                    // Blocks with inner cubes (slime, honey) have:
+                    // - Outer shell (faces WITH cullface) → transparent mesh
+                    // - Inner cube (faces WITHOUT cullface) → opaque mesh
+                    let has_inner_cube = block.has_inner_cube();
                     
                     // Process each face
                     for face in &variant.faces {
@@ -181,6 +180,20 @@ pub fn mesh_models_v3(
                         // Emit face with rotation/flip applied
                         // shade_flag = 1.0 for shaded blocks, 0.0 for no-shade blocks (cross models)
                         let shade_flag = if block.has_no_shade() { 0.0 } else { 1.0 };
+                        
+                        // Select target mesh:
+                        // - For blocks with inner cubes (slime, honey): ALL faces → translucent
+                        //   Uses depthWrite: false so inner cube shows through outer shell
+                        // - For other transparent blocks: all faces → transparent
+                        // - For opaque blocks: all faces → opaque
+                        let target = if has_inner_cube {
+                            &mut result.translucent
+                        } else if block.is_transparent() {
+                            &mut result.transparent
+                        } else {
+                            &mut result.opaque
+                        };
+                        
                         emit_face_v3_with_ao(
                             target,
                             face,

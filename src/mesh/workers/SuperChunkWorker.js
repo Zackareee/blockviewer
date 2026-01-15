@@ -63,6 +63,80 @@ const UNDERWATER_BLOCKS = new Set([
 const hasNativeDecompress = typeof DecompressionStream !== 'undefined';
 
 // ============================================================================
+// Bounding Volume Computation (for main thread optimization)
+// ============================================================================
+
+/**
+ * Compute bounding box and sphere from positions array
+ * This is done in worker to avoid blocking main thread
+ * 
+ * @param {Float32Array} positions - Vertex positions (xyz interleaved)
+ * @returns {{boundingBox: {min: {x,y,z}, max: {x,y,z}}, boundingSphere: {center: {x,y,z}, radius: number}}}
+ */
+function computeBounds(positions) {
+  if (!positions || positions.length < 3) {
+    return null;
+  }
+  
+  // Compute AABB
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  
+  for (let i = 0; i < positions.length; i += 3) {
+    const x = positions[i];
+    const y = positions[i + 1];
+    const z = positions[i + 2];
+    
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+  }
+  
+  // Compute bounding sphere center (AABB center)
+  const centerX = (minX + maxX) * 0.5;
+  const centerY = (minY + maxY) * 0.5;
+  const centerZ = (minZ + maxZ) * 0.5;
+  
+  // Compute radius as max distance from center to any vertex
+  let radiusSq = 0;
+  for (let i = 0; i < positions.length; i += 3) {
+    const dx = positions[i] - centerX;
+    const dy = positions[i + 1] - centerY;
+    const dz = positions[i + 2] - centerZ;
+    const distSq = dx * dx + dy * dy + dz * dz;
+    if (distSq > radiusSq) radiusSq = distSq;
+  }
+  
+  return {
+    boundingBox: {
+      min: { x: minX, y: minY, z: minZ },
+      max: { x: maxX, y: maxY, z: maxZ },
+    },
+    boundingSphere: {
+      center: { x: centerX, y: centerY, z: centerZ },
+      radius: Math.sqrt(radiusSq),
+    },
+  };
+}
+
+/**
+ * Add pre-computed bounds to a mesh result object
+ * Mutates the mesh object to add bounds properties
+ */
+function addBoundsToMesh(mesh) {
+  if (!mesh || !mesh.positions || mesh.positions.length === 0) return;
+  
+  const bounds = computeBounds(mesh.positions);
+  if (bounds) {
+    mesh.boundingBox = bounds.boundingBox;
+    mesh.boundingSphere = bounds.boundingSphere;
+  }
+}
+
+// ============================================================================
 // Worker State
 // ============================================================================
 
@@ -376,6 +450,20 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds) {
       indices: new Uint32Array(result.transparent_indices()),
       vertexCount: result.transparent_vertex_count(),
     },
+    // Translucent mesh (slime, honey) - check if WASM supports it
+    modelTranslucent: (typeof result.translucent_positions === 'function') ? {
+      positions: new Float32Array(result.translucent_positions()),
+      normals: new Float32Array(result.translucent_normals()),
+      uvs: new Float32Array(result.translucent_uvs()),
+      colors: new Float32Array(result.translucent_colors()),
+      texIndices: new Float32Array(result.translucent_tex_indices()),
+      tintTypes: new Float32Array(result.translucent_tint_types()),
+      skyLight: new Float32Array(result.translucent_sky_light()),
+      blockLight: new Float32Array(result.translucent_block_light()),
+      shadeFlags: new Float32Array(result.translucent_shade_flags()),
+      indices: new Uint32Array(result.translucent_indices()),
+      vertexCount: result.translucent_vertex_count(),
+    } : { positions: new Float32Array(0), vertexCount: 0 },
     modelOverlay: {
       positions: new Float32Array(result.overlay_positions()),
       normals: new Float32Array(result.overlay_normals()),
@@ -519,6 +607,50 @@ class NBTReader {
 function parseNBT(buffer) {
   const reader = new NBTReader(buffer);
   return reader.parse();
+}
+
+/**
+ * Extract inactive beacon positions from decoded chunks
+ * A beacon is inactive if its Levels property is 0 (no valid pyramid)
+ * 
+ * @param {Array} chunks - Array of decoded chunks with {x, z, data}
+ * @returns {Set<string>} Set of "x,y,z" keys for inactive beacons
+ */
+function extractInactiveBeacons(chunks) {
+  const inactive = new Set();
+  
+  for (const chunk of chunks) {
+    if (!chunk || !chunk.data) continue;
+    
+    // Block entities are stored differently in different Minecraft versions
+    const blockEntities = chunk.data.block_entities || 
+                         (chunk.data.Level && chunk.data.Level.TileEntities) || [];
+    
+    for (const entity of blockEntities) {
+      // Check if this is a beacon block entity
+      const id = entity.id || entity.Id;
+      if (!id) continue;
+      
+      const idLower = id.toLowerCase();
+      if (!idLower.includes('beacon')) continue;
+      
+      // Get position
+      const x = entity.x ?? entity.X ?? 0;
+      const y = entity.y ?? entity.Y ?? 0;
+      const z = entity.z ?? entity.Z ?? 0;
+      
+      // Get pyramid level (Levels property)
+      // In Minecraft: 0 = no valid pyramid, 1-4 = valid pyramid levels
+      const levels = entity.Levels ?? entity.levels ?? 0;
+      
+      // Only track inactive beacons (Levels = 0)
+      if (levels === 0) {
+        inactive.add(`${x},${y},${z}`);
+      }
+    }
+  }
+  
+  return inactive;
 }
 
 // ============================================================================
@@ -716,6 +848,171 @@ class WorkerStateRegistry {
     
     this.nextId = data.nextId || this.nextId;
   }
+}
+
+// ============================================================================
+// End Portal Geometry Generation
+// ============================================================================
+
+/**
+ * Detect end_portal and end_gateway blocks and generate simple geometry
+ * end_portal: flat horizontal plane at Y+0.75
+ * end_gateway: full cube (all 6 faces)
+ * 
+ * @param {WorkerBinaryGrid} grid - Block grid
+ * @param {WorkerBlockRegistry} registry - Block registry
+ * @returns {Object|null} Mesh data with positions, normals, indices
+ */
+function buildEndPortalMesh(grid, registry) {
+  // Find end portal block IDs
+  let endPortalId = 0;
+  let endGatewayId = 0;
+  
+  for (let id = 0; id < 4096; id++) {
+    const info = registry.getInfo(id);
+    if (!info?.name) continue;
+    const name = info.name.replace('minecraft:', '');
+    if (name === 'end_portal') endPortalId = id;
+    else if (name === 'end_gateway') endGatewayId = id;
+  }
+  
+  if (endPortalId === 0 && endGatewayId === 0) return null;
+  
+  // Collect portal block positions
+  const portals = []; // {x, y, z, isGateway}
+  
+  for (const [key, section] of grid.sections) {
+    const { chunkX: cx, chunkZ: cz, sectionY: sy } = parseSectionKey(key);
+    const baseX = cx * S;
+    const baseY = sectionToWorldY(sy);
+    const baseZ = cz * S;
+    
+    for (let i = 0; i < S3; i++) {
+      const bid = section[i] & BLOCK_ID_MASK;
+      if (bid !== endPortalId && bid !== endGatewayId) continue;
+      
+      const lx = i & 15;
+      const lz = (i >> 4) & 15;
+      const ly = i >> 8;
+      
+      portals.push({
+        x: baseX + lx,
+        y: baseY + ly,
+        z: baseZ + lz,
+        isGateway: bid === endGatewayId,
+      });
+    }
+  }
+  
+  if (portals.length === 0) return null;
+  
+  // Calculate buffer sizes
+  // end_portal: 1 face (top) = 4 verts, 6 indices
+  // end_gateway: 6 faces = 24 verts, 36 indices
+  let totalVerts = 0;
+  let totalIndices = 0;
+  for (const p of portals) {
+    if (p.isGateway) {
+      totalVerts += 24;
+      totalIndices += 36;
+    } else {
+      totalVerts += 4;
+      totalIndices += 6;
+    }
+  }
+  
+  const positions = new Float32Array(totalVerts * 3);
+  const normals = new Float32Array(totalVerts * 3);
+  const indices = new Uint32Array(totalIndices);
+  
+  let vi = 0; // vertex index
+  let ii = 0; // index index
+  
+  for (const p of portals) {
+    const x = p.x;
+    const y = p.y;
+    const z = p.z;
+    
+    if (p.isGateway) {
+      // Full cube for end_gateway (6 faces)
+      const faces = [
+        // up (+Y)
+        { verts: [[x,y+1,z], [x+1,y+1,z], [x+1,y+1,z+1], [x,y+1,z+1]], normal: [0,1,0] },
+        // down (-Y)
+        { verts: [[x,y,z+1], [x+1,y,z+1], [x+1,y,z], [x,y,z]], normal: [0,-1,0] },
+        // north (-Z)
+        { verts: [[x+1,y+1,z], [x,y+1,z], [x,y,z], [x+1,y,z]], normal: [0,0,-1] },
+        // south (+Z)
+        { verts: [[x,y+1,z+1], [x+1,y+1,z+1], [x+1,y,z+1], [x,y,z+1]], normal: [0,0,1] },
+        // east (+X)
+        { verts: [[x+1,y+1,z+1], [x+1,y+1,z], [x+1,y,z], [x+1,y,z+1]], normal: [1,0,0] },
+        // west (-X)
+        { verts: [[x,y+1,z], [x,y+1,z+1], [x,y,z+1], [x,y,z]], normal: [-1,0,0] },
+      ];
+      
+      for (const face of faces) {
+        const startVert = vi;
+        for (let v = 0; v < 4; v++) {
+          const pi = vi * 3;
+          positions[pi] = face.verts[v][0];
+          positions[pi + 1] = face.verts[v][1];
+          positions[pi + 2] = face.verts[v][2];
+          normals[pi] = face.normal[0];
+          normals[pi + 1] = face.normal[1];
+          normals[pi + 2] = face.normal[2];
+          vi++;
+        }
+        // Two triangles per face
+        indices[ii++] = startVert;
+        indices[ii++] = startVert + 1;
+        indices[ii++] = startVert + 2;
+        indices[ii++] = startVert;
+        indices[ii++] = startVert + 2;
+        indices[ii++] = startVert + 3;
+      }
+    } else {
+      // Flat plane for end_portal at Y+0.75 (top face only)
+      const py = y + 0.75;
+      const startVert = vi;
+      
+      // Top face vertices
+      const pi0 = vi * 3;
+      positions[pi0] = x; positions[pi0 + 1] = py; positions[pi0 + 2] = z;
+      normals[pi0] = 0; normals[pi0 + 1] = 1; normals[pi0 + 2] = 0;
+      vi++;
+      
+      const pi1 = vi * 3;
+      positions[pi1] = x + 1; positions[pi1 + 1] = py; positions[pi1 + 2] = z;
+      normals[pi1] = 0; normals[pi1 + 1] = 1; normals[pi1 + 2] = 0;
+      vi++;
+      
+      const pi2 = vi * 3;
+      positions[pi2] = x + 1; positions[pi2 + 1] = py; positions[pi2 + 2] = z + 1;
+      normals[pi2] = 0; normals[pi2 + 1] = 1; normals[pi2 + 2] = 0;
+      vi++;
+      
+      const pi3 = vi * 3;
+      positions[pi3] = x; positions[pi3 + 1] = py; positions[pi3 + 2] = z + 1;
+      normals[pi3] = 0; normals[pi3 + 1] = 1; normals[pi3 + 2] = 0;
+      vi++;
+      
+      // Two triangles
+      indices[ii++] = startVert;
+      indices[ii++] = startVert + 1;
+      indices[ii++] = startVert + 2;
+      indices[ii++] = startVert;
+      indices[ii++] = startVert + 2;
+      indices[ii++] = startVert + 3;
+    }
+  }
+  
+  return {
+    positions,
+    normals,
+    indices,
+    vertexCount: vi,
+    portalCount: portals.length,
+  };
 }
 
 // ============================================================================
@@ -2624,6 +2921,10 @@ async function processSuperChunk(data) {
   //   console.log(`[SuperChunkWorker] After decode: modelStateGrid has ${modelStateGrid.size} sections`);
   // }
   
+  // Extract inactive beacon positions (beacons with Levels = 0)
+  // This is used to filter out beacon beams on the main thread
+  const inactiveBeacons = extractInactiveBeacons(decodedChunks);
+  
   // Determine which neighbors we actually need based on loaded chunk positions
   // Only decompress neighbors adjacent to our actual chunk boundaries
   if (neighbors && neighbors.length > 0 && decodedChunks.length > 0) {
@@ -2792,6 +3093,7 @@ async function processSuperChunk(data) {
   }
   
   // Add grid meshes with all attributes (texture indices, rotations, tint types, lighting)
+  // Pre-compute bounding volumes in worker to avoid main thread computation
   if (gridMeshes.solid && gridMeshes.solid.vertexCount > 0) {
     result.solid = {
       positions: gridMeshes.solid.positions,
@@ -2806,6 +3108,7 @@ async function processSuperChunk(data) {
       vertexCount: gridMeshes.solid.vertexCount,
       triangleCount: gridMeshes.solid.indices.length / 3,
     };
+    addBoundsToMesh(result.solid);
     transferables.push(
       gridMeshes.solid.positions.buffer,
       gridMeshes.solid.normals.buffer,
@@ -2832,6 +3135,7 @@ async function processSuperChunk(data) {
       vertexCount: gridMeshes.water.vertexCount,
       triangleCount: gridMeshes.water.indices.length / 3,
     };
+    addBoundsToMesh(result.water);
     transferables.push(
       gridMeshes.water.positions.buffer,
       gridMeshes.water.normals.buffer,
@@ -2857,6 +3161,7 @@ async function processSuperChunk(data) {
       vertexCount: gridMeshes.lava.vertexCount,
       triangleCount: gridMeshes.lava.indices.length / 3,
     };
+    addBoundsToMesh(result.lava);
     transferables.push(
       gridMeshes.lava.positions.buffer,
       gridMeshes.lava.normals.buffer,
@@ -2883,6 +3188,7 @@ async function processSuperChunk(data) {
       vertexCount: gridMeshes.glass.vertexCount,
       triangleCount: gridMeshes.glass.indices.length / 3,
     };
+    addBoundsToMesh(result.glass);
     transferables.push(
       gridMeshes.glass.positions.buffer,
       gridMeshes.glass.normals.buffer,
@@ -2970,9 +3276,11 @@ async function processSuperChunk(data) {
   }
   
   // Combine V3 and multipart meshes, then add to transferables
+  // Pre-compute bounding volumes for model meshes too
   const combined = combineMeshes(v3Meshes, multipartMeshes);
   
   if (combined.modelOpaque && combined.modelOpaque.vertexCount > 0) {
+    addBoundsToMesh(combined.modelOpaque);
     result.modelOpaque = combined.modelOpaque;
     transferables.push(
       combined.modelOpaque.positions.buffer,
@@ -2989,6 +3297,7 @@ async function processSuperChunk(data) {
   }
   
   if (combined.modelTransparent && combined.modelTransparent.vertexCount > 0) {
+    addBoundsToMesh(combined.modelTransparent);
     result.modelTransparent = combined.modelTransparent;
     transferables.push(
       combined.modelTransparent.positions.buffer,
@@ -3004,7 +3313,25 @@ async function processSuperChunk(data) {
     );
   }
   
+  if (combined.modelTranslucent && combined.modelTranslucent.vertexCount > 0) {
+    addBoundsToMesh(combined.modelTranslucent);
+    result.modelTranslucent = combined.modelTranslucent;
+    transferables.push(
+      combined.modelTranslucent.positions.buffer,
+      combined.modelTranslucent.normals.buffer,
+      combined.modelTranslucent.uvs.buffer,
+      combined.modelTranslucent.colors.buffer,
+      combined.modelTranslucent.texIndices.buffer,
+      combined.modelTranslucent.tintTypes.buffer,
+      combined.modelTranslucent.skyLight.buffer,
+      combined.modelTranslucent.blockLight.buffer,
+      combined.modelTranslucent.shadeFlags.buffer,
+      combined.modelTranslucent.indices.buffer
+    );
+  }
+  
   if (combined.modelOverlay && combined.modelOverlay.vertexCount > 0) {
+    addBoundsToMesh(combined.modelOverlay);
     result.modelOverlay = combined.modelOverlay;
     transferables.push(
       combined.modelOverlay.positions.buffer,
@@ -3020,7 +3347,25 @@ async function processSuperChunk(data) {
     );
   }
   
+  // End Portal mesh generation (end_portal and end_gateway blocks)
+  const endPortalMesh = buildEndPortalMesh(grid, blockRegistry);
+  if (endPortalMesh && endPortalMesh.vertexCount > 0) {
+    addBoundsToMesh(endPortalMesh);
+    result.endPortal = endPortalMesh;
+    transferables.push(
+      endPortalMesh.positions.buffer,
+      endPortalMesh.normals.buffer,
+      endPortalMesh.indices.buffer
+    );
+  }
+  
   const totalTime = performance.now() - startTime;
+  
+  // Add inactive beacon positions to result (beacons with Levels = 0)
+  // These will be filtered out on main thread when registering beacons
+  if (inactiveBeacons.size > 0) {
+    result.inactiveBeacons = Array.from(inactiveBeacons);
+  }
   
   return {
     result,

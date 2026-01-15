@@ -44,6 +44,9 @@ pub mod block_flags {
     pub const IS_TRANSPARENT: u8 = 0x04;
     /// No directional shading (cross-model plants, etc.)
     pub const NO_SHADE: u8 = 0x08;
+    /// Has inner opaque cube with transparent outer shell (slime_block, honey_block)
+    /// Faces with cullface go to transparent mesh, faces without go to opaque
+    pub const HAS_INNER_CUBE: u8 = 0x10;
 }
 
 /// Face direction constants
@@ -132,6 +135,10 @@ impl BlockModelData {
     
     pub fn has_no_shade(&self) -> bool {
         self.flags & block_flags::NO_SHADE != 0
+    }
+    
+    pub fn has_inner_cube(&self) -> bool {
+        self.flags & block_flags::HAS_INNER_CUBE != 0
     }
 }
 

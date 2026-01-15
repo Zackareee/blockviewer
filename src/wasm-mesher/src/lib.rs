@@ -235,6 +235,7 @@ pub fn mesh_models_v3(
 pub struct ModelMeshResultWasm {
     opaque: models::geometry::ModelMeshData,
     transparent: models::geometry::ModelMeshData,
+    translucent: models::geometry::ModelMeshData, // For slime/honey blocks with inner cubes
     overlay: models::geometry::ModelMeshData,
     beacon_positions: Vec<i32>, // Packed as [x, y, z, x, y, z, ...]
 }
@@ -245,6 +246,7 @@ impl ModelMeshResultWasm {
         Self {
             opaque: models::geometry::ModelMeshData::new(),
             transparent: models::geometry::ModelMeshData::new(),
+            translucent: models::geometry::ModelMeshData::new(),
             overlay: models::geometry::ModelMeshData::new(),
             beacon_positions: Vec::new(),
         }
@@ -258,6 +260,7 @@ impl ModelMeshResultWasm {
         Self {
             opaque: result.opaque,
             transparent: result.transparent,
+            translucent: result.translucent,
             overlay: result.overlay,
             beacon_positions,
         }
@@ -292,6 +295,21 @@ impl ModelMeshResultWasm {
     pub fn transparent_position_count(&self) -> u32 { self.transparent.positions.len() as u32 }
     pub fn transparent_index_count(&self) -> u32 { self.transparent.indices.len() as u32 }
     pub fn transparent_vertex_count(&self) -> u32 { (self.transparent.positions.len() / 3) as u32 }
+    
+    // Translucent mesh accessors (slime, honey - blocks with inner cubes)
+    pub fn translucent_positions(&self) -> Vec<f32> { self.translucent.positions.clone() }
+    pub fn translucent_normals(&self) -> Vec<f32> { self.translucent.normals.clone() }
+    pub fn translucent_uvs(&self) -> Vec<f32> { self.translucent.uvs.clone() }
+    pub fn translucent_colors(&self) -> Vec<f32> { self.translucent.colors.clone() }
+    pub fn translucent_indices(&self) -> Vec<u32> { self.translucent.indices.clone() }
+    pub fn translucent_tex_indices(&self) -> Vec<f32> { self.translucent.tex_indices.clone() }
+    pub fn translucent_tint_types(&self) -> Vec<f32> { self.translucent.tint_types.clone() }
+    pub fn translucent_sky_light(&self) -> Vec<f32> { self.translucent.sky_light.clone() }
+    pub fn translucent_block_light(&self) -> Vec<f32> { self.translucent.block_light.clone() }
+    pub fn translucent_shade_flags(&self) -> Vec<f32> { self.translucent.shade_flags.clone() }
+    pub fn translucent_position_count(&self) -> u32 { self.translucent.positions.len() as u32 }
+    pub fn translucent_index_count(&self) -> u32 { self.translucent.indices.len() as u32 }
+    pub fn translucent_vertex_count(&self) -> u32 { (self.translucent.positions.len() / 3) as u32 }
     
     // Overlay mesh accessors
     pub fn overlay_positions(&self) -> Vec<f32> { self.overlay.positions.clone() }

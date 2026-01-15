@@ -628,6 +628,7 @@ export const BLOCK_COLORS = {
   'minecraft:soul_soil': '#4A3A2A',
   'minecraft:glowstone': '#FFDD75',
   'minecraft:shroomlight': '#F0C040',
+  'minecraft:magma_block': '#D84000',
   'minecraft:nether_portal': '#8A2ADA',
   'minecraft:respawn_anchor': '#4A2A6A',
 

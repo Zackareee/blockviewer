@@ -119,6 +119,84 @@ export class GeometryPool {
   }
   
   /**
+   * Pre-warm pooled geometries by uploading them to GPU
+   * This should be called once after the renderer is initialized
+   * to avoid GPU upload stalls during gameplay.
+   * 
+   * @param {THREE.WebGLRenderer} renderer - The Three.js renderer
+   * @param {THREE.Scene} scene - A scene to temporarily add meshes to
+   * @param {THREE.Camera} camera - Camera for rendering
+   * @param {THREE.Material} material - A basic material for warmup renders
+   */
+  warmupGPU(renderer, scene, camera, material) {
+    if (!renderer || !scene || !camera) {
+      console.warn('[GeometryPool] Cannot warmup GPU: missing renderer, scene, or camera');
+      return;
+    }
+    
+    // Use a basic material if none provided
+    const warmupMaterial = material || new THREE.MeshBasicMaterial({ visible: false });
+    
+    console.log('[GeometryPool] Starting GPU warmup...');
+    const startTime = performance.now();
+    let warmedUp = 0;
+    
+    // Create temporary group for warmup meshes
+    const warmupGroup = new THREE.Group();
+    warmupGroup.visible = false;
+    scene.add(warmupGroup);
+    
+    // Add one mesh from each pool type
+    for (const [type, pool] of this.pools) {
+      if (pool.length > 0) {
+        const geom = pool[0]; // Just peek, don't remove
+        
+        // Set a minimal draw range to force buffer upload
+        geom.setDrawRange(0, 3);
+        
+        // Create temporary mesh
+        const mesh = new THREE.Mesh(geom, warmupMaterial);
+        mesh.frustumCulled = false;
+        warmupGroup.add(mesh);
+        warmedUp++;
+      }
+    }
+    
+    // Render once to trigger GPU buffer uploads
+    const oldClearColor = renderer.getClearColor(new THREE.Color());
+    const oldClearAlpha = renderer.getClearAlpha();
+    
+    try {
+      // Render with clear to trigger all GPU uploads
+      renderer.render(scene, camera);
+    } catch (e) {
+      console.warn('[GeometryPool] GPU warmup render failed:', e.message);
+    }
+    
+    // Clean up
+    for (const mesh of warmupGroup.children) {
+      mesh.geometry.setDrawRange(0, 0); // Reset draw range
+    }
+    scene.remove(warmupGroup);
+    
+    // Dispose temporary material if we created it
+    if (!material) {
+      warmupMaterial.dispose();
+    }
+    
+    const elapsed = performance.now() - startTime;
+    console.log(`[GeometryPool] GPU warmup complete: ${warmedUp} geometries in ${elapsed.toFixed(1)}ms`);
+  }
+  
+  /**
+   * Check if GPU warmup has been performed
+   * @returns {boolean}
+   */
+  get isWarmedUp() {
+    return this._warmedUp === true;
+  }
+  
+  /**
    * Acquire a geometry from the pool
    * @param {string} type - Geometry type (solid, water, lava, glass, model, transparent, overlay)
    * @param {number} vertexCount - Required vertex count

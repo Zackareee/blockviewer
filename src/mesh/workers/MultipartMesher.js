@@ -140,6 +140,7 @@ export function combineMeshes(v3Meshes, multipartMeshes) {
   const result = {
     modelOpaque: null,
     modelTransparent: null,
+    modelTranslucent: null,
     modelOverlay: null,
     particleEmitters: [],
   };
@@ -153,6 +154,11 @@ export function combineMeshes(v3Meshes, multipartMeshes) {
   const transA = v3Meshes?.modelTransparent;
   const transB = multipartMeshes?.transparent;
   result.modelTransparent = mergeMeshData(transA, transB);
+
+  // Translucent meshes (slime, honey) - only from V3, multipart doesn't have these
+  if (v3Meshes?.modelTranslucent && v3Meshes.modelTranslucent.vertexCount > 0) {
+    result.modelTranslucent = v3Meshes.modelTranslucent;
+  }
 
   // Combine overlay meshes
   const overlayA = v3Meshes?.modelOverlay;

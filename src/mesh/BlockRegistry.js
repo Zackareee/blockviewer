@@ -138,8 +138,8 @@ const NON_CUBE_PATTERNS = [
   'stonecutter', 'heavy_core', 'dried_ghast',
   
   // Portals (thin panels, not full cubes)
-  // Note: end_portal and end_gateway use block entity renderers, not block models
-  'nether_portal',
+  // end_portal and end_gateway use special shader material (EndPortalMaterial.js)
+  'nether_portal', 'end_portal', 'end_gateway',
   
   // Path blocks (15 blocks tall, not 16)
   'farmland', 'dirt_path',
@@ -148,7 +148,8 @@ const NON_CUBE_PATTERNS = [
   'fire', 'soul_fire',
   
   // Special blocks with inner elements (not simple cubes)
-  'slime_block', 'honey_block', 'powder_snow', 'mangrove_roots',
+  // Note: 'mangrove_roots' is in EXACT_MATCH_NON_CUBES to avoid matching 'muddy_mangrove_roots'
+  'slime_block', 'honey_block', 'powder_snow',
   
   // Dripstone and amethyst
   'pointed_dripstone', 'amethyst_cluster', 'amethyst_bud',
@@ -471,6 +472,7 @@ export class BlockRegistry {
       'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
       'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
       'snow',                              // Snow layers (not snow_block)
+      'mangrove_roots',                    // See-through roots (not muddy_mangrove_roots)
       'chain',                             // Old name (pre-1.21) - still in old worlds
       'iron_chain',                        // Iron chain (renamed from 'chain' in 1.21)
       'copper_chain',                      // Copper chain variants
@@ -510,6 +512,16 @@ export class BlockRegistry {
       'item_frame', 'glow_item_frame',
       // Light block - 16 level variants
       'light',
+      // State-dependent texture blocks (lit state affects texture)
+      'redstone_lamp',                        // Uses redstone_lamp_on texture when lit
+      'copper_bulb',                          // Copper bulb variants use _lit textures when lit
+      'exposed_copper_bulb',
+      'weathered_copper_bulb',
+      'oxidized_copper_bulb',
+      'waxed_copper_bulb',
+      'waxed_exposed_copper_bulb',
+      'waxed_weathered_copper_bulb',
+      'waxed_oxidized_copper_bulb',
     ]);
     
     if (EXACT_MATCH_NON_CUBES.has(name)) {

@@ -309,6 +309,10 @@ class BlockstateResolver {
         if (value === 'true' || value === 'false') {
           propValue = 'false';
         }
+        // Special case: segment_amount defaults to "1" (leaf_litter)
+        else if (key === 'segment_amount') {
+          propValue = '1';
+        }
         // Numeric properties typically default to 0
         else if (!isNaN(value)) {
           propValue = '0';

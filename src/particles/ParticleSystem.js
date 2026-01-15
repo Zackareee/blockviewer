@@ -51,8 +51,13 @@ class Particle {
     this.onGround = false;  // Whether particle landed on ground
     // Firefly-style wandering behavior
     this.randomMomentum = false;       // Whether to randomly change direction over time
-    this.randomMomentumStrength = 0.05; // Velocity change per tick
-    this.randomMomentumBias = 0;       // Center bias for velocity changes
+    this.randomMomentumStrength = 0.05; // Max velocity magnitude
+    this.randomMomentumBias = 0;       // Y velocity bias (positive = down, negative = up)
+    this.wanderInterval = 0.5;         // How often to pick a new direction (seconds)
+    this.wanderTimer = 0;              // Time since last direction change
+    this.targetVx = 0;                 // Target velocity X
+    this.targetVy = 0;                 // Target velocity Y
+    this.targetVz = 0;                 // Target velocity Z
   }
   
   reset() {
@@ -76,6 +81,11 @@ class Particle {
     this.randomMomentum = false;
     this.randomMomentumStrength = 0.05;
     this.randomMomentumBias = 0;
+    this.wanderInterval = 0.5;
+    this.wanderTimer = 0;
+    this.targetVx = 0;
+    this.targetVy = 0;
+    this.targetVz = 0;
   }
 }
 
@@ -172,13 +182,31 @@ class ParticlePool {
         p.vy -= p.gravity * ticksElapsed * 0.05; // Scale factor for visual match
       }
       
-      // Apply random momentum changes (firefly wandering behavior)
+      // Firefly-style wandering behavior
+      // Instead of jittery per-tick changes, pick a target velocity and smoothly accelerate toward it
+      // Then periodically pick a new target direction for sustained flight
       if (p.randomMomentum) {
-        const strength = p.randomMomentumStrength * ticksElapsed;
-        const bias = p.randomMomentumBias;
-        p.vx += (Math.random() * 2 - 1) * strength + bias * (Math.random() - 0.5);
-        p.vy += (Math.random() * 2 - 1) * strength * 0.5 + bias * (Math.random() - 0.5) * 0.5;
-        p.vz += (Math.random() * 2 - 1) * strength + bias * (Math.random() - 0.5);
+        p.wanderTimer += deltaTime;
+        
+        // Pick a new target direction periodically (adds randomness to interval too)
+        if (p.wanderTimer >= p.wanderInterval) {
+          p.wanderTimer = 0;
+          // Randomize next interval slightly (0.5x to 1.5x base interval)
+          p.wanderInterval = (0.3 + Math.random() * 0.6) * 1.0; // 0.3-0.9 seconds
+          
+          // Pick new target velocity within strength bounds
+          const str = p.randomMomentumStrength;
+          p.targetVx = (Math.random() * 2 - 1) * str;
+          p.targetVy = (Math.random() * 2 - 1) * str * 0.5 + p.randomMomentumBias; // Y has bias
+          p.targetVz = (Math.random() * 2 - 1) * str;
+        }
+        
+        // Smoothly accelerate toward target velocity (lerp factor based on time)
+        // Higher factor = faster turning, lower = more gradual
+        const lerpFactor = Math.min(1.0, deltaTime * 3.0); // ~0.3 per frame at 10fps
+        p.vx += (p.targetVx - p.vx) * lerpFactor;
+        p.vy += (p.targetVy - p.vy) * lerpFactor;
+        p.vz += (p.targetVz - p.vz) * lerpFactor;
       }
       
       // Store old position for collision resolution
@@ -451,6 +479,12 @@ export class ParticleSystem {
     particle.randomMomentum = options.randomMomentum ?? false;
     particle.randomMomentumStrength = options.randomMomentumStrength ?? 0.05;
     particle.randomMomentumBias = options.randomMomentumBias ?? 0;
+    particle.wanderInterval = options.wanderInterval ?? 0.5;
+    particle.wanderTimer = Math.random() * particle.wanderInterval; // Stagger initial timers
+    // Initialize target velocity to current velocity for smooth start
+    particle.targetVx = particle.vx;
+    particle.targetVy = particle.vy;
+    particle.targetVz = particle.vz;
     
     // Get sprite info from atlas
     const spriteData = this.particleAtlas?.getParticleUV?.(type);

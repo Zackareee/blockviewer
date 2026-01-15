@@ -286,6 +286,12 @@ function AnimationUpdater({ managerRef }) {
       manager.lavaMaterial.uniforms.uTime.value = time;
     }
     
+    // Update end portal material (animated portal effect)
+    // Minecraft's GameTime goes from 0 to 1 over one game day (24000 ticks = 20 min = 1200 sec)
+    if (manager.endPortalMaterial?.uniforms?.uGameTime) {
+      manager.endPortalMaterial.uniforms.uGameTime.value = time / 1200.0;
+    }
+    
     // Update particle system
     if (manager.updateParticles) {
       // Use delta from useFrame callback - this is the correct frame delta time

@@ -94,7 +94,7 @@ const POSITION_OFFSET_BLOCKS = new Set([
   'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
 ]);
 
-// Blocks that are transparent
+// Blocks that are transparent (need alpha blending in render pass)
 const TRANSPARENT_BLOCKS = new Set([
   'short_grass', 'tall_grass', 'fern', 'large_fern',
   'dead_bush', 'nether_sprouts', 'crimson_roots', 'warped_roots',
@@ -110,6 +110,24 @@ const TRANSPARENT_BLOCKS = new Set([
   'oak_leaves', 'spruce_leaves', 'birch_leaves', 'jungle_leaves',
   'acacia_leaves', 'dark_oak_leaves', 'cherry_leaves', 'pale_oak_leaves',
   'mangrove_leaves', 'azalea_leaves', 'flowering_azalea_leaves',
+  // Render-transparent partial blocks (need alpha blending)
+  'nether_portal',
+  'iron_bars', 'copper_bars',
+  'slime_block', 'honey_block',
+  'powder_snow',
+  'mangrove_roots',
+]);
+
+// Patterns for transparent blocks (matched with .includes())
+const TRANSPARENT_BLOCK_PATTERNS = [
+  '_pane',  // All glass panes (glass_pane, stained glass panes)
+];
+
+// Blocks with inner opaque cubes and transparent outer shells
+// For these blocks: faces WITH cullface → transparent, faces WITHOUT → opaque
+const INNER_CUBE_BLOCKS = new Set([
+  'slime_block',
+  'honey_block',
 ]);
 
 // Full cube blocks (shouldn't be model blocks)
@@ -247,6 +265,18 @@ function classifyProperty(propName, propValue, blockName) {
     if (propName === 'axis') return 'geometry';
   }
   
+  // Redstone lamp: 'lit' affects the texture (uses redstone_lamp_on model when lit)
+  if (blockName === 'redstone_lamp') {
+    if (propName === 'lit') return 'geometry';
+  }
+  
+  // Copper bulbs: both 'lit' and 'powered' affect the texture
+  // (copper_bulb, copper_bulb_lit, copper_bulb_powered, copper_bulb_lit_powered)
+  if (blockName.includes('copper_bulb')) {
+    if (propName === 'lit') return 'geometry';
+    if (propName === 'powered') return 'geometry';
+  }
+  
   // General rules
   if (ROTATION_PROPERTIES.has(propName)) return 'rotation';
   if (GEOMETRY_PROPERTIES.has(propName)) return 'geometry';
@@ -278,8 +308,9 @@ function analyzeBlockstate(blockName, blockstate) {
     uniqueModels: new Set(),
     hasRandomRotation: RANDOM_ROTATION_BLOCKS.has(blockName),
     hasPositionOffset: POSITION_OFFSET_BLOCKS.has(blockName),
-    isTransparent: TRANSPARENT_BLOCKS.has(blockName),
+    isTransparent: TRANSPARENT_BLOCKS.has(blockName) || TRANSPARENT_BLOCK_PATTERNS.some(p => blockName.includes(p)),
     noShade: NO_SHADE_BLOCKS.has(blockName),
+    hasInnerCube: INNER_CUBE_BLOCKS.has(blockName),
   };
   
   if (blockstate.multipart) {
@@ -545,6 +576,7 @@ async function analyzeAllBlocks() {
         hasPositionOffset: analysis.hasPositionOffset,
         isTransparent: analysis.isTransparent,
         noShade: analysis.noShade,
+        hasInnerCube: analysis.hasInnerCube,
       },
     };
     

@@ -733,19 +733,23 @@ class ModelGeometry {
    * Minecraft uses clockwise rotation when viewed from the positive axis
    */
   _buildRotationMatrix(rotX, rotY) {
-    // Negate angles to convert from Minecraft's clockwise to standard CCW
-    const radX = (-rotX * Math.PI) / 180;
-    const radY = (-rotY * Math.PI) / 180;
+    const radX = (rotX * Math.PI) / 180;
+    const radY = (rotY * Math.PI) / 180;
     
     const cosX = Math.cos(radX), sinX = Math.sin(radX);
     const cosY = Math.cos(radY), sinY = Math.sin(radY);
 
     // Combined rotation: X first, then Y (Minecraft's actual order)
     // Matrix = Y * X (matrix multiplication is reverse of application order)
+    // 
+    // For clockwise rotation when viewed from positive axis:
+    // X rotation: [1, 0, 0; 0, cosX, sinX; 0, -sinX, cosX]
+    // Y rotation: [cosY, 0, -sinY; 0, 1, 0; sinY, 0, cosY]
+    // Combined Y * X:
     return [
-      cosY,   sinX * sinY,   cosX * sinY,
-      0,      cosX,         -sinX,
-      -sinY,  sinX * cosY,   cosX * cosY,
+      cosY,    sinX * sinY,  -cosX * sinY,
+      0,       cosX,          sinX,
+      sinY,   -sinX * cosY,   cosX * cosY,
     ];
   }
 
@@ -863,30 +867,31 @@ class ModelGeometry {
 
   /**
    * Rotate a cullface direction
-   * Uses negated angles to match Minecraft's clockwise rotation convention
+   * Uses clockwise rotation to match Minecraft's convention
    */
   _rotateCullface(cullface, rotX, rotY) {
     // Map cullface to direction vector
     const dir = [...CULLFACE_OFFSETS[cullface]];
     
     // Apply rotation: X first, then Y (Minecraft's order)
-    const radX = (-rotX * Math.PI) / 180;
-    const radY = (-rotY * Math.PI) / 180;
+    // Clockwise rotation when viewed from positive axis
+    const radX = (rotX * Math.PI) / 180;
+    const radY = (rotY * Math.PI) / 180;
     
-    // Rotate X first
+    // Rotate X first (clockwise from +X: Y->Z, Z->-Y)
     if (rotX !== 0) {
       const cosX = Math.cos(radX), sinX = Math.sin(radX);
       const y = dir[1], z = dir[2];
-      dir[1] = Math.round(cosX * y - sinX * z);
-      dir[2] = Math.round(sinX * y + cosX * z);
+      dir[1] = Math.round(cosX * y + sinX * z);
+      dir[2] = Math.round(-sinX * y + cosX * z);
     }
     
-    // Rotate Y second
+    // Rotate Y second (clockwise from +Y: X->-Z, Z->X)
     if (rotY !== 0) {
       const cosY = Math.cos(radY), sinY = Math.sin(radY);
       const x = dir[0], z = dir[2];
-      dir[0] = Math.round(cosY * x + sinY * z);
-      dir[2] = Math.round(-sinY * x + cosY * z);
+      dir[0] = Math.round(cosY * x - sinY * z);
+      dir[2] = Math.round(sinY * x + cosY * z);
     }
 
     // Map back to cullface name
@@ -916,17 +921,19 @@ class ModelGeometry {
     //
     // The goal: after block rotation, the UV "up" direction should still point
     // toward world +Y (or the original texture "up" direction).
+    // 
+    // Note: Minecraft uses clockwise rotation when viewed from the positive axis.
     
     // For Y-facing faces (up/down):
     // - Y rotation rotates the UVs directly
     // - X rotation doesn't affect UV orientation on these faces
     if (faceName === 'up') {
-      // Y rotation rotates the up face, counter-rotate to maintain world orientation
-      return -rotY;
+      // Y rotation (CW from above) rotates the up face, counter-rotate to maintain world orientation
+      return rotY;
     }
     if (faceName === 'down') {
-      // Y rotation on down face needs opposite direction
-      return rotY;
+      // Y rotation on down face appears opposite from below
+      return -rotY;
     }
     
     // For side faces (north/south/east/west):
@@ -946,8 +953,8 @@ class ModelGeometry {
       if (faceName === 'north') return 180;
       if (faceName === 'south') return 180;
       // East/west faces when X-rotated: counter-rotate based on Y rotation
-      if (faceName === 'east') return 180 - rotY;
-      if (faceName === 'west') return 180 + rotY;
+      if (faceName === 'east') return 180 + rotY;
+      if (faceName === 'west') return 180 - rotY;
     }
     else if (rotX === 180) {
       // Full X flip - all side faces are upside down
@@ -957,8 +964,8 @@ class ModelGeometry {
       // Same as X=90 but opposite direction
       if (faceName === 'north') return 180;
       if (faceName === 'south') return 180;
-      if (faceName === 'east') return 180 + rotY;
-      if (faceName === 'west') return 180 - rotY;
+      if (faceName === 'east') return 180 - rotY;
+      if (faceName === 'west') return 180 + rotY;
     }
     
     // No X rotation or X=0: Y rotation doesn't change UV orientation on side faces

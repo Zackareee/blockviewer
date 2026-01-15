@@ -206,8 +206,8 @@ This document tracks all particle types and particle-emitting blocks for impleme
 | Block | Particles Used | State Condition | Status |
 |-------|----------------|-----------------|--------|
 | `nether_portal` | portal | Always | ✅ Implemented |
-| `end_portal` | (special shader) | Always | ⬜ Not implemented |
-| `end_gateway` | (special shader) | Always | ⬜ Not implemented |
+| `end_portal` | (special shader) | Always | ✅ Implemented |
+| `end_gateway` | (special shader) | Always | ✅ Implemented |
 | `respawn_anchor` | portal (reverse) | charge > 0 | ⬜ Partial (simplified) |
 
 ### Enchanting/Magic Blocks

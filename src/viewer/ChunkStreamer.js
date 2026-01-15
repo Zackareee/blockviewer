@@ -500,7 +500,14 @@ export class ChunkStreamer {
     // Set up mesh queue processor for per-frame mesh creation
     // This spreads mesh creation across frames to avoid lag spikes
     // Also processes completed worker results (super-chunk mesh creation)
-    this.chunkManager.setMeshQueueProcessor(() => {
+    // Camera position is passed for movement-aware budgeting (reduces work during fast camera movement)
+    this.chunkManager.setMeshQueueProcessor((camX, camY, camZ) => {
+      // Update camera position for movement-aware mesh queue budgeting
+      // This automatically reduces budget during fast camera movement for smoother frame rates
+      if (camX !== undefined) {
+        this.superChunkManager.updateCameraPosition(camX, camY, camZ);
+      }
+      
       // Process completion queue (creates meshes for completed super-chunks)
       // This is async but we don't await - fires in background per frame
       this.superChunkManager.processCompletedChunks();
@@ -1349,6 +1356,7 @@ export class ChunkStreamer {
   /**
    * Process the load queue asynchronously
    * Uses batched processing with yields to maintain responsiveness
+   * Pauses during fast camera movement to prioritize smooth frame rates
    */
   async _processQueue() {
     if (this.isProcessing) {
@@ -1362,6 +1370,11 @@ export class ChunkStreamer {
     // Track queue generation to detect re-prioritization
     const startGeneration = this.queueGeneration;
     
+    // Track how many consecutive frames we've been paused due to camera movement
+    // This prevents loading from being completely blocked during continuous movement
+    let cameraMovePauseCount = 0;
+    const maxCameraMovePauseFrames = 10; // Resume after 10 frames even if moving
+    
     try {
       while (this.loadQueue.size > 0) {
         // Check if paused
@@ -1370,6 +1383,20 @@ export class ChunkStreamer {
         // If queue was re-prioritized, break out and let new priorities take effect
         if (this.queueGeneration !== startGeneration) {
           break;
+        }
+        
+        // Check if camera is moving fast - pause loading to prioritize smooth frame rates
+        // Resume after maxCameraMovePauseFrames to prevent complete loading stalls
+        if (this.superChunkManager?.isCameraMovingFast()) {
+          cameraMovePauseCount++;
+          if (cameraMovePauseCount < maxCameraMovePauseFrames) {
+            // Wait for next frame and check again
+            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+            continue;
+          }
+          // Force resume after max pause frames
+        } else {
+          cameraMovePauseCount = 0; // Reset counter when camera stops moving
         }
         
         // Process batch of chunks concurrently (use configured concurrency)
@@ -1764,7 +1791,7 @@ export class ChunkStreamer {
     if (water && water.positions.length > 0) {
       const mesh = this._createMesh(water, this.chunkManager.waterMaterial, this.chunkManager.waterGroup);
       if (mesh) {
-        mesh.renderOrder = 2;
+        mesh.renderOrder = 1; // Water renders after glass/leaves
         meshes.push(mesh);
         this.chunkManager.waterMeshes.push(mesh);
       }
@@ -1773,7 +1800,7 @@ export class ChunkStreamer {
     if (lava && lava.positions.length > 0) {
       const mesh = this._createMesh(lava, this.chunkManager.lavaMaterial, this.chunkManager.lavaGroup);
       if (mesh) {
-        mesh.renderOrder = 3;
+        mesh.renderOrder = 2; // Lava renders after water
         meshes.push(mesh);
         this.chunkManager.lavaMeshes.push(mesh);
       }

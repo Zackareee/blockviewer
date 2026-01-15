@@ -40,6 +40,7 @@ function getCachedLookupTables(registry, textureIndexLookup) {
   const colorB = new Float32Array(4096);
   const isFluid = new Uint8Array(4096);
   const isGlass = new Uint8Array(4096);
+  const isLeaves = new Uint8Array(4096); // Leaves render before water (unlike glass which renders after)
   const isRotatable = new Uint8Array(4096);
   const hasRandomRotation = new Uint8Array(4096);
   const isTopOnlyRotation = new Uint8Array(4096);
@@ -63,8 +64,10 @@ function getCachedLookupTables(registry, textureIndexLookup) {
       if (info.name) {
         if (info.name.includes('water')) isFluid[id] = 1;
         else if (info.name.includes('lava')) isFluid[id] = 2;
-        else if ((info.name.includes('glass') && !info.name.includes('_pane')) || info.name.includes('ice') || info.name.includes('leaves')) {
+        else if ((info.name.includes('glass') && !info.name.includes('_pane')) || info.name.includes('ice')) {
           isGlass[id] = 1;
+        } else if (info.name.includes('leaves')) {
+          isLeaves[id] = 1; // Leaves render before water, not after like glass
         }
         if (info.name.includes('_slab')) {
           isSlab[id] = 1;
@@ -113,6 +116,7 @@ function getCachedLookupTables(registry, textureIndexLookup) {
     needsSideOverlay,
     sideOverlayTexIdx,
     isAOTransparent,
+    isLeaves,
     faceTintTypeLookup,
   };
   cachedRegistry = registry;
