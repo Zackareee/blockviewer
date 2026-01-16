@@ -95,6 +95,7 @@ export class ModelStateLookup {
         flagProperties: blockData.flagProperties || [],
         flags: blockData.flags || {},
         isMultipart: blockData.isMultipart || false,
+        isFullCube: blockData.isFullCube || false, // Full cubes handled by greedy mesher
       });
       
       blockIndex++;
@@ -108,6 +109,7 @@ export class ModelStateLookup {
    * Check if a block is a model block (has pre-baked geometry)
    * Returns true if the block has variants in the manifest AND is not a multipart block.
    * Multipart blocks are handled by the JS MultipartMesher instead.
+   * Full cube blocks are handled by the greedy mesher (FastMesher) for efficiency.
    * @param {string} blockName - Block name (without minecraft:)
    * @returns {boolean} True if this is a model block with geometry
    */
@@ -117,10 +119,19 @@ export class ModelStateLookup {
       return false;
     }
     
-    // Check if this is a multipart block by metadata flag
+    // Check metadata flags
     const metadata = this.blockMetadata.get(normalized);
-    if (metadata && metadata.isMultipart) {
-      return false;
+    if (metadata) {
+      // Full cube blocks are handled by greedy mesher, not model mesher
+      // This prevents duplicate geometry for blocks like grass_block, oak_log, note_block
+      if (metadata.isFullCube) {
+        return false;
+      }
+      
+      // Multipart blocks are handled by JS MultipartMesher
+      if (metadata.isMultipart) {
+        return false;
+      }
     }
     
     // Also check multipart patterns - these blocks are handled by JS MultipartMesher

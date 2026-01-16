@@ -1040,6 +1040,11 @@ export class SuperChunkManager {
           const preregCount = await this.stateRegistry.preregisterNonCubeBlocks(this.registry);
           console.log(`[SuperChunkManager] Pre-registered ${preregCount} non-cube block states for WASM`);
           
+          // Pre-register all multipart block states for worker-based meshing
+          const multipartCount = await this.stateRegistry.preregisterMultipartBlockStates();
+          console.log(`[SuperChunkManager] Pre-registered ${multipartCount} multipart block states`);
+
+          
           const success = initModelRegistryV2(this.stateRegistry);
           if (success) {
             console.log('[SuperChunkManager] WASM model registry V2 initialized - model meshing moved to WASM');

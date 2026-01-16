@@ -345,6 +345,259 @@ class StateRegistry {
   }
 
   /**
+   * Pre-register all property combinations for multipart blocks
+   * These blocks have geometry that depends on state properties
+   * Must be called BEFORE exporting to worker to ensure all states have geometry
+   * 
+   * @returns {Promise<number>} Number of states registered
+   */
+  async preregisterMultipartBlockStates() {
+    let registered = 0;
+    
+    // Fire: up, north, south, east, west (boolean), age 0-15 (but age doesn't affect geometry)
+    for (const fireName of ['fire', 'soul_fire']) {
+      for (let up = 0; up < 2; up++) {
+        for (let north = 0; north < 2; north++) {
+          for (let south = 0; south < 2; south++) {
+            for (let east = 0; east < 2; east++) {
+              for (let west = 0; west < 2; west++) {
+                // Only register a few age values since age doesn't affect geometry
+                for (const age of [0, 1, 15]) {
+                  this.register(fireName, {
+                    age: String(age),
+                    up: up ? 'true' : 'false',
+                    north: north ? 'true' : 'false',
+                    south: south ? 'true' : 'false',
+                    east: east ? 'true' : 'false',
+                    west: west ? 'true' : 'false',
+                  });
+                  registered++;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Chiseled bookshelf: facing (4) + 6 slot_X_occupied (2^6)
+    for (const facing of ['north', 'south', 'east', 'west']) {
+      for (let slots = 0; slots < 64; slots++) {
+        this.register('chiseled_bookshelf', {
+          facing,
+          slot_0_occupied: (slots & 1) ? 'true' : 'false',
+          slot_1_occupied: (slots & 2) ? 'true' : 'false',
+          slot_2_occupied: (slots & 4) ? 'true' : 'false',
+          slot_3_occupied: (slots & 8) ? 'true' : 'false',
+          slot_4_occupied: (slots & 16) ? 'true' : 'false',
+          slot_5_occupied: (slots & 32) ? 'true' : 'false',
+        });
+        registered++;
+      }
+    }
+    
+    // Glass panes and iron bars: north, south, east, west (boolean), waterlogged
+    const paneBlocks = [
+      'glass_pane', 'iron_bars', 'copper_bars',
+      'white_stained_glass_pane', 'orange_stained_glass_pane', 'magenta_stained_glass_pane',
+      'light_blue_stained_glass_pane', 'yellow_stained_glass_pane', 'lime_stained_glass_pane',
+      'pink_stained_glass_pane', 'gray_stained_glass_pane', 'light_gray_stained_glass_pane',
+      'cyan_stained_glass_pane', 'purple_stained_glass_pane', 'blue_stained_glass_pane',
+      'brown_stained_glass_pane', 'green_stained_glass_pane', 'red_stained_glass_pane',
+      'black_stained_glass_pane',
+    ];
+    for (const paneName of paneBlocks) {
+      for (let dirs = 0; dirs < 16; dirs++) {
+        for (const waterlogged of ['true', 'false']) {
+          this.register(paneName, {
+            north: (dirs & 1) ? 'true' : 'false',
+            south: (dirs & 2) ? 'true' : 'false',
+            east: (dirs & 4) ? 'true' : 'false',
+            west: (dirs & 8) ? 'true' : 'false',
+            waterlogged,
+          });
+          registered++;
+        }
+      }
+    }
+    
+    // Fences: north/south/east/west (boolean), waterlogged
+    const fenceBlocks = [
+      'oak_fence', 'spruce_fence', 'birch_fence', 'jungle_fence', 
+      'acacia_fence', 'dark_oak_fence', 'mangrove_fence', 'cherry_fence',
+      'bamboo_fence', 'crimson_fence', 'warped_fence', 'nether_brick_fence',
+    ];
+    for (const fenceName of fenceBlocks) {
+      for (let dirs = 0; dirs < 16; dirs++) {
+        for (const waterlogged of ['true', 'false']) {
+          this.register(fenceName, {
+            north: (dirs & 1) ? 'true' : 'false',
+            south: (dirs & 2) ? 'true' : 'false',
+            east: (dirs & 4) ? 'true' : 'false',
+            west: (dirs & 8) ? 'true' : 'false',
+            waterlogged,
+          });
+          registered++;
+        }
+      }
+    }
+    
+    // Vines: up, north, south, east, west (boolean)
+    for (let up = 0; up < 2; up++) {
+      for (let dirs = 0; dirs < 16; dirs++) {
+        this.register('vine', {
+          up: up ? 'true' : 'false',
+          north: (dirs & 1) ? 'true' : 'false',
+          south: (dirs & 2) ? 'true' : 'false',
+          east: (dirs & 4) ? 'true' : 'false',
+          west: (dirs & 8) ? 'true' : 'false',
+        });
+        registered++;
+      }
+    }
+    
+    // Glow lichen: down, up, north, south, east, west (boolean), waterlogged
+    for (let down = 0; down < 2; down++) {
+      for (let up = 0; up < 2; up++) {
+        for (let dirs = 0; dirs < 16; dirs++) {
+          for (const waterlogged of ['true', 'false']) {
+            this.register('glow_lichen', {
+              down: down ? 'true' : 'false',
+              up: up ? 'true' : 'false',
+              north: (dirs & 1) ? 'true' : 'false',
+              south: (dirs & 2) ? 'true' : 'false',
+              east: (dirs & 4) ? 'true' : 'false',
+              west: (dirs & 8) ? 'true' : 'false',
+              waterlogged,
+            });
+            registered++;
+          }
+        }
+      }
+    }
+    
+    // Redstone wire: north/south/east/west can be none/side/up, power 0-15
+    // Register common power levels to reduce combinations
+    const wireStates = ['none', 'side', 'up'];
+    for (let power = 0; power <= 15; power += 5) {
+      for (const north of wireStates) {
+        for (const south of wireStates) {
+          for (const east of wireStates) {
+            for (const west of wireStates) {
+              this.register('redstone_wire', {
+                north, south, east, west,
+                power: String(power),
+              });
+              registered++;
+            }
+          }
+        }
+      }
+    }
+    
+    // Chorus plant: down, up, north, south, east, west (boolean)
+    for (let down = 0; down < 2; down++) {
+      for (let up = 0; up < 2; up++) {
+        for (let dirs = 0; dirs < 16; dirs++) {
+          this.register('chorus_plant', {
+            down: down ? 'true' : 'false',
+            up: up ? 'true' : 'false',
+            north: (dirs & 1) ? 'true' : 'false',
+            south: (dirs & 2) ? 'true' : 'false',
+            east: (dirs & 4) ? 'true' : 'false',
+            west: (dirs & 8) ? 'true' : 'false',
+          });
+          registered++;
+        }
+      }
+    }
+    
+    // Mushroom blocks: down, up, north, south, east, west (boolean)
+    for (const mushroom of ['brown_mushroom_block', 'red_mushroom_block', 'mushroom_stem']) {
+      for (let down = 0; down < 2; down++) {
+        for (let up = 0; up < 2; up++) {
+          for (let dirs = 0; dirs < 16; dirs++) {
+            this.register(mushroom, {
+              down: down ? 'true' : 'false',
+              up: up ? 'true' : 'false',
+              north: (dirs & 1) ? 'true' : 'false',
+              south: (dirs & 2) ? 'true' : 'false',
+              east: (dirs & 4) ? 'true' : 'false',
+              west: (dirs & 8) ? 'true' : 'false',
+            });
+            registered++;
+          }
+        }
+      }
+    }
+    
+    // Tripwire: attached, powered, north/south/east/west (boolean)
+    for (const attached of ['true', 'false']) {
+      for (const powered of ['true', 'false']) {
+        for (let dirs = 0; dirs < 16; dirs++) {
+          this.register('tripwire', {
+            attached,
+            disarmed: 'false',
+            powered,
+            north: (dirs & 1) ? 'true' : 'false',
+            south: (dirs & 2) ? 'true' : 'false',
+            east: (dirs & 4) ? 'true' : 'false',
+            west: (dirs & 8) ? 'true' : 'false',
+          });
+          registered++;
+        }
+      }
+    }
+    
+    // Brewing stand: has_bottle_0, has_bottle_1, has_bottle_2 (boolean)
+    for (let bottles = 0; bottles < 8; bottles++) {
+      this.register('brewing_stand', {
+        has_bottle_0: (bottles & 1) ? 'true' : 'false',
+        has_bottle_1: (bottles & 2) ? 'true' : 'false',
+        has_bottle_2: (bottles & 4) ? 'true' : 'false',
+      });
+      registered++;
+    }
+    
+    // Walls: north/south/east/west can be none/low/tall, up (boolean), waterlogged
+    const wallBlocks = [
+      'cobblestone_wall', 'mossy_cobblestone_wall', 'stone_brick_wall',
+      'mossy_stone_brick_wall', 'granite_wall', 'diorite_wall', 'andesite_wall',
+      'brick_wall', 'prismarine_wall', 'sandstone_wall', 'red_sandstone_wall',
+      'nether_brick_wall', 'red_nether_brick_wall', 'blackstone_wall',
+      'polished_blackstone_wall', 'polished_blackstone_brick_wall',
+      'cobbled_deepslate_wall', 'polished_deepslate_wall', 'deepslate_brick_wall',
+      'deepslate_tile_wall', 'mud_brick_wall', 'tuff_wall', 'polished_tuff_wall',
+      'tuff_brick_wall',
+    ];
+    const wallStates = ['none', 'low', 'tall'];
+    for (const wallName of wallBlocks) {
+      for (const up of ['true', 'false']) {
+        for (const waterlogged of ['true', 'false']) {
+          for (const north of wallStates) {
+            for (const south of wallStates) {
+              for (const east of wallStates) {
+                for (const west of wallStates) {
+                  this.register(wallName, {
+                    up, waterlogged, north, south, east, west,
+                  });
+                  registered++;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Precompute geometry for all newly registered states
+    await this.precomputeAll();
+    
+    console.log(`[StateRegistry] Pre-registered ${registered} multipart block states`);
+    return registered;
+  }
+
+  /**
    * Build sorted properties key
    */
   _buildPropsKey(properties) {
