@@ -11,7 +11,7 @@ import { BinaryGrid, SECTION_SIZE, MIN_Y, MAX_Y, makeSectionKey } from './Binary
 import { getBlockRegistry } from './BlockRegistry.js';
 import { BlockStateGrid } from './BlockStateGrid.js';
 import { isNonCubeBlock } from './ModelMesher.js';
-import { isRotatableBlock } from '../assets/BlockTextureRegistry.js';
+import { getBakedModelLoader } from './BakedModelLoader.js';
 import { hasEmitter } from '../particles/ParticleEmitter.js';
 import { 
   AIR_BLOCKS, UNDERWATER_BLOCKS, FLUID_CONTAINER_BLOCKS,
@@ -211,7 +211,7 @@ function preprocessPalette(palette, registry, stateRegistry = null) {
     }
     
     // Extract axis for rotatable blocks (logs, pillars, etc.)
-    if (isRotatableBlock(name) && props?.axis) {
+    if (getBakedModelLoader().hasAxisRotation(name) && props?.axis) {
       if (props.axis === 'x') {
         axisValues[i] = AXIS_X;
       } else if (props.axis === 'z') {

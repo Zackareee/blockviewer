@@ -231,36 +231,8 @@ let stateRegistryInitialized = false;
 let modelRegistryInitialized = false;
 let modelRegistryV2Initialized = false;
 
-// Block name sets for special handling - must match ModelMesher.js exactly
-const MODEL_ROTATION_BLOCKS = new Set([
-  'short_grass', 'tall_grass', 'fern', 'large_fern',
-  'nether_sprouts', 'crimson_roots', 'warped_roots',
-  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
-  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
-  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
-  'torchflower', 'pink_petals', 'eyeblossom',
-  'dead_bush',
-  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
-  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'mangrove_propagule',
-  'pale_oak_sapling',
-  'hanging_roots', 'spore_blossom',
-  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
-  'sea_pickle',
-  'dirt_path', 'farmland',
-]);
-
-const POSITION_OFFSET_BLOCKS = new Set([
-  'short_grass', 'fern',
-  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
-  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
-  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
-  'torchflower',
-  'nether_sprouts', 'crimson_roots', 'warped_roots',
-  'hanging_roots',
-  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
-  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
-  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
-]);
+// Use BakedModelLoader for block flags (data-driven from baked geometry)
+import { getBakedModelLoader } from '../BakedModelLoader.js';
 
 /**
  * Initialize state registry in WASM for model block resolution
@@ -668,15 +640,16 @@ function serializeModelGeometryV2(stateRegistry) {
     stateIds.push(state.id);
     blockNamesList.push(blockName);
     
-    // Build flags byte
+    // Build flags byte from BakedModelLoader (data-driven)
+    const bakedLoader = getBakedModelLoader();
     let flags = 0;
-    if (MODEL_ROTATION_BLOCKS.has(blockName)) {
+    if (bakedLoader.hasRandomRotation(blockName)) {
       flags |= 0x01; // bit 0: MODEL_ROTATION
     }
-    if (POSITION_OFFSET_BLOCKS.has(blockName)) {
+    if (bakedLoader.hasPositionOffset(blockName)) {
       flags |= 0x02; // bit 1: POSITION_OFFSET
     }
-    if (geom.isTransparent) {
+    if (geom.isTransparent || bakedLoader.isTransparent(blockName)) {
       flags |= 0x04; // bit 2: IS_TRANSPARENT
     }
     if (geom.isOverlay) {
@@ -1056,7 +1029,6 @@ export function meshChunk(grid, lightGrid, stateGrid, bounds = null) {
 
 // Import tint type lookup builder
 import { buildFaceTintTypeLookup } from '../../data/biomeTinting.js';
-import { isRotatableBlock } from '../../assets/BlockTextureRegistry.js';
 
 /**
  * Build lookup tables from a BlockRegistry
@@ -1095,7 +1067,12 @@ export function buildLookupTables(registry, textureIndexLookup) {
     
     isOpaque[id] = registry.isOpaque(id) ? 1 : 0;
     isNonCube[id] = registry.isNonCube(id) ? 1 : 0;
-    isRotatable[id] = (info.name && isRotatableBlock(info.name)) ? 1 : 0;
+    
+    // Use BakedModelLoader for axis rotation detection
+    if (info.name) {
+      const blockName = info.name.replace('minecraft:', '');
+      isRotatable[id] = getBakedModelLoader().hasAxisRotation(blockName) ? 1 : 0;
+    }
     
     // Directional blocks with horizontal facing
     if (info.name) {

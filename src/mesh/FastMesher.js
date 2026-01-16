@@ -7,7 +7,7 @@
 import { BLOCK_ID_MASK, LEVEL_MASK, LEVEL_SHIFT, SLAB_MASK, SLAB_SHIFT, SLAB_DOUBLE, sectionToWorldY, makeSectionKey, parseSectionKey } from './BinaryGrid.js';
 import { FACE_UP, FACE_DOWN, FACE_NORTH, FACE_SOUTH, FACE_EAST, FACE_WEST } from '../assets/TextureIndexLookup.js';
 import { AXIS_Y, AXIS_X, AXIS_Z, AXIS_SHIFT, AXIS_MASK } from './ChunkDecoder.js';
-import { isRotatableBlock, getBlockSideOverlay } from '../assets/BlockTextureRegistry.js';
+import { getBakedModelLoader } from './BakedModelLoader.js';
 import { buildFaceTintTypeLookup, TINT_TYPE } from '../data/biomeTinting.js';
 import { getRandomRotationRegistry } from '../assets/RandomRotationRegistry.js';
 import { buildFluidMeshes } from './FluidMesher.js';
@@ -51,6 +51,7 @@ function getCachedLookupTables(registry, textureIndexLookup) {
   
   const randomRotationRegistry = getRandomRotationRegistry();
   const faceTintTypeLookup = buildFaceTintTypeLookup(registry);
+  const bakedLoader = getBakedModelLoader();
   
   for (let id = 0; id < 4096; id++) {
     const info = registry.getBlockInfo(id);
@@ -62,39 +63,50 @@ function getCachedLookupTables(registry, textureIndexLookup) {
       colorG[id] = col.g;
       colorB[id] = col.b;
       if (info.name) {
-        if (info.name.includes('water')) isFluid[id] = 1;
-        else if (info.name.includes('lava')) isFluid[id] = 2;
-        else if ((info.name.includes('glass') && !info.name.includes('_pane')) || info.name.includes('ice')) {
+        const blockName = info.name.replace('minecraft:', '');
+        
+        // Fluid detection
+        if (blockName.includes('water')) isFluid[id] = 1;
+        else if (blockName.includes('lava')) isFluid[id] = 2;
+        
+        // Glass/leaves detection for render pass sorting
+        if ((blockName.includes('glass') && !blockName.includes('_pane')) || blockName.includes('ice')) {
           isGlass[id] = 1;
-        } else if (info.name.includes('leaves')) {
-          isLeaves[id] = 1; // Leaves render before water, not after like glass
+        } else if (blockName.includes('leaves')) {
+          isLeaves[id] = 1;
         }
-        if (info.name.includes('_slab')) {
+        
+        // Slab detection
+        if (blockName.includes('_slab')) {
           isSlab[id] = 1;
         }
-        if (isRotatableBlock(info.name)) {
+        
+        // Axis rotation (logs, pillars) from baked data
+        if (bakedLoader.hasAxisRotation(blockName)) {
           isRotatable[id] = 1;
         }
-        if (randomRotationRegistry.hasRandomRotation(info.name)) {
+        
+        // Random rotation from baked data
+        if (bakedLoader.hasRandomRotation(blockName)) {
           hasRandomRotation[id] = 1;
-          if (randomRotationRegistry.isTopOnlyRotation(info.name)) {
+          // Top-only and half rotation still need registry for detailed info
+          if (randomRotationRegistry.isTopOnlyRotation(blockName)) {
             isTopOnlyRotation[id] = 1;
           }
-          if (randomRotationRegistry.isHalfRotation(info.name)) {
+          if (randomRotationRegistry.isHalfRotation(blockName)) {
             isHalfRotation[id] = 1;
           }
         }
-        if (info.name.includes('glass') || info.name.includes('ice') || 
-            info.name.includes('leaves') || info.name.includes('slime') ||
-            info.name.includes('honey') || info.name.includes('water') ||
-            info.name.includes('lava') || info.name.includes('barrier') ||
-            info.name.includes('light') || registry.isNonCube(id)) {
+        
+        // AO transparency from baked data
+        if (bakedLoader.isTransparent(blockName) || registry.isNonCube(id)) {
           isAOTransparent[id] = 1;
         }
-        const overlayPath = getBlockSideOverlay(info.name);
-        if (overlayPath && textureIndexLookup) {
+        
+        // Side overlay (grass_block side overlay)
+        if (blockName === 'grass_block' && textureIndexLookup) {
           needsSideOverlay[id] = 1;
-          sideOverlayTexIdx[id] = textureIndexLookup.getIndexByPath(overlayPath);
+          sideOverlayTexIdx[id] = textureIndexLookup.getIndexByPath('block/grass_block_side_overlay');
         }
       }
     }

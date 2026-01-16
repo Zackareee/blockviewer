@@ -3,6 +3,7 @@
 ## Problem Statement
 
 Model meshes (slabs, stairs, fences, doors, plants, etc.) are currently generated in JavaScript. These are often **more complex than solid blocks**:
+
 - Each model can have multiple faces with arbitrary orientations
 - State-dependent geometry (open/closed doors, stair shapes, fence connections)
 - Requires model geometry lookup and face culling
@@ -21,6 +22,7 @@ JS: Parse NBT → Decode to Grid + StateGrid → ModelMesher.js → Mesh Buffers
 ```
 
 **Key data structures:**
+
 - `BlockStateGrid`: Maps block positions → state IDs (u16)
 - `StateRegistry`: Maps state IDs → model geometry
 - Model geometry: faces with positions, UVs, normals, texture references
@@ -237,6 +239,7 @@ pub fn process_chunk_with_models(
 ### Option A: Pre-bake Models in WASM Memory
 
 Initialize all ~2000 model geometries once at startup:
+
 - JS serializes all models → ~2-5MB
 - WASM stores in static memory
 - Zero per-chunk model lookup cost
@@ -244,6 +247,7 @@ Initialize all ~2000 model geometries once at startup:
 ### Option B: Lazy Model Loading
 
 Only transfer models as needed:
+
 - Smaller initial load
 - Cache hits for common blocks
 - Slightly slower first render
@@ -253,35 +257,57 @@ Only transfer models as needed:
 ## File Changes Summary
 
 | File | Change Type | Description |
+
 |------|-------------|-------------|
+
 | `src/wasm-mesher/Cargo.toml` | Modify | Add dependencies if needed |
+
 | `src/wasm-mesher/src/lib.rs` | Modify | Add model module, new entry points |
+
 | `src/wasm-mesher/src/models/mod.rs` | **Create** | Model module |
+
 | `src/wasm-mesher/src/models/registry.rs` | **Create** | State → Model registry |
+
 | `src/wasm-mesher/src/models/geometry.rs` | **Create** | Model geometry types |
+
 | `src/wasm-mesher/src/models/mesher.rs` | **Create** | Model meshing algorithm |
+
 | `src/wasm-mesher/src/grid/state_grid.rs` | Modify | Add WASM state grid |
+
 | `src/wasm-mesher/src/decode/mod.rs` | Modify | Decode block states |
+
 | `src/assets/StateRegistry.js` | Modify | Add geometry serialization |
+
 | `src/mesh/wasm/WasmMesher.js` | Modify | Add model registry init |
+
 | `src/viewer/SuperChunkManager.js` | Modify | Use WASM model mesher |
 
 ## Expected Performance Impact
 
 | Metric | Current (JS) | After (WASM) |
+
 |--------|--------------|--------------|
+
 | Model decode time | ~40-80ms | ~10-20ms |
+
 | Model mesh time | ~60-120ms | ~15-30ms |
+
 | Memory copies | 2 (grid + state) | 0 (internal) |
+
 | Total model processing | ~100-200ms | ~25-50ms |
 
 ## Risk Mitigation
 
 | Risk | Mitigation |
+
 |------|------------|
+
 | Model geometry size | Use compact binary format, ~50 bytes/face |
+
 | State string complexity | Pre-compute state IDs in JS, pass as lookup table |
+
 | WASM binary bloat | Models stored as data, not code |
+
 | Fallback needed | Keep JS ModelMesher.js as fallback |
 
 ## Implementation Order
@@ -301,22 +327,25 @@ Only transfer models as needed:
 For fastest time-to-value, implement in this order:
 
 ### Week 1: State Grid + State Resolution
+
 - Add `BlockStateGrid` to WASM
 - Decode block states during `decode_chunk`
 - Return state grid in `ProcessedChunk`
 
 ### Week 2: Model Registry
+
 - Serialize model geometry in JS
 - `init_model_registry()` in WASM
 - Store models in static HashMap
 
 ### Week 3: Model Mesher
+
 - Implement `mesh_models()` 
 - Face culling against solid blocks
 - Light sampling at vertices
 
 ### Week 4: Integration + Particles
+
 - Update `SuperChunkManager` to use new pipeline
 - Add particle emitter collection
 - Performance validation
-

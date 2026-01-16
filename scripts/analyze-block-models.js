@@ -68,123 +68,18 @@ const GEOMETRY_PROPERTIES = new Set([
   'flower_amount', // Pink petals
 ]);
 
-// Blocks that use random Y-rotation (cross-model plants)
-const RANDOM_ROTATION_BLOCKS = new Set([
-  'short_grass', 'tall_grass', 'fern', 'large_fern',
-  'dead_bush', 'nether_sprouts', 'crimson_roots', 'warped_roots',
-  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
-  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
-  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
-  'torchflower', 'eyeblossom', 'pink_petals',
-  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
-  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
-  'mangrove_propagule', 'hanging_roots', 'spore_blossom',
-  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
-]);
+// ============================================================================
+// DEPRECATED HARDCODED LISTS
+// These are no longer used. All flags are now detected from model/blockstate
+// structure in bake-model-geometry.js. Kept here for reference only.
+// ============================================================================
 
-// Blocks that need position-based XZ offset
-const POSITION_OFFSET_BLOCKS = new Set([
-  'short_grass', 'tall_grass', 'fern', 'large_fern',
-  'dead_bush', 'nether_sprouts', 'crimson_roots', 'warped_roots',
-  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
-  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
-  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
-  'torchflower', 'eyeblossom',
-  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
-  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
-]);
-
-// Blocks that are transparent (need alpha blending in render pass)
-const TRANSPARENT_BLOCKS = new Set([
-  'short_grass', 'tall_grass', 'fern', 'large_fern',
-  'dead_bush', 'nether_sprouts', 'crimson_roots', 'warped_roots',
-  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
-  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
-  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
-  'torchflower', 'eyeblossom', 'pink_petals',
-  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
-  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
-  'hanging_roots', 'spore_blossom', 'sugar_cane', 'kelp', 'seagrass',
-  'vine', 'twisting_vines', 'weeping_vines', 'cave_vines',
-  // Leaves
-  'oak_leaves', 'spruce_leaves', 'birch_leaves', 'jungle_leaves',
-  'acacia_leaves', 'dark_oak_leaves', 'cherry_leaves', 'pale_oak_leaves',
-  'mangrove_leaves', 'azalea_leaves', 'flowering_azalea_leaves',
-  // Render-transparent partial blocks (need alpha blending)
-  'nether_portal',
-  'iron_bars', 'copper_bars',
-  'slime_block', 'honey_block',
-  'powder_snow',
-  'mangrove_roots',
-]);
-
-// Patterns for transparent blocks (matched with .includes())
-const TRANSPARENT_BLOCK_PATTERNS = [
-  '_pane',  // All glass panes (glass_pane, stained glass panes)
-];
-
-// Blocks with inner opaque cubes and transparent outer shells
-// For these blocks: faces WITH cullface → transparent, faces WITHOUT → opaque
-const INNER_CUBE_BLOCKS = new Set([
-  'slime_block',
-  'honey_block',
-]);
-
-// Full cube blocks (shouldn't be model blocks)
-const FULL_CUBE_BLOCKS = new Set([
-  'stone', 'dirt', 'grass_block', 'cobblestone', 'oak_planks',
-  // etc - these are handled by greedy meshing
-]);
-
-// Full cubes that NEED V3 handling due to state-dependent textures or complex rotation
-// These have different textures based on properties (open/closed, lit/unlit, facing with 6-way rotation)
-const STATE_DEPENDENT_FULL_CUBES = new Set([
-  // Barrels: 6-way facing + open/closed state changes top texture
-  'barrel',
-  // Furnaces/Smokers/Blast Furnaces: lit state changes front texture
-  'furnace', 'blast_furnace', 'smoker',
-  // Beehives/Bee Nests: honey_level changes front texture
-  'beehive', 'bee_nest',
-  // Carved Pumpkin/Jack o'Lantern: 4-way facing
-  'carved_pumpkin', 'jack_o_lantern',
-  // Observer: facing + powered changes texture
-  'observer',
-  // Dispensers/Droppers: facing + triggered state
-  'dispenser', 'dropper',
-  // Command blocks: facing + conditional
-  'command_block', 'chain_command_block', 'repeating_command_block',
-  // Loom: facing
-  'loom',
-  // Crafter: orientation (12 rotations) + crafting/triggered states
-  'crafter',
-  // Jigsaw: orientation (12 rotations) with different textures on each face
-  'jigsaw',
-  // Structure block: mode changes texture
-  'structure_block',
-  // Redstone lamp: lit state changes texture
-  'redstone_lamp',
-  // Copper bulbs: lit + powered changes texture (all variants)
-  'copper_bulb', 'exposed_copper_bulb', 'weathered_copper_bulb', 'oxidized_copper_bulb',
-  'waxed_copper_bulb', 'waxed_exposed_copper_bulb', 'waxed_weathered_copper_bulb', 'waxed_oxidized_copper_bulb',
-]);
-
-// Blocks with shade: false (cross-model plants, etc.)
-// These blocks should not have directional face shading
-const NO_SHADE_BLOCKS = new Set([
-  'short_grass', 'tall_grass', 'fern', 'large_fern',
-  'dead_bush', 'nether_sprouts', 'crimson_roots', 'warped_roots',
-  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
-  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
-  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
-  'torchflower', 'eyeblossom', 'pink_petals',
-  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
-  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
-  'mangrove_propagule', 'hanging_roots', 'spore_blossom',
-  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
-  'sugar_cane', 'kelp', 'seagrass', 'tall_seagrass',
-  'vine', 'twisting_vines', 'weeping_vines', 'cave_vines',
-  'fire', 'soul_fire',
-]);
+// Flags are now detected by:
+// - hasRandomRotation: blockstate has array variants with different y rotations
+// - hasPositionOffset: cross-pattern model (no cullface faces)
+// - isTransparent: cross-pattern model or leaves/pane patterns
+// - noShade: model has elements with shade: false
+// - hasInnerCube: model has both cullface and non-cullface faces
 
 /**
  * Load JSON file
@@ -306,11 +201,8 @@ function analyzeBlockstate(blockName, blockstate) {
     flipProperties: [],
     flagProperties: [],
     uniqueModels: new Set(),
-    hasRandomRotation: RANDOM_ROTATION_BLOCKS.has(blockName),
-    hasPositionOffset: POSITION_OFFSET_BLOCKS.has(blockName),
-    isTransparent: TRANSPARENT_BLOCKS.has(blockName) || TRANSPARENT_BLOCK_PATTERNS.some(p => blockName.includes(p)),
-    noShade: NO_SHADE_BLOCKS.has(blockName),
-    hasInnerCube: INNER_CUBE_BLOCKS.has(blockName),
+    // Flags are now detected from model/blockstate structure in bake-model-geometry.js
+    // We don't compute them here anymore
   };
   
   if (blockstate.multipart) {
@@ -318,18 +210,50 @@ function analyzeBlockstate(blockName, blockstate) {
     // These compose multiple models based on connection states
     analysis.isMultipart = true;
     
-    // Collect all possible models
+    // For multipart blocks, create a variant entry for each unique model+rotation combo
+    // This allows the bake script to bake the geometry for each component
+    let partIndex = 0;
     for (const part of blockstate.multipart) {
       const apply = Array.isArray(part.apply) ? part.apply : [part.apply];
       for (const model of apply) {
         if (model.model) {
-          analysis.uniqueModels.add(normalizeModelPath(model.model));
+          const modelPath = normalizeModelPath(model.model);
+          analysis.uniqueModels.add(modelPath);
+          
+          // Create a variant key based on the condition or part index
+          let variantKey;
+          if (part.when) {
+            // Convert condition to variant key format
+            const conditions = Object.entries(part.when)
+              .filter(([k]) => k !== 'OR') // Skip complex OR conditions for now
+              .map(([k, v]) => `${k}=${v}`)
+              .sort()
+              .join(',');
+            variantKey = conditions || `part_${partIndex}`;
+          } else {
+            // Base part (always applied)
+            variantKey = partIndex === 0 ? 'default' : `part_${partIndex}`;
+          }
+          
+          // Store unique combinations
+          const uniqueKey = `${variantKey}_${model.x || 0}_${model.y || 0}`;
+          if (!analysis.variants[uniqueKey]) {
+            analysis.variants[uniqueKey] = {
+              model: modelPath,
+              rotX: model.x || 0,
+              rotY: model.y || 0,
+              uvlock: model.uvlock || false,
+              condition: part.when || null, // Store condition for runtime composition
+            };
+          }
         }
+        partIndex++;
       }
       
-      // Analyze conditions
+      // Analyze conditions for property classification
       if (part.when) {
         for (const [prop, value] of Object.entries(part.when)) {
+          if (prop === 'OR') continue; // Skip complex OR conditions
           const classification = classifyProperty(prop, value, blockName);
           if (classification === 'geometry' && !analysis.geometryProperties.includes(prop)) {
             analysis.geometryProperties.push(prop);
@@ -482,15 +406,11 @@ async function analyzeAllBlocks() {
   const modelCache = new Map();
   let modelBlockCount = 0;
   let skippedCount = 0;
+  let fullCubeBlocksIncluded = 0;
+  let multipartBlockCount = 0;
   
   for (const file of blockstateFiles) {
     const blockName = file.replace('.json', '');
-    
-    // Skip full cube blocks (handled by greedy meshing)
-    if (FULL_CUBE_BLOCKS.has(blockName)) {
-      skippedCount++;
-      continue;
-    }
     
     const blockstatePath = path.join(BLOCKSTATES_PATH, file);
     const blockstate = loadJson(blockstatePath);
@@ -499,19 +419,15 @@ async function analyzeAllBlocks() {
     
     const analysis = analyzeBlockstate(blockName, blockstate);
     
-    // Only include blocks with model variants (non-cube blocks)
-    // Skip multipart blocks for now - they need special handling
-    // (fences, walls, redstone wire, etc. use conditional model composition)
+    // Include ALL blocks now, including multipart blocks
+    // Multipart blocks will have their component models baked
+    // The runtime will compose them based on block state
+    
     if (analysis.isMultipart) {
-      skippedCount++;
-      continue;
+      multipartBlockCount++;
     }
     
-    const hasVariants = Object.keys(analysis.variants).length > 0;
-    if (!hasVariants) {
-      skippedCount++;
-      continue;
-    }
+    const hasVariants = Object.keys(analysis.variants).length > 0 || analysis.isMultipart;
     
     // Resolve actual model geometry for each unique model
     const resolvedModels = {};
@@ -552,16 +468,14 @@ async function analyzeAllBlocks() {
       }
     }
     
-    // Only skip if ALL models are full cubes (not just some, like double slabs)
+    // Track if this is a full cube model (for stats only now)
     const isFullCube = fullCubeCount > 0 && nonFullCubeCount === 0;
-    
-    // Skip full cube blocks - they're handled by the greedy mesher
-    // UNLESS they need state-dependent textures (barrel open/closed, furnace lit, etc.)
-    if (isFullCube && !STATE_DEPENDENT_FULL_CUBES.has(blockName)) {
-      skippedCount++;
-      continue;
+    if (isFullCube) {
+      fullCubeBlocksIncluded++;
     }
     
+    // Include ALL blocks now - full cubes included for complete coverage
+    // The bake script will compute all flags from model/blockstate structure
     manifest.blocks[blockName] = {
       isMultipart: analysis.isMultipart,
       variants: analysis.variants,
@@ -571,13 +485,8 @@ async function analyzeAllBlocks() {
       flagProperties: analysis.flagProperties,
       uniqueModels: analysis.uniqueModels,
       resolvedModels,
-      flags: {
-        hasRandomRotation: analysis.hasRandomRotation,
-        hasPositionOffset: analysis.hasPositionOffset,
-        isTransparent: analysis.isTransparent,
-        noShade: analysis.noShade,
-        hasInnerCube: analysis.hasInnerCube,
-      },
+      isFullCube, // Mark for runtime to know if FastMesher can handle it
+      // Flags are now computed in bake-model-geometry.js from model/blockstate structure
     };
     
     modelBlockCount++;
@@ -592,8 +501,10 @@ async function analyzeAllBlocks() {
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify(manifest, null, 2));
   
   console.log(`\nAnalysis complete:`);
-  console.log(`  Model blocks: ${modelBlockCount}`);
-  console.log(`  Skipped (full cube): ${skippedCount}`);
+  console.log(`  Total blocks: ${modelBlockCount}`);
+  console.log(`  Full cube blocks: ${fullCubeBlocksIncluded}`);
+  console.log(`  Multipart blocks: ${multipartBlockCount}`);
+  console.log(`  Skipped (no variants): ${skippedCount}`);
   console.log(`  Output: ${OUTPUT_PATH}`);
   
   // Print some stats

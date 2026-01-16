@@ -16,6 +16,7 @@ import { getRandomRotationRegistry } from './assets/RandomRotationRegistry';
 import { getModelResolver } from './assets/ModelResolver';
 import { getBlockstateResolver } from './assets/BlockstateResolver';
 import { getModelTextureMapper } from './assets/ModelTextureMapper';
+import { loadBakedModels } from './mesh/BakedModelLoader';
 import './App.css';
 
 function App() {
@@ -192,6 +193,9 @@ function App() {
   const loadDefaultTexturePack = useCallback(async () => {
     setTexturePackLoading(true);
     try {
+      // Load baked model data first (for block flags, rotation detection, etc.)
+      await loadBakedModels();
+      
       const pm = getDefaultPackManager();
       await pm.loadDefaultPack();
       setPackManager(pm); // Store for beacon beams etc.

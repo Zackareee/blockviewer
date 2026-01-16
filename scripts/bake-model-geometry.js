@@ -20,7 +20,13 @@
  * 
  * [block data] (for each block)
  *   u8: variant count
- *   u8: flags (hasRandomRotation, hasPositionOffset, isTransparent)
+ *   u8: flags bitfield:
+ *       0x01 = hasRandomRotation
+ *       0x02 = hasPositionOffset
+ *       0x04 = isTransparent
+ *       0x08 = noShade
+ *       0x10 = hasInnerCube
+ *       0x20 = hasAxisRotation
  *   [variant] (for each variant)
  *     u8: variant key length
  *     bytes: variant key (UTF-8)
@@ -44,6 +50,7 @@ const __dirname = path.dirname(__filename);
 
 const ASSETS_PATH = path.join(__dirname, '../minecraft_versions/1.21.11_unobfuscated/assets/minecraft');
 const MODELS_PATH = path.join(ASSETS_PATH, 'models/block');
+const BLOCKSTATES_PATH = path.join(ASSETS_PATH, 'blockstates');
 const MANIFEST_PATH = path.join(__dirname, '../public/assets/block-model-manifest.json');
 const OUTPUT_PATH = path.join(__dirname, '../public/assets/baked-models.bin');
 
@@ -74,61 +81,279 @@ const FACE_VERTICES = {
   east:  [[1, 1, 1], [1, 1, 0], [1, 0, 0], [1, 0, 1]], // +X
 };
 
-// Texture name → tint type mapping
+// Tint type constants
 // Must match TINT_TYPE values in src/data/biomeTinting.js:
 // NONE=0, GRASS=1, FOLIAGE=2, SPRUCE=3, BIRCH=4, WATER=5, REDSTONE=6, DRY_FOLIAGE=7, STEM=8
-const TINT_TYPES = {
-  grass: 1,
-  foliage: 2,
-  spruce: 3,
-  birch: 4,
-  water: 5,
-  redstone: 6,
-  dry_foliage: 7,
-  stem: 8,
+const TINT_TYPE = {
+  NONE: 0,
+  GRASS: 1,
+  FOLIAGE: 2,
+  SPRUCE: 3,
+  BIRCH: 4,
+  WATER: 5,
+  REDSTONE: 6,
+  DRY_FOLIAGE: 7,
+  STEM: 8,
 };
 
-const GRASS_TINT_TEXTURES = new Set([
-  'grass_block_top', 'short_grass', 'tall_grass_top', 'tall_grass_bottom',
-  'fern', 'large_fern_top', 'large_fern_bottom',
-  // Sugar cane uses grass colormap
-  'sugar_cane',
-  // Bush block (1.21.5+)
-  'bush',
-  // Bamboo sapling stages
-  'bamboo_stage0',
+/**
+ * Infer tint type from block name when a face has tintindex defined.
+ * 
+ * The model's tintindex field tells us "this face needs biome tinting",
+ * but it doesn't specify WHICH type of tinting. We infer the type from
+ * the block name using Minecraft's known patterns.
+ * 
+ * @param {string} blockName - The block name (e.g., "oak_leaves", "grass_block")
+ * @param {number} tintindex - The tintindex value from the model (usually 0)
+ * @returns {number} The tint type constant
+ */
+function inferTintType(blockName, tintindex) {
+  // If no tintindex, no tinting needed
+  if (tintindex === undefined || tintindex === null) {
+    return TINT_TYPE.NONE;
+  }
+  
+  const name = blockName.toLowerCase();
+  
+  // Blocks with tintindex that DON'T actually use biome tinting
+  // These use tintindex for other purposes (e.g., hardcoded colors in renderer)
+  const noTintBlocks = ['stonecutter', 'cauldron', 'lava_cauldron', 'water_cauldron', 'powder_snow_cauldron'];
+  if (noTintBlocks.includes(name)) return TINT_TYPE.NONE;
+  
+  // Fixed-color leaves (don't use colormap)
+  if (name.includes('spruce_leaves')) return TINT_TYPE.SPRUCE;
+  if (name.includes('birch_leaves')) return TINT_TYPE.BIRCH;
+  
+  // Dry foliage (pale garden biome) - check before regular foliage
+  if (name.includes('pale_oak_leaves')) return TINT_TYPE.DRY_FOLIAGE;
+  if (name.includes('pale_moss') || name.includes('pale_hanging_moss')) return TINT_TYPE.DRY_FOLIAGE;
+  if (name.includes('dry_grass')) return TINT_TYPE.DRY_FOLIAGE;
+  if (name === 'leaf_litter') return TINT_TYPE.DRY_FOLIAGE;
+  
+  // Stems (pumpkin/melon) - growth-based coloring
+  if (name.includes('_stem') && (name.includes('pumpkin') || name.includes('melon'))) {
+    return TINT_TYPE.STEM;
+  }
+  
+  // Water tinting
+  if (name.includes('water')) return TINT_TYPE.WATER;
+  
+  // Grass colormap blocks
+  if (name.includes('grass')) return TINT_TYPE.GRASS;
+  if (name === 'sugar_cane') return TINT_TYPE.GRASS;
+  if (name === 'bush') return TINT_TYPE.GRASS;
+  if (name === 'bamboo' || name.includes('bamboo_stage') || name === 'bamboo_sapling') return TINT_TYPE.GRASS;
+  if (name === 'wildflowers') return TINT_TYPE.GRASS;
+  
+  // Foliage colormap blocks (leaves, vines, ferns, etc.)
+  if (name.includes('leaves')) return TINT_TYPE.FOLIAGE;
+  if (name === 'vine') return TINT_TYPE.FOLIAGE;
+  if (name.includes('fern')) return TINT_TYPE.FOLIAGE;
+  if (name === 'lily_pad') return TINT_TYPE.FOLIAGE;
+  if (name.includes('seagrass')) return TINT_TYPE.FOLIAGE;
+  if (name === 'pink_petals') return TINT_TYPE.FOLIAGE;
+  if (name === 'mangrove_roots') return TINT_TYPE.FOLIAGE;
+  
+  // Redstone tinting (power-based)
+  if (name === 'redstone_wire') return TINT_TYPE.REDSTONE;
+  
+  // Default: if we have a tintindex but don't recognize the block,
+  // assume foliage tinting as a safe fallback
+  console.warn(`[TintType] Unknown tinted block: ${blockName}, defaulting to FOLIAGE`);
+  return TINT_TYPE.FOLIAGE;
+}
+
+// ============================================================================
+// FLAG DETECTION FROM MODEL/BLOCKSTATE STRUCTURE
+// These functions replace hardcoded lists by analyzing the actual data.
+// ============================================================================
+
+/**
+ * Detect if a model uses cross-pattern (non-cullface faces on all sides).
+ * Cross-pattern blocks are typically plants, flowers, and saplings.
+ * They have faces without cullface, meaning they don't occlude neighbors.
+ * 
+ * @param {Object} model - Resolved model with elements
+ * @returns {boolean} True if model uses cross pattern
+ */
+function hasCrossPattern(model) {
+  if (!model || !model.elements) return false;
+  
+  let hasNonCullfaceFaces = false;
+  let hasCullfaceFaces = false;
+  
+  for (const element of model.elements) {
+    if (!element.faces) continue;
+    
+    for (const faceData of Object.values(element.faces)) {
+      if (faceData.cullface) {
+        hasCullfaceFaces = true;
+      } else {
+        hasNonCullfaceFaces = true;
+      }
+    }
+  }
+  
+  // Pure cross pattern: all faces are non-cullface
+  return hasNonCullfaceFaces && !hasCullfaceFaces;
+}
+
+/**
+ * Detect if model has any element with shade: false.
+ * This is typically used for cross-pattern plants and emissive blocks.
+ * 
+ * @param {Object} model - Resolved model with elements
+ * @returns {boolean} True if any element has shade: false
+ */
+function hasNoShadeElement(model) {
+  if (!model || !model.elements) return false;
+  
+  for (const element of model.elements) {
+    if (element.shade === false) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Detect if block has an inner cube (transparent outer shell with opaque inner cube).
+ * Only specific blocks have this pattern - slime_block and honey_block.
+ * 
+ * @param {string} blockName - Block name to check
+ * @returns {boolean} True if block has inner cube pattern
+ */
+function hasInnerCubePattern(blockName) {
+  const INNER_CUBE_BLOCKS = ['slime_block', 'honey_block'];
+  return INNER_CUBE_BLOCKS.includes(blockName);
+}
+
+/**
+ * Blocks that receive random Y-rotation at render time.
+ * This is an engine behavior applied to specific blocks, not a model property.
+ */
+const RANDOM_ROTATION_BLOCKS = new Set([
+  // Cross-model plants
+  'short_grass', 'tall_grass', 'fern', 'large_fern',
+  'nether_sprouts', 'crimson_roots', 'warped_roots',
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower', 'pink_petals', 'eyeblossom', 'dead_bush',
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'mangrove_propagule',
+  'pale_oak_sapling', 'hanging_roots', 'spore_blossom',
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  // 3D models with rotation variants
+  'sea_pickle',
+  // Path blocks - have 4 rotation variants that would cause z-fighting if all rendered
+  'dirt_path', 'farmland',
 ]);
 
-const FOLIAGE_TINT_TEXTURES = new Set([
-  'oak_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves',
-  'vine',
-  // Lily pad uses foliage colormap
-  'lily_pad',
-  // Seagrass
-  'seagrass', 'tall_seagrass_top', 'tall_seagrass_bottom',
-  // Pink petals (stems are tinted)
-  'pink_petals',
+/**
+ * Check if a block should have random rotation applied at render time.
+ * 
+ * @param {string} blockName - Block name to check
+ * @returns {boolean} True if block uses random rotation
+ */
+function hasRandomRotation(blockName) {
+  return RANDOM_ROTATION_BLOCKS.has(blockName);
+}
+
+/**
+ * Detect if blockstate has axis property (x/y/z) indicating axis-rotatable block.
+ * Used for logs, pillars, etc.
+ * 
+ * @param {Object} blockstateVariants - The variants object from blockstate JSON
+ * @returns {boolean} True if block has axis variants
+ */
+function hasAxisVariants(blockstateVariants) {
+  if (!blockstateVariants) return false;
+  
+  for (const variantKey of Object.keys(blockstateVariants)) {
+    if (variantKey.includes('axis=')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Detect if block is transparent based on block name patterns.
+ * Transparency is an engine behavior, not a model property.
+ * 
+ * @param {Object} model - Resolved model with elements
+ * @param {string} blockName - Block name for pattern matching
+ * @returns {boolean} True if block should be rendered as transparent
+ */
+function isTransparentModel(model, blockName) {
+  // Cross patterns are transparent
+  if (hasCrossPattern(model)) return true;
+  
+  // Exclude packed_ice and blue_ice (they're opaque despite having 'ice' in name)
+  if (blockName.includes('packed_ice') || blockName.includes('blue_ice')) {
+    return false;
+  }
+  
+  // Check for transparent block patterns
+  const transparentPatterns = [
+    'glass', 'ice', 'leaves', 'slime_block', 'honey_block',
+    '_pane', '_bars', 'water', 'lava', 'barrier', 'light'
+  ];
+  
+  return transparentPatterns.some(p => blockName.includes(p));
+}
+
+/**
+ * Blocks that receive position-based XZ offset at render time.
+ * These are small plants that sway/offset based on world position.
+ */
+const POSITION_OFFSET_BLOCKS = new Set([
+  'short_grass', 'fern',
+  'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+  'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+  'torchflower',
+  'nether_sprouts', 'crimson_roots', 'warped_roots',
+  'hanging_roots',
+  'red_mushroom', 'brown_mushroom', 'crimson_fungus', 'warped_fungus',
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling',
+  'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling',
 ]);
 
-// Spruce and birch have fixed colors, not colormap-based
-const SPRUCE_TINT_TEXTURES = new Set(['spruce_leaves']);
-const BIRCH_TINT_TEXTURES = new Set(['birch_leaves']);
+/**
+ * Detect if block should have position-based XZ offset.
+ * 
+ * @param {Object} model - Resolved model with elements (unused, kept for API compatibility)
+ * @param {string} blockName - Block name
+ * @returns {boolean} True if block needs position offset
+ */
+function needsPositionOffset(model, blockName) {
+  return POSITION_OFFSET_BLOCKS.has(blockName);
+}
 
-// Pumpkin/melon stems have special growth-stage coloring
-const STEM_TINT_TEXTURES = new Set([
-  'pumpkin_stem', 'melon_stem',
-  'attached_pumpkin_stem', 'attached_melon_stem',
-]);
+/**
+ * Extract all flags for a block by analyzing its model and blockstate.
+ * 
+ * @param {string} blockName - The block name
+ * @param {Object} model - Resolved model with elements
+ * @param {Object} blockstateVariants - Blockstate variants (if available)
+ * @returns {Object} Flags object
+ */
+function extractBlockFlags(blockName, model, blockstateVariants = null) {
+  return {
+    hasRandomRotation: hasRandomRotation(blockName),
+    hasPositionOffset: needsPositionOffset(model, blockName),
+    isTransparent: isTransparentModel(model, blockName),
+    noShade: hasNoShadeElement(model),
+    hasInnerCube: hasInnerCubePattern(blockName),
+    hasAxisRotation: hasAxisVariants(blockstateVariants),
+  };
+}
 
-// Dry foliage (pale garden biome)
-const DRY_FOLIAGE_TINT_TEXTURES = new Set([
-  'pale_oak_leaves', 'pale_moss', 'pale_hanging_moss',
-  'short_dry_grass', 'tall_dry_grass',
-  'leaf_litter', // Uses dry foliage tint, not regular foliage
-]);
-
-// Model cache
+// Caches
 const modelCache = new Map();
+const blockstateCache = new Map();
 const textureMap = new Map();
 let nextTextureIndex = 0;
 
@@ -141,6 +366,20 @@ function loadJson(filePath) {
   }
 }
 
+/**
+ * Load and cache blockstate JSON for a block.
+ */
+function loadBlockstate(blockName) {
+  if (blockstateCache.has(blockName)) {
+    return blockstateCache.get(blockName);
+  }
+  
+  const blockstatePath = path.join(BLOCKSTATES_PATH, `${blockName}.json`);
+  const blockstate = loadJson(blockstatePath);
+  blockstateCache.set(blockName, blockstate);
+  return blockstate;
+}
+
 function getTextureIndex(textureName) {
   const normalized = textureName.replace('minecraft:', '').replace('block/', '');
   if (!textureMap.has(normalized)) {
@@ -149,17 +388,6 @@ function getTextureIndex(textureName) {
   return textureMap.get(normalized);
 }
 
-function getTintType(textureName) {
-  const normalized = textureName.replace('minecraft:', '').replace('block/', '');
-  if (GRASS_TINT_TEXTURES.has(normalized)) return TINT_TYPES.grass;        // 1
-  if (FOLIAGE_TINT_TEXTURES.has(normalized)) return TINT_TYPES.foliage;    // 2
-  if (SPRUCE_TINT_TEXTURES.has(normalized)) return TINT_TYPES.spruce;      // 3
-  if (BIRCH_TINT_TEXTURES.has(normalized)) return TINT_TYPES.birch;        // 4
-  if (normalized.includes('water')) return TINT_TYPES.water;               // 5
-  if (DRY_FOLIAGE_TINT_TEXTURES.has(normalized)) return TINT_TYPES.dry_foliage; // 7
-  if (STEM_TINT_TEXTURES.has(normalized)) return TINT_TYPES.stem;          // 8
-  return 0;
-}
 
 function resolveModel(modelName) {
   if (modelCache.has(modelName)) {
@@ -317,7 +545,7 @@ function rotateCullface(cullface, rotX, rotY) {
   return result;
 }
 
-function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
+function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false, blockName = '') {
   if (!model || !model.elements || model.elements.length === 0) {
     return null;
   }
@@ -341,7 +569,7 @@ function computeGeometry(model, rotX = 0, rotY = 0, uvlock = false) {
       if (!textureName) continue;
       
       const textureIndex = getTextureIndex(textureName);
-      const tintType = faceData.tintindex !== undefined ? getTintType(textureName) : 0;
+      const tintType = inferTintType(blockName, faceData.tintindex);
       
       // Get base vertices for this face
       // MUST match ModelGeometry.js vertex order for consistent winding
@@ -598,7 +826,8 @@ function writeBinary(manifest) {
         model,
         variantInfo.rotX || 0,
         variantInfo.rotY || 0,
-        variantInfo.uvlock || false
+        variantInfo.uvlock || false,
+        blockName
       );
       
       if (!geometry || geometry.faces.length === 0) continue;
@@ -614,20 +843,44 @@ function writeBinary(manifest) {
       bakedFaces += geometry.faces.length;
     }
     
-    // Check if any variant has no-shade (e.g., torches)
-    const hasNoShade = variants.some(v => v.hasNoShade);
+    // =========================================================================
+    // FLAG DETECTION FROM MODEL/BLOCKSTATE STRUCTURE
+    // Instead of using hardcoded flags from manifest, we detect them from the
+    // actual model and blockstate JSON files.
+    // =========================================================================
+    
+    // Load blockstate to detect random rotation and axis variants
+    const blockstate = loadBlockstate(blockName);
+    const blockstateVariants = blockstate?.variants || null;
+    
+    // Get the first valid model for structure-based flag detection
+    const firstVariant = variants[0];
+    const representativeModel = firstVariant 
+      ? resolveModel(Object.values(blockInfo.variants)[0]?.model) 
+      : null;
+    
+    // Detect all flags from model/blockstate structure
+    const detectedFlags = extractBlockFlags(blockName, representativeModel, blockstateVariants);
+    
+    // Also check if any variant has no-shade (from element inspection during geometry computation)
+    const hasNoShadeFromGeometry = variants.some(v => v.hasNoShade);
+    
+    // Merge detected flags with geometry-derived flags
+    const computedFlags = {
+      hasRandomRotation: detectedFlags.hasRandomRotation,
+      hasPositionOffset: detectedFlags.hasPositionOffset,
+      isTransparent: detectedFlags.isTransparent,
+      noShade: detectedFlags.noShade || hasNoShadeFromGeometry,
+      hasInnerCube: detectedFlags.hasInnerCube,
+      hasAxisRotation: detectedFlags.hasAxisRotation,
+    };
     
     // CRITICAL: Include ALL blocks, even with 0 variants, to keep indices aligned
     // with ModelStateLookup which assigns indices to all manifest blocks.
     // Blocks with 0 variants simply won't render any geometry.
-    const mergedFlags = {
-      ...(blockInfo.flags || {}),
-      noShade: hasNoShade || (blockInfo.flags && blockInfo.flags.noShade),
-    };
-    
     blockDataList.push({
       name: blockName,
-      flags: mergedFlags,
+      flags: computedFlags,
       variants,
     });
   }
@@ -690,13 +943,20 @@ function writeBinary(manifest) {
     // Variant count
     buffer.writeUInt8(block.variants.length, offset); offset += 1;
     
-    // Flags
+    // Flags bitfield:
+    // 0x01 = hasRandomRotation
+    // 0x02 = hasPositionOffset
+    // 0x04 = isTransparent
+    // 0x08 = noShade
+    // 0x10 = hasInnerCube
+    // 0x20 = hasAxisRotation
     let flags = 0;
     if (block.flags.hasRandomRotation) flags |= 0x01;
     if (block.flags.hasPositionOffset) flags |= 0x02;
     if (block.flags.isTransparent) flags |= 0x04;
     if (block.flags.noShade) flags |= 0x08;
     if (block.flags.hasInnerCube) flags |= 0x10;
+    if (block.flags.hasAxisRotation) flags |= 0x20;
     buffer.writeUInt8(flags, offset); offset += 1;
     
     for (const variant of block.variants) {

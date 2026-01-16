@@ -1277,10 +1277,10 @@ We parse the NBT but do NOT render the special visuals.
 | conduit | 2 | ❌ Not rendered |
 | mob_spawner | 1 | ❌ Not rendered |
 | enchanting_table | 1 | ❌ Not rendered |
-| end_gateway | 1 | ❌ Not rendered |
+| end_gateway | 1 | ✅ Not rendered |
 | beacon | 1 | ❌ Not rendered |
 | test_instance_block | 1 | ❌ Not rendered |
-| end_portal | 1 | ❌ Not rendered |
+| end_portal | 1 | ✅ Not rendered |
 
 ## Entity Rendering
 
