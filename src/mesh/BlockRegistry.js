@@ -538,15 +538,14 @@ export class BlockRegistry {
       'cyan_glazed_terracotta', 'purple_glazed_terracotta', 'blue_glazed_terracotta',
       'brown_glazed_terracotta', 'green_glazed_terracotta', 'red_glazed_terracotta',
       'black_glazed_terracotta',
-      // Smithing table - has different top texture
-      'smithing_table',
+      // Note: smithing_table removed - greedy mesher handles per-face textures correctly
       // Blocks with snowy variant (overlay geometry) - greedy mesher must skip, V3 handles
       'grass_block', 'mycelium', 'podzol',
       // Axis-based blocks that use different models for different orientations
       'basalt', 'polished_basalt', 'bone_block', 'hay_block', 'purpur_pillar',
       'quartz_pillar', 'deepslate',
-      // Test blocks - have mode variants
-      'test_block', 'test_instance_block',
+      // Test blocks - test_block has mode variants, test_instance_block is simple cube
+      'test_block',
       // Frosted ice - has age variants with different textures
       'frosted_ice',
     ]);
