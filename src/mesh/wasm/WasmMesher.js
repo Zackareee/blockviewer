@@ -1096,9 +1096,13 @@ export function buildLookupTables(registry, textureIndexLookup) {
         isFluid[id] = 2;
       }
       
-      if ((info.name.includes('glass') && !info.name.includes('_pane')) ||
-          info.name.includes('ice') || info.name.includes('leaves')) {
-        isGlass[id] = 1;
+      // Glass-like transparent blocks (handled by glass mesher)
+      // Exclude non-cube blocks (like frosted_ice) which are handled by V3 model mesher
+      if (!isNonCube[id]) {
+        if ((info.name.includes('glass') && !info.name.includes('_pane')) ||
+            info.name.includes('ice') || info.name.includes('leaves')) {
+          isGlass[id] = 1;
+        }
       }
       
       if (info.name.includes('_slab')) {

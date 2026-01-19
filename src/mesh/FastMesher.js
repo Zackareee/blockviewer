@@ -70,10 +70,13 @@ function getCachedLookupTables(registry, textureIndexLookup) {
         else if (blockName.includes('lava')) isFluid[id] = 2;
         
         // Glass/leaves detection for render pass sorting
-        if ((blockName.includes('glass') && !blockName.includes('_pane')) || blockName.includes('ice')) {
-          isGlass[id] = 1;
-        } else if (blockName.includes('leaves')) {
-          isLeaves[id] = 1;
+        // Exclude non-cube blocks (like frosted_ice) which are handled by V3 model mesher
+        if (!isNonCube[id]) {
+          if ((blockName.includes('glass') && !blockName.includes('_pane')) || blockName.includes('ice')) {
+            isGlass[id] = 1;
+          } else if (blockName.includes('leaves')) {
+            isLeaves[id] = 1;
+          }
         }
         
         // Slab detection
