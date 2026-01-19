@@ -349,6 +349,7 @@ pub fn mesh_fluids_bounded(
                         world_z,
                         effective_level,
                         effective_fluid_type,
+                        is_waterlogged_block,
                         color,
                         mesh,
                     );
@@ -368,8 +369,9 @@ fn mesh_fluid_block(
     x: i32,
     y: i32,
     z: i32,
-    level: u8,
+    _level: u8,
     fluid_type: FluidType,
+    is_waterlogged: bool,
     color: (f32, f32, f32),
     mesh: &mut MeshData,
 ) {
@@ -393,10 +395,19 @@ fn mesh_fluid_block(
     };
 
     // Get corner heights for top face
-    let h00 = get_corner_height(grid, lookups, x, y, z, 0, 0, fluid_type);
-    let h10 = get_corner_height(grid, lookups, x, y, z, 1, 0, fluid_type);
-    let h01 = get_corner_height(grid, lookups, x, y, z, 0, 1, fluid_type);
-    let h11 = get_corner_height(grid, lookups, x, y, z, 1, 1, fluid_type);
+    // Waterlogged water always uses fixed height of 14/16 (0.875) - no corner interpolation
+    // This matches Minecraft's behavior where waterlogged water is always level with source blocks
+    let (h00, h10, h01, h11) = if is_waterlogged {
+        const WATERLOGGED_HEIGHT: f32 = 14.0 / 16.0; // 0.875
+        (WATERLOGGED_HEIGHT, WATERLOGGED_HEIGHT, WATERLOGGED_HEIGHT, WATERLOGGED_HEIGHT)
+    } else {
+        (
+            get_corner_height(grid, lookups, x, y, z, 0, 0, fluid_type),
+            get_corner_height(grid, lookups, x, y, z, 1, 0, fluid_type),
+            get_corner_height(grid, lookups, x, y, z, 0, 1, fluid_type),
+            get_corner_height(grid, lookups, x, y, z, 1, 1, fluid_type),
+        )
+    };
 
     // Top face - only if no fluid above
     if !fluid_above {

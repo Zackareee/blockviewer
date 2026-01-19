@@ -1,4 +1,5 @@
 /* @ts-self-types="./wasm_mesher.d.ts" */
+import { startWorkers } from './snippets/wasm-bindgen-rayon-38edf6e439f6d70d/src/workerHelpers.js';
 
 /**
  * Result of block entity meshing
@@ -3847,6 +3848,15 @@ export function init() {
 }
 
 /**
+ * @param {number} num_threads
+ * @returns {Promise<any>}
+ */
+export function initThreadPool(num_threads) {
+    const ret = wasm.initThreadPool(num_threads);
+    return ret;
+}
+
+/**
  * Initialize the block entity registry from binary data
  * @param {Uint8Array} data
  * @returns {boolean}
@@ -4001,6 +4011,19 @@ export function init_state_registry(state_strings, state_ids) {
     const ptr1 = passArray16ToWasm0(state_ids, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
     wasm.init_state_registry(ptr0, len0, ptr1, len1);
+}
+
+/**
+ * Initialize Rayon thread pool for parallel meshing
+ * Only available when built with the "parallel" feature
+ * Must be called before any parallel meshing operations
+ * Returns a Promise that resolves when the pool is ready
+ * @param {number} num_threads
+ * @returns {Promise<any>}
+ */
+export function init_thread_pool(num_threads) {
+    const ret = wasm.init_thread_pool(num_threads);
+    return ret;
 }
 
 /**
@@ -4225,13 +4248,49 @@ export function process_super_chunk_complete(chunk_data_flat, chunk_count) {
     return FusedSuperChunkResult.__wrap(ret);
 }
 
+export class wbg_rayon_PoolBuilder {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(wbg_rayon_PoolBuilder.prototype);
+        obj.__wbg_ptr = ptr;
+        wbg_rayon_PoolBuilderFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        wbg_rayon_PoolBuilderFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wbg_rayon_poolbuilder_free(ptr, 0);
+    }
+    build() {
+        wasm.wbg_rayon_poolbuilder_build(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    numThreads() {
+        const ret = wasm.wbg_rayon_poolbuilder_numThreads(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    receiver() {
+        const ret = wasm.wbg_rayon_poolbuilder_receiver(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) wbg_rayon_PoolBuilder.prototype[Symbol.dispose] = wbg_rayon_PoolBuilder.prototype.free;
+
 /**
- * Set the debug/missing texture index
- * Call this after building the texture atlas
- * @param {number} index
+ * @param {number} receiver
  */
-export function set_debug_texture_index(index) {
-    wasm.set_debug_texture_index(index);
+export function wbg_rayon_start_worker(receiver) {
+    wasm.wbg_rayon_start_worker(receiver);
 }
 
 /**
@@ -4401,6 +4460,18 @@ function __wbg_get_imports() {
         __wbg___wbindgen_copy_to_typed_array_fc0809a4dec43528: function(arg0, arg1, arg2) {
             new Uint8Array(arg2.buffer, arg2.byteOffset, arg2.byteLength).set(getArrayU8FromWasm0(arg0, arg1));
         },
+        __wbg___wbindgen_is_undefined_9e4d92534c42d778: function(arg0) {
+            const ret = arg0 === undefined;
+            return ret;
+        },
+        __wbg___wbindgen_memory_bd1fbcf21fbef3c8: function() {
+            const ret = wasm.memory;
+            return ret;
+        },
+        __wbg___wbindgen_module_f6b8052d79c1cc16: function() {
+            const ret = wasmModule;
+            return ret;
+        },
         __wbg___wbindgen_string_get_72fb696202c56729: function(arg0, arg1) {
             const obj = arg1;
             const ret = typeof(obj) === 'string' ? obj : undefined;
@@ -4412,6 +4483,10 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_be289d5034ed271b: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_call_389efe28435a9388: function() { return handleError(function (arg0, arg1) {
+            const ret = arg0.call(arg1);
+            return ret;
+        }, arguments); },
         __wbg_error_7534b8e9a36f1ab4: function(arg0, arg1) {
             let deferred0_0;
             let deferred0_1;
@@ -4426,11 +4501,25 @@ function __wbg_get_imports() {
         __wbg_error_9a7fe3f932034cde: function(arg0) {
             console.error(arg0);
         },
+        __wbg_instanceof_Window_ed49b2db8df90359: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof Window;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
         __wbg_log_6b5ca2e6124b2808: function(arg0) {
             console.log(arg0);
         },
         __wbg_new_8a6f238a6ece86ea: function() {
             const ret = new Error();
+            return ret;
+        },
+        __wbg_new_no_args_1c7c842f08d00ebb: function(arg0, arg1) {
+            const ret = new Function(getStringFromWasm0(arg0, arg1));
             return ret;
         },
         __wbg_stack_0ed75d68575b0f3c: function(arg0, arg1) {
@@ -4439,6 +4528,26 @@ function __wbg_get_imports() {
             const len1 = WASM_VECTOR_LEN;
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg_startWorkers_2ca11761e08ff5d5: function(arg0, arg1, arg2) {
+            const ret = startWorkers(arg0, arg1, wbg_rayon_PoolBuilder.__wrap(arg2));
+            return ret;
+        },
+        __wbg_static_accessor_GLOBAL_12837167ad935116: function() {
+            const ret = typeof global === 'undefined' ? null : global;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_GLOBAL_THIS_e628e89ab3b1c95f: function() {
+            const ret = typeof globalThis === 'undefined' ? null : globalThis;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_SELF_a621d3dfbb60d0ce: function() {
+            const ret = typeof self === 'undefined' ? null : self;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_WINDOW_f8727f0cf888e0bd: function() {
+            const ret = typeof window === 'undefined' ? null : window;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
         __wbg_warn_f7ae1b2e66ccb930: function(arg0) {
             console.warn(arg0);
@@ -4488,6 +4597,9 @@ const ProcessedChunkFinalization = (typeof FinalizationRegistry === 'undefined')
 const StreamingMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_streamingmeshresultwasm_free(ptr >>> 0, 1));
+const wbg_rayon_PoolBuilderFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wbg_rayon_poolbuilder_free(ptr >>> 0, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
@@ -4566,6 +4678,15 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
 }
 
 function isLikeNone(x) {
