@@ -590,6 +590,40 @@ class StateRegistry {
       }
     }
     
+    // Pink petals: facing (4) + flower_amount (1-4)
+    for (const facing of ['north', 'south', 'east', 'west']) {
+      for (let flower_amount = 1; flower_amount <= 4; flower_amount++) {
+        this.register('pink_petals', { facing, flower_amount: String(flower_amount) });
+        registered++;
+      }
+    }
+    
+    // Leaf litter: facing (4) + segment_amount (1-4)
+    for (const facing of ['north', 'south', 'east', 'west']) {
+      for (let segment_amount = 1; segment_amount <= 4; segment_amount++) {
+        this.register('leaf_litter', { facing, segment_amount: String(segment_amount) });
+        registered++;
+      }
+    }
+    
+    // Wood shelves: facing (4) + powered (2) + side_chain (4)
+    const shelfWoodTypes = [
+      'oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak',
+      'crimson', 'warped', 'mangrove', 'cherry', 'bamboo', 'pale_oak'
+    ];
+    const sideChainStates = ['unconnected', 'left', 'center', 'right'];
+    for (const wood of shelfWoodTypes) {
+      const shelfName = `${wood}_shelf`;
+      for (const facing of ['north', 'south', 'east', 'west']) {
+        for (const powered of ['true', 'false']) {
+          for (const side_chain of sideChainStates) {
+            this.register(shelfName, { facing, powered, side_chain });
+            registered++;
+          }
+        }
+      }
+    }
+    
     // Precompute geometry for all newly registered states
     await this.precomputeAll();
     

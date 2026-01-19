@@ -160,6 +160,24 @@ function classifyProperty(propName, propValue, blockName) {
     if (propName === 'axis') return 'geometry';
   }
   
+  // Logs, wood, stems, hyphae: axis selects between vertical and horizontal models
+  // axis=y uses log model, axis=x/z use log_horizontal model with different rotations
+  if (blockName.endsWith('_log') || blockName.endsWith('_wood') || 
+      blockName.endsWith('_stem') || blockName.endsWith('_hyphae')) {
+    if (propName === 'axis') return 'geometry';
+  }
+  
+  // Pillars and basalt also use different models for different axes
+  if (blockName.includes('pillar') || blockName === 'basalt' || blockName === 'polished_basalt' ||
+      blockName === 'bone_block' || blockName === 'hay_block' || blockName === 'purpur_pillar') {
+    if (propName === 'axis') return 'geometry';
+  }
+  
+  // Test blocks have mode property that selects different models
+  if (blockName === 'test_block') {
+    if (propName === 'mode') return 'geometry';
+  }
+  
   // Redstone lamp: 'lit' affects the texture (uses redstone_lamp_on model when lit)
   if (blockName === 'redstone_lamp') {
     if (propName === 'lit') return 'geometry';
@@ -170,6 +188,18 @@ function classifyProperty(propName, propValue, blockName) {
   if (blockName.includes('copper_bulb')) {
     if (propName === 'lit') return 'geometry';
     if (propName === 'powered') return 'geometry';
+  }
+  
+  // Furnace-type blocks: 'lit' affects the model (furnace vs furnace_on, etc.)
+  if (blockName === 'furnace' || blockName === 'blast_furnace' || blockName === 'smoker') {
+    if (propName === 'lit') return 'geometry';
+    if (propName === 'facing') return 'geometry'; // Rotation is baked into variant
+  }
+  
+  // Bee blocks: 'honey_level' affects the model (empty vs honey-filled front texture)
+  if (blockName === 'bee_nest' || blockName === 'beehive') {
+    if (propName === 'honey_level') return 'geometry';
+    if (propName === 'facing') return 'geometry'; // Rotation is baked into variant
   }
   
   // General rules

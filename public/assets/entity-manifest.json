@@ -1,0 +1,243 @@
+{
+  "version": 3,
+  "description": "Entity model manifest for WASM v3 pipeline",
+  "entities": {
+    "chest": {
+      "model_files": {
+        "single": "chest.json",
+        "double_left": "chest_left.json",
+        "double_right": "chest_right.json"
+      },
+      "texture_variants": {
+        "normal": "entity/chest/normal",
+        "normal_left": "entity/chest/normal_left",
+        "normal_right": "entity/chest/normal_right",
+        "trapped": "entity/chest/trapped",
+        "trapped_left": "entity/chest/trapped_left",
+        "trapped_right": "entity/chest/trapped_right",
+        "ender": "entity/chest/ender",
+        "christmas": "entity/chest/christmas",
+        "christmas_left": "entity/chest/christmas_left",
+        "christmas_right": "entity/chest/christmas_right"
+      },
+      "nbt_properties": [
+        "type"
+      ],
+      "rotation_source": "facing",
+      "has_16_rotations": false
+    },
+    "bed": {
+      "model_files": {
+        "head": "bed_head.json",
+        "foot": "bed_foot.json"
+      },
+      "texture_variants": {
+        "white": "entity/bed/white",
+        "orange": "entity/bed/orange",
+        "magenta": "entity/bed/magenta",
+        "light_blue": "entity/bed/light_blue",
+        "yellow": "entity/bed/yellow",
+        "lime": "entity/bed/lime",
+        "pink": "entity/bed/pink",
+        "gray": "entity/bed/gray",
+        "light_gray": "entity/bed/light_gray",
+        "cyan": "entity/bed/cyan",
+        "purple": "entity/bed/purple",
+        "blue": "entity/bed/blue",
+        "brown": "entity/bed/brown",
+        "green": "entity/bed/green",
+        "red": "entity/bed/red",
+        "black": "entity/bed/black"
+      },
+      "nbt_properties": [
+        "color"
+      ],
+      "rotation_source": "facing",
+      "has_16_rotations": false,
+      "color_from_block_name": true
+    },
+    "sign": {
+      "model_files": {
+        "standing": "sign.json",
+        "wall": "sign.json"
+      },
+      "texture_variants": {
+        "oak": "entity/signs/oak",
+        "spruce": "entity/signs/spruce",
+        "birch": "entity/signs/birch",
+        "acacia": "entity/signs/acacia",
+        "cherry": "entity/signs/cherry",
+        "jungle": "entity/signs/jungle",
+        "dark_oak": "entity/signs/dark_oak",
+        "pale_oak": "entity/signs/pale_oak",
+        "mangrove": "entity/signs/mangrove",
+        "bamboo": "entity/signs/bamboo",
+        "crimson": "entity/signs/crimson",
+        "warped": "entity/signs/warped"
+      },
+      "nbt_properties": [],
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "wood_from_block_name": true
+    },
+    "hanging_sign": {
+      "model_files": {
+        "standing": "hanging_sign.json",
+        "wall": "hanging_sign.json"
+      },
+      "texture_variants": {
+        "oak": "entity/signs/hanging/oak",
+        "spruce": "entity/signs/hanging/spruce",
+        "birch": "entity/signs/hanging/birch",
+        "acacia": "entity/signs/hanging/acacia",
+        "cherry": "entity/signs/hanging/cherry",
+        "jungle": "entity/signs/hanging/jungle",
+        "dark_oak": "entity/signs/hanging/dark_oak",
+        "pale_oak": "entity/signs/hanging/pale_oak",
+        "mangrove": "entity/signs/hanging/mangrove",
+        "bamboo": "entity/signs/hanging/bamboo",
+        "crimson": "entity/signs/hanging/crimson",
+        "warped": "entity/signs/hanging/warped"
+      },
+      "nbt_properties": [],
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "wood_from_block_name": true
+    },
+    "skull": {
+      "model_files": {
+        "skeleton": "skull_32.json",
+        "wither_skeleton": "skull_32.json",
+        "creeper": "skull_32.json",
+        "zombie": "skull.json",
+        "player": "skull.json",
+        "dragon": "skull_dragon.json",
+        "piglin": "skull_piglin.json"
+      },
+      "texture_variants": {
+        "skeleton": "entity/skeleton/skeleton",
+        "wither_skeleton": "entity/skeleton/wither_skeleton",
+        "creeper": "entity/creeper/creeper",
+        "zombie": "entity/zombie/zombie",
+        "player": "entity/player/wide/steve",
+        "dragon": "entity/enderdragon/dragon",
+        "piglin": "entity/piglin/piglin"
+      },
+      "nbt_properties": [
+        "SkullOwner"
+      ],
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "banner": {
+      "model_files": {
+        "standing": "banner.json",
+        "wall": "banner.json"
+      },
+      "texture_variants": {
+        "base": "entity/banner_base"
+      },
+      "nbt_properties": [
+        "patterns",
+        "base_color"
+      ],
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true,
+      "color_from_block_name": true
+    },
+    "bell": {
+      "model_files": {
+        "default": "bell.json"
+      },
+      "texture_variants": {
+        "default": "entity/bell/bell_body"
+      },
+      "nbt_properties": [],
+      "rotation_source": "facing",
+      "has_16_rotations": false
+    },
+    "shulker_box": {
+      "model_files": {
+        "default": "shulker.json"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker",
+        "white": "entity/shulker/shulker_white",
+        "orange": "entity/shulker/shulker_orange",
+        "magenta": "entity/shulker/shulker_magenta",
+        "light_blue": "entity/shulker/shulker_light_blue",
+        "yellow": "entity/shulker/shulker_yellow",
+        "lime": "entity/shulker/shulker_lime",
+        "pink": "entity/shulker/shulker_pink",
+        "gray": "entity/shulker/shulker_gray",
+        "light_gray": "entity/shulker/shulker_light_gray",
+        "cyan": "entity/shulker/shulker_cyan",
+        "purple": "entity/shulker/shulker_purple",
+        "blue": "entity/shulker/shulker_blue",
+        "brown": "entity/shulker/shulker_brown",
+        "green": "entity/shulker/shulker_green",
+        "red": "entity/shulker/shulker_red",
+        "black": "entity/shulker/shulker_black"
+      },
+      "nbt_properties": [],
+      "rotation_source": "facing",
+      "has_16_rotations": false,
+      "color_from_block_name": true
+    },
+    "conduit": {
+      "model_files": {
+        "shell": "conduit_shell.json",
+        "eye": "conduit_eye.json",
+        "wind": "conduit_wind.json"
+      },
+      "texture_variants": {
+        "default": "entity/conduit/base",
+        "open": "entity/conduit/open",
+        "wind": "entity/conduit/wind",
+        "wind_vertical": "entity/conduit/wind_vertical"
+      },
+      "nbt_properties": [],
+      "rotation_source": "none",
+      "has_16_rotations": false,
+      "has_glow": true
+    },
+    "decorated_pot": {
+      "model_files": {
+        "base": "decorated_pot.json"
+      },
+      "texture_variants": {
+        "base": "entity/decorated_pot/decorated_pot_base"
+      },
+      "nbt_properties": [
+        "sherds"
+      ],
+      "rotation_source": "facing",
+      "has_16_rotations": false
+    },
+    "enchanting_table_book": {
+      "model_files": {
+        "default": "book.json"
+      },
+      "texture_variants": {
+        "default": "entity/enchanting_table_book"
+      },
+      "nbt_properties": [],
+      "rotation_source": "none",
+      "has_16_rotations": false
+    },
+    "lectern_book": {
+      "model_files": {
+        "default": "book.json"
+      },
+      "texture_variants": {
+        "default": "entity/enchanting_table_book"
+      },
+      "nbt_properties": [
+        "Book"
+      ],
+      "rotation_source": "facing",
+      "has_16_rotations": false
+    }
+  }
+}

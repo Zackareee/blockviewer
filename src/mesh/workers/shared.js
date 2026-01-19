@@ -36,8 +36,9 @@ export const AXIS_SHIFT = 12;
 // ============================================================================
 
 export const AIR_BLOCKS = new Set([
-  'air', 'cave_air', 'void_air', 
-  'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air'
+  'air', 'cave_air', 'void_air', 'barrier', 'structure_void', 'light',
+  'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air',
+  'minecraft:barrier', 'minecraft:structure_void', 'minecraft:light',
 ]);
 
 export const UNDERWATER_BLOCKS = new Set([

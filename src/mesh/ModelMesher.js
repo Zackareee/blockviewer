@@ -2400,8 +2400,9 @@ export const NON_CUBE_PATTERNS = [
   'eyeblossom', 'wildflowers',
   
   // Grass and plants
+  // Note: 'kelp' NOT as pattern - use exact match to avoid matching 'dried_kelp_block'
   'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'bush',
-  'seagrass', 'tall_seagrass', 'kelp', 'sugar_cane', 'cactus', 'lily_pad',
+  'seagrass', 'tall_seagrass', 'sugar_cane', 'cactus', 'lily_pad',
   'nether_sprouts', 'hanging_roots', 'short_dry_grass', 'tall_dry_grass', 'leaf_litter',
   'pale_hanging_moss', 'firefly_bush',
   'crimson_roots', 'warped_roots', 'crimson_fungus', 'warped_fungus', // Nether cross-model plants
@@ -2606,11 +2607,12 @@ export function isNonCubeBlock(blockName) {
 export const MULTIPART_PATTERNS = [
   '_fence', '_wall', '_pane', 'iron_bars', 'copper_bars',
   'redstone_wire', 'tripwire',
-  'chorus_plant', 'vine', 'glow_lichen',
+  'chorus_plant', 'glow_lichen', 'sculk_vein',
   'fire', 'soul_fire',
-  'mushroom_block', // brown_mushroom_block, red_mushroom_block have multipart
-  'shelf', // bookshelves with state
+  'mushroom_block', 'mushroom_stem', // brown/red_mushroom_block and mushroom_stem
+  '_shelf', // wood type shelves (oak_shelf, spruce_shelf, etc.)
   'brewing_stand',
+  'resin_clump', // Multipart block with directional faces
 ];
 
 /**
@@ -2619,6 +2621,11 @@ export const MULTIPART_PATTERNS = [
 export const MULTIPART_EXACT = new Set([
   'bamboo',
   'chorus_plant',
+  'composter', // Multipart block with level-based content layers
+  'vine', // The classic wall-climbing vine (not cave_vines, etc.)
+  'pink_petals', // Flower patch with flower_amount property
+  'leaf_litter', // Ground cover with segment_amount property
+  'chiseled_bookshelf', // Has slot_X_occupied properties
 ]);
 
 /**

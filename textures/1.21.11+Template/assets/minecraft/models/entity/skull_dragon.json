@@ -1,0 +1,560 @@
+{
+  "credit": "Extracted from Minecraft 1.21.11 skull_dragon",
+  "texture_size": [
+    256,
+    256
+  ],
+  "textures": {
+    "texture": "minecraft:entity/skull_dragon",
+    "particle": "minecraft:block/stone"
+  },
+  "elements": [
+    {
+      "from": [
+        2.0,
+        11.0,
+        -14.0
+      ],
+      "to": [
+        14.0,
+        16.0,
+        2.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.75,
+            0.234375,
+            0.796875,
+            0.253906
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.859375,
+            0.234375,
+            0.90625,
+            0.253906
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.796875,
+            0.234375,
+            0.859375,
+            0.253906
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.6875,
+            0.234375,
+            0.75,
+            0.253906
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.796875,
+            0.171875,
+            0.75,
+            0.234375
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.84375,
+            0.171875,
+            0.796875,
+            0.234375
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "head_0",
+      "shade": true
+    },
+    {
+      "from": [
+        0.0,
+        4.0,
+        0.0
+      ],
+      "to": [
+        16.0,
+        20.0,
+        16.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.5,
+            0.179688,
+            0.5625,
+            0.242188
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.625,
+            0.179688,
+            0.6875,
+            0.242188
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.5625,
+            0.179688,
+            0.625,
+            0.242188
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.4375,
+            0.179688,
+            0.5,
+            0.242188
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.5625,
+            0.117188,
+            0.5,
+            0.179688
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.625,
+            0.117188,
+            0.5625,
+            0.179688
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "head_1",
+      "shade": true
+    },
+    {
+      "from": [
+        3.0,
+        0.0,
+        6.0
+      ],
+      "to": [
+        5.0,
+        4.0,
+        12.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.03125,
+            0.023438,
+            0.023438,
+            0.039062
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.0625,
+            0.023438,
+            0.054688,
+            0.039062
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.023438,
+            0.023438,
+            0.0,
+            0.039062
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.054688,
+            0.023438,
+            0.03125,
+            0.039062
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.03125,
+            0.0,
+            0.023438,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.039062,
+            0.0,
+            0.03125,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "head_2",
+      "__mirror": true,
+      "shade": true
+    },
+    {
+      "from": [
+        3.0,
+        9.0,
+        -12.0
+      ],
+      "to": [
+        5.0,
+        11.0,
+        -8.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.460938,
+            0.015625,
+            0.453125,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.484375,
+            0.015625,
+            0.476562,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.453125,
+            0.015625,
+            0.4375,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.476562,
+            0.015625,
+            0.460938,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.460938,
+            0.0,
+            0.453125,
+            0.015625
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.46875,
+            0.0,
+            0.460938,
+            0.015625
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "head_3",
+      "__mirror": true,
+      "shade": true
+    },
+    {
+      "from": [
+        11.0,
+        0.0,
+        6.0
+      ],
+      "to": [
+        13.0,
+        4.0,
+        12.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.023438,
+            0.023438,
+            0.03125,
+            0.039062
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.054688,
+            0.023438,
+            0.0625,
+            0.039062
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.03125,
+            0.023438,
+            0.054688,
+            0.039062
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.0,
+            0.023438,
+            0.023438,
+            0.039062
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.03125,
+            0.0,
+            0.023438,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.039062,
+            0.0,
+            0.03125,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "head_4",
+      "shade": true
+    },
+    {
+      "from": [
+        11.0,
+        9.0,
+        -12.0
+      ],
+      "to": [
+        13.0,
+        11.0,
+        -8.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.453125,
+            0.015625,
+            0.460938,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.476562,
+            0.015625,
+            0.484375,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.460938,
+            0.015625,
+            0.476562,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.4375,
+            0.015625,
+            0.453125,
+            0.023438
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.460938,
+            0.0,
+            0.453125,
+            0.015625
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.46875,
+            0.0,
+            0.460938,
+            0.015625
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "head_5",
+      "shade": true
+    },
+    {
+      "from": [
+        2.0,
+        16.0,
+        -14.0
+      ],
+      "to": [
+        14.0,
+        20.0,
+        2.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.75,
+            0.316406,
+            0.796875,
+            0.332031
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.859375,
+            0.316406,
+            0.90625,
+            0.332031
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.796875,
+            0.316406,
+            0.859375,
+            0.332031
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.6875,
+            0.316406,
+            0.75,
+            0.332031
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.796875,
+            0.253906,
+            0.75,
+            0.316406
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.84375,
+            0.253906,
+            0.796875,
+            0.316406
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "jaw_0",
+      "shade": true,
+      "rotation": {
+        "angle": 22.5,
+        "axis": "x",
+        "origin": [
+          8.0,
+          18.0,
+          -6.0
+        ]
+      }
+    }
+  ],
+  "__metadata": {
+    "normalized_uvs": true,
+    "shade": true
+  }
+}

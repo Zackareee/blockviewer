@@ -18,6 +18,7 @@ import { createLavaMaterial, updateLavaMaterialAtlas } from './materials/LavaMat
 import { createTexturedMaterial, createTexturedGlassMaterial, createTexturedModelMaterial, createTransparentModelMaterial, createTranslucentModelMaterial, createOverlayModelMaterial, updateMaterialAtlas, setMaterialTextureMode, setMaterialLightingEnabled, setMaterialFastPath, setMaterialFog } from './materials/TexturedMaterial';
 import { createInstancedModelMaterial, createInstancedMesh, createCrossGeometry } from './materials/InstancedModelMaterial';
 import { createEndPortalMaterial, updateEndPortalTextures, setEndPortalYRange } from './materials/EndPortalMaterial';
+import { createEntityMaterial, updateEntityMaterialYSlice, updateEntityMaterialFog } from './materials/EntityMaterial';
 import { RegionMeshBuilder } from '../mesh/RegionMeshBuilder';
 import { StreamingRegionLoader } from '../mesh/StreamingRegionLoader';
 import { BinaryGrid } from '../mesh/BinaryGrid';
@@ -105,6 +106,10 @@ export class ChunkManager {
     this.endPortalGroup = new THREE.Group();
     this.endPortalGroup.renderOrder = 0; // Same as solid (opaque, writes depth)
     
+    // Block entity group (chests, beds, signs, skulls, banners, etc.)
+    this.blockEntityGroup = new THREE.Group();
+    this.blockEntityGroup.renderOrder = 0; // Same as solid opaque blocks
+    
     scene.add(this.solidGroup);
     scene.add(this.waterGroup);
     scene.add(this.lavaGroup);
@@ -114,6 +119,7 @@ export class ChunkManager {
     scene.add(this.translucentModelGroup);
     scene.add(this.overlayModelGroup);
     scene.add(this.endPortalGroup);
+    scene.add(this.blockEntityGroup);
     
     // Create materials based on texture mode
     // When textures are enabled, use textured materials that can fall back to vertex colors
@@ -136,6 +142,11 @@ export class ChunkManager {
     this.instancedMaterial = createInstancedModelMaterial(this.textureAtlas, useTextures, this.lightmap); // GPU instanced grass/flowers
     this.endPortalMaterial = createEndPortalMaterial(); // End portal shader effect
     
+    // Block entity material (will be initialized when entity atlas is loaded)
+    this.blockEntityMaterial = null;
+    this.entityAtlas = options.entityAtlas || null;
+    this._initBlockEntityMaterial();
+    
     // Load end_sky texture for end portal effect (async)
     this._loadEndPortalTextures();
     
@@ -155,6 +166,7 @@ export class ChunkManager {
     this.overlayModelMeshes = []; // Overlay glow effect meshes (torch bulbs)
     this.instancedMeshes = []; // GPU instanced meshes (grass, flowers)
     this.endPortalMeshes = []; // End portal and end gateway meshes
+    this.blockEntityMeshes = []; // Block entity meshes (chests, beds, signs, etc.)
     
     // Stats
     this.totalBlocks = 0;
@@ -899,6 +911,11 @@ export class ChunkManager {
     this.overlayModelMaterial.uniforms.uMinY.value = minY;
     this.overlayModelMaterial.uniforms.uMaxY.value = maxY;
     setEndPortalYRange(this.endPortalMaterial, minY, maxY);
+    
+    // Update block entity material if initialized
+    if (this.blockEntityMaterial) {
+      updateEntityMaterialYSlice(this.blockEntityMaterial, minY, maxY);
+    }
   }
 
   /**
@@ -999,6 +1016,14 @@ export class ChunkManager {
     setMaterialFog(this.modelMaterial, fogParams);
     setMaterialFog(this.transparentModelMaterial, fogParams);
     setMaterialFog(this.overlayModelMaterial, fogParams);
+    
+    // Update block entity material fog
+    if (this.blockEntityMaterial) {
+      const fogColor = Array.isArray(color) 
+        ? new THREE.Color(color[0], color[1], color[2])
+        : color;
+      updateEntityMaterialFog(this.blockEntityMaterial, fogColor, start, end, enabled);
+    }
   }
   
   /**
@@ -1772,6 +1797,53 @@ export class ChunkManager {
     if (!this.entitySystem || !this.entitiesEnabled) return;
     
     await this.entitySystem.buildMeshes();
+  }
+
+  /**
+   * Initialize the block entity material using the entity atlas
+   * Called during construction after entityAtlas is set
+   */
+  async _initBlockEntityMaterial() {
+    if (!this.entityAtlas) {
+      // Entity atlas not provided, will be initialized later
+      return;
+    }
+    
+    try {
+      // Wait for atlas to be ready if needed
+      if (!this.entityAtlas.isLoaded) {
+        await this.entityAtlas.init();
+      }
+      
+      // Get texture UVs for each texture in the atlas
+      const textureUVs = this.entityAtlas.getAllTextureUVs();
+      
+      // Create the block entity material
+      // DEBUG: Disable textures temporarily to verify geometry is correct
+      this.blockEntityMaterial = createEntityMaterial(
+        null, // Disable atlas texture for debugging
+        this.lightmap,
+        textureUVs,
+        {
+          atlasSize: [this.entityAtlas.atlasWidth, this.entityAtlas.atlasHeight],
+          useLightmap: true,
+          fogEnabled: false,
+        }
+      );
+      
+      console.log('[ChunkManager] Block entity material initialized');
+    } catch (error) {
+      console.warn('[ChunkManager] Failed to initialize block entity material:', error);
+    }
+  }
+  
+  /**
+   * Set entity atlas and reinitialize block entity material
+   * @param {EntityTextureAtlas} atlas
+   */
+  setEntityAtlas(atlas) {
+    this.entityAtlas = atlas;
+    this._initBlockEntityMaterial();
   }
 
   /**
@@ -3342,6 +3414,13 @@ export class ChunkManager {
     }
     this.instancedMeshes = [];
     
+    // Clear block entity meshes
+    for (const mesh of this.blockEntityMeshes) {
+      this.blockEntityGroup.remove(mesh);
+      this._disposeMeshOrLOD(mesh);
+    }
+    this.blockEntityMeshes = [];
+    
     // Clear particle emitters and particles
     this.particleEmitterManager.clear();
     if (this.particleSystem) {
@@ -3391,6 +3470,7 @@ export class ChunkManager {
       this.transparentModelGroup,
       this.overlayModelGroup,
       this.instancedGroup,
+      this.blockEntityGroup,
     ];
     
     for (const group of groups) {

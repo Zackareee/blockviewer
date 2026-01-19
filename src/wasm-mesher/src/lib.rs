@@ -14,6 +14,7 @@ mod mesher;
 mod models;
 pub mod registry;
 mod types;
+pub mod entities;
 
 use wasm_bindgen::prelude::*;
 
@@ -23,6 +24,10 @@ pub use models::registry::{init_state_registry, init_model_registry, init_model_
 
 // V3: Block-name-based registry exports
 pub use models::block_registry::init_block_model_registry;
+
+// Entity/block entity registry exports
+pub use entities::entity_registry::{init_entity_model_registry, is_entity_registry_initialized};
+pub use entities::block_entity_registry::{init_block_entity_registry, is_block_entity_registry_initialized};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global allocator.
 #[cfg(feature = "wee_alloc")]
@@ -2341,4 +2346,140 @@ impl FusedSuperChunkResult {
     pub fn model_overlay_indices(&self) -> Vec<u32> { self.model_overlay.indices.clone() }
     #[wasm_bindgen(getter)]
     pub fn model_overlay_vertex_count(&self) -> u32 { self.model_overlay.vertex_count }
+}
+
+// ============================================================================
+// Block Entity Meshing API
+// ============================================================================
+
+/// Mesh block entities from a serialized entity state grid
+/// 
+/// Takes serialized entity grid data (from WorkerEntityStateGrid.serializeForWasm())
+/// and returns mesh geometry for all block entities.
+/// 
+/// The block entity registry must be initialized first via init_block_entity_registry().
+#[wasm_bindgen]
+pub fn mesh_block_entities(
+    entity_grid_data: &[u8],
+    light_data: &[u8],
+    min_chunk_x: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_z: i32,
+) -> BlockEntityMeshResultWasm {
+    // Check if registry is initialized
+    if !entities::block_entity_registry::is_block_entity_registry_initialized() {
+        web_sys::console::warn_1(&"[WASM] Block entity registry not initialized".into());
+        return BlockEntityMeshResultWasm::empty();
+    }
+    
+    // Parse entity state grid
+    let entity_grid = match entities::EntityStateGrid::from_bytes(entity_grid_data) {
+        Ok(g) => g,
+        Err(e) => {
+            web_sys::console::error_1(&format!("[WASM] Failed to parse entity grid: {}", e).into());
+            return BlockEntityMeshResultWasm::empty();
+        }
+    };
+    
+    if entity_grid.is_empty() {
+        return BlockEntityMeshResultWasm::empty();
+    }
+    
+    // Parse light grid
+    let light_grid = if !light_data.is_empty() {
+        Some(grid::LightGrid::from_bytes(light_data))
+    } else {
+        None
+    };
+    
+    let bounds = Some(mesher::MeshBounds {
+        min_chunk_x,
+        min_chunk_z,
+        max_chunk_x,
+        max_chunk_z,
+    });
+    
+    // Run block entity mesher
+    let result = entities::block_entity_mesher::mesh_block_entities(
+        &entity_grid,
+        light_grid.as_ref(),
+        bounds.as_ref(),
+    );
+    
+    BlockEntityMeshResultWasm::from_result(result)
+}
+
+/// Result of block entity meshing
+#[wasm_bindgen]
+pub struct BlockEntityMeshResultWasm {
+    positions: Vec<f32>,
+    normals: Vec<f32>,
+    uvs: Vec<f32>,
+    colors: Vec<f32>,
+    tex_indices: Vec<f32>,
+    sky_light: Vec<f32>,
+    block_light: Vec<f32>,
+    indices: Vec<u32>,
+    vertex_count: u32,
+}
+
+#[wasm_bindgen]
+impl BlockEntityMeshResultWasm {
+    pub fn empty() -> Self {
+        Self {
+            positions: Vec::new(),
+            normals: Vec::new(),
+            uvs: Vec::new(),
+            colors: Vec::new(),
+            tex_indices: Vec::new(),
+            sky_light: Vec::new(),
+            block_light: Vec::new(),
+            indices: Vec::new(),
+            vertex_count: 0,
+        }
+    }
+    
+    fn from_result(result: entities::block_entity_mesher::BlockEntityMeshResult) -> Self {
+        Self {
+            positions: result.positions,
+            normals: result.normals,
+            uvs: result.uvs,
+            colors: result.colors,
+            tex_indices: result.tex_indices,
+            sky_light: result.sky_light,
+            block_light: result.block_light,
+            indices: result.indices,
+            vertex_count: result.vertex_count,
+        }
+    }
+    
+    #[wasm_bindgen(getter)]
+    pub fn positions(&self) -> Vec<f32> { self.positions.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn normals(&self) -> Vec<f32> { self.normals.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn uvs(&self) -> Vec<f32> { self.uvs.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn colors(&self) -> Vec<f32> { self.colors.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn tex_indices(&self) -> Vec<f32> { self.tex_indices.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn sky_light(&self) -> Vec<f32> { self.sky_light.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn block_light(&self) -> Vec<f32> { self.block_light.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn indices(&self) -> Vec<u32> { self.indices.clone() }
+    
+    #[wasm_bindgen(getter)]
+    pub fn vertex_count(&self) -> u32 { self.vertex_count }
+    
+    pub fn is_empty(&self) -> bool { self.positions.is_empty() }
 }

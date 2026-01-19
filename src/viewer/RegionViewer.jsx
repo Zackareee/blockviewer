@@ -542,6 +542,7 @@ function RegionScene({
   debugMode,
   onBlockHover,
   onBlockClick, // Callback when a block is clicked (locks block inspector)
+  selectedBlock = null, // Currently selected/locked block position for wireframe display
   chunkManagerRef, // Ref to expose ChunkManager for advanced operations
   onProgress, 
   onComplete,
@@ -721,6 +722,38 @@ function RegionScene({
       manager.initBeaconBeamManager(packManager);
     }
   }, [packManager]);
+  
+  // Initialize entity texture atlas for block entities (chests, beds, signs, etc.)
+  // Run once when manager is created
+  const entityAtlasInitialized = useRef(false);
+  useEffect(() => {
+    const manager = managerRef.current;
+    if (!manager || entityAtlasInitialized.current) return;
+    
+    const initEntityAtlas = async () => {
+      try {
+        // Dynamically import to avoid circular deps
+        const { getEntityTextureAtlas } = await import('../assets/EntityTextureAtlas.js');
+        const entityAtlas = getEntityTextureAtlas();
+        
+        // Load if not already loaded
+        if (!entityAtlas.isLoaded) {
+          await entityAtlas.init();
+        }
+        
+        // Set on manager - this will trigger block entity material creation
+        if (entityAtlas.isLoaded) {
+          manager.setEntityAtlas(entityAtlas);
+          entityAtlasInitialized.current = true;
+          console.log('[RegionViewer] Entity texture atlas initialized');
+        }
+      } catch (error) {
+        console.warn('[RegionViewer] Failed to load entity texture atlas:', error);
+      }
+    };
+    
+    initEntityAtlas();
+  }, []); // Run once on mount
   
   // Initialize entity system (depends on state registry being initialized)
   useEffect(() => {
@@ -1450,9 +1483,9 @@ function RegionScene({
       {/* Animated texture time updates */}
       <AnimationUpdater managerRef={managerRef} />
       
-      {/* Debug block highlight */}
-      {debugMode && hoveredBlock && (
-        <BlockHighlight position={hoveredBlock} />
+      {/* Debug block highlight - show for hovered block OR selected/locked block */}
+      {debugMode && (hoveredBlock || selectedBlock) && (
+        <BlockHighlight position={hoveredBlock || selectedBlock} />
       )}
     </>
   );
@@ -1489,6 +1522,7 @@ export function RegionViewer({
   debugMode = false,
   onBlockHover = null,
   onBlockClick = null, // Callback when a block is clicked (for locking block inspector)
+  selectedBlock = null, // Currently selected/locked block position for wireframe display
   chunkManagerRef = null, // Ref to expose ChunkManager for advanced operations
   onCameraUpdate = null,
   spectatorRef = null,
@@ -1603,6 +1637,7 @@ export function RegionViewer({
         debugMode={debugMode}
         onBlockHover={onBlockHover}
         onBlockClick={onBlockClick}
+        selectedBlock={selectedBlock}
         chunkManagerRef={chunkManagerRef}
         onCameraUpdate={onCameraUpdate}
         spectatorRef={spectatorRef}

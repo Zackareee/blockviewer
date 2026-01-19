@@ -1,0 +1,1372 @@
+{
+  "version": 1,
+  "description": "Block entity model mapping",
+  "block_entities": {
+    "chest": {
+      "models": {
+        "single": "chest_single",
+        "double_left": "chest_double_left",
+        "double_right": "chest_double_right"
+      },
+      "texture_variants": {
+        "normal": "entity/chest/normal",
+        "normal_left": "entity/chest/normal_left",
+        "normal_right": "entity/chest/normal_right"
+      },
+      "rotation_source": "facing",
+      "variant_from": "nbt:type"
+    },
+    "trapped_chest": {
+      "models": {
+        "single": "chest_single",
+        "double_left": "chest_double_left",
+        "double_right": "chest_double_right"
+      },
+      "texture_variants": {
+        "normal": "entity/chest/trapped",
+        "normal_left": "entity/chest/trapped_left",
+        "normal_right": "entity/chest/trapped_right"
+      },
+      "rotation_source": "facing",
+      "variant_from": "nbt:type"
+    },
+    "ender_chest": {
+      "models": {
+        "single": "chest_single"
+      },
+      "texture_variants": {
+        "normal": "entity/chest/ender"
+      },
+      "rotation_source": "facing"
+    },
+    "white_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/white"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "orange_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/orange"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "magenta_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/magenta"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "light_blue_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/light_blue"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "yellow_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/yellow"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "lime_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/lime"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "pink_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/pink"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "gray_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/gray"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "light_gray_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/light_gray"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "cyan_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/cyan"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "purple_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/purple"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "blue_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/blue"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "brown_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/brown"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "green_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/green"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "red_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/red"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "black_bed": {
+      "models": {
+        "head": "bed_head",
+        "foot": "bed_foot"
+      },
+      "texture_variants": {
+        "default": "entity/bed/black"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:part"
+    },
+    "oak_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/oak"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "spruce_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/spruce"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "birch_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/birch"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "jungle_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/jungle"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "acacia_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/acacia"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "dark_oak_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/dark_oak"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "cherry_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/cherry"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "pale_oak_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/pale_oak"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "mangrove_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/mangrove"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "bamboo_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/bamboo"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "crimson_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/crimson"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "warped_sign": {
+      "models": {
+        "standing": "sign_standing",
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/warped"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "oak_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/oak"
+      },
+      "rotation_source": "facing"
+    },
+    "spruce_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/spruce"
+      },
+      "rotation_source": "facing"
+    },
+    "birch_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/birch"
+      },
+      "rotation_source": "facing"
+    },
+    "jungle_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/jungle"
+      },
+      "rotation_source": "facing"
+    },
+    "acacia_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/acacia"
+      },
+      "rotation_source": "facing"
+    },
+    "dark_oak_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/dark_oak"
+      },
+      "rotation_source": "facing"
+    },
+    "cherry_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/cherry"
+      },
+      "rotation_source": "facing"
+    },
+    "pale_oak_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/pale_oak"
+      },
+      "rotation_source": "facing"
+    },
+    "mangrove_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/mangrove"
+      },
+      "rotation_source": "facing"
+    },
+    "bamboo_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/bamboo"
+      },
+      "rotation_source": "facing"
+    },
+    "crimson_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/crimson"
+      },
+      "rotation_source": "facing"
+    },
+    "warped_wall_sign": {
+      "models": {
+        "wall": "sign_wall"
+      },
+      "texture_variants": {
+        "default": "entity/signs/warped"
+      },
+      "rotation_source": "facing"
+    },
+    "oak_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/oak"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "spruce_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/spruce"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "birch_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/birch"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "jungle_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/jungle"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "acacia_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/acacia"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "dark_oak_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/dark_oak"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "cherry_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/cherry"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "pale_oak_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/pale_oak"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "mangrove_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/mangrove"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "bamboo_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/bamboo"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "crimson_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/crimson"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "warped_hanging_sign": {
+      "models": {
+        "default": "hanging_sign"
+      },
+      "texture_variants": {
+        "default": "entity/signs/hanging/warped"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "skeleton_skull": {
+      "models": {
+        "default": "skull_skeleton"
+      },
+      "texture_variants": {
+        "default": "entity/skeleton/skeleton"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "skeleton_wall_skull": {
+      "models": {
+        "default": "skull_skeleton"
+      },
+      "texture_variants": {
+        "default": "entity/skeleton/skeleton"
+      },
+      "rotation_source": "facing"
+    },
+    "wither_skeleton_skull": {
+      "models": {
+        "default": "skull_wither_skeleton"
+      },
+      "texture_variants": {
+        "default": "entity/skeleton/wither_skeleton"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "wither_skeleton_wall_skull": {
+      "models": {
+        "default": "skull_wither_skeleton"
+      },
+      "texture_variants": {
+        "default": "entity/skeleton/wither_skeleton"
+      },
+      "rotation_source": "facing"
+    },
+    "zombie_head": {
+      "models": {
+        "default": "skull_zombie"
+      },
+      "texture_variants": {
+        "default": "entity/zombie/zombie"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "zombie_wall_head": {
+      "models": {
+        "default": "skull_zombie"
+      },
+      "texture_variants": {
+        "default": "entity/zombie/zombie"
+      },
+      "rotation_source": "facing"
+    },
+    "creeper_head": {
+      "models": {
+        "default": "skull_creeper"
+      },
+      "texture_variants": {
+        "default": "entity/creeper/creeper"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "creeper_wall_head": {
+      "models": {
+        "default": "skull_creeper"
+      },
+      "texture_variants": {
+        "default": "entity/creeper/creeper"
+      },
+      "rotation_source": "facing"
+    },
+    "player_head": {
+      "models": {
+        "default": "skull_player"
+      },
+      "texture_variants": {
+        "default": "entity/player/wide/steve"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "player_wall_head": {
+      "models": {
+        "default": "skull_player"
+      },
+      "texture_variants": {
+        "default": "entity/player/wide/steve"
+      },
+      "rotation_source": "facing"
+    },
+    "dragon_head": {
+      "models": {
+        "default": "skull_dragon"
+      },
+      "texture_variants": {
+        "default": "entity/enderdragon/dragon"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "dragon_wall_head": {
+      "models": {
+        "default": "skull_dragon"
+      },
+      "texture_variants": {
+        "default": "entity/enderdragon/dragon"
+      },
+      "rotation_source": "facing"
+    },
+    "piglin_head": {
+      "models": {
+        "default": "skull_piglin"
+      },
+      "texture_variants": {
+        "default": "entity/piglin/piglin"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true
+    },
+    "piglin_wall_head": {
+      "models": {
+        "default": "skull_piglin"
+      },
+      "texture_variants": {
+        "default": "entity/piglin/piglin"
+      },
+      "rotation_source": "facing"
+    },
+    "bell": {
+      "models": {
+        "default": "bell"
+      },
+      "texture_variants": {
+        "default": "entity/bell/bell_body"
+      },
+      "rotation_source": "facing"
+    },
+    "shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker"
+      },
+      "rotation_source": "facing"
+    },
+    "white_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_white"
+      },
+      "rotation_source": "facing"
+    },
+    "orange_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_orange"
+      },
+      "rotation_source": "facing"
+    },
+    "magenta_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_magenta"
+      },
+      "rotation_source": "facing"
+    },
+    "light_blue_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_light_blue"
+      },
+      "rotation_source": "facing"
+    },
+    "yellow_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_yellow"
+      },
+      "rotation_source": "facing"
+    },
+    "lime_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_lime"
+      },
+      "rotation_source": "facing"
+    },
+    "pink_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_pink"
+      },
+      "rotation_source": "facing"
+    },
+    "gray_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_gray"
+      },
+      "rotation_source": "facing"
+    },
+    "light_gray_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_light_gray"
+      },
+      "rotation_source": "facing"
+    },
+    "cyan_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_cyan"
+      },
+      "rotation_source": "facing"
+    },
+    "purple_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_purple"
+      },
+      "rotation_source": "facing"
+    },
+    "blue_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_blue"
+      },
+      "rotation_source": "facing"
+    },
+    "brown_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_brown"
+      },
+      "rotation_source": "facing"
+    },
+    "green_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_green"
+      },
+      "rotation_source": "facing"
+    },
+    "red_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_red"
+      },
+      "rotation_source": "facing"
+    },
+    "black_shulker_box": {
+      "models": {
+        "default": "shulker_box"
+      },
+      "texture_variants": {
+        "default": "entity/shulker/shulker_black"
+      },
+      "rotation_source": "facing"
+    },
+    "white_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "orange_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "magenta_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "light_blue_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "yellow_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "lime_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "pink_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "gray_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "light_gray_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "cyan_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "purple_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "blue_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "brown_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "green_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "red_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "black_banner": {
+      "models": {
+        "standing": "banner_standing",
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "rotation",
+      "has_16_rotations": true,
+      "has_pattern_compositing": true
+    },
+    "white_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "orange_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "magenta_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "light_blue_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "yellow_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "lime_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "pink_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "gray_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "light_gray_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "cyan_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "purple_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "blue_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "brown_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "green_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "red_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "black_wall_banner": {
+      "models": {
+        "wall": "banner_wall"
+      },
+      "texture_variants": {
+        "default": "entity/banner_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "conduit": {
+      "models": {
+        "shell": "conduit_shell",
+        "eye": "conduit_eye"
+      },
+      "texture_variants": {
+        "shell": "entity/conduit/base",
+        "eye": "entity/conduit/open"
+      },
+      "rotation_source": "none",
+      "has_glow": true
+    },
+    "decorated_pot": {
+      "models": {
+        "default": "decorated_pot"
+      },
+      "texture_variants": {
+        "default": "entity/decorated_pot/decorated_pot_base"
+      },
+      "rotation_source": "facing",
+      "has_pattern_compositing": true
+    },
+    "enchanting_table": {
+      "models": {
+        "book": "book"
+      },
+      "texture_variants": {
+        "default": "entity/enchanting_table_book"
+      },
+      "rotation_source": "none",
+      "is_overlay": true
+    },
+    "lectern": {
+      "models": {
+        "book": "book"
+      },
+      "texture_variants": {
+        "default": "entity/enchanting_table_book"
+      },
+      "rotation_source": "facing",
+      "conditional": "block_state:has_book=true"
+    },
+    "copper_golem_statue": {
+      "models": {
+        "standing": "copper_golem_standing",
+        "sitting": "copper_golem_sitting",
+        "running": "copper_golem_running",
+        "star": "copper_golem_star"
+      },
+      "texture_variants": {
+        "default": "entity/copper_golem/copper_golem"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:pose"
+    },
+    "exposed_copper_golem_statue": {
+      "models": {
+        "standing": "copper_golem_standing",
+        "sitting": "copper_golem_sitting",
+        "running": "copper_golem_running",
+        "star": "copper_golem_star"
+      },
+      "texture_variants": {
+        "default": "entity/copper_golem/exposed_copper_golem"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:pose"
+    },
+    "weathered_copper_golem_statue": {
+      "models": {
+        "standing": "copper_golem_standing",
+        "sitting": "copper_golem_sitting",
+        "running": "copper_golem_running",
+        "star": "copper_golem_star"
+      },
+      "texture_variants": {
+        "default": "entity/copper_golem/weathered_copper_golem"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:pose"
+    },
+    "oxidized_copper_golem_statue": {
+      "models": {
+        "standing": "copper_golem_standing",
+        "sitting": "copper_golem_sitting",
+        "running": "copper_golem_running",
+        "star": "copper_golem_star"
+      },
+      "texture_variants": {
+        "default": "entity/copper_golem/oxidized_copper_golem"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:pose"
+    },
+    "waxed_copper_golem_statue": {
+      "models": {
+        "standing": "copper_golem_standing",
+        "sitting": "copper_golem_sitting",
+        "running": "copper_golem_running",
+        "star": "copper_golem_star"
+      },
+      "texture_variants": {
+        "default": "entity/copper_golem/copper_golem"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:pose"
+    },
+    "waxed_exposed_copper_golem_statue": {
+      "models": {
+        "standing": "copper_golem_standing",
+        "sitting": "copper_golem_sitting",
+        "running": "copper_golem_running",
+        "star": "copper_golem_star"
+      },
+      "texture_variants": {
+        "default": "entity/copper_golem/exposed_copper_golem"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:pose"
+    },
+    "waxed_weathered_copper_golem_statue": {
+      "models": {
+        "standing": "copper_golem_standing",
+        "sitting": "copper_golem_sitting",
+        "running": "copper_golem_running",
+        "star": "copper_golem_star"
+      },
+      "texture_variants": {
+        "default": "entity/copper_golem/weathered_copper_golem"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:pose"
+    },
+    "waxed_oxidized_copper_golem_statue": {
+      "models": {
+        "standing": "copper_golem_standing",
+        "sitting": "copper_golem_sitting",
+        "running": "copper_golem_running",
+        "star": "copper_golem_star"
+      },
+      "texture_variants": {
+        "default": "entity/copper_golem/oxidized_copper_golem"
+      },
+      "rotation_source": "facing",
+      "variant_from": "block_state:pose"
+    }
+  }
+}

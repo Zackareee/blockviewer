@@ -109,7 +109,9 @@ export class ModelStateLookup {
    * Check if a block is a model block (has pre-baked geometry)
    * Returns true if the block has variants in the manifest AND is not a multipart block.
    * Multipart blocks are handled by the JS MultipartMesher instead.
-   * Full cube blocks are handled by the greedy mesher (FastMesher) for efficiency.
+   * Full cube blocks with ONLY a default variant are handled by greedy mesher.
+   * Full cube blocks with multiple variants or state properties need model meshing.
+   * Block entities (beds, chests, signs, etc.) are handled by the entity mesher.
    * @param {string} blockName - Block name (without minecraft:)
    * @returns {boolean} True if this is a model block with geometry
    */
@@ -119,18 +121,37 @@ export class ModelStateLookup {
       return false;
     }
     
+    // Block entities have special rendering and no geometry in the block model registry
+    if (this._isBlockEntity(normalized)) {
+      return false;
+    }
+    
     // Check metadata flags
     const metadata = this.blockMetadata.get(normalized);
+    const variants = this.blockVariants.get(normalized);
+    
     if (metadata) {
-      // Full cube blocks are handled by greedy mesher, not model mesher
-      // This prevents duplicate geometry for blocks like grass_block, oak_log, note_block
-      if (metadata.isFullCube) {
-        return false;
-      }
-      
       // Multipart blocks are handled by JS MultipartMesher
       if (metadata.isMultipart) {
         return false;
+      }
+      
+      // Full cube blocks are handled by greedy mesher ONLY if they have:
+      // 1. A single 'default' variant (no state-dependent geometry)
+      // 2. No rotation properties (no directional textures)
+      // 3. No geometry properties (no state changes affecting model)
+      // Blocks like furnace, smoker, loom have facing/lit properties and need model meshing
+      if (metadata.isFullCube) {
+        const hasOnlyDefaultVariant = variants && variants.size === 1 && variants.has('default');
+        const hasNoStateProperties = metadata.geometryProperties.length === 0 &&
+                                     metadata.rotationProperties.length === 0;
+        
+        // Only skip truly simple full cubes (stone, dirt, etc.)
+        if (hasOnlyDefaultVariant && hasNoStateProperties) {
+          return false;
+        }
+        // Otherwise, this full cube has variants/states and needs model meshing
+        // (furnace, smoker, bee_nest, beehive, redstone_lamp, etc.)
       }
     }
     
@@ -141,7 +162,6 @@ export class ModelStateLookup {
     }
     
     // Only return true if the block has variants (geometry)
-    const variants = this.blockVariants.get(normalized);
     return variants && variants.size > 0;
   }
   
@@ -154,20 +174,97 @@ export class ModelStateLookup {
     const patterns = [
       '_fence', '_wall', '_pane', 'iron_bars', 'copper_bars',
       'redstone_wire', 'tripwire',
-      'chorus_plant', 'vine', 'glow_lichen',
+      'chorus_plant', 'glow_lichen', 'sculk_vein',
       'fire', 'soul_fire',
-      'mushroom_block',
-      'shelf',
+      'mushroom_block', 'mushroom_stem', // brown/red_mushroom_block and mushroom_stem
+      '_shelf', // wood type shelves (oak_shelf, spruce_shelf, etc.)
       'brewing_stand',
+      'resin_clump', // Multipart block with directional faces
     ];
     
-    // Exact matches
-    const exactMatches = new Set(['bamboo', 'chorus_plant']);
+    // Exact matches (must match ModelMesher.js MULTIPART_EXACT)
+    const exactMatches = new Set([
+      'bamboo',
+      'chorus_plant',
+      'composter', // Multipart block with level-based content layers
+      'vine', // The classic wall-climbing vine (not cave_vines, etc.)
+      'pink_petals', // Flower patch with flower_amount property
+      'leaf_litter', // Ground cover with segment_amount property
+      'chiseled_bookshelf', // Has slot_X_occupied properties
+    ]);
     if (exactMatches.has(blockName)) {
       return true;
     }
     
     return patterns.some(pattern => blockName.includes(pattern));
+  }
+  
+  /**
+   * Check if a block is a block entity (special rendering, no block model geometry)
+   * Block entities like beds, chests, signs, skulls, banners, etc. have their geometry
+   * stored separately and are rendered by the entity mesher.
+   * 
+   * NOTE: Blocks with complex models but still using block model geometry (lectern, 
+   * enchanting_table) are NOT block entities - they should be meshed by V3 mesher.
+   * Only blocks that use completely separate entity geometry (chests with lids,
+   * animated signs, etc.) should be here.
+   * @private
+   */
+  _isBlockEntity(blockName) {
+    // Exact matches for simple block entities
+    // NOTE: enchanting_table and lectern have proper block model geometry
+    // and should be rendered by V3 mesher, not excluded as block entities
+    const exactMatches = new Set([
+      'chest', 'trapped_chest', 'ender_chest',
+      'bell',
+      'shulker_box',
+      'conduit', 'end_portal', 'end_gateway',
+      'spawner', 'trial_spawner',
+      'decorated_pot', 'brushable_block',
+    ]);
+    if (exactMatches.has(blockName)) {
+      return true;
+    }
+    
+    // Pattern-based matching for block entities
+    // Signs (all wood types, standing and wall, regular and hanging)
+    if (blockName.endsWith('_sign') || blockName.endsWith('_hanging_sign')) {
+      return true;
+    }
+    
+    // Beds (all colors)
+    if (blockName.endsWith('_bed')) {
+      return true;
+    }
+    
+    // Skulls and heads (all types, standing and wall)
+    if (blockName.endsWith('_skull') || blockName.endsWith('_head') ||
+        blockName.endsWith('_wall_skull') || blockName.endsWith('_wall_head')) {
+      return true;
+    }
+    
+    // Banners (all colors, standing and wall)
+    if (blockName.endsWith('_banner') || blockName.endsWith('_wall_banner')) {
+      return true;
+    }
+    
+    // Shulker boxes (all colors)
+    if (blockName.endsWith('_shulker_box')) {
+      return true;
+    }
+    
+    // Chests (copper variants: copper_chest, exposed_copper_chest, etc.)
+    // Note: chest, trapped_chest, ender_chest are already in exactMatches
+    if (blockName.endsWith('_chest')) {
+      return true;
+    }
+    
+    // Copper golem statues (all oxidation levels and waxed variants)
+    if (blockName.endsWith('_golem_statue')) {
+      return true;
+    }
+    
+    return false;
   }
   
   /**

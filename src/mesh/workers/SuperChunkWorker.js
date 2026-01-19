@@ -15,6 +15,7 @@
 
 import pako from 'pako';
 import { ModelStateLookup } from './ModelStateLookup.js';
+import { EntityStateLookup, WorkerEntityStateGrid } from './EntityStateLookup.js';
 import { buildMultipartMeshes, combineMeshes } from './MultipartMesher.js';
 import {
   S, S2, S3, MIN_Y, MAX_Y,
@@ -121,6 +122,10 @@ let wasmLookupsInitialized = false;
 // V3 model meshing state
 let modelStateLookup = null;
 let v3RegistryInitialized = false;
+
+// Block entity meshing state
+let entityStateLookup = null;
+let blockEntityRegistryInitialized = false;
 
 // ============================================================================
 // Decompression Helpers
@@ -448,6 +453,55 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds) {
   };
 }
 
+/**
+ * Block Entity Meshing - uses entity state grid to mesh block entities
+ */
+function wasmMeshBlockEntities(entityStateGrid, lightGrid, bounds) {
+  if (!wasmInitialized || !blockEntityRegistryInitialized) {
+    return null;
+  }
+  
+  // Serialize entity state grid for WASM
+  const entityGridData = entityStateGrid.serializeForWasm();
+  
+  // Skip if no entities
+  if (entityGridData.length <= 4) {
+    return null;
+  }
+  
+  const lightData = serializeLightGridForWasm(lightGrid);
+  
+  try {
+    const result = wasmModule.mesh_block_entities(
+      entityGridData,
+      lightData,
+      bounds.minChunkX,
+      bounds.minChunkZ,
+      bounds.maxChunkX,
+      bounds.maxChunkZ
+    );
+    
+    if (result.is_empty()) {
+      return null;
+    }
+    
+    return {
+      positions: new Float32Array(result.positions),
+      normals: new Float32Array(result.normals),
+      uvs: new Float32Array(result.uvs),
+      colors: new Float32Array(result.colors),
+      texIndices: new Float32Array(result.tex_indices),
+      skyLight: new Float32Array(result.sky_light),
+      blockLight: new Float32Array(result.block_light),
+      indices: new Uint32Array(result.indices),
+      vertexCount: result.vertex_count,
+    };
+  } catch (e) {
+    console.warn('[SuperChunkWorker] Block entity meshing failed:', e.message);
+    return null;
+  }
+}
+
 // ============================================================================
 // NBT Parser
 // ============================================================================
@@ -658,7 +712,28 @@ class WorkerBlockRegistry {
     if (isAir) return 0;
     
     const isFluid = short.includes('water') || short.includes('lava');
-    const isOpaque = !isFluid && !short.includes('glass') && !short.includes('leaves') && !short.includes('ice');
+    
+    // Block entities should not be rendered as opaque blocks by greedy mesher
+    const isBlockEntity = 
+      short.endsWith('_bed') ||
+      short.endsWith('_sign') ||
+      short.endsWith('_hanging_sign') ||
+      short.endsWith('_skull') ||
+      short.endsWith('_head') ||
+      short.endsWith('_banner') ||
+      short.endsWith('_shulker_box') ||
+      short.endsWith('_chest') ||
+      short.endsWith('_golem_statue') ||
+      short === 'chest' ||
+      short === 'trapped_chest' ||
+      short === 'ender_chest' ||
+      short === 'bell' ||
+      short === 'conduit' ||
+      short === 'decorated_pot' ||
+      short === 'enchanting_table' ||
+      short === 'lectern';
+    
+    const isOpaque = !isFluid && !isBlockEntity && !short.includes('glass') && !short.includes('leaves') && !short.includes('ice');
     
     // Default color - will be updated from main thread data
     const color = 0x707070;
@@ -1399,7 +1474,7 @@ function unpackBlockIndices(data, bitsPerBlock, totalBlocks) {
   return indices;
 }
 
-function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid, modelStateGrid = null) {
+function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid, modelStateGrid = null, entityStateGrid = null) {
   const chunkX = chunk.x;
   const chunkZ = chunk.z;
   const sections = chunk.data.sections || (chunk.data.Level?.Sections);
@@ -1455,7 +1530,10 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
       const blockIds = new Uint16Array(palette.length);
       const stateIds = stateGrid ? new Uint16Array(palette.length) : null;
       const modelStates = (modelStateGrid && modelStateLookup) ? new Uint32Array(palette.length) : null;
+      const isModelBlock = (modelStateGrid && modelStateLookup) ? new Uint8Array(palette.length) : null; // Track model blocks separately (fixes block index 0 issue)
+      const entityStates = (entityStateGrid && entityStateLookup) ? new Uint32Array(palette.length) : null;
       const isAir = new Uint8Array(palette.length);
+      const isBlockEntity = new Uint8Array(palette.length);
       const levels = new Int8Array(palette.length);
       const isWaterlogged = new Uint8Array(palette.length);
       const axisValues = new Uint8Array(palette.length); // Axis for rotatable blocks
@@ -1474,9 +1552,21 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
         }
         
         // V3: Get model state for model blocks
+        // Note: We track isModelBlock separately because modelState can be 0 for block index 0
+        // and we need to distinguish "not a model block" from "block index 0 with default state"
         if (modelStates && !isAir[i] && modelStateLookup.isModelBlock(shortName)) {
           const ms = modelStateLookup.getModelState(shortName, props);
           modelStates[i] = ms;
+          isModelBlock[i] = 1;
+        }
+        
+        // Block entity detection
+        if (entityStates && !isAir[i] && entityStateLookup.isBlockEntity(shortName)) {
+          const es = entityStateLookup.getEntityState(shortName, props, null);
+          if (es !== null) {
+            entityStates[i] = es;
+            isBlockEntity[i] = 1;
+          }
         }
         
         if (name.includes('water') || name.includes('lava')) {
@@ -1507,7 +1597,7 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
       const stateSection = stateGrid ? stateGrid._getOrCreateSection(chunkX, chunkZ, internalSY) : null;
       
       // Pre-create model state section if needed
-      const hasModelBlocks = modelStates && modelStates.some(ms => ms !== 0);
+      const hasModelBlocks = isModelBlock && isModelBlock.some(flag => flag !== 0);
       
       // Debug logging disabled for performance
       // if (modelStates && v3RegistryInitialized) {
@@ -1535,7 +1625,8 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
           if (stateSection && stateIds) stateSection.fill(stateIds[0]);
           
           // V3: Fill model state section if this is a model block
-          if (hasModelBlocks && modelStates[0] !== 0 && modelStateGrid) {
+          // Note: Check isModelBlock flag, not modelStates value, to handle block index 0 correctly
+          if (hasModelBlocks && isModelBlock[0] && modelStateGrid) {
             const worldBaseX = chunkX * S;
             const worldBaseZ = chunkZ * S;
             const worldBaseY = baseY;
@@ -1580,12 +1671,22 @@ function decodeChunk(chunk, grid, registry, stateGrid, stateRegistry, lightGrid,
           if (stateSection && stateIds) stateSection[i] = stateIds[pi];
           
           // V3: Store model state if this is a model block
-          if (modelStates && modelStates[pi] !== 0 && modelStateGrid) {
+          // Note: Check isModelBlock flag, not modelStates value, to handle block index 0 correctly
+          if (isModelBlock && isModelBlock[pi] && modelStateGrid) {
             // Convert section index to local coords
             const ly = Math.floor(i / S2);
             const lz = Math.floor((i % S2) / S);
             const lx = i % S;
             modelStateGrid.set(worldBaseX + lx, worldBaseY + ly, worldBaseZ + lz, modelStates[pi]);
+          }
+          
+          // Store entity state if this is a block entity
+          if (isBlockEntity[pi] && entityStates && entityStates[pi] !== 0 && entityStateGrid) {
+            // Convert section index to local coords
+            const ly = Math.floor(i / S2);
+            const lz = Math.floor((i % S2) / S);
+            const lx = i % S;
+            entityStateGrid.addEntity(worldBaseX + lx, worldBaseY + ly, worldBaseZ + lz, entityStates[pi]);
           }
           
           totalBlocks++;
@@ -2842,6 +2943,12 @@ async function processSuperChunk(data) {
     ? new WorkerModelStateGrid() 
     : null;
   
+  // Block entity state grid - created if entityStateLookup exists
+  // Collection happens regardless of WASM registry, meshing requires the registry
+  const entityStateGrid = entityStateLookup
+    ? new WorkerEntityStateGrid()
+    : null;
+  
   const decodedChunks = [];
   
   // Decompress and decode all main chunks in parallel for speed
@@ -2871,7 +2978,7 @@ async function processSuperChunk(data) {
     if (chunk) {
       decodedChunks.push(chunk);
       const beforeSize = modelStateGrid?.size ?? 0;
-      decodeChunk(chunk, grid, blockRegistry, stateGrid, stateRegistry, lightGrid, modelStateGrid);
+      decodeChunk(chunk, grid, blockRegistry, stateGrid, stateRegistry, lightGrid, modelStateGrid, entityStateGrid);
       const afterSize = modelStateGrid?.size ?? 0;
       if (afterSize > beforeSize) {
         totalModelStatesSet += (afterSize - beforeSize);
@@ -3035,6 +3142,7 @@ async function processSuperChunk(data) {
     lava: null,
     glass: null,
     models: null,
+    blockEntity: null, // Block entity mesh (chests, beds, signs, etc.)
     // Serialized grids for main thread model meshing
     grids: {
       grid: serializedGrid,
@@ -3322,6 +3430,25 @@ async function processSuperChunk(data) {
     );
   }
   
+  // Block entity mesh generation (chests, beds, signs, skulls, banners, etc.)
+  if (entityStateGrid && entityStateGrid.size > 0 && blockEntityRegistryInitialized) {
+    const blockEntityMesh = wasmMeshBlockEntities(entityStateGrid, lightGrid, bounds);
+    if (blockEntityMesh && blockEntityMesh.vertexCount > 0) {
+      addBoundsToMesh(blockEntityMesh);
+      result.blockEntity = blockEntityMesh;
+      transferables.push(
+        blockEntityMesh.positions.buffer,
+        blockEntityMesh.normals.buffer,
+        blockEntityMesh.uvs.buffer,
+        blockEntityMesh.colors.buffer,
+        blockEntityMesh.texIndices.buffer,
+        blockEntityMesh.skyLight.buffer,
+        blockEntityMesh.blockLight.buffer,
+        blockEntityMesh.indices.buffer
+      );
+    }
+  }
+  
   const totalTime = performance.now() - startTime;
   
   // Add inactive beacon positions to result (beacons with Levels = 0)
@@ -3428,6 +3555,24 @@ self.onmessage = async function(e) {
         console.warn(`[SuperChunkWorker] No manifest data - V3 will not work`);
       }
       
+      // Initialize block entity registry if baked entity data is provided
+      if (wasmReady && data.bakedBlockEntities && wasmModule) {
+        try {
+          const bakedEntityData = new Uint8Array(data.bakedBlockEntities);
+          const result = wasmModule.init_block_entity_registry(bakedEntityData);
+          if (result) {
+            blockEntityRegistryInitialized = true;
+            console.log(`[SuperChunkWorker] Block entity registry initialized: ${(bakedEntityData.length / 1024).toFixed(1)} KB`);
+          }
+        } catch (err) {
+          console.warn('[SuperChunkWorker] Failed to init block entity registry:', err);
+        }
+      }
+      
+      // Initialize EntityStateLookup for block entities
+      entityStateLookup = new EntityStateLookup();
+      console.log(`[SuperChunkWorker] EntityStateLookup initialized`);
+      
       workerInitialized = true;
       
       self.postMessage({ 
@@ -3436,6 +3581,7 @@ self.onmessage = async function(e) {
         wasmAvailable: wasmInitialized && wasmLookupsInitialized, 
         modelRegistryReady,
         v3RegistryReady: v3RegistryInitialized && modelStateLookup !== null,
+        blockEntityRegistryReady: blockEntityRegistryInitialized && entityStateLookup !== null,
       });
       break;
     }

@@ -115,9 +115,12 @@ function inferTintType(blockName, tintindex) {
   
   const name = blockName.toLowerCase();
   
+  // Water cauldron uses water tinting for the water inside
+  if (name === 'water_cauldron') return TINT_TYPE.WATER;
+  
   // Blocks with tintindex that DON'T actually use biome tinting
   // These use tintindex for other purposes (e.g., hardcoded colors in renderer)
-  const noTintBlocks = ['stonecutter', 'cauldron', 'lava_cauldron', 'water_cauldron', 'powder_snow_cauldron'];
+  const noTintBlocks = ['stonecutter', 'cauldron', 'lava_cauldron', 'powder_snow_cauldron'];
   if (noTintBlocks.includes(name)) return TINT_TYPE.NONE;
   
   // Fixed-color leaves (don't use colormap)

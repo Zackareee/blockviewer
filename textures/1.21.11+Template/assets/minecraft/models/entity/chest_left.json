@@ -1,0 +1,245 @@
+{
+  "credit": "Extracted from Minecraft 1.21.11 chest_left",
+  "texture_size": [
+    64,
+    64
+  ],
+  "textures": {
+    "texture": "minecraft:entity/chest_left",
+    "particle": "minecraft:block/stone"
+  },
+  "elements": [
+    {
+      "from": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "to": [
+        15.0,
+        10.0,
+        15.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.21875,
+            0.515625,
+            0.453125,
+            0.671875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.671875,
+            0.515625,
+            0.90625,
+            0.671875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.453125,
+            0.515625,
+            0.671875,
+            0.671875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.0,
+            0.515625,
+            0.21875,
+            0.671875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.453125,
+            0.296875,
+            0.21875,
+            0.515625
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.6875,
+            0.296875,
+            0.453125,
+            0.515625
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "bottom_0",
+      "shade": true
+    },
+    {
+      "from": [
+        0.0,
+        9.0,
+        1.0
+      ],
+      "to": [
+        15.0,
+        14.0,
+        15.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.21875,
+            0.21875,
+            0.453125,
+            0.296875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.671875,
+            0.21875,
+            0.90625,
+            0.296875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.453125,
+            0.21875,
+            0.671875,
+            0.296875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.0,
+            0.21875,
+            0.21875,
+            0.296875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.453125,
+            0.0,
+            0.21875,
+            0.21875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.6875,
+            0.0,
+            0.453125,
+            0.21875
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "lid_0",
+      "shade": true
+    },
+    {
+      "from": [
+        0.0,
+        7.0,
+        15.0
+      ],
+      "to": [
+        1.0,
+        11.0,
+        16.0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.015625,
+            0.015625,
+            0.03125,
+            0.078125
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "south": {
+          "uv": [
+            0.046875,
+            0.015625,
+            0.0625,
+            0.078125
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "east": {
+          "uv": [
+            0.03125,
+            0.015625,
+            0.046875,
+            0.078125
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "west": {
+          "uv": [
+            0.0,
+            0.015625,
+            0.015625,
+            0.078125
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "up": {
+          "uv": [
+            0.03125,
+            0.0,
+            0.015625,
+            0.015625
+          ],
+          "texture": "#texture",
+          "cullface": null
+        },
+        "down": {
+          "uv": [
+            0.046875,
+            0.0,
+            0.03125,
+            0.015625
+          ],
+          "texture": "#texture",
+          "cullface": null
+        }
+      },
+      "__comment": "lock_0",
+      "shade": true
+    }
+  ],
+  "__metadata": {
+    "normalized_uvs": true,
+    "shade": true
+  }
+}

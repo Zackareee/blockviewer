@@ -1,6 +1,6 @@
 {
   "version": "1.21.1",
-  "generatedAt": "2026-01-16T04:02:11.366Z",
+  "generatedAt": "2026-01-19T05:25:44.082Z",
   "blocks": {
     "acacia_button": {
       "isMultipart": false,
@@ -679,17 +679,29 @@
     "acacia_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "acacia_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "acacia_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "acacia_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -1533,17 +1545,29 @@
     "acacia_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "acacia_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "acacia_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "acacia_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -4596,17 +4620,29 @@
     "basalt": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "basalt",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "basalt",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "basalt",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -6060,17 +6096,29 @@
     "birch_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "birch_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "birch_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "birch_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -6914,17 +6962,29 @@
     "birch_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "birch_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "birch_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "birch_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -7916,26 +7976,50 @@
     "blast_furnace": {
       "isMultipart": false,
       "variants": {
-        "facing=east": {
+        "facing=east,lit=false": {
           "model": "blast_furnace",
           "rotX": 0,
           "rotY": 90,
           "uvlock": false
         },
-        "facing=north": {
+        "facing=east,lit=true": {
+          "model": "blast_furnace_on",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north,lit=false": {
           "model": "blast_furnace",
           "rotX": 0,
           "rotY": 0,
           "uvlock": false
         },
-        "facing=south": {
+        "facing=north,lit=true": {
+          "model": "blast_furnace_on",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south,lit=false": {
           "model": "blast_furnace",
           "rotX": 0,
           "rotY": 180,
           "uvlock": false
         },
-        "facing=west": {
+        "facing=south,lit=true": {
+          "model": "blast_furnace_on",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west,lit=false": {
           "model": "blast_furnace",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,lit=true": {
+          "model": "blast_furnace_on",
           "rotX": 0,
           "rotY": 270,
           "uvlock": false
@@ -7943,12 +8027,11 @@
       },
       "rotationProperties": [],
       "geometryProperties": [
-        "facing"
-      ],
-      "flipProperties": [],
-      "flagProperties": [
+        "facing",
         "lit"
       ],
+      "flipProperties": [],
+      "flagProperties": [],
       "uniqueModels": [
         "blast_furnace",
         "blast_furnace_on"
@@ -8530,17 +8613,29 @@
     "bone_block": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "bone_block",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "bone_block",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "bone_block",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -11626,17 +11721,29 @@
     "cherry_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "cherry_log_x",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=y": {
+          "model": "cherry_log_y",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "cherry_log_z",
           "rotX": 0,
           "rotY": 0,
           "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -12485,17 +12592,29 @@
     "cherry_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "cherry_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "cherry_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "cherry_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -16947,17 +17066,29 @@
     "crimson_hyphae": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "crimson_hyphae",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "crimson_hyphae",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "crimson_hyphae",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -17652,17 +17783,29 @@
     "crimson_stem": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "crimson_stem",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "crimson_stem",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "crimson_stem",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -19624,17 +19767,29 @@
     "dark_oak_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "dark_oak_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "dark_oak_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "dark_oak_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -20478,17 +20633,29 @@
     "dark_oak_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "dark_oak_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "dark_oak_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "dark_oak_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -26562,26 +26729,50 @@
     "furnace": {
       "isMultipart": false,
       "variants": {
-        "facing=east": {
+        "facing=east,lit=false": {
           "model": "furnace",
           "rotX": 0,
           "rotY": 90,
           "uvlock": false
         },
-        "facing=north": {
+        "facing=east,lit=true": {
+          "model": "furnace_on",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north,lit=false": {
           "model": "furnace",
           "rotX": 0,
           "rotY": 0,
           "uvlock": false
         },
-        "facing=south": {
+        "facing=north,lit=true": {
+          "model": "furnace_on",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south,lit=false": {
           "model": "furnace",
           "rotX": 0,
           "rotY": 180,
           "uvlock": false
         },
-        "facing=west": {
+        "facing=south,lit=true": {
+          "model": "furnace_on",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west,lit=false": {
           "model": "furnace",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,lit=true": {
+          "model": "furnace_on",
           "rotX": 0,
           "rotY": 270,
           "uvlock": false
@@ -26589,12 +26780,11 @@
       },
       "rotationProperties": [],
       "geometryProperties": [
-        "facing"
-      ],
-      "flipProperties": [],
-      "flagProperties": [
+        "facing",
         "lit"
       ],
+      "flipProperties": [],
+      "flagProperties": [],
       "uniqueModels": [
         "furnace",
         "furnace_on"
@@ -28733,17 +28923,29 @@
     "hay_block": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "hay_block_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "hay_block",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "hay_block_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -30834,17 +31036,29 @@
     "jungle_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "jungle_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "jungle_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "jungle_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -31688,17 +31902,29 @@
     "jungle_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "jungle_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "jungle_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "jungle_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -35705,17 +35931,29 @@
     "mangrove_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "mangrove_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "mangrove_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "mangrove_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -36666,17 +36904,29 @@
     "mangrove_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "mangrove_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "mangrove_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "mangrove_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -40044,17 +40294,29 @@
     "oak_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "oak_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "oak_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "oak_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -40898,17 +41160,29 @@
     "oak_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "oak_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "oak_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "oak_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -43842,17 +44116,29 @@
     "pale_oak_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "pale_oak_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "pale_oak_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "pale_oak_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -44696,17 +44982,29 @@
     "pale_oak_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "pale_oak_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "pale_oak_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "pale_oak_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -46598,17 +46896,29 @@
     "polished_basalt": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "polished_basalt",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "polished_basalt",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "polished_basalt",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -52084,17 +52394,29 @@
     "purpur_pillar": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "purpur_pillar_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "purpur_pillar",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "purpur_pillar_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -52488,17 +52810,29 @@
     "quartz_pillar": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "quartz_pillar_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "quartz_pillar",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "quartz_pillar_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -57672,26 +58006,50 @@
     "smoker": {
       "isMultipart": false,
       "variants": {
-        "facing=east": {
+        "facing=east,lit=false": {
           "model": "smoker",
           "rotX": 0,
           "rotY": 90,
           "uvlock": false
         },
-        "facing=north": {
+        "facing=east,lit=true": {
+          "model": "smoker_on",
+          "rotX": 0,
+          "rotY": 90,
+          "uvlock": false
+        },
+        "facing=north,lit=false": {
           "model": "smoker",
           "rotX": 0,
           "rotY": 0,
           "uvlock": false
         },
-        "facing=south": {
+        "facing=north,lit=true": {
+          "model": "smoker_on",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "facing=south,lit=false": {
           "model": "smoker",
           "rotX": 0,
           "rotY": 180,
           "uvlock": false
         },
-        "facing=west": {
+        "facing=south,lit=true": {
+          "model": "smoker_on",
+          "rotX": 0,
+          "rotY": 180,
+          "uvlock": false
+        },
+        "facing=west,lit=false": {
           "model": "smoker",
+          "rotX": 0,
+          "rotY": 270,
+          "uvlock": false
+        },
+        "facing=west,lit=true": {
+          "model": "smoker_on",
           "rotX": 0,
           "rotY": 270,
           "uvlock": false
@@ -57699,12 +58057,11 @@
       },
       "rotationProperties": [],
       "geometryProperties": [
-        "facing"
-      ],
-      "flipProperties": [],
-      "flagProperties": [
+        "facing",
         "lit"
       ],
+      "flipProperties": [],
+      "flagProperties": [],
       "uniqueModels": [
         "smoker",
         "smoker_on"
@@ -60171,17 +60528,29 @@
     "spruce_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "spruce_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "spruce_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "spruce_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -61025,17 +61394,29 @@
     "spruce_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "spruce_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "spruce_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "spruce_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62221,17 +62602,29 @@
     "stripped_acacia_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_acacia_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_acacia_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_acacia_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62253,17 +62646,29 @@
     "stripped_acacia_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_acacia_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_acacia_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_acacia_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62317,17 +62722,29 @@
     "stripped_birch_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_birch_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_birch_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_birch_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62349,17 +62766,29 @@
     "stripped_birch_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_birch_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_birch_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_birch_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62376,17 +62805,29 @@
     "stripped_cherry_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_cherry_log_x",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_cherry_log_y",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_cherry_log_z",
           "rotX": 0,
           "rotY": 0,
           "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62413,17 +62854,29 @@
     "stripped_cherry_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_cherry_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_cherry_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_cherry_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62440,17 +62893,29 @@
     "stripped_crimson_hyphae": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_crimson_hyphae",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_crimson_hyphae",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_crimson_hyphae",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62467,17 +62932,29 @@
     "stripped_crimson_stem": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_crimson_stem",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_crimson_stem",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_crimson_stem",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62494,17 +62971,29 @@
     "stripped_dark_oak_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_dark_oak_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_dark_oak_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_dark_oak_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62526,17 +63015,29 @@
     "stripped_dark_oak_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_dark_oak_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_dark_oak_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_dark_oak_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62553,17 +63054,29 @@
     "stripped_jungle_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_jungle_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_jungle_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_jungle_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62585,17 +63098,29 @@
     "stripped_jungle_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_jungle_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_jungle_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_jungle_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62612,17 +63137,29 @@
     "stripped_mangrove_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_mangrove_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_mangrove_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_mangrove_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62644,17 +63181,29 @@
     "stripped_mangrove_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_mangrove_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_mangrove_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_mangrove_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62671,17 +63220,29 @@
     "stripped_oak_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_oak_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_oak_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_oak_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62703,17 +63264,29 @@
     "stripped_oak_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_oak_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_oak_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_oak_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62730,17 +63303,29 @@
     "stripped_pale_oak_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_pale_oak_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_pale_oak_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_pale_oak_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62762,17 +63347,29 @@
     "stripped_pale_oak_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_pale_oak_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_pale_oak_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_pale_oak_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62789,17 +63386,29 @@
     "stripped_spruce_log": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_spruce_log_horizontal",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_spruce_log",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_spruce_log_horizontal",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62821,17 +63430,29 @@
     "stripped_spruce_wood": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_spruce_wood",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_spruce_wood",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_spruce_wood",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62848,17 +63469,29 @@
     "stripped_warped_hyphae": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_warped_hyphae",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_warped_hyphae",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_warped_hyphae",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -62875,17 +63508,29 @@
     "stripped_warped_stem": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "stripped_warped_stem",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "stripped_warped_stem",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "stripped_warped_stem",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -66535,17 +67180,29 @@
     "warped_hyphae": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "warped_hyphae",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "warped_hyphae",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "warped_hyphae",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [
@@ -67240,17 +67897,29 @@
     "warped_stem": {
       "isMultipart": false,
       "variants": {
-        "default": {
+        "axis=x": {
           "model": "warped_stem",
           "rotX": 90,
           "rotY": 90,
           "uvlock": false
+        },
+        "axis=y": {
+          "model": "warped_stem",
+          "rotX": 0,
+          "rotY": 0,
+          "uvlock": false
+        },
+        "axis=z": {
+          "model": "warped_stem",
+          "rotX": 90,
+          "rotY": 0,
+          "uvlock": false
         }
       },
-      "rotationProperties": [
+      "rotationProperties": [],
+      "geometryProperties": [
         "axis"
       ],
-      "geometryProperties": [],
       "flipProperties": [],
       "flagProperties": [],
       "uniqueModels": [

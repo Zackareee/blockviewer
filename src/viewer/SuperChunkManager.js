@@ -1159,11 +1159,14 @@ export class SuperChunkManager {
       let bakedModelsData = null;
       let manifestData = null;
       let textureRemapping = null;
+      // Load baked block entities for entity meshing
+      let bakedBlockEntitiesData = null;
       try {
-        const [bakedResponse, manifestResponse, texturesResponse] = await Promise.all([
+        const [bakedResponse, manifestResponse, texturesResponse, blockEntitiesResponse] = await Promise.all([
           fetch(`${import.meta.env.BASE_URL}assets/baked-models.bin`),
           fetch(`${import.meta.env.BASE_URL}assets/block-model-manifest.json`),
           fetch(`${import.meta.env.BASE_URL}assets/baked-models-textures.json`),
+          fetch(`${import.meta.env.BASE_URL}assets/baked-block-entities.bin`),
         ]);
         
         if (bakedResponse.ok && manifestResponse.ok) {
@@ -1182,6 +1185,14 @@ export class SuperChunkManager {
         } else {
           console.warn('[SuperChunkManager] Failed to load V3 baked models, falling back to main-thread model meshing');
         }
+        
+        // Load baked block entities
+        if (blockEntitiesResponse.ok) {
+          bakedBlockEntitiesData = await blockEntitiesResponse.arrayBuffer();
+          console.log(`[SuperChunkManager] Baked block entities loaded: ${(bakedBlockEntitiesData.byteLength / 1024).toFixed(1)} KB`);
+        } else {
+          console.warn('[SuperChunkManager] baked-block-entities.bin not found, block entity meshing will be disabled');
+        }
       } catch (e) {
         console.warn('[SuperChunkManager] Failed to load V3 assets:', e.message);
       }
@@ -1189,7 +1200,7 @@ export class SuperChunkManager {
       // Get or create the worker pool
       this.superChunkWorkerPool = getSuperChunkWorkerPool();
       
-      // Initialize with registry data including WASM lookups, model geometry, and V3 data
+      // Initialize with registry data including WASM lookups, model geometry, V3 data, and block entities
       await this.superChunkWorkerPool.initialize(
         blockRegistryData, 
         stateRegistryData, 
@@ -1197,7 +1208,8 @@ export class SuperChunkManager {
         modelGeometryData,
         bakedModelsData,
         manifestData,
-        textureRemapping
+        textureRemapping,
+        bakedBlockEntitiesData
       );
       
       this.superChunkWorkerPoolInitialized = true;
@@ -1898,6 +1910,18 @@ export class SuperChunkManager {
       }
     }
     
+    // Translucent mesh (slime, honey - blocks with inner cubes)
+    // Uses depthWrite: false so inner cube shows through outer shell
+    if (result.modelTranslucent && result.modelTranslucent.positions?.length > 0) {
+      const mesh = this._createMesh(result.modelTranslucent, this.chunkManager.translucentModelMaterial, this.chunkManager.translucentModelGroup);
+      if (mesh) {
+        mesh.renderOrder = 0.75;
+        superChunk.meshes.push(mesh);
+        this.chunkManager.translucentModelMeshes.push(mesh);
+        v3ProducedModels = true;
+      }
+    }
+    
     if (result.modelOverlay && result.modelOverlay.positions?.length > 0) {
       const mesh = this._createMesh(result.modelOverlay, this.chunkManager.overlayMaterial, this.chunkManager.overlayGroup);
       if (mesh) {
@@ -1914,6 +1938,15 @@ export class SuperChunkManager {
       if (mesh) {
         superChunk.meshes.push(mesh);
         this.chunkManager.endPortalMeshes.push(mesh);
+      }
+    }
+    
+    // Block entity mesh (chests, beds, signs, skulls, banners, shulker boxes, etc.)
+    if (result.blockEntity && result.blockEntity.positions?.length > 0) {
+      const mesh = this._createBlockEntityMesh(result.blockEntity);
+      if (mesh) {
+        superChunk.meshes.push(mesh);
+        this.chunkManager.blockEntityMeshes.push(mesh);
       }
     }
     
@@ -3737,6 +3770,101 @@ export class SuperChunkManager {
     
     geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
+    geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
+    
+    // Use pre-computed bounds from worker if available
+    if (meshData.boundingSphere) {
+      geometry.boundingSphere = new THREE.Sphere(
+        new THREE.Vector3(
+          meshData.boundingSphere.center.x,
+          meshData.boundingSphere.center.y,
+          meshData.boundingSphere.center.z
+        ),
+        meshData.boundingSphere.radius
+      );
+    } else {
+      geometry.computeBoundingSphere();
+    }
+    
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = true;
+    
+    // Use pre-computed bounding box from worker if available
+    if (meshData.boundingBox) {
+      geometry.boundingBox = new THREE.Box3(
+        new THREE.Vector3(
+          meshData.boundingBox.min.x,
+          meshData.boundingBox.min.y,
+          meshData.boundingBox.min.z
+        ),
+        new THREE.Vector3(
+          meshData.boundingBox.max.x,
+          meshData.boundingBox.max.y,
+          meshData.boundingBox.max.z
+        )
+      );
+    } else {
+      geometry.computeBoundingBox();
+    }
+    
+    // Stagger visibility like other meshes
+    if (this._staggerVisibility) {
+      mesh.visible = false;
+      this.visibilityWarmupQueue.add(mesh);
+    }
+    
+    group.add(mesh);
+    
+    return mesh;
+  }
+  
+  /**
+   * Create a mesh for block entities (chests, beds, signs, skulls, banners, shulker boxes, etc.)
+   * Uses the block entity material with entity atlas texture
+   * 
+   * @param {Object} meshData - Mesh data with positions, normals, uvs, colors, texIndices, light, indices
+   * @returns {THREE.Mesh|null} The created mesh or null if invalid
+   */
+  _createBlockEntityMesh(meshData) {
+    if (!meshData) return null;
+    if (!meshData.positions || meshData.positions.length === 0) return null;
+    if (!meshData.indices || meshData.indices.length === 0) return null;
+    
+    const material = this.chunkManager.blockEntityMaterial;
+    const group = this.chunkManager.blockEntityGroup;
+    if (!material || !group) {
+      // Material not initialized yet - skip block entity mesh
+      return null;
+    }
+    
+    const geometry = new THREE.BufferGeometry();
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
+    
+    if (meshData.normals && meshData.normals.length > 0) {
+      geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
+    }
+    
+    if (meshData.uvs && meshData.uvs.length > 0) {
+      geometry.setAttribute('uv', new THREE.BufferAttribute(meshData.uvs, 2));
+    }
+    
+    if (meshData.colors && meshData.colors.length > 0) {
+      geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+    }
+    
+    if (meshData.texIndices && meshData.texIndices.length > 0) {
+      geometry.setAttribute('texIndex', new THREE.BufferAttribute(meshData.texIndices, 1));
+    }
+    
+    if (meshData.skyLight && meshData.skyLight.length > 0) {
+      geometry.setAttribute('skyLight', new THREE.BufferAttribute(meshData.skyLight, 1));
+    }
+    
+    if (meshData.blockLight && meshData.blockLight.length > 0) {
+      geometry.setAttribute('blockLight', new THREE.BufferAttribute(meshData.blockLight, 1));
+    }
+    
     geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
     
     // Use pre-computed bounds from worker if available

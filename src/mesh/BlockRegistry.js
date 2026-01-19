@@ -67,6 +67,10 @@ const NON_CUBE_PATTERNS = [
   // Slabs, stairs, fences, walls, doors, trapdoors, shelves
   '_slab', '_stairs', '_fence', '_wall', '_door', '_trapdoor', '_pane', 'iron_bars', 'copper_bars', '_shelf',
   
+  // Logs, wood, stems, hyphae - use different models for different axis values
+  // (e.g., oak_log vs oak_log_horizontal), greedy mesher can't handle axis-based model switching
+  '_log', '_wood', '_stem', '_hyphae',
+  
   // Flowers
   'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'tulip', 'oxeye_daisy',
   'cornflower', 'lily_of_the_valley', 'wither_rose', 'sunflower', 'lilac', 'rose_bush',
@@ -74,8 +78,9 @@ const NON_CUBE_PATTERNS = [
   'eyeblossom', 'wildflowers',
   
   // Grass and plants
+  // Note: 'kelp' moved to EXACT_MATCH_NON_CUBES to avoid matching 'dried_kelp_block'
   'short_grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'bush',
-  'seagrass', 'tall_seagrass', 'kelp', 'sugar_cane', 'cactus', 'lily_pad',
+  'seagrass', 'tall_seagrass', 'sugar_cane', 'cactus', 'lily_pad',
   'nether_sprouts', 'hanging_roots', 'short_dry_grass', 'tall_dry_grass', 'leaf_litter',
   'pale_hanging_moss', 'firefly_bush',
   'crimson_roots', 'warped_roots', 'crimson_fungus', 'warped_fungus', // Nether cross-model plants
@@ -224,9 +229,12 @@ const COLOR_PATTERNS = COLOR_PATTERNS_NUMERIC;
 
 // Air block names (for fast lookup)
 // bubble_column is included because it has no visible geometry - it's just water with particle effects
+// barrier and structure_void have no geometry elements (only particle textures)
+// light is invisible (debug light source block)
 const AIR_BLOCKS = new Set([
-  'air', 'cave_air', 'void_air', 'bubble_column',
+  'air', 'cave_air', 'void_air', 'bubble_column', 'barrier', 'structure_void', 'light',
   'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:bubble_column',
+  'minecraft:barrier', 'minecraft:structure_void', 'minecraft:light',
 ]);
 
 // Fluid block names
@@ -469,6 +477,7 @@ export class BlockRegistry {
     const EXACT_MATCH_NON_CUBES = new Set([
       'brown_mushroom', 'red_mushroom',  // Small mushrooms (not _block variants)
       'nether_wart',                      // Nether wart crop (not nether_wart_block)
+      'kelp', 'kelp_plant',               // Kelp plants (not dried_kelp_block)
       'azalea', 'flowering_azalea',       // Azalea bushes (not azalea_leaves)
       'bamboo',                            // Bamboo plant (not bamboo_block, bamboo_planks, etc.)
       'snow',                              // Snow layers (not snow_block)
@@ -522,6 +531,24 @@ export class BlockRegistry {
       'waxed_exposed_copper_bulb',
       'waxed_weathered_copper_bulb',
       'waxed_oxidized_copper_bulb',
+      // Glazed terracotta - has facing property that rotates textures
+      'white_glazed_terracotta', 'orange_glazed_terracotta', 'magenta_glazed_terracotta',
+      'light_blue_glazed_terracotta', 'yellow_glazed_terracotta', 'lime_glazed_terracotta',
+      'pink_glazed_terracotta', 'gray_glazed_terracotta', 'light_gray_glazed_terracotta',
+      'cyan_glazed_terracotta', 'purple_glazed_terracotta', 'blue_glazed_terracotta',
+      'brown_glazed_terracotta', 'green_glazed_terracotta', 'red_glazed_terracotta',
+      'black_glazed_terracotta',
+      // Smithing table - has different top texture
+      'smithing_table',
+      // Blocks with snowy variant (overlay geometry) - greedy mesher must skip, V3 handles
+      'grass_block', 'mycelium', 'podzol',
+      // Axis-based blocks that use different models for different orientations
+      'basalt', 'polished_basalt', 'bone_block', 'hay_block', 'purpur_pillar',
+      'quartz_pillar', 'deepslate',
+      // Test blocks - have mode variants
+      'test_block', 'test_instance_block',
+      // Frosted ice - has age variants with different textures
+      'frosted_ice',
     ]);
     
     if (EXACT_MATCH_NON_CUBES.has(name)) {
@@ -573,6 +600,17 @@ export class BlockRegistry {
     // Translucent blocks
     if (name === 'slime_block' || name === 'honey_block') return false;
     if (name === 'frosted_ice') return false;
+    
+    // Block entities - rendered separately, not by greedy mesher
+    if (name.endsWith('_bed')) return false;
+    if (name.endsWith('_sign') || name.endsWith('_hanging_sign')) return false;
+    if (name.endsWith('_skull') || name.endsWith('_head')) return false;
+    if (name.endsWith('_banner')) return false;
+    if (name.endsWith('_shulker_box') || name === 'shulker_box') return false;
+    if (name.endsWith('_chest') || name === 'chest' || name === 'trapped_chest' || name === 'ender_chest') return false;
+    if (name.endsWith('_golem_statue')) return false;
+    if (name === 'bell' || name === 'conduit' || name === 'decorated_pot') return false;
+    if (name === 'enchanting_table' || name === 'lectern') return false;
     
     return true;
   }

@@ -892,6 +892,7 @@ function App() {
                 setBlockDetails(details);
               }
             } : null}
+            selectedBlock={debugMode ? lockedBlock : null}
             chunkManagerRef={chunkManagerRef}
             onCameraUpdate={handleCameraUpdate}
             spectatorRef={spectatorRef}
@@ -1512,6 +1513,283 @@ function App() {
                 </button>
               )}
             </h3>
+            
+            {/* Navigation Controls - Always visible */}
+            <div className="debug-nav-section" style={{ marginBottom: '0.75rem' }}>
+              {/* Current Position Display */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginBottom: '0.5rem',
+                padding: '4px 8px',
+                background: 'rgba(30, 41, 59, 0.6)',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+              }}>
+                <span style={{ color: '#64748b' }}>Pos:</span>
+                <input
+                  type="number"
+                  value={lockedBlock?.x ?? 0}
+                  onChange={(e) => {
+                    const x = parseInt(e.target.value) || 0;
+                    const newBlock = { x, y: lockedBlock?.y ?? 64, z: lockedBlock?.z ?? 0 };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  style={{
+                    width: '55px',
+                    padding: '2px 6px',
+                    background: 'rgba(30, 41, 59, 0.8)',
+                    border: '1px solid rgba(100, 116, 139, 0.4)',
+                    borderRadius: '3px',
+                    color: 'white',
+                    fontSize: '0.75rem',
+                    textAlign: 'center',
+                  }}
+                />
+                <input
+                  type="number"
+                  value={lockedBlock?.y ?? 64}
+                  onChange={(e) => {
+                    const y = parseInt(e.target.value) || 64;
+                    const newBlock = { x: lockedBlock?.x ?? 0, y, z: lockedBlock?.z ?? 0 };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  style={{
+                    width: '55px',
+                    padding: '2px 6px',
+                    background: 'rgba(30, 41, 59, 0.8)',
+                    border: '1px solid rgba(100, 116, 139, 0.4)',
+                    borderRadius: '3px',
+                    color: 'white',
+                    fontSize: '0.75rem',
+                    textAlign: 'center',
+                  }}
+                />
+                <input
+                  type="number"
+                  value={lockedBlock?.z ?? 0}
+                  onChange={(e) => {
+                    const z = parseInt(e.target.value) || 0;
+                    const newBlock = { x: lockedBlock?.x ?? 0, y: lockedBlock?.y ?? 64, z };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  style={{
+                    width: '55px',
+                    padding: '2px 6px',
+                    background: 'rgba(30, 41, 59, 0.8)',
+                    border: '1px solid rgba(100, 116, 139, 0.4)',
+                    borderRadius: '3px',
+                    color: 'white',
+                    fontSize: '0.75rem',
+                    textAlign: 'center',
+                  }}
+                />
+              </div>
+              
+              {/* Navigation Arrows */}
+              <div className="debug-nav-controls" style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gridTemplateRows: 'repeat(3, auto)',
+                gap: '3px',
+              }}>
+                {/* Row 1: Y+ (Up) in center */}
+                <div></div>
+                <button
+                  onClick={() => {
+                    const curr = lockedBlock || { x: 0, y: 64, z: 0 };
+                    const newBlock = { ...curr, y: curr.y + 1 };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  className="debug-nav-btn"
+                  title="Up (+Y)"
+                  style={{
+                    padding: '4px 8px',
+                    background: 'rgba(59, 130, 246, 0.3)',
+                    border: '1px solid rgba(59, 130, 246, 0.5)',
+                    borderRadius: '4px',
+                    color: '#93c5fd',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                  }}
+                >
+                  ↑ Y+
+                </button>
+                <div></div>
+                
+                {/* Row 2: X- (West), current pos, X+ (East) */}
+                <button
+                  onClick={() => {
+                    const curr = lockedBlock || { x: 0, y: 64, z: 0 };
+                    const newBlock = { ...curr, x: curr.x - 1 };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  className="debug-nav-btn"
+                  title="West (-X)"
+                  style={{
+                    padding: '4px 8px',
+                    background: 'rgba(239, 68, 68, 0.3)',
+                    border: '1px solid rgba(239, 68, 68, 0.5)',
+                    borderRadius: '4px',
+                    color: '#fca5a5',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                  }}
+                >
+                  ← X-
+                </button>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.6rem',
+                  color: '#64748b',
+                  background: 'rgba(30, 41, 59, 0.4)',
+                  borderRadius: '4px',
+                }}>
+                  X/Y
+                </div>
+                <button
+                  onClick={() => {
+                    const curr = lockedBlock || { x: 0, y: 64, z: 0 };
+                    const newBlock = { ...curr, x: curr.x + 1 };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  className="debug-nav-btn"
+                  title="East (+X)"
+                  style={{
+                    padding: '4px 8px',
+                    background: 'rgba(34, 197, 94, 0.3)',
+                    border: '1px solid rgba(34, 197, 94, 0.5)',
+                    borderRadius: '4px',
+                    color: '#86efac',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                  }}
+                >
+                  X+ →
+                </button>
+                
+                {/* Row 3: Y- (Down) in center */}
+                <div></div>
+                <button
+                  onClick={() => {
+                    const curr = lockedBlock || { x: 0, y: 64, z: 0 };
+                    const newBlock = { ...curr, y: curr.y - 1 };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  className="debug-nav-btn"
+                  title="Down (-Y)"
+                  style={{
+                    padding: '4px 8px',
+                    background: 'rgba(168, 85, 247, 0.3)',
+                    border: '1px solid rgba(168, 85, 247, 0.5)',
+                    borderRadius: '4px',
+                    color: '#d8b4fe',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                  }}
+                >
+                  ↓ Y-
+                </button>
+                <div></div>
+              </div>
+              
+              {/* Z-axis navigation (North/South) */}
+              <div style={{
+                display: 'flex',
+                gap: '3px',
+                marginTop: '3px',
+              }}>
+                <button
+                  onClick={() => {
+                    const curr = lockedBlock || { x: 0, y: 64, z: 0 };
+                    const newBlock = { ...curr, z: curr.z - 1 };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  className="debug-nav-btn"
+                  title="North (-Z)"
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    background: 'rgba(251, 191, 36, 0.3)',
+                    border: '1px solid rgba(251, 191, 36, 0.5)',
+                    borderRadius: '4px',
+                    color: '#fcd34d',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                  }}
+                >
+                  ↑ Z- North
+                </button>
+                <button
+                  onClick={() => {
+                    const curr = lockedBlock || { x: 0, y: 64, z: 0 };
+                    const newBlock = { ...curr, z: curr.z + 1 };
+                    setLockedBlock(newBlock);
+                    setHoveredBlock(newBlock);
+                    if (chunkManagerRef.current) {
+                      setBlockDetails(chunkManagerRef.current.getBlockDetails(newBlock.x, newBlock.y, newBlock.z));
+                    }
+                  }}
+                  className="debug-nav-btn"
+                  title="South (+Z)"
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    background: 'rgba(20, 184, 166, 0.3)',
+                    border: '1px solid rgba(20, 184, 166, 0.5)',
+                    borderRadius: '4px',
+                    color: '#5eead4',
+                    cursor: 'pointer',
+                    fontSize: '0.7rem',
+                    fontWeight: '600',
+                  }}
+                >
+                  ↓ Z+ South
+                </button>
+              </div>
+            </div>
+            
+            {/* Block Details - Show when block is selected */}
             {lockedBlock && blockDetails ? (
               <div className="debug-block-info">
                 {/* Block Name - Prominent */}
@@ -1524,12 +1802,6 @@ function App() {
                 
                 {/* Position */}
                 <div className="debug-section-header">Position</div>
-                <div className="debug-row">
-                  <span className="debug-label">World</span>
-                  <span className="debug-value">
-                    {blockDetails.position.x}, {blockDetails.position.y}, {blockDetails.position.z}
-                  </span>
-                </div>
                 <div className="debug-row">
                   <span className="debug-label">Chunk</span>
                   <span className="debug-value">
@@ -1647,9 +1919,10 @@ function App() {
                 </div>
               </div>
             ) : (
-              <div className="debug-empty">
-                <span className="debug-empty-icon">🎯</span>
-                <p>Click on a block to inspect it</p>
+              <div className="debug-empty" style={{ textAlign: 'center', padding: '0.5rem 0' }}>
+                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                  Use arrows above or click a block
+                </span>
               </div>
             )}
           </section>

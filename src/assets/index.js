@@ -28,6 +28,18 @@ export {
   ModelTextureMapper,
   getModelTextureMapper,
 } from './ModelTextureMapper.js';
+export {
+  initBlockEntities,
+  loadBlockEntityManifest,
+  loadBlockEntityModels,
+  initBlockEntityRegistry,
+  getBlockEntityConfig,
+  isBlockEntity,
+  resolveBlockEntityVariant,
+  packEntityState,
+  isBlockEntitySystemReady,
+  setWasmModule as setBlockEntityWasmModule,
+} from './BlockEntityLoader.js';
 
 /**
  * Initialize all asset systems

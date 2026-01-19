@@ -127,17 +127,18 @@ export class SuperChunkWorkerPool {
    * @param {ArrayBuffer} bakedModelsData - Raw baked-models.bin data for V3 registry
    * @param {Object} manifestData - block-model-manifest.json for V3 lookup
    * @param {Uint16Array} textureRemapping - Remapping from baked texture indices to atlas indices
+   * @param {ArrayBuffer} bakedBlockEntitiesData - Raw baked-block-entities.bin data for entity meshing
    */
-  async initialize(blockRegistryData, stateRegistryData, wasmLookups = null, modelGeometryData = null, bakedModelsData = null, manifestData = null, textureRemapping = null) {
+  async initialize(blockRegistryData, stateRegistryData, wasmLookups = null, modelGeometryData = null, bakedModelsData = null, manifestData = null, textureRemapping = null, bakedBlockEntitiesData = null) {
     if (this.initPromise) {
       return this.initPromise;
     }
     
-    this.initPromise = this._doInitialize(blockRegistryData, stateRegistryData, wasmLookups, modelGeometryData, bakedModelsData, manifestData, textureRemapping);
+    this.initPromise = this._doInitialize(blockRegistryData, stateRegistryData, wasmLookups, modelGeometryData, bakedModelsData, manifestData, textureRemapping, bakedBlockEntitiesData);
     return this.initPromise;
   }
   
-  async _doInitialize(blockRegistryData, stateRegistryData, wasmLookups, modelGeometryData, bakedModelsData, manifestData, textureRemapping) {
+  async _doInitialize(blockRegistryData, stateRegistryData, wasmLookups, modelGeometryData, bakedModelsData, manifestData, textureRemapping, bakedBlockEntitiesData) {
     console.log(`[SuperChunkWorkerPool] Initializing ${this.workerCount} workers...`);
     
     // Store init data for late-joined workers
@@ -146,9 +147,10 @@ export class SuperChunkWorkerPool {
       stateRegistry: stateRegistryData?.data || stateRegistryData,
       wasmLookups: wasmLookups,
       modelGeometry: modelGeometryData,
-      bakedModels: bakedModelsData,       // V3: Raw binary for block model registry
-      manifest: manifestData,              // V3: Block model manifest for lookup
-      textureRemapping: textureRemapping,  // V3: Texture index remapping
+      bakedModels: bakedModelsData,               // V3: Raw binary for block model registry
+      manifest: manifestData,                      // V3: Block model manifest for lookup
+      textureRemapping: textureRemapping,          // V3: Texture index remapping
+      bakedBlockEntities: bakedBlockEntitiesData,  // Block entity models for entity meshing
     };
     
     // Create workers
