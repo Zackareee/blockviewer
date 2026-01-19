@@ -471,6 +471,18 @@ class StateRegistry {
               waterlogged,
             });
             registered++;
+            
+            // Sculk vein: same structure as glow_lichen
+            this.register('sculk_vein', {
+              down: down ? 'true' : 'false',
+              up: up ? 'true' : 'false',
+              north: (dirs & 1) ? 'true' : 'false',
+              south: (dirs & 2) ? 'true' : 'false',
+              east: (dirs & 4) ? 'true' : 'false',
+              west: (dirs & 8) ? 'true' : 'false',
+              waterlogged,
+            });
+            registered++;
           }
         }
       }
