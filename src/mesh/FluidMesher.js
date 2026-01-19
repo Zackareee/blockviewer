@@ -647,13 +647,22 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           const light = getLight(worldX, worldY, worldZ);
           const lightData = [light, light, light, light]; // Same light for all 4 vertices
           
+          // Waterlogged water always uses fixed height of 14/16 (0.875) - no corner interpolation
+          // This matches Minecraft's behavior where waterlogged water is always level with source blocks
+          const WATERLOGGED_HEIGHT = 14 / 16; // 0.875
+          
           // === TOP FACE ===
           if (!skipTopFace) {
             // Calculate corner heights
-            const h00 = getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType, isOpaque);
-            const h10 = getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType, isOpaque);
-            const h11 = getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType, isOpaque);
-            const h01 = getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType, isOpaque);
+            let h00, h10, h11, h01;
+            if (isWaterlogged) {
+              h00 = h10 = h11 = h01 = WATERLOGGED_HEIGHT;
+            } else {
+              h00 = getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType, isOpaque);
+              h10 = getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType, isOpaque);
+              h11 = getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType, isOpaque);
+              h01 = getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType, isOpaque);
+            }
             
             // Vertex positions (counter-clockwise from above)
             const positions = [
@@ -705,10 +714,17 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           const blockHeight = getFluidHeight(effectiveLevel);
           const topY = fluidAbove ? 1.0 : blockHeight;
           
+          // Helper function to get corner height - uses fixed height for waterlogged
+          const getSideCornerHeight = (cornerX, cornerZ) => {
+            if (fluidAbove) return 1.0;
+            if (isWaterlogged) return WATERLOGGED_HEIGHT;
+            return getCornerHeight(grid, worldX, worldY, worldZ, cornerX, cornerZ, isFluid, effectiveFluidType, isOpaque);
+          };
+          
           // +X face (east)
           if (shouldRenderSide(grid, worldX, worldY, worldZ, 1, 0, 0, isFluid, effectiveFluidType, isOpaque)) {
-            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType, isOpaque);
-            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType, isOpaque);
+            const h0 = getSideCornerHeight(1, 0);
+            const h1 = getSideCornerHeight(1, 1);
             
             const positions = [
               [x + 1, y, z],
@@ -722,8 +738,8 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           
           // -X face (west)
           if (shouldRenderSide(grid, worldX, worldY, worldZ, -1, 0, 0, isFluid, effectiveFluidType, isOpaque)) {
-            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType, isOpaque);
-            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType, isOpaque);
+            const h0 = getSideCornerHeight(0, 1);
+            const h1 = getSideCornerHeight(0, 0);
             
             const positions = [
               [x, y, z + 1],
@@ -737,8 +753,8 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           
           // +Z face (south)
           if (shouldRenderSide(grid, worldX, worldY, worldZ, 0, 0, 1, isFluid, effectiveFluidType, isOpaque)) {
-            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 1, isFluid, effectiveFluidType, isOpaque);
-            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 1, isFluid, effectiveFluidType, isOpaque);
+            const h0 = getSideCornerHeight(1, 1);
+            const h1 = getSideCornerHeight(0, 1);
             
             const positions = [
               [x + 1, y, z + 1],
@@ -752,8 +768,8 @@ export function buildFluidMeshes(grid, registry, offset = { x: 0, y: 64, z: 0 },
           
           // -Z face (north)
           if (shouldRenderSide(grid, worldX, worldY, worldZ, 0, 0, -1, isFluid, effectiveFluidType, isOpaque)) {
-            const h0 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 0, 0, isFluid, effectiveFluidType, isOpaque);
-            const h1 = fluidAbove ? 1.0 : getCornerHeight(grid, worldX, worldY, worldZ, 1, 0, isFluid, effectiveFluidType, isOpaque);
+            const h0 = getSideCornerHeight(0, 0);
+            const h1 = getSideCornerHeight(1, 0);
             
             const positions = [
               [x, y, z],
