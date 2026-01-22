@@ -49,15 +49,15 @@ impl FaceAO {
         self.v2 == other.v2 && self.v3 == other.v3
     }
     
-    /// Compare with tolerance (for greedy meshing - allows merging faces with similar AO)
+    /// Compare for greedy meshing - requires exact AO match to prevent streaky shadows
+    /// 
+    /// Previously used tolerance (diff <= 1) but this caused visible shadow streaks
+    /// where faces with different AO were merged and GPU interpolation created
+    /// long diagonal shadows on flat ground.
     pub fn matches_tolerant(&self, other: &FaceAO) -> bool {
-        // Check if any vertex differs by more than 1 level
-        let diff0 = (self.v0 as i8 - other.v0 as i8).abs();
-        let diff1 = (self.v1 as i8 - other.v1 as i8).abs();
-        let diff2 = (self.v2 as i8 - other.v2 as i8).abs();
-        let diff3 = (self.v3 as i8 - other.v3 as i8).abs();
-        
-        diff0 <= 1 && diff1 <= 1 && diff2 <= 1 && diff3 <= 1
+        // Exact match required - tolerant matching causes streaky shadow artifacts
+        self.v0 == other.v0 && self.v1 == other.v1 && 
+        self.v2 == other.v2 && self.v3 == other.v3
     }
 }
 

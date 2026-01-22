@@ -1,219 +1,4 @@
-let wasm;
-
-function addToExternrefTable0(obj) {
-    const idx = wasm.__externref_table_alloc();
-    wasm.__wbindgen_externrefs.set(idx, obj);
-    return idx;
-}
-
-function getArrayF32FromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
-}
-
-function getArrayI32FromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    return getInt32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
-}
-
-function getArrayU32FromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
-}
-
-function getArrayU8FromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
-}
-
-let cachedDataViewMemory0 = null;
-function getDataViewMemory0() {
-    if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
-        cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
-    }
-    return cachedDataViewMemory0;
-}
-
-let cachedFloat32ArrayMemory0 = null;
-function getFloat32ArrayMemory0() {
-    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
-        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
-    }
-    return cachedFloat32ArrayMemory0;
-}
-
-let cachedInt32ArrayMemory0 = null;
-function getInt32ArrayMemory0() {
-    if (cachedInt32ArrayMemory0 === null || cachedInt32ArrayMemory0.byteLength === 0) {
-        cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
-    }
-    return cachedInt32ArrayMemory0;
-}
-
-function getStringFromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    return decodeText(ptr, len);
-}
-
-let cachedUint16ArrayMemory0 = null;
-function getUint16ArrayMemory0() {
-    if (cachedUint16ArrayMemory0 === null || cachedUint16ArrayMemory0.byteLength === 0) {
-        cachedUint16ArrayMemory0 = new Uint16Array(wasm.memory.buffer);
-    }
-    return cachedUint16ArrayMemory0;
-}
-
-let cachedUint32ArrayMemory0 = null;
-function getUint32ArrayMemory0() {
-    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
-        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
-    }
-    return cachedUint32ArrayMemory0;
-}
-
-let cachedUint8ArrayMemory0 = null;
-function getUint8ArrayMemory0() {
-    if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
-        cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
-    }
-    return cachedUint8ArrayMemory0;
-}
-
-function isLikeNone(x) {
-    return x === undefined || x === null;
-}
-
-function passArray16ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 2, 2) >>> 0;
-    getUint16ArrayMemory0().set(arg, ptr / 2);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-
-function passArray32ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 4, 4) >>> 0;
-    getUint32ArrayMemory0().set(arg, ptr / 4);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-
-function passArray8ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 1, 1) >>> 0;
-    getUint8ArrayMemory0().set(arg, ptr / 1);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-
-function passArrayF32ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 4, 4) >>> 0;
-    getFloat32ArrayMemory0().set(arg, ptr / 4);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-
-function passArrayJsValueToWasm0(array, malloc) {
-    const ptr = malloc(array.length * 4, 4) >>> 0;
-    for (let i = 0; i < array.length; i++) {
-        const add = addToExternrefTable0(array[i]);
-        getDataViewMemory0().setUint32(ptr + 4 * i, add, true);
-    }
-    WASM_VECTOR_LEN = array.length;
-    return ptr;
-}
-
-function passStringToWasm0(arg, malloc, realloc) {
-    if (realloc === undefined) {
-        const buf = cachedTextEncoder.encode(arg);
-        const ptr = malloc(buf.length, 1) >>> 0;
-        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
-        WASM_VECTOR_LEN = buf.length;
-        return ptr;
-    }
-
-    let len = arg.length;
-    let ptr = malloc(len, 1) >>> 0;
-
-    const mem = getUint8ArrayMemory0();
-
-    let offset = 0;
-
-    for (; offset < len; offset++) {
-        const code = arg.charCodeAt(offset);
-        if (code > 0x7F) break;
-        mem[ptr + offset] = code;
-    }
-    if (offset !== len) {
-        if (offset !== 0) {
-            arg = arg.slice(offset);
-        }
-        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
-        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
-        const ret = cachedTextEncoder.encodeInto(arg, view);
-
-        offset += ret.written;
-        ptr = realloc(ptr, len, offset, 1) >>> 0;
-    }
-
-    WASM_VECTOR_LEN = offset;
-    return ptr;
-}
-
-let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
-cachedTextDecoder.decode();
-const MAX_SAFARI_DECODE_BYTES = 2146435072;
-let numBytesDecoded = 0;
-function decodeText(ptr, len) {
-    numBytesDecoded += len;
-    if (numBytesDecoded >= MAX_SAFARI_DECODE_BYTES) {
-        cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
-        cachedTextDecoder.decode();
-        numBytesDecoded = len;
-    }
-    return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
-}
-
-const cachedTextEncoder = new TextEncoder();
-
-if (!('encodeInto' in cachedTextEncoder)) {
-    cachedTextEncoder.encodeInto = function (arg, view) {
-        const buf = cachedTextEncoder.encode(arg);
-        view.set(buf);
-        return {
-            read: arg.length,
-            written: buf.length
-        };
-    }
-}
-
-let WASM_VECTOR_LEN = 0;
-
-const FusedChunkResultFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_fusedchunkresult_free(ptr >>> 0, 1));
-
-const FusedSuperChunkResultFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_fusedsuperchunkresult_free(ptr >>> 0, 1));
-
-const MeshResultFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_meshresult_free(ptr >>> 0, 1));
-
-const MeshSizesFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_meshsizes_free(ptr >>> 0, 1));
-
-const ModelMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_modelmeshresultwasm_free(ptr >>> 0, 1));
-
-const ProcessedChunkFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_processedchunk_free(ptr >>> 0, 1));
-
-const StreamingMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_streamingmeshresultwasm_free(ptr >>> 0, 1));
+/* @ts-self-types="./wasm_mesher.d.ts" */
 
 /**
  * Result of fused single-chunk processing
@@ -237,58 +22,25 @@ export class FusedChunkResult {
         wasm.__wbg_fusedchunkresult_free(ptr, 0);
     }
     /**
-     * @returns {Float32Array}
+     * @returns {number}
      */
-    get lava_colors() {
-        const ret = wasm.fusedchunkresult_lava_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
+    get blocks_decoded() {
+        const ret = wasm.fusedchunkresult_blocks_decoded(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
-     * @returns {Float32Array}
+     * @returns {number}
      */
-    get glass_colors() {
-        const ret = wasm.fusedchunkresult_glass_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
+    get chunk_x() {
+        const ret = wasm.fusedchunkresult_chunk_x(this.__wbg_ptr);
+        return ret;
     }
     /**
-     * @returns {Uint32Array}
+     * @returns {number}
      */
-    get lava_indices() {
-        const ret = wasm.fusedchunkresult_lava_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_normals() {
-        const ret = wasm.fusedchunkresult_lava_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_colors() {
-        const ret = wasm.fusedchunkresult_solid_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_colors() {
-        const ret = wasm.fusedchunkresult_water_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
+    get chunk_z() {
+        const ret = wasm.fusedchunkresult_chunk_z(this.__wbg_ptr);
+        return ret;
     }
     /**
      * @returns {string}
@@ -306,6 +58,24 @@ export class FusedChunkResult {
         }
     }
     /**
+     * @returns {Float32Array}
+     */
+    get glass_block_light() {
+        const ret = wasm.fusedchunkresult_glass_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get glass_colors() {
+        const ret = wasm.fusedchunkresult_glass_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @returns {Uint32Array}
      */
     get glass_indices() {
@@ -319,67 +89,6 @@ export class FusedChunkResult {
      */
     get glass_normals() {
         const ret = wasm.fusedchunkresult_glass_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    get solid_indices() {
-        const ret = wasm.fusedchunkresult_solid_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_normals() {
-        const ret = wasm.fusedchunkresult_solid_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    get water_indices() {
-        const ret = wasm.fusedchunkresult_water_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_normals() {
-        const ret = wasm.fusedchunkresult_water_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get blocks_decoded() {
-        const ret = wasm.fusedchunkresult_blocks_decoded(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_positions() {
-        const ret = wasm.fusedchunkresult_lava_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_sky_light() {
-        const ret = wasm.fusedchunkresult_lava_sky_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -405,8 +114,8 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get solid_positions() {
-        const ret = wasm.fusedchunkresult_solid_positions(this.__wbg_ptr);
+    get glass_tex_indices() {
+        const ret = wasm.fusedchunkresult_glass_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -414,26 +123,8 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get solid_sky_light() {
-        const ret = wasm.fusedchunkresult_solid_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_positions() {
-        const ret = wasm.fusedchunkresult_water_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_sky_light() {
-        const ret = wasm.fusedchunkresult_water_sky_light(this.__wbg_ptr);
+    get glass_tex_rotations() {
+        const ret = wasm.fusedchunkresult_glass_tex_rotations(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -448,10 +139,62 @@ export class FusedChunkResult {
         return v1;
     }
     /**
+     * @returns {number}
+     */
+    get glass_vertex_count() {
+        const ret = wasm.fusedchunkresult_glass_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {Float32Array}
      */
     get lava_block_light() {
         const ret = wasm.fusedchunkresult_lava_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_colors() {
+        const ret = wasm.fusedchunkresult_lava_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get lava_indices() {
+        const ret = wasm.fusedchunkresult_lava_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_normals() {
+        const ret = wasm.fusedchunkresult_lava_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_positions() {
+        const ret = wasm.fusedchunkresult_lava_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_sky_light() {
+        const ret = wasm.fusedchunkresult_lava_sky_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -468,35 +211,8 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_opaque_uvs() {
-        const ret = wasm.fusedchunkresult_model_opaque_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tint_types() {
-        const ret = wasm.fusedchunkresult_solid_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_block_light() {
-        const ret = wasm.fusedchunkresult_glass_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tex_indices() {
-        const ret = wasm.fusedchunkresult_glass_tex_indices(this.__wbg_ptr);
+    get lava_uvs() {
+        const ret = wasm.fusedchunkresult_lava_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -511,74 +227,8 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_uvs() {
-        const ret = wasm.fusedchunkresult_model_overlay_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_block_light() {
-        const ret = wasm.fusedchunkresult_solid_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tex_indices() {
-        const ret = wasm.fusedchunkresult_solid_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_block_light() {
-        const ret = wasm.fusedchunkresult_water_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_tex_indices() {
-        const ret = wasm.fusedchunkresult_water_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_vertex_count() {
-        const ret = wasm.fusedchunkresult_glass_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get solid_vertex_count() {
-        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get water_vertex_count() {
-        const ret = wasm.fusedchunkresult_water_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tex_rotations() {
-        const ret = wasm.fusedchunkresult_glass_tex_rotations(this.__wbg_ptr);
+    get model_opaque_block_light() {
+        const ret = wasm.fusedchunkresult_model_opaque_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -588,15 +238,6 @@ export class FusedChunkResult {
      */
     get model_opaque_colors() {
         const ret = wasm.fusedchunkresult_model_opaque_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tex_rotations() {
-        const ret = wasm.fusedchunkresult_solid_tex_rotations(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -615,6 +256,67 @@ export class FusedChunkResult {
      */
     get model_opaque_normals() {
         const ret = wasm.fusedchunkresult_model_opaque_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_positions() {
+        const ret = wasm.fusedchunkresult_model_opaque_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_sky_light() {
+        const ret = wasm.fusedchunkresult_model_opaque_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_tex_indices() {
+        const ret = wasm.fusedchunkresult_model_opaque_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_tint_types() {
+        const ret = wasm.fusedchunkresult_model_opaque_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_uvs() {
+        const ret = wasm.fusedchunkresult_model_opaque_uvs(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_opaque_vertex_count() {
+        const ret = wasm.fusedchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_overlay_block_light() {
+        const ret = wasm.fusedchunkresult_model_overlay_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -649,42 +351,6 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_uvs() {
-        const ret = wasm.fusedchunkresult_model_transparent_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_positions() {
-        const ret = wasm.fusedchunkresult_model_opaque_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_sky_light() {
-        const ret = wasm.fusedchunkresult_model_opaque_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_tint_types() {
-        const ret = wasm.fusedchunkresult_model_opaque_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
     get model_overlay_positions() {
         const ret = wasm.fusedchunkresult_model_overlay_positions(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -703,17 +369,8 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_opaque_block_light() {
-        const ret = wasm.fusedchunkresult_model_opaque_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_tex_indices() {
-        const ret = wasm.fusedchunkresult_model_opaque_tex_indices(this.__wbg_ptr);
+    get model_overlay_tex_indices() {
+        const ret = wasm.fusedchunkresult_model_overlay_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -730,8 +387,8 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_colors() {
-        const ret = wasm.fusedchunkresult_model_transparent_colors(this.__wbg_ptr);
+    get model_overlay_uvs() {
+        const ret = wasm.fusedchunkresult_model_overlay_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -739,15 +396,15 @@ export class FusedChunkResult {
     /**
      * @returns {number}
      */
-    get model_opaque_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
+    get model_overlay_vertex_count() {
+        const ret = wasm.fusedchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_block_light() {
-        const ret = wasm.fusedchunkresult_model_overlay_block_light(this.__wbg_ptr);
+    get model_transparent_block_light() {
+        const ret = wasm.fusedchunkresult_model_transparent_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -755,8 +412,8 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_tex_indices() {
-        const ret = wasm.fusedchunkresult_model_overlay_tex_indices(this.__wbg_ptr);
+    get model_transparent_colors() {
+        const ret = wasm.fusedchunkresult_model_transparent_colors(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -780,13 +437,6 @@ export class FusedChunkResult {
         return v1;
     }
     /**
-     * @returns {number}
-     */
-    get model_overlay_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
      * @returns {Float32Array}
      */
     get model_transparent_positions() {
@@ -807,6 +457,15 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
+    get model_transparent_tex_indices() {
+        const ret = wasm.fusedchunkresult_model_transparent_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
     get model_transparent_tint_types() {
         const ret = wasm.fusedchunkresult_model_transparent_tint_types(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -816,17 +475,8 @@ export class FusedChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_block_light() {
-        const ret = wasm.fusedchunkresult_model_transparent_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_transparent_tex_indices() {
-        const ret = wasm.fusedchunkresult_model_transparent_tex_indices(this.__wbg_ptr);
+    get model_transparent_uvs() {
+        const ret = wasm.fusedchunkresult_model_transparent_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -839,31 +489,82 @@ export class FusedChunkResult {
         return ret >>> 0;
     }
     /**
-     * @returns {number}
+     * @returns {Float32Array}
      */
-    get chunk_x() {
-        const ret = wasm.fusedchunkresult_chunk_x(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * @returns {number}
-     */
-    get chunk_z() {
-        const ret = wasm.fusedchunkresult_chunk_z(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * @returns {boolean}
-     */
-    get success() {
-        const ret = wasm.fusedchunkresult_success(this.__wbg_ptr);
-        return ret !== 0;
+    get solid_block_light() {
+        const ret = wasm.fusedchunkresult_solid_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {Float32Array}
      */
-    get lava_uvs() {
-        const ret = wasm.fusedchunkresult_lava_uvs(this.__wbg_ptr);
+    get solid_colors() {
+        const ret = wasm.fusedchunkresult_solid_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get solid_indices() {
+        const ret = wasm.fusedchunkresult_solid_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_normals() {
+        const ret = wasm.fusedchunkresult_solid_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_positions() {
+        const ret = wasm.fusedchunkresult_solid_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_sky_light() {
+        const ret = wasm.fusedchunkresult_solid_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tex_indices() {
+        const ret = wasm.fusedchunkresult_solid_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tex_rotations() {
+        const ret = wasm.fusedchunkresult_solid_tex_rotations(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tint_types() {
+        const ret = wasm.fusedchunkresult_solid_tint_types(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -878,6 +579,83 @@ export class FusedChunkResult {
         return v1;
     }
     /**
+     * @returns {number}
+     */
+    get solid_vertex_count() {
+        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    get success() {
+        const ret = wasm.fusedchunkresult_success(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_block_light() {
+        const ret = wasm.fusedchunkresult_water_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_colors() {
+        const ret = wasm.fusedchunkresult_water_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get water_indices() {
+        const ret = wasm.fusedchunkresult_water_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_normals() {
+        const ret = wasm.fusedchunkresult_water_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_positions() {
+        const ret = wasm.fusedchunkresult_water_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_sky_light() {
+        const ret = wasm.fusedchunkresult_water_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_tex_indices() {
+        const ret = wasm.fusedchunkresult_water_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @returns {Float32Array}
      */
     get water_uvs() {
@@ -885,6 +663,13 @@ export class FusedChunkResult {
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get water_vertex_count() {
+        const ret = wasm.fusedchunkresult_water_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
 }
 if (Symbol.dispose) FusedChunkResult.prototype[Symbol.dispose] = FusedChunkResult.prototype.free;
@@ -913,63 +698,16 @@ export class FusedSuperChunkResult {
     /**
      * @returns {number}
      */
-    get chunk_count() {
-        const ret = wasm.fusedchunkresult_chunk_x(this.__wbg_ptr);
+    get blocks_decoded() {
+        const ret = wasm.fusedchunkresult_blocks_decoded(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
-     * @returns {Float32Array}
+     * @returns {number}
      */
-    get lava_colors() {
-        const ret = wasm.fusedsuperchunkresult_lava_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_colors() {
-        const ret = wasm.fusedsuperchunkresult_glass_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    get lava_indices() {
-        const ret = wasm.fusedsuperchunkresult_lava_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_normals() {
-        const ret = wasm.fusedsuperchunkresult_lava_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_colors() {
-        const ret = wasm.fusedsuperchunkresult_solid_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_colors() {
-        const ret = wasm.fusedsuperchunkresult_water_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
+    get chunk_count() {
+        const ret = wasm.fusedchunkresult_chunk_x(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {string}
@@ -987,6 +725,24 @@ export class FusedSuperChunkResult {
         }
     }
     /**
+     * @returns {Float32Array}
+     */
+    get glass_block_light() {
+        const ret = wasm.fusedsuperchunkresult_glass_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get glass_colors() {
+        const ret = wasm.fusedsuperchunkresult_glass_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @returns {Uint32Array}
      */
     get glass_indices() {
@@ -1000,67 +756,6 @@ export class FusedSuperChunkResult {
      */
     get glass_normals() {
         const ret = wasm.fusedsuperchunkresult_glass_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    get solid_indices() {
-        const ret = wasm.fusedsuperchunkresult_solid_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_normals() {
-        const ret = wasm.fusedsuperchunkresult_solid_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    get water_indices() {
-        const ret = wasm.fusedsuperchunkresult_water_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_normals() {
-        const ret = wasm.fusedsuperchunkresult_water_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get blocks_decoded() {
-        const ret = wasm.fusedchunkresult_blocks_decoded(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_positions() {
-        const ret = wasm.fusedsuperchunkresult_lava_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_sky_light() {
-        const ret = wasm.fusedsuperchunkresult_lava_sky_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1086,8 +781,8 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get solid_positions() {
-        const ret = wasm.fusedsuperchunkresult_solid_positions(this.__wbg_ptr);
+    get glass_tex_indices() {
+        const ret = wasm.fusedsuperchunkresult_glass_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1095,26 +790,8 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get solid_sky_light() {
-        const ret = wasm.fusedsuperchunkresult_solid_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_positions() {
-        const ret = wasm.fusedsuperchunkresult_water_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_sky_light() {
-        const ret = wasm.fusedsuperchunkresult_water_sky_light(this.__wbg_ptr);
+    get glass_tex_rotations() {
+        const ret = wasm.fusedsuperchunkresult_glass_tex_rotations(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1129,10 +806,62 @@ export class FusedSuperChunkResult {
         return v1;
     }
     /**
+     * @returns {number}
+     */
+    get glass_vertex_count() {
+        const ret = wasm.fusedchunkresult_glass_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {Float32Array}
      */
     get lava_block_light() {
         const ret = wasm.fusedsuperchunkresult_lava_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_colors() {
+        const ret = wasm.fusedsuperchunkresult_lava_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get lava_indices() {
+        const ret = wasm.fusedsuperchunkresult_lava_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_normals() {
+        const ret = wasm.fusedsuperchunkresult_lava_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_positions() {
+        const ret = wasm.fusedsuperchunkresult_lava_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_sky_light() {
+        const ret = wasm.fusedsuperchunkresult_lava_sky_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1149,35 +878,8 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_opaque_uvs() {
-        const ret = wasm.fusedsuperchunkresult_model_opaque_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tint_types() {
-        const ret = wasm.fusedsuperchunkresult_solid_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_block_light() {
-        const ret = wasm.fusedsuperchunkresult_glass_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tex_indices() {
-        const ret = wasm.fusedsuperchunkresult_glass_tex_indices(this.__wbg_ptr);
+    get lava_uvs() {
+        const ret = wasm.fusedsuperchunkresult_lava_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1192,74 +894,8 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_uvs() {
-        const ret = wasm.fusedsuperchunkresult_model_overlay_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_block_light() {
-        const ret = wasm.fusedsuperchunkresult_solid_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tex_indices() {
-        const ret = wasm.fusedsuperchunkresult_solid_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_block_light() {
-        const ret = wasm.fusedsuperchunkresult_water_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_tex_indices() {
-        const ret = wasm.fusedsuperchunkresult_water_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_vertex_count() {
-        const ret = wasm.fusedchunkresult_glass_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get solid_vertex_count() {
-        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    get water_vertex_count() {
-        const ret = wasm.fusedchunkresult_water_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tex_rotations() {
-        const ret = wasm.fusedsuperchunkresult_glass_tex_rotations(this.__wbg_ptr);
+    get model_opaque_block_light() {
+        const ret = wasm.fusedsuperchunkresult_model_opaque_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1269,15 +905,6 @@ export class FusedSuperChunkResult {
      */
     get model_opaque_colors() {
         const ret = wasm.fusedsuperchunkresult_model_opaque_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tex_rotations() {
-        const ret = wasm.fusedsuperchunkresult_solid_tex_rotations(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1296,6 +923,67 @@ export class FusedSuperChunkResult {
      */
     get model_opaque_normals() {
         const ret = wasm.fusedsuperchunkresult_model_opaque_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_positions() {
+        const ret = wasm.fusedsuperchunkresult_model_opaque_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_sky_light() {
+        const ret = wasm.fusedsuperchunkresult_model_opaque_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_tex_indices() {
+        const ret = wasm.fusedsuperchunkresult_model_opaque_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_tint_types() {
+        const ret = wasm.fusedsuperchunkresult_model_opaque_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_uvs() {
+        const ret = wasm.fusedsuperchunkresult_model_opaque_uvs(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_opaque_vertex_count() {
+        const ret = wasm.fusedchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_overlay_block_light() {
+        const ret = wasm.fusedsuperchunkresult_model_overlay_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1330,42 +1018,6 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_uvs() {
-        const ret = wasm.fusedsuperchunkresult_model_transparent_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_positions() {
-        const ret = wasm.fusedsuperchunkresult_model_opaque_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_sky_light() {
-        const ret = wasm.fusedsuperchunkresult_model_opaque_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_tint_types() {
-        const ret = wasm.fusedsuperchunkresult_model_opaque_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
     get model_overlay_positions() {
         const ret = wasm.fusedsuperchunkresult_model_overlay_positions(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -1384,17 +1036,8 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_opaque_block_light() {
-        const ret = wasm.fusedsuperchunkresult_model_opaque_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_tex_indices() {
-        const ret = wasm.fusedsuperchunkresult_model_opaque_tex_indices(this.__wbg_ptr);
+    get model_overlay_tex_indices() {
+        const ret = wasm.fusedsuperchunkresult_model_overlay_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1411,8 +1054,8 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_colors() {
-        const ret = wasm.fusedsuperchunkresult_model_transparent_colors(this.__wbg_ptr);
+    get model_overlay_uvs() {
+        const ret = wasm.fusedsuperchunkresult_model_overlay_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1420,15 +1063,15 @@ export class FusedSuperChunkResult {
     /**
      * @returns {number}
      */
-    get model_opaque_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
+    get model_overlay_vertex_count() {
+        const ret = wasm.fusedchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_block_light() {
-        const ret = wasm.fusedsuperchunkresult_model_overlay_block_light(this.__wbg_ptr);
+    get model_transparent_block_light() {
+        const ret = wasm.fusedsuperchunkresult_model_transparent_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1436,8 +1079,8 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_tex_indices() {
-        const ret = wasm.fusedsuperchunkresult_model_overlay_tex_indices(this.__wbg_ptr);
+    get model_transparent_colors() {
+        const ret = wasm.fusedsuperchunkresult_model_transparent_colors(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1461,13 +1104,6 @@ export class FusedSuperChunkResult {
         return v1;
     }
     /**
-     * @returns {number}
-     */
-    get model_overlay_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
      * @returns {Float32Array}
      */
     get model_transparent_positions() {
@@ -1488,6 +1124,15 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
+    get model_transparent_tex_indices() {
+        const ret = wasm.fusedsuperchunkresult_model_transparent_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
     get model_transparent_tint_types() {
         const ret = wasm.fusedsuperchunkresult_model_transparent_tint_types(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -1497,17 +1142,8 @@ export class FusedSuperChunkResult {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_block_light() {
-        const ret = wasm.fusedsuperchunkresult_model_transparent_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_transparent_tex_indices() {
-        const ret = wasm.fusedsuperchunkresult_model_transparent_tex_indices(this.__wbg_ptr);
+    get model_transparent_uvs() {
+        const ret = wasm.fusedsuperchunkresult_model_transparent_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1520,17 +1156,82 @@ export class FusedSuperChunkResult {
         return ret >>> 0;
     }
     /**
-     * @returns {boolean}
+     * @returns {Float32Array}
      */
-    get success() {
-        const ret = wasm.fusedsuperchunkresult_success(this.__wbg_ptr);
-        return ret !== 0;
+    get solid_block_light() {
+        const ret = wasm.fusedsuperchunkresult_solid_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {Float32Array}
      */
-    get lava_uvs() {
-        const ret = wasm.fusedsuperchunkresult_lava_uvs(this.__wbg_ptr);
+    get solid_colors() {
+        const ret = wasm.fusedsuperchunkresult_solid_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get solid_indices() {
+        const ret = wasm.fusedsuperchunkresult_solid_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_normals() {
+        const ret = wasm.fusedsuperchunkresult_solid_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_positions() {
+        const ret = wasm.fusedsuperchunkresult_solid_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_sky_light() {
+        const ret = wasm.fusedsuperchunkresult_solid_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tex_indices() {
+        const ret = wasm.fusedsuperchunkresult_solid_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tex_rotations() {
+        const ret = wasm.fusedsuperchunkresult_solid_tex_rotations(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tint_types() {
+        const ret = wasm.fusedsuperchunkresult_solid_tint_types(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1545,6 +1246,83 @@ export class FusedSuperChunkResult {
         return v1;
     }
     /**
+     * @returns {number}
+     */
+    get solid_vertex_count() {
+        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    get success() {
+        const ret = wasm.fusedsuperchunkresult_success(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_block_light() {
+        const ret = wasm.fusedsuperchunkresult_water_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_colors() {
+        const ret = wasm.fusedsuperchunkresult_water_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get water_indices() {
+        const ret = wasm.fusedsuperchunkresult_water_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_normals() {
+        const ret = wasm.fusedsuperchunkresult_water_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_positions() {
+        const ret = wasm.fusedsuperchunkresult_water_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_sky_light() {
+        const ret = wasm.fusedsuperchunkresult_water_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_tex_indices() {
+        const ret = wasm.fusedsuperchunkresult_water_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @returns {Float32Array}
      */
     get water_uvs() {
@@ -1552,6 +1330,13 @@ export class FusedSuperChunkResult {
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get water_vertex_count() {
+        const ret = wasm.fusedchunkresult_water_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
 }
 if (Symbol.dispose) FusedSuperChunkResult.prototype[Symbol.dispose] = FusedSuperChunkResult.prototype.free;
@@ -1580,8 +1365,8 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get lava_colors() {
-        const ret = wasm.meshresult_lava_colors(this.__wbg_ptr);
+    get glass_block_light() {
+        const ret = wasm.meshresult_glass_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1591,42 +1376,6 @@ export class MeshResult {
      */
     get glass_colors() {
         const ret = wasm.meshresult_glass_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    get lava_indices() {
-        const ret = wasm.meshresult_lava_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_normals() {
-        const ret = wasm.meshresult_lava_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_colors() {
-        const ret = wasm.meshresult_solid_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_colors() {
-        const ret = wasm.meshresult_water_colors(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1650,19 +1399,80 @@ export class MeshResult {
         return v1;
     }
     /**
-     * @returns {Uint32Array}
+     * @returns {Uint8Array}
      */
-    get solid_indices() {
-        const ret = wasm.meshresult_solid_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+    get glass_packed_light() {
+        const ret = wasm.meshresult_glass_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get glass_positions() {
+        const ret = wasm.meshresult_glass_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
     }
     /**
      * @returns {Float32Array}
      */
-    get solid_normals() {
-        const ret = wasm.meshresult_solid_normals(this.__wbg_ptr);
+    get glass_sky_light() {
+        const ret = wasm.meshresult_glass_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get glass_tex_indices() {
+        const ret = wasm.meshresult_glass_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get glass_tex_rotations() {
+        const ret = wasm.meshresult_glass_tex_rotations(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get glass_tint_types() {
+        const ret = wasm.meshresult_glass_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get glass_vertex_count() {
+        const ret = wasm.meshresult_glass_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_block_light() {
+        const ret = wasm.meshresult_lava_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_colors() {
+        const ret = wasm.meshresult_lava_colors(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1670,8 +1480,8 @@ export class MeshResult {
     /**
      * @returns {Uint32Array}
      */
-    get water_indices() {
-        const ret = wasm.meshresult_water_indices(this.__wbg_ptr);
+    get lava_indices() {
+        const ret = wasm.meshresult_lava_indices(this.__wbg_ptr);
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1679,10 +1489,19 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get water_normals() {
-        const ret = wasm.meshresult_water_normals(this.__wbg_ptr);
+    get lava_normals() {
+        const ret = wasm.meshresult_lava_normals(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get lava_packed_light() {
+        const ret = wasm.meshresult_lava_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
@@ -1706,79 +1525,6 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get glass_positions() {
-        const ret = wasm.meshresult_glass_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_sky_light() {
-        const ret = wasm.meshresult_glass_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * Get solid mesh positions as Float32Array
-     * @returns {Float32Array}
-     */
-    get solid_positions() {
-        const ret = wasm.meshresult_solid_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_sky_light() {
-        const ret = wasm.meshresult_solid_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_positions() {
-        const ret = wasm.meshresult_water_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_sky_light() {
-        const ret = wasm.meshresult_water_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tint_types() {
-        const ret = wasm.meshresult_glass_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_block_light() {
-        const ret = wasm.meshresult_lava_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
     get lava_tex_indices() {
         const ret = wasm.meshresult_lava_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -1788,46 +1534,10 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get model_opaque_uvs() {
-        const ret = wasm.meshresult_model_opaque_uvs(this.__wbg_ptr);
+    get lava_uvs() {
+        const ret = wasm.meshresult_lava_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tint_types() {
-        const ret = wasm.meshresult_solid_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_block_light() {
-        const ret = wasm.meshresult_glass_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tex_indices() {
-        const ret = wasm.meshresult_glass_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get lava_packed_light() {
-        const ret = wasm.meshresult_lava_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
@@ -1840,101 +1550,8 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_uvs() {
-        const ret = wasm.meshresult_model_overlay_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_block_light() {
-        const ret = wasm.meshresult_solid_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tex_indices() {
-        const ret = wasm.meshresult_solid_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_block_light() {
-        const ret = wasm.meshresult_water_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_tex_indices() {
-        const ret = wasm.meshresult_water_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get glass_packed_light() {
-        const ret = wasm.meshresult_glass_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_vertex_count() {
-        const ret = wasm.meshresult_glass_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get solid_packed_light() {
-        const ret = wasm.meshresult_solid_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get solid_vertex_count() {
-        const ret = wasm.meshresult_solid_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get water_packed_light() {
-        const ret = wasm.meshresult_water_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get water_vertex_count() {
-        const ret = wasm.meshresult_water_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tex_rotations() {
-        const ret = wasm.meshresult_glass_tex_rotations(this.__wbg_ptr);
+    get model_opaque_block_light() {
+        const ret = wasm.meshresult_model_opaque_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1944,15 +1561,6 @@ export class MeshResult {
      */
     get model_opaque_colors() {
         const ret = wasm.meshresult_model_opaque_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tex_rotations() {
-        const ret = wasm.meshresult_solid_tex_rotations(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -1971,6 +1579,76 @@ export class MeshResult {
      */
     get model_opaque_normals() {
         const ret = wasm.meshresult_model_opaque_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get model_opaque_packed_light() {
+        const ret = wasm.meshresult_model_opaque_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_positions() {
+        const ret = wasm.meshresult_model_opaque_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_sky_light() {
+        const ret = wasm.meshresult_model_opaque_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_tex_indices() {
+        const ret = wasm.meshresult_model_opaque_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_tint_types() {
+        const ret = wasm.meshresult_model_opaque_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_uvs() {
+        const ret = wasm.meshresult_model_opaque_uvs(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_opaque_vertex_count() {
+        const ret = wasm.meshresult_model_opaque_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_overlay_block_light() {
+        const ret = wasm.meshresult_model_overlay_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2003,39 +1681,12 @@ export class MeshResult {
         return v1;
     }
     /**
-     * @returns {Float32Array}
+     * @returns {Uint8Array}
      */
-    get model_transparent_uvs() {
-        const ret = wasm.meshresult_model_transparent_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_positions() {
-        const ret = wasm.meshresult_model_opaque_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_sky_light() {
-        const ret = wasm.meshresult_model_opaque_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_tint_types() {
-        const ret = wasm.meshresult_model_opaque_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    get model_overlay_packed_light() {
+        const ret = wasm.meshresult_model_overlay_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
@@ -2059,17 +1710,8 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get model_opaque_block_light() {
-        const ret = wasm.meshresult_model_opaque_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_tex_indices() {
-        const ret = wasm.meshresult_model_opaque_tex_indices(this.__wbg_ptr);
+    get model_overlay_tex_indices() {
+        const ret = wasm.meshresult_model_overlay_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2086,33 +1728,24 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_colors() {
-        const ret = wasm.meshresult_model_transparent_colors(this.__wbg_ptr);
+    get model_overlay_uvs() {
+        const ret = wasm.meshresult_model_overlay_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get model_opaque_packed_light() {
-        const ret = wasm.meshresult_model_opaque_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
      * @returns {number}
      */
-    get model_opaque_vertex_count() {
-        const ret = wasm.meshresult_model_opaque_vertex_count(this.__wbg_ptr);
+    get model_overlay_vertex_count() {
+        const ret = wasm.meshresult_model_overlay_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_block_light() {
-        const ret = wasm.meshresult_model_overlay_block_light(this.__wbg_ptr);
+    get model_transparent_block_light() {
+        const ret = wasm.meshresult_model_transparent_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2120,8 +1753,8 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_tex_indices() {
-        const ret = wasm.meshresult_model_overlay_tex_indices(this.__wbg_ptr);
+    get model_transparent_colors() {
+        const ret = wasm.meshresult_model_transparent_colors(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2147,18 +1780,11 @@ export class MeshResult {
     /**
      * @returns {Uint8Array}
      */
-    get model_overlay_packed_light() {
-        const ret = wasm.meshresult_model_overlay_packed_light(this.__wbg_ptr);
+    get model_transparent_packed_light() {
+        const ret = wasm.meshresult_model_transparent_packed_light(this.__wbg_ptr);
         var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get model_overlay_vertex_count() {
-        const ret = wasm.meshresult_model_overlay_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
     }
     /**
      * @returns {Float32Array}
@@ -2181,6 +1807,15 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
+    get model_transparent_tex_indices() {
+        const ret = wasm.meshresult_model_transparent_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
     get model_transparent_tint_types() {
         const ret = wasm.meshresult_model_transparent_tint_types(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -2190,28 +1825,10 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_block_light() {
-        const ret = wasm.meshresult_model_transparent_block_light(this.__wbg_ptr);
+    get model_transparent_uvs() {
+        const ret = wasm.meshresult_model_transparent_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_transparent_tex_indices() {
-        const ret = wasm.meshresult_model_transparent_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get model_transparent_packed_light() {
-        const ret = wasm.meshresult_model_transparent_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
@@ -2224,8 +1841,169 @@ export class MeshResult {
     /**
      * @returns {Float32Array}
      */
-    get lava_uvs() {
-        const ret = wasm.meshresult_lava_uvs(this.__wbg_ptr);
+    get solid_block_light() {
+        const ret = wasm.meshresult_solid_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_colors() {
+        const ret = wasm.meshresult_solid_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get solid_indices() {
+        const ret = wasm.meshresult_solid_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_normals() {
+        const ret = wasm.meshresult_solid_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get solid_packed_light() {
+        const ret = wasm.meshresult_solid_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * Get solid mesh positions as Float32Array
+     * @returns {Float32Array}
+     */
+    get solid_positions() {
+        const ret = wasm.meshresult_solid_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_sky_light() {
+        const ret = wasm.meshresult_solid_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tex_indices() {
+        const ret = wasm.meshresult_solid_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tex_rotations() {
+        const ret = wasm.meshresult_solid_tex_rotations(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tint_types() {
+        const ret = wasm.meshresult_solid_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get solid_vertex_count() {
+        const ret = wasm.meshresult_solid_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_block_light() {
+        const ret = wasm.meshresult_water_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_colors() {
+        const ret = wasm.meshresult_water_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get water_indices() {
+        const ret = wasm.meshresult_water_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_normals() {
+        const ret = wasm.meshresult_water_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get water_packed_light() {
+        const ret = wasm.meshresult_water_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_positions() {
+        const ret = wasm.meshresult_water_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_sky_light() {
+        const ret = wasm.meshresult_water_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_tex_indices() {
+        const ret = wasm.meshresult_water_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2238,6 +2016,13 @@ export class MeshResult {
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get water_vertex_count() {
+        const ret = wasm.meshresult_water_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
 }
 if (Symbol.dispose) MeshResult.prototype[Symbol.dispose] = MeshResult.prototype.free;
@@ -2266,15 +2051,86 @@ export class MeshSizes {
     /**
      * @returns {number}
      */
-    get solid_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_solid_position_count(this.__wbg_ptr);
+    get glass_index_count() {
+        const ret = wasm.__wbg_get_meshsizes_glass_index_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
-     * @param {number} arg0
+     * @returns {number}
      */
-    set solid_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_solid_position_count(this.__wbg_ptr, arg0);
+    get glass_position_count() {
+        const ret = wasm.__wbg_get_meshsizes_glass_position_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get glass_vertex_count() {
+        const ret = wasm.__wbg_get_meshsizes_glass_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get lava_index_count() {
+        const ret = wasm.__wbg_get_meshsizes_lava_index_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get lava_position_count() {
+        const ret = wasm.__wbg_get_meshsizes_lava_position_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get lava_vertex_count() {
+        const ret = wasm.__wbg_get_meshsizes_lava_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_opaque_index_count() {
+        const ret = wasm.__wbg_get_meshsizes_model_opaque_index_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_opaque_position_count() {
+        const ret = wasm.__wbg_get_meshsizes_model_opaque_position_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_opaque_vertex_count() {
+        const ret = wasm.__wbg_get_meshsizes_model_opaque_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_transparent_index_count() {
+        const ret = wasm.__wbg_get_meshsizes_model_transparent_index_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_transparent_position_count() {
+        const ret = wasm.__wbg_get_meshsizes_model_transparent_position_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_transparent_vertex_count() {
+        const ret = wasm.__wbg_get_meshsizes_model_transparent_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {number}
@@ -2284,10 +2140,11 @@ export class MeshSizes {
         return ret >>> 0;
     }
     /**
-     * @param {number} arg0
+     * @returns {number}
      */
-    set solid_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_solid_index_count(this.__wbg_ptr, arg0);
+    get solid_position_count() {
+        const ret = wasm.__wbg_get_meshsizes_solid_position_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {number}
@@ -2297,25 +2154,6 @@ export class MeshSizes {
         return ret >>> 0;
     }
     /**
-     * @param {number} arg0
-     */
-    set solid_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_solid_vertex_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get water_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_water_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set water_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_water_position_count(this.__wbg_ptr, arg0);
-    }
-    /**
      * @returns {number}
      */
     get water_index_count() {
@@ -2323,10 +2161,11 @@ export class MeshSizes {
         return ret >>> 0;
     }
     /**
-     * @param {number} arg0
+     * @returns {number}
      */
-    set water_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_water_index_count(this.__wbg_ptr, arg0);
+    get water_position_count() {
+        const ret = wasm.__wbg_get_meshsizes_water_position_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {number}
@@ -2338,54 +2177,8 @@ export class MeshSizes {
     /**
      * @param {number} arg0
      */
-    set water_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_water_vertex_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get lava_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_lava_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set lava_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_lava_position_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get lava_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_lava_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set lava_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_lava_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get lava_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_lava_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set lava_vertex_count(arg0) {
-        wasm.__wbg_set_meshsizes_lava_vertex_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_glass_position_count(this.__wbg_ptr);
-        return ret >>> 0;
+    set glass_index_count(arg0) {
+        wasm.__wbg_set_meshsizes_glass_index_count(this.__wbg_ptr, arg0);
     }
     /**
      * @param {number} arg0
@@ -2394,50 +2187,28 @@ export class MeshSizes {
         wasm.__wbg_set_meshsizes_glass_position_count(this.__wbg_ptr, arg0);
     }
     /**
-     * @returns {number}
-     */
-    get glass_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_glass_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set glass_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_glass_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_glass_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
      * @param {number} arg0
      */
     set glass_vertex_count(arg0) {
         wasm.__wbg_set_meshsizes_glass_vertex_count(this.__wbg_ptr, arg0);
     }
     /**
-     * @returns {number}
+     * @param {number} arg0
      */
-    get model_opaque_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_opaque_position_count(this.__wbg_ptr);
-        return ret >>> 0;
+    set lava_index_count(arg0) {
+        wasm.__wbg_set_meshsizes_lava_index_count(this.__wbg_ptr, arg0);
     }
     /**
      * @param {number} arg0
      */
-    set model_opaque_position_count(arg0) {
-        wasm.__wbg_set_meshsizes_model_opaque_position_count(this.__wbg_ptr, arg0);
+    set lava_position_count(arg0) {
+        wasm.__wbg_set_meshsizes_lava_position_count(this.__wbg_ptr, arg0);
     }
     /**
-     * @returns {number}
+     * @param {number} arg0
      */
-    get model_opaque_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_opaque_index_count(this.__wbg_ptr);
-        return ret >>> 0;
+    set lava_vertex_count(arg0) {
+        wasm.__wbg_set_meshsizes_lava_vertex_count(this.__wbg_ptr, arg0);
     }
     /**
      * @param {number} arg0
@@ -2446,11 +2217,10 @@ export class MeshSizes {
         wasm.__wbg_set_meshsizes_model_opaque_index_count(this.__wbg_ptr, arg0);
     }
     /**
-     * @returns {number}
+     * @param {number} arg0
      */
-    get model_opaque_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_opaque_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
+    set model_opaque_position_count(arg0) {
+        wasm.__wbg_set_meshsizes_model_opaque_position_count(this.__wbg_ptr, arg0);
     }
     /**
      * @param {number} arg0
@@ -2459,11 +2229,10 @@ export class MeshSizes {
         wasm.__wbg_set_meshsizes_model_opaque_vertex_count(this.__wbg_ptr, arg0);
     }
     /**
-     * @returns {number}
+     * @param {number} arg0
      */
-    get model_transparent_position_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_transparent_position_count(this.__wbg_ptr);
-        return ret >>> 0;
+    set model_transparent_index_count(arg0) {
+        wasm.__wbg_set_meshsizes_model_transparent_index_count(this.__wbg_ptr, arg0);
     }
     /**
      * @param {number} arg0
@@ -2472,30 +2241,46 @@ export class MeshSizes {
         wasm.__wbg_set_meshsizes_model_transparent_position_count(this.__wbg_ptr, arg0);
     }
     /**
-     * @returns {number}
-     */
-    get model_transparent_index_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_transparent_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @param {number} arg0
-     */
-    set model_transparent_index_count(arg0) {
-        wasm.__wbg_set_meshsizes_model_transparent_index_count(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @returns {number}
-     */
-    get model_transparent_vertex_count() {
-        const ret = wasm.__wbg_get_meshsizes_model_transparent_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
      * @param {number} arg0
      */
     set model_transparent_vertex_count(arg0) {
         wasm.__wbg_set_meshsizes_model_transparent_vertex_count(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set solid_index_count(arg0) {
+        wasm.__wbg_set_meshsizes_solid_index_count(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set solid_position_count(arg0) {
+        wasm.__wbg_set_meshsizes_solid_position_count(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set solid_vertex_count(arg0) {
+        wasm.__wbg_set_meshsizes_solid_vertex_count(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set water_index_count(arg0) {
+        wasm.__wbg_set_meshsizes_water_index_count(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set water_position_count(arg0) {
+        wasm.__wbg_set_meshsizes_water_position_count(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set water_vertex_count(arg0) {
+        wasm.__wbg_set_meshsizes_water_vertex_count(this.__wbg_ptr, arg0);
     }
 }
 if (Symbol.dispose) MeshSizes.prototype[Symbol.dispose] = MeshSizes.prototype.free;
@@ -2522,29 +2307,36 @@ export class ModelMeshResultWasm {
         wasm.__wbg_modelmeshresultwasm_free(ptr, 0);
     }
     /**
-     * @returns {Float32Array}
-     */
-    opaque_uvs() {
-        const ret = wasm.modelmeshresultwasm_opaque_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    overlay_uvs() {
-        const ret = wasm.modelmeshresultwasm_overlay_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
      * @returns {number}
      */
     beacon_count() {
         const ret = wasm.modelmeshresultwasm_beacon_count(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @returns {Int32Array}
+     */
+    beacon_positions() {
+        const ret = wasm.modelmeshresultwasm_beacon_positions(this.__wbg_ptr);
+        var v1 = getArrayI32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {ModelMeshResultWasm}
+     */
+    static empty() {
+        const ret = wasm.modelmeshresultwasm_empty();
+        return ModelMeshResultWasm.__wrap(ret);
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    opaque_block_light() {
+        const ret = wasm.modelmeshresultwasm_opaque_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {Float32Array}
@@ -2554,6 +2346,13 @@ export class ModelMeshResultWasm {
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    opaque_index_count() {
+        const ret = wasm.modelmeshresultwasm_opaque_index_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {Uint32Array}
@@ -2574,64 +2373,26 @@ export class ModelMeshResultWasm {
         return v1;
     }
     /**
-     * @returns {Float32Array}
+     * @returns {number}
      */
-    overlay_colors() {
-        const ret = wasm.modelmeshresultwasm_overlay_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    overlay_indices() {
-        const ret = wasm.modelmeshresultwasm_overlay_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    overlay_normals() {
-        const ret = wasm.modelmeshresultwasm_overlay_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    translucent_uvs() {
-        const ret = wasm.modelmeshresultwasm_translucent_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    transparent_uvs() {
-        const ret = wasm.modelmeshresultwasm_transparent_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Int32Array}
-     */
-    beacon_positions() {
-        const ret = wasm.modelmeshresultwasm_beacon_positions(this.__wbg_ptr);
-        var v1 = getArrayI32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
+    opaque_position_count() {
+        const ret = wasm.modelmeshresultwasm_opaque_position_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {Float32Array}
      */
     opaque_positions() {
         const ret = wasm.modelmeshresultwasm_opaque_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    opaque_shade_flags() {
+        const ret = wasm.modelmeshresultwasm_opaque_shade_flags(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2648,58 +2409,6 @@ export class ModelMeshResultWasm {
     /**
      * @returns {Float32Array}
      */
-    opaque_tint_types() {
-        const ret = wasm.modelmeshresultwasm_opaque_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    overlay_positions() {
-        const ret = wasm.modelmeshresultwasm_overlay_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    overlay_sky_light() {
-        const ret = wasm.modelmeshresultwasm_overlay_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    opaque_block_light() {
-        const ret = wasm.modelmeshresultwasm_opaque_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    opaque_index_count() {
-        const ret = wasm.modelmeshresultwasm_opaque_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    opaque_shade_flags() {
-        const ret = wasm.modelmeshresultwasm_opaque_shade_flags(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
     opaque_tex_indices() {
         const ret = wasm.modelmeshresultwasm_opaque_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -2709,8 +2418,8 @@ export class ModelMeshResultWasm {
     /**
      * @returns {Float32Array}
      */
-    overlay_tint_types() {
-        const ret = wasm.modelmeshresultwasm_overlay_tint_types(this.__wbg_ptr);
+    opaque_tint_types() {
+        const ret = wasm.modelmeshresultwasm_opaque_tint_types(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2718,17 +2427,8 @@ export class ModelMeshResultWasm {
     /**
      * @returns {Float32Array}
      */
-    translucent_colors() {
-        const ret = wasm.modelmeshresultwasm_translucent_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    transparent_colors() {
-        const ret = wasm.modelmeshresultwasm_transparent_colors(this.__wbg_ptr);
+    opaque_uvs() {
+        const ret = wasm.modelmeshresultwasm_opaque_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2750,11 +2450,54 @@ export class ModelMeshResultWasm {
         return v1;
     }
     /**
+     * @returns {Float32Array}
+     */
+    overlay_colors() {
+        const ret = wasm.modelmeshresultwasm_overlay_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @returns {number}
      */
     overlay_index_count() {
         const ret = wasm.modelmeshresultwasm_overlay_index_count(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    overlay_indices() {
+        const ret = wasm.modelmeshresultwasm_overlay_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    overlay_normals() {
+        const ret = wasm.modelmeshresultwasm_overlay_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    overlay_position_count() {
+        const ret = wasm.modelmeshresultwasm_overlay_position_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    overlay_positions() {
+        const ret = wasm.modelmeshresultwasm_overlay_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {Float32Array}
@@ -2768,11 +2511,70 @@ export class ModelMeshResultWasm {
     /**
      * @returns {Float32Array}
      */
+    overlay_sky_light() {
+        const ret = wasm.modelmeshresultwasm_overlay_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
     overlay_tex_indices() {
         const ret = wasm.modelmeshresultwasm_overlay_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    overlay_tint_types() {
+        const ret = wasm.modelmeshresultwasm_overlay_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    overlay_uvs() {
+        const ret = wasm.modelmeshresultwasm_overlay_uvs(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    overlay_vertex_count() {
+        const ret = wasm.modelmeshresultwasm_overlay_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    translucent_block_light() {
+        const ret = wasm.modelmeshresultwasm_translucent_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    translucent_colors() {
+        const ret = wasm.modelmeshresultwasm_translucent_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    translucent_index_count() {
+        const ret = wasm.modelmeshresultwasm_translucent_index_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {Uint32Array}
@@ -2791,6 +2593,99 @@ export class ModelMeshResultWasm {
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    translucent_position_count() {
+        const ret = wasm.modelmeshresultwasm_translucent_position_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    translucent_positions() {
+        const ret = wasm.modelmeshresultwasm_translucent_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    translucent_shade_flags() {
+        const ret = wasm.modelmeshresultwasm_translucent_shade_flags(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    translucent_sky_light() {
+        const ret = wasm.modelmeshresultwasm_translucent_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    translucent_tex_indices() {
+        const ret = wasm.modelmeshresultwasm_translucent_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    translucent_tint_types() {
+        const ret = wasm.modelmeshresultwasm_translucent_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    translucent_uvs() {
+        const ret = wasm.modelmeshresultwasm_translucent_uvs(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    translucent_vertex_count() {
+        const ret = wasm.modelmeshresultwasm_translucent_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    transparent_block_light() {
+        const ret = wasm.modelmeshresultwasm_transparent_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    transparent_colors() {
+        const ret = wasm.modelmeshresultwasm_transparent_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_index_count() {
+        const ret = wasm.modelmeshresultwasm_transparent_index_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {Uint32Array}
@@ -2813,40 +2708,24 @@ export class ModelMeshResultWasm {
     /**
      * @returns {number}
      */
-    overlay_vertex_count() {
-        const ret = wasm.modelmeshresultwasm_overlay_vertex_count(this.__wbg_ptr);
+    transparent_position_count() {
+        const ret = wasm.modelmeshresultwasm_transparent_position_count(this.__wbg_ptr);
         return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    opaque_position_count() {
-        const ret = wasm.modelmeshresultwasm_opaque_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    translucent_positions() {
-        const ret = wasm.modelmeshresultwasm_translucent_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    translucent_sky_light() {
-        const ret = wasm.modelmeshresultwasm_translucent_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
     }
     /**
      * @returns {Float32Array}
      */
     transparent_positions() {
         const ret = wasm.modelmeshresultwasm_transparent_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    transparent_shade_flags() {
+        const ret = wasm.modelmeshresultwasm_transparent_shade_flags(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2861,17 +2740,10 @@ export class ModelMeshResultWasm {
         return v1;
     }
     /**
-     * @returns {number}
-     */
-    overlay_position_count() {
-        const ret = wasm.modelmeshresultwasm_overlay_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
      * @returns {Float32Array}
      */
-    translucent_tint_types() {
-        const ret = wasm.modelmeshresultwasm_translucent_tint_types(this.__wbg_ptr);
+    transparent_tex_indices() {
+        const ret = wasm.modelmeshresultwasm_transparent_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -2888,77 +2760,11 @@ export class ModelMeshResultWasm {
     /**
      * @returns {Float32Array}
      */
-    translucent_block_light() {
-        const ret = wasm.modelmeshresultwasm_translucent_block_light(this.__wbg_ptr);
+    transparent_uvs() {
+        const ret = wasm.modelmeshresultwasm_transparent_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    translucent_index_count() {
-        const ret = wasm.modelmeshresultwasm_translucent_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    translucent_shade_flags() {
-        const ret = wasm.modelmeshresultwasm_translucent_shade_flags(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    translucent_tex_indices() {
-        const ret = wasm.modelmeshresultwasm_translucent_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    transparent_block_light() {
-        const ret = wasm.modelmeshresultwasm_transparent_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    transparent_index_count() {
-        const ret = wasm.modelmeshresultwasm_transparent_index_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    transparent_shade_flags() {
-        const ret = wasm.modelmeshresultwasm_transparent_shade_flags(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    transparent_tex_indices() {
-        const ret = wasm.modelmeshresultwasm_transparent_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    translucent_vertex_count() {
-        const ret = wasm.modelmeshresultwasm_translucent_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
     }
     /**
      * @returns {number}
@@ -2966,27 +2772,6 @@ export class ModelMeshResultWasm {
     transparent_vertex_count() {
         const ret = wasm.modelmeshresultwasm_transparent_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    translucent_position_count() {
-        const ret = wasm.modelmeshresultwasm_translucent_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    transparent_position_count() {
-        const ret = wasm.modelmeshresultwasm_transparent_position_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {ModelMeshResultWasm}
-     */
-    static empty() {
-        const ret = wasm.modelmeshresultwasm_empty();
-        return ModelMeshResultWasm.__wrap(ret);
     }
 }
 if (Symbol.dispose) ModelMeshResultWasm.prototype[Symbol.dispose] = ModelMeshResultWasm.prototype.free;
@@ -3013,58 +2798,28 @@ export class ProcessedChunk {
         wasm.__wbg_processedchunk_free(ptr, 0);
     }
     /**
-     * @returns {Float32Array}
+     * Number of non-air blocks decoded
+     * @returns {number}
      */
-    get lava_colors() {
-        const ret = wasm.processedchunk_lava_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
+    get blocks_decoded() {
+        const ret = wasm.processedchunk_blocks_decoded(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
-     * @returns {Float32Array}
+     * Chunk X coordinate
+     * @returns {number}
      */
-    get glass_colors() {
-        const ret = wasm.processedchunk_glass_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
+    get chunk_x() {
+        const ret = wasm.processedchunk_chunk_x(this.__wbg_ptr);
+        return ret;
     }
     /**
-     * @returns {Uint32Array}
+     * Chunk Z coordinate
+     * @returns {number}
      */
-    get lava_indices() {
-        const ret = wasm.processedchunk_lava_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_normals() {
-        const ret = wasm.processedchunk_lava_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_colors() {
-        const ret = wasm.processedchunk_solid_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_colors() {
-        const ret = wasm.processedchunk_water_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
+    get chunk_z() {
+        const ret = wasm.processedchunk_chunk_z(this.__wbg_ptr);
+        return ret;
     }
     /**
      * Get error message if processing failed
@@ -3081,6 +2836,24 @@ export class ProcessedChunk {
         } finally {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get glass_block_light() {
+        const ret = wasm.processedchunk_glass_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get glass_colors() {
+        const ret = wasm.processedchunk_glass_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {Uint32Array}
@@ -3101,65 +2874,12 @@ export class ProcessedChunk {
         return v1;
     }
     /**
-     * @returns {Uint32Array}
+     * @returns {Uint8Array}
      */
-    get solid_indices() {
-        const ret = wasm.processedchunk_solid_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_normals() {
-        const ret = wasm.processedchunk_solid_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
-    get water_indices() {
-        const ret = wasm.processedchunk_water_indices(this.__wbg_ptr);
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_normals() {
-        const ret = wasm.processedchunk_water_normals(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * Number of non-air blocks decoded
-     * @returns {number}
-     */
-    get blocks_decoded() {
-        const ret = wasm.processedchunk_blocks_decoded(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_positions() {
-        const ret = wasm.processedchunk_lava_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get lava_sky_light() {
-        const ret = wasm.processedchunk_lava_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    get glass_packed_light() {
+        const ret = wasm.processedchunk_glass_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
@@ -3183,8 +2903,8 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get solid_positions() {
-        const ret = wasm.processedchunk_solid_positions(this.__wbg_ptr);
+    get glass_tex_indices() {
+        const ret = wasm.processedchunk_glass_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3192,26 +2912,8 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get solid_sky_light() {
-        const ret = wasm.processedchunk_solid_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_positions() {
-        const ret = wasm.processedchunk_water_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_sky_light() {
-        const ret = wasm.processedchunk_water_sky_light(this.__wbg_ptr);
+    get glass_tex_rotations() {
+        const ret = wasm.processedchunk_glass_tex_rotations(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3226,10 +2928,71 @@ export class ProcessedChunk {
         return v1;
     }
     /**
+     * @returns {number}
+     */
+    get glass_vertex_count() {
+        const ret = wasm.fusedchunkresult_glass_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {Float32Array}
      */
     get lava_block_light() {
         const ret = wasm.processedchunk_lava_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_colors() {
+        const ret = wasm.processedchunk_lava_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get lava_indices() {
+        const ret = wasm.processedchunk_lava_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_normals() {
+        const ret = wasm.processedchunk_lava_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get lava_packed_light() {
+        const ret = wasm.processedchunk_lava_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_positions() {
+        const ret = wasm.processedchunk_lava_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get lava_sky_light() {
+        const ret = wasm.processedchunk_lava_sky_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3246,46 +3009,10 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get model_opaque_uvs() {
-        const ret = wasm.processedchunk_model_opaque_uvs(this.__wbg_ptr);
+    get lava_uvs() {
+        const ret = wasm.processedchunk_lava_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tint_types() {
-        const ret = wasm.processedchunk_solid_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_block_light() {
-        const ret = wasm.processedchunk_glass_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tex_indices() {
-        const ret = wasm.processedchunk_glass_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get lava_packed_light() {
-        const ret = wasm.processedchunk_lava_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
@@ -3298,111 +3025,8 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_uvs() {
-        const ret = wasm.processedchunk_model_overlay_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * Get particle emitter data as flat array: [block_id, x, y, z, ...]
-     * @returns {Int32Array}
-     */
-    get particle_emitters() {
-        const ret = wasm.processedchunk_particle_emitters(this.__wbg_ptr);
-        var v1 = getArrayI32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_block_light() {
-        const ret = wasm.processedchunk_solid_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tex_indices() {
-        const ret = wasm.processedchunk_solid_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_block_light() {
-        const ret = wasm.processedchunk_water_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get water_tex_indices() {
-        const ret = wasm.processedchunk_water_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get glass_packed_light() {
-        const ret = wasm.processedchunk_glass_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get glass_vertex_count() {
-        const ret = wasm.fusedchunkresult_glass_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get solid_packed_light() {
-        const ret = wasm.processedchunk_solid_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get solid_vertex_count() {
-        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get water_packed_light() {
-        const ret = wasm.processedchunk_water_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get water_vertex_count() {
-        const ret = wasm.fusedchunkresult_water_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get glass_tex_rotations() {
-        const ret = wasm.processedchunk_glass_tex_rotations(this.__wbg_ptr);
+    get model_opaque_block_light() {
+        const ret = wasm.processedchunk_model_opaque_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3412,15 +3036,6 @@ export class ProcessedChunk {
      */
     get model_opaque_colors() {
         const ret = wasm.processedchunk_model_opaque_colors(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get solid_tex_rotations() {
-        const ret = wasm.processedchunk_solid_tex_rotations(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3439,6 +3054,76 @@ export class ProcessedChunk {
      */
     get model_opaque_normals() {
         const ret = wasm.processedchunk_model_opaque_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get model_opaque_packed_light() {
+        const ret = wasm.processedchunk_model_opaque_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_positions() {
+        const ret = wasm.processedchunk_model_opaque_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_sky_light() {
+        const ret = wasm.processedchunk_model_opaque_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_tex_indices() {
+        const ret = wasm.processedchunk_model_opaque_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_tint_types() {
+        const ret = wasm.processedchunk_model_opaque_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_opaque_uvs() {
+        const ret = wasm.processedchunk_model_opaque_uvs(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get model_opaque_vertex_count() {
+        const ret = wasm.fusedchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get model_overlay_block_light() {
+        const ret = wasm.processedchunk_model_overlay_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3471,46 +3156,12 @@ export class ProcessedChunk {
         return v1;
     }
     /**
-     * @returns {Float32Array}
+     * @returns {Uint8Array}
      */
-    get model_transparent_uvs() {
-        const ret = wasm.processedchunk_model_transparent_uvs(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_positions() {
-        const ret = wasm.processedchunk_model_opaque_positions(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_sky_light() {
-        const ret = wasm.processedchunk_model_opaque_sky_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get particle_emitter_count() {
-        const ret = wasm.processedchunk_particle_emitter_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_tint_types() {
-        const ret = wasm.processedchunk_model_opaque_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    get model_overlay_packed_light() {
+        const ret = wasm.processedchunk_model_overlay_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
@@ -3534,17 +3185,8 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get model_opaque_block_light() {
-        const ret = wasm.processedchunk_model_opaque_block_light(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_opaque_tex_indices() {
-        const ret = wasm.processedchunk_model_opaque_tex_indices(this.__wbg_ptr);
+    get model_overlay_tex_indices() {
+        const ret = wasm.processedchunk_model_overlay_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3561,33 +3203,24 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_colors() {
-        const ret = wasm.processedchunk_model_transparent_colors(this.__wbg_ptr);
+    get model_overlay_uvs() {
+        const ret = wasm.processedchunk_model_overlay_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get model_opaque_packed_light() {
-        const ret = wasm.processedchunk_model_opaque_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
      * @returns {number}
      */
-    get model_opaque_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
+    get model_overlay_vertex_count() {
+        const ret = wasm.fusedchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_block_light() {
-        const ret = wasm.processedchunk_model_overlay_block_light(this.__wbg_ptr);
+    get model_transparent_block_light() {
+        const ret = wasm.processedchunk_model_transparent_block_light(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3595,8 +3228,8 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get model_overlay_tex_indices() {
-        const ret = wasm.processedchunk_model_overlay_tex_indices(this.__wbg_ptr);
+    get model_transparent_colors() {
+        const ret = wasm.processedchunk_model_transparent_colors(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3622,18 +3255,11 @@ export class ProcessedChunk {
     /**
      * @returns {Uint8Array}
      */
-    get model_overlay_packed_light() {
-        const ret = wasm.processedchunk_model_overlay_packed_light(this.__wbg_ptr);
+    get model_transparent_packed_light() {
+        const ret = wasm.processedchunk_model_transparent_packed_light(this.__wbg_ptr);
         var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get model_overlay_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
     }
     /**
      * @returns {Float32Array}
@@ -3656,6 +3282,15 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
+    get model_transparent_tex_indices() {
+        const ret = wasm.processedchunk_model_transparent_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
     get model_transparent_tint_types() {
         const ret = wasm.processedchunk_model_transparent_tint_types(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
@@ -3665,28 +3300,10 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get model_transparent_block_light() {
-        const ret = wasm.processedchunk_model_transparent_block_light(this.__wbg_ptr);
+    get model_transparent_uvs() {
+        const ret = wasm.processedchunk_model_transparent_uvs(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get model_transparent_tex_indices() {
-        const ret = wasm.processedchunk_model_transparent_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get model_transparent_packed_light() {
-        const ret = wasm.processedchunk_model_transparent_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
     /**
@@ -3697,20 +3314,118 @@ export class ProcessedChunk {
         return ret >>> 0;
     }
     /**
-     * Chunk X coordinate
      * @returns {number}
      */
-    get chunk_x() {
-        const ret = wasm.processedchunk_chunk_x(this.__wbg_ptr);
-        return ret;
+    get particle_emitter_count() {
+        const ret = wasm.processedchunk_particle_emitter_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
-     * Chunk Z coordinate
+     * Get particle emitter data as flat array: [block_id, x, y, z, ...]
+     * @returns {Int32Array}
+     */
+    get particle_emitters() {
+        const ret = wasm.processedchunk_particle_emitters(this.__wbg_ptr);
+        var v1 = getArrayI32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_block_light() {
+        const ret = wasm.processedchunk_solid_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_colors() {
+        const ret = wasm.processedchunk_solid_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get solid_indices() {
+        const ret = wasm.processedchunk_solid_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_normals() {
+        const ret = wasm.processedchunk_solid_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get solid_packed_light() {
+        const ret = wasm.processedchunk_solid_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_positions() {
+        const ret = wasm.processedchunk_solid_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_sky_light() {
+        const ret = wasm.processedchunk_solid_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tex_indices() {
+        const ret = wasm.processedchunk_solid_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tex_rotations() {
+        const ret = wasm.processedchunk_solid_tex_rotations(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get solid_tint_types() {
+        const ret = wasm.processedchunk_solid_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @returns {number}
      */
-    get chunk_z() {
-        const ret = wasm.processedchunk_chunk_z(this.__wbg_ptr);
-        return ret;
+    get solid_vertex_count() {
+        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * Check if processing was successful
@@ -3723,8 +3438,71 @@ export class ProcessedChunk {
     /**
      * @returns {Float32Array}
      */
-    get lava_uvs() {
-        const ret = wasm.processedchunk_lava_uvs(this.__wbg_ptr);
+    get water_block_light() {
+        const ret = wasm.processedchunk_water_block_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_colors() {
+        const ret = wasm.processedchunk_water_colors(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get water_indices() {
+        const ret = wasm.processedchunk_water_indices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_normals() {
+        const ret = wasm.processedchunk_water_normals(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get water_packed_light() {
+        const ret = wasm.processedchunk_water_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_positions() {
+        const ret = wasm.processedchunk_water_positions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_sky_light() {
+        const ret = wasm.processedchunk_water_sky_light(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get water_tex_indices() {
+        const ret = wasm.processedchunk_water_tex_indices(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -3737,6 +3515,13 @@ export class ProcessedChunk {
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get water_vertex_count() {
+        const ret = wasm.fusedchunkresult_water_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
 }
 if (Symbol.dispose) ProcessedChunk.prototype[Symbol.dispose] = ProcessedChunk.prototype.free;
@@ -3761,49 +3546,6 @@ export class StreamingMeshResultWasm {
     free() {
         const ptr = this.__destroy_into_raw();
         wasm.__wbg_streamingmeshresultwasm_free(ptr, 0);
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get tint_types() {
-        const ret = wasm.streamingmeshresultwasm_tint_types(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get tex_indices() {
-        const ret = wasm.streamingmeshresultwasm_tex_indices(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    get packed_light() {
-        const ret = wasm.streamingmeshresultwasm_packed_light(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {number}
-     */
-    get vertex_count() {
-        const ret = wasm.meshresult_solid_vertex_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {Float32Array}
-     */
-    get tex_rotations() {
-        const ret = wasm.streamingmeshresultwasm_tex_rotations(this.__wbg_ptr);
-        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
     }
     /**
      * @returns {number}
@@ -3861,6 +3603,15 @@ export class StreamingMeshResultWasm {
         return v1;
     }
     /**
+     * @returns {Uint8Array}
+     */
+    get packed_light() {
+        const ret = wasm.streamingmeshresultwasm_packed_light(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
      * @returns {Float32Array}
      */
     get positions() {
@@ -3868,6 +3619,40 @@ export class StreamingMeshResultWasm {
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get tex_indices() {
+        const ret = wasm.streamingmeshresultwasm_tex_indices(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get tex_rotations() {
+        const ret = wasm.streamingmeshresultwasm_tex_rotations(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    get tint_types() {
+        const ret = wasm.streamingmeshresultwasm_tint_types(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get vertex_count() {
+        const ret = wasm.meshresult_solid_vertex_count(this.__wbg_ptr);
+        return ret >>> 0;
     }
 }
 if (Symbol.dispose) StreamingMeshResultWasm.prototype[Symbol.dispose] = StreamingMeshResultWasm.prototype.free;
@@ -4418,7 +4203,297 @@ export function write_model_mesh_to_buffers(opaque_positions, opaque_normals, op
     return ret !== 0;
 }
 
-const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);
+function __wbg_get_imports() {
+    const import0 = {
+        __proto__: null,
+        __wbg___wbindgen_copy_to_typed_array_fc0809a4dec43528: function(arg0, arg1, arg2) {
+            new Uint8Array(arg2.buffer, arg2.byteOffset, arg2.byteLength).set(getArrayU8FromWasm0(arg0, arg1));
+        },
+        __wbg___wbindgen_string_get_72fb696202c56729: function(arg0, arg1) {
+            const obj = arg1;
+            const ret = typeof(obj) === 'string' ? obj : undefined;
+            var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            var len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg___wbindgen_throw_be289d5034ed271b: function(arg0, arg1) {
+            throw new Error(getStringFromWasm0(arg0, arg1));
+        },
+        __wbg_error_7534b8e9a36f1ab4: function(arg0, arg1) {
+            let deferred0_0;
+            let deferred0_1;
+            try {
+                deferred0_0 = arg0;
+                deferred0_1 = arg1;
+                console.error(getStringFromWasm0(arg0, arg1));
+            } finally {
+                wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
+            }
+        },
+        __wbg_error_9a7fe3f932034cde: function(arg0) {
+            console.error(arg0);
+        },
+        __wbg_log_6b5ca2e6124b2808: function(arg0) {
+            console.log(arg0);
+        },
+        __wbg_new_8a6f238a6ece86ea: function() {
+            const ret = new Error();
+            return ret;
+        },
+        __wbg_stack_0ed75d68575b0f3c: function(arg0, arg1) {
+            const ret = arg1.stack;
+            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg_warn_f7ae1b2e66ccb930: function(arg0) {
+            console.warn(arg0);
+        },
+        __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(String) -> Externref`.
+            const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
+        },
+        __wbindgen_init_externref_table: function() {
+            const table = wasm.__wbindgen_externrefs;
+            const offset = table.grow(4);
+            table.set(0, undefined);
+            table.set(offset + 0, undefined);
+            table.set(offset + 1, null);
+            table.set(offset + 2, true);
+            table.set(offset + 3, false);
+        },
+    };
+    return {
+        __proto__: null,
+        "./wasm_mesher_bg.js": import0,
+    };
+}
+
+const FusedChunkResultFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_fusedchunkresult_free(ptr >>> 0, 1));
+const FusedSuperChunkResultFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_fusedsuperchunkresult_free(ptr >>> 0, 1));
+const MeshResultFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_meshresult_free(ptr >>> 0, 1));
+const MeshSizesFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_meshsizes_free(ptr >>> 0, 1));
+const ModelMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_modelmeshresultwasm_free(ptr >>> 0, 1));
+const ProcessedChunkFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_processedchunk_free(ptr >>> 0, 1));
+const StreamingMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_streamingmeshresultwasm_free(ptr >>> 0, 1));
+
+function addToExternrefTable0(obj) {
+    const idx = wasm.__externref_table_alloc();
+    wasm.__wbindgen_externrefs.set(idx, obj);
+    return idx;
+}
+
+function getArrayF32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
+function getArrayI32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getInt32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
+function getArrayU32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
+let cachedDataViewMemory0 = null;
+function getDataViewMemory0() {
+    if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
+        cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
+    }
+    return cachedDataViewMemory0;
+}
+
+let cachedFloat32ArrayMemory0 = null;
+function getFloat32ArrayMemory0() {
+    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
+        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
+    }
+    return cachedFloat32ArrayMemory0;
+}
+
+let cachedInt32ArrayMemory0 = null;
+function getInt32ArrayMemory0() {
+    if (cachedInt32ArrayMemory0 === null || cachedInt32ArrayMemory0.byteLength === 0) {
+        cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
+    }
+    return cachedInt32ArrayMemory0;
+}
+
+function getStringFromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return decodeText(ptr, len);
+}
+
+let cachedUint16ArrayMemory0 = null;
+function getUint16ArrayMemory0() {
+    if (cachedUint16ArrayMemory0 === null || cachedUint16ArrayMemory0.byteLength === 0) {
+        cachedUint16ArrayMemory0 = new Uint16Array(wasm.memory.buffer);
+    }
+    return cachedUint16ArrayMemory0;
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
+}
+
+let cachedUint8ArrayMemory0 = null;
+function getUint8ArrayMemory0() {
+    if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
+        cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
+    }
+    return cachedUint8ArrayMemory0;
+}
+
+function isLikeNone(x) {
+    return x === undefined || x === null;
+}
+
+function passArray16ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 2, 2) >>> 0;
+    getUint16ArrayMemory0().set(arg, ptr / 2);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArray32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayF32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getFloat32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayJsValueToWasm0(array, malloc) {
+    const ptr = malloc(array.length * 4, 4) >>> 0;
+    for (let i = 0; i < array.length; i++) {
+        const add = addToExternrefTable0(array[i]);
+        getDataViewMemory0().setUint32(ptr + 4 * i, add, true);
+    }
+    WASM_VECTOR_LEN = array.length;
+    return ptr;
+}
+
+function passStringToWasm0(arg, malloc, realloc) {
+    if (realloc === undefined) {
+        const buf = cachedTextEncoder.encode(arg);
+        const ptr = malloc(buf.length, 1) >>> 0;
+        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+        WASM_VECTOR_LEN = buf.length;
+        return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+        const code = arg.charCodeAt(offset);
+        if (code > 0x7F) break;
+        mem[ptr + offset] = code;
+    }
+    if (offset !== len) {
+        if (offset !== 0) {
+            arg = arg.slice(offset);
+        }
+        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
+
+        offset += ret.written;
+        ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    WASM_VECTOR_LEN = offset;
+    return ptr;
+}
+
+let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+cachedTextDecoder.decode();
+const MAX_SAFARI_DECODE_BYTES = 2146435072;
+let numBytesDecoded = 0;
+function decodeText(ptr, len) {
+    numBytesDecoded += len;
+    if (numBytesDecoded >= MAX_SAFARI_DECODE_BYTES) {
+        cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+        cachedTextDecoder.decode();
+        numBytesDecoded = len;
+    }
+    return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+const cachedTextEncoder = new TextEncoder();
+
+if (!('encodeInto' in cachedTextEncoder)) {
+    cachedTextEncoder.encodeInto = function (arg, view) {
+        const buf = cachedTextEncoder.encode(arg);
+        view.set(buf);
+        return {
+            read: arg.length,
+            written: buf.length
+        };
+    };
+}
+
+let WASM_VECTOR_LEN = 0;
+
+let wasmModule, wasm;
+function __wbg_finalize_init(instance, module) {
+    wasm = instance.exports;
+    wasmModule = module;
+    cachedDataViewMemory0 = null;
+    cachedFloat32ArrayMemory0 = null;
+    cachedInt32ArrayMemory0 = null;
+    cachedUint16ArrayMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
+    cachedUint8ArrayMemory0 = null;
+    wasm.__wbindgen_start();
+    return wasm;
+}
 
 async function __wbg_load(module, imports) {
     if (typeof Response === 'function' && module instanceof Response) {
@@ -4426,14 +4501,12 @@ async function __wbg_load(module, imports) {
             try {
                 return await WebAssembly.instantiateStreaming(module, imports);
             } catch (e) {
-                const validResponse = module.ok && EXPECTED_RESPONSE_TYPES.has(module.type);
+                const validResponse = module.ok && expectedResponseType(module.type);
 
                 if (validResponse && module.headers.get('Content-Type') !== 'application/wasm') {
                     console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", e);
 
-                } else {
-                    throw e;
-                }
+                } else { throw e; }
             }
         }
 
@@ -4448,94 +4521,20 @@ async function __wbg_load(module, imports) {
             return instance;
         }
     }
-}
 
-function __wbg_get_imports() {
-    const imports = {};
-    imports.wbg = {};
-    imports.wbg.__wbg___wbindgen_copy_to_typed_array_db832bc4df7216c1 = function(arg0, arg1, arg2) {
-        new Uint8Array(arg2.buffer, arg2.byteOffset, arg2.byteLength).set(getArrayU8FromWasm0(arg0, arg1));
-    };
-    imports.wbg.__wbg___wbindgen_string_get_a2a31e16edf96e42 = function(arg0, arg1) {
-        const obj = arg1;
-        const ret = typeof(obj) === 'string' ? obj : undefined;
-        var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        var len1 = WASM_VECTOR_LEN;
-        getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
-        getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
-    };
-    imports.wbg.__wbg___wbindgen_throw_dd24417ed36fc46e = function(arg0, arg1) {
-        throw new Error(getStringFromWasm0(arg0, arg1));
-    };
-    imports.wbg.__wbg_error_7534b8e9a36f1ab4 = function(arg0, arg1) {
-        let deferred0_0;
-        let deferred0_1;
-        try {
-            deferred0_0 = arg0;
-            deferred0_1 = arg1;
-            console.error(getStringFromWasm0(arg0, arg1));
-        } finally {
-            wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
+    function expectedResponseType(type) {
+        switch (type) {
+            case 'basic': case 'cors': case 'default': return true;
         }
-    };
-    imports.wbg.__wbg_error_7bc7d576a6aaf855 = function(arg0) {
-        console.error(arg0);
-    };
-    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
-        console.log(arg0);
-    };
-    imports.wbg.__wbg_new_8a6f238a6ece86ea = function() {
-        const ret = new Error();
-        return ret;
-    };
-    imports.wbg.__wbg_stack_0ed75d68575b0f3c = function(arg0, arg1) {
-        const ret = arg1.stack;
-        const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
-        getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
-    };
-    imports.wbg.__wbg_warn_6e567d0d926ff881 = function(arg0) {
-        console.warn(arg0);
-    };
-    imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
-        // Cast intrinsic for `Ref(String) -> Externref`.
-        const ret = getStringFromWasm0(arg0, arg1);
-        return ret;
-    };
-    imports.wbg.__wbindgen_init_externref_table = function() {
-        const table = wasm.__wbindgen_externrefs;
-        const offset = table.grow(4);
-        table.set(0, undefined);
-        table.set(offset + 0, undefined);
-        table.set(offset + 1, null);
-        table.set(offset + 2, true);
-        table.set(offset + 3, false);
-    };
-
-    return imports;
-}
-
-function __wbg_finalize_init(instance, module) {
-    wasm = instance.exports;
-    __wbg_init.__wbindgen_wasm_module = module;
-    cachedDataViewMemory0 = null;
-    cachedFloat32ArrayMemory0 = null;
-    cachedInt32ArrayMemory0 = null;
-    cachedUint16ArrayMemory0 = null;
-    cachedUint32ArrayMemory0 = null;
-    cachedUint8ArrayMemory0 = null;
-
-
-    wasm.__wbindgen_start();
-    return wasm;
+        return false;
+    }
 }
 
 function initSync(module) {
     if (wasm !== undefined) return wasm;
 
 
-    if (typeof module !== 'undefined') {
+    if (module !== undefined) {
         if (Object.getPrototypeOf(module) === Object.prototype) {
             ({module} = module)
         } else {
@@ -4555,7 +4554,7 @@ async function __wbg_init(module_or_path) {
     if (wasm !== undefined) return wasm;
 
 
-    if (typeof module_or_path !== 'undefined') {
+    if (module_or_path !== undefined) {
         if (Object.getPrototypeOf(module_or_path) === Object.prototype) {
             ({module_or_path} = module_or_path)
         } else {
@@ -4563,7 +4562,7 @@ async function __wbg_init(module_or_path) {
         }
     }
 
-    if (typeof module_or_path === 'undefined') {
+    if (module_or_path === undefined) {
         module_or_path = new URL('wasm_mesher_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
@@ -4577,5 +4576,4 @@ async function __wbg_init(module_or_path) {
     return __wbg_finalize_init(instance, module);
 }
 
-export { initSync };
-export default __wbg_init;
+export { initSync, __wbg_init as default };
