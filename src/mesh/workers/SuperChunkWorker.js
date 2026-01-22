@@ -457,8 +457,14 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds, lodLevel = nu
   
   // Debug: Log LOD calculation for first few calls
   if (!wasmMeshModelsV3._debugCount) wasmMeshModelsV3._debugCount = 0;
-  if (wasmMeshModelsV3._debugCount < 10) {
-    console.log(`[LOD Debug] SC(${superChunkX},${superChunkZ}) cam(${cameraPosition.x.toFixed(0)},${cameraPosition.z.toFixed(0)}) => LOD ${lod}`);
+  if (wasmMeshModelsV3._debugCount < 20) {
+    const centerX = superChunkX * 32 + 16;
+    const centerZ = superChunkZ * 32 + 16;
+    const dx = centerX - cameraPosition.x;
+    const dz = centerZ - cameraPosition.z;
+    const distSq = dx * dx + dz * dz;
+    const dist = Math.sqrt(distSq);
+    console.log(`[LOD Debug] bounds(${bounds.minChunkX}-${bounds.maxChunkX}, ${bounds.minChunkZ}-${bounds.maxChunkZ}) => SC(${superChunkX},${superChunkZ}) center(${centerX},${centerZ}) cam(${cameraPosition.x.toFixed(0)},${cameraPosition.z.toFixed(0)}) dist=${dist.toFixed(0)} => LOD ${lod}`);
     wasmMeshModelsV3._debugCount++;
   }
   
@@ -2935,8 +2941,23 @@ async function processSuperChunk(data) {
   // Update global camera position from job data if provided
   // This ensures we have the correct position even if async updateCamera hasn't arrived
   if (jobCameraPos && typeof jobCameraPos.x === 'number' && typeof jobCameraPos.z === 'number') {
+    const oldX = cameraPosition.x;
+    const oldZ = cameraPosition.z;
     cameraPosition.x = jobCameraPos.x;
     cameraPosition.z = jobCameraPos.z;
+    // Debug: Log first few camera position updates
+    if (!processSuperChunk._camDebugCount) processSuperChunk._camDebugCount = 0;
+    if (processSuperChunk._camDebugCount < 5) {
+      console.log(`[Camera Debug] Updated from (${oldX.toFixed(0)},${oldZ.toFixed(0)}) to (${cameraPosition.x.toFixed(0)},${cameraPosition.z.toFixed(0)})`);
+      processSuperChunk._camDebugCount++;
+    }
+  } else {
+    // Debug: Warn if no camera position in job
+    if (!processSuperChunk._camWarnCount) processSuperChunk._camWarnCount = 0;
+    if (processSuperChunk._camWarnCount < 3) {
+      console.warn(`[Camera Debug] No camera position in job data! Using default (${cameraPosition.x},${cameraPosition.z})`);
+      processSuperChunk._camWarnCount++;
+    }
   }
   
   const grid = new WorkerBinaryGrid();
