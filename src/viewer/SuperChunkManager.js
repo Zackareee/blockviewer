@@ -427,10 +427,12 @@ class SuperChunkCompletionQueue {
     this.queue = [];
     this.isProcessing = false;
     this.maxPerFrame = 1; // Max super-chunks to process per frame (keep low - each is expensive)
+    this.movingMaxPerFrame = 1; // Still process 1 during movement to prevent backlog buildup
+    this.movingFrameSkip = 3; // Only process every Nth frame during movement
+    this._frameCounter = 0;
     this.onComplete = null; // Callback when a super-chunk is processed
     
-    // Movement-aware processing
-    this._skipDuringMovement = true; // Skip processing during fast camera movement
+    // Movement-aware processing - now allows reduced rate instead of complete skip
     this._cameraMovingFast = false;
   }
   
@@ -451,22 +453,29 @@ class SuperChunkCompletionQueue {
   
   /**
    * Process queued super-chunks with a per-frame limit
-   * Skips processing during fast camera movement to maintain smooth frame rates
+   * During fast camera movement, processes at reduced rate to prevent backlog buildup
    * @param {Function} processFn - Function to process a single result: (job, result) => Promise<void>
    * @returns {Promise<number>} Number of super-chunks processed
    */
   async process(processFn) {
     if (this.queue.length === 0) return 0;
     
-    // Skip during fast camera movement to prioritize smooth frame rates
-    if (this._skipDuringMovement && this._cameraMovingFast) {
-      return 0;
+    this._frameCounter++;
+    
+    // During fast camera movement, process at reduced rate (every Nth frame)
+    // This prevents complete backlog buildup while still prioritizing smooth movement
+    let limit = this.maxPerFrame;
+    if (this._cameraMovingFast) {
+      if (this._frameCounter % this.movingFrameSkip !== 0) {
+        return 0; // Skip this frame
+      }
+      limit = this.movingMaxPerFrame;
     }
     
     this.isProcessing = true;
     let processed = 0;
     
-    while (this.queue.length > 0 && processed < this.maxPerFrame) {
+    while (this.queue.length > 0 && processed < limit) {
       const { job, result } = this.queue.shift();
       await processFn(job, result);
       processed++;
@@ -535,7 +544,7 @@ class VisibilityWarmupQueue {
   constructor() {
     this.queue = [];
     this.maxPerFrame = 2;           // Max meshes to make visible per frame
-    this.movingMaxPerFrame = 0;     // Skip during fast movement
+    this.movingMaxPerFrame = 1;     // Reduced rate during fast movement (was 0 = skip)
     this._cameraMovingFast = false;
   }
   
@@ -2185,6 +2194,17 @@ export class SuperChunkManager {
     this._modelMeshScheduled = false;
     
     if (!this._modelMeshQueue || this._modelMeshQueue.length === 0) return;
+    
+    // PERFORMANCE: Skip model mesh processing during fast camera movement
+    // Model meshes are heavier to build (JS-based ModelMesher) so defer during movement
+    if (this.isCameraMovingFast()) {
+      // Re-schedule for later, don't drop the item
+      if (this._modelMeshQueue.length > 0) {
+        this._modelMeshScheduled = true;
+        setTimeout(() => this._processModelMeshQueue(), 32); // Longer delay during movement
+      }
+      return;
+    }
     
     // Process one model mesh per idle callback
     const { superChunk, gridsData, bounds, buildVersion } = this._modelMeshQueue.shift();
