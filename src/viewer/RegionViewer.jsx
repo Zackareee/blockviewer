@@ -659,6 +659,9 @@ function RegionScene({
     
     managerRef.current = manager;
     
+    // Store camera reference for LOD calculations during mesh generation
+    manager.camera = camera;
+    
     // Expose manager via external ref if provided (for block inspector details)
     if (chunkManagerRef) {
       chunkManagerRef.current = manager;
