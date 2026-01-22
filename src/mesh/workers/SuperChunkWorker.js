@@ -212,6 +212,168 @@ async function decompressChunk(compressedData, compressionType) {
 }
 
 // ============================================================================
+// Boundary Data Injection
+// ============================================================================
+
+/**
+ * Inject boundary data (blocks + light) from pre-loaded boundary strips
+ * 
+ * This is called for boundary data extracted from the region cache for chunks
+ * that aren't loaded as full super-chunks yet. It provides the mesher with
+ * neighbor block/light data needed for correct AO, face culling, water height,
+ * and lighting at chunk boundaries.
+ * 
+ * @param {WorkerBinaryGrid} grid - Block grid to inject into
+ * @param {WorkerLightGrid} lightGrid - Light grid to inject into
+ * @param {Object} boundaryData - Serialized boundary data from main thread
+ */
+function injectBoundaryData(grid, lightGrid, boundaryData) {
+  const { chunkX, chunkZ, edge, blocks, light } = boundaryData;
+  
+  // Convert Minecraft section Y to internal section Y
+  // Minecraft sections: -4 to 19 (for y -64 to 319)
+  // Internal sections: 0 to 23
+  const minSectionY = Math.floor(MIN_Y / S); // -4
+  
+  // Inject blocks
+  if (blocks && blocks.length > 0) {
+    for (const blockEntry of blocks) {
+      const { sectionY, singleBlock, stripData } = blockEntry;
+      
+      // Convert to internal section Y (sectionY is Minecraft's raw section Y like -4, 0, 5, etc.)
+      const internalSY = sectionY - minSectionY;
+      
+      // Validate section is in range
+      if (internalSY < 0 || internalSY >= 24) continue;
+      
+      // Get or create section in grid (using internal method)
+      const section = grid._getOrCreateSection(chunkX, chunkZ, internalSY);
+      
+      if (singleBlock !== undefined) {
+        // Fill entire boundary strip with single block
+        injectSingleBlockStrip(section, edge, singleBlock);
+      } else if (stripData) {
+        // Inject per-block strip data
+        injectStripData(section, edge, stripData);
+      }
+    }
+  }
+  
+  // Inject light
+  if (light && light.length > 0) {
+    lightGrid.hasMinecraftLightData = true;
+    
+    for (const lightEntry of light) {
+      const { sectionY, skyLight, blockLight } = lightEntry;
+      
+      // Convert to internal section Y
+      const internalSY = sectionY - minSectionY;
+      
+      // Validate section is in range
+      if (internalSY < 0 || internalSY >= 24) continue;
+      
+      // Get or create light section
+      const lightSection = lightGrid._getOrCreateSection(chunkX, chunkZ, internalSY);
+      
+      injectLightStrip(lightSection, edge, skyLight, blockLight);
+    }
+  }
+}
+
+/**
+ * Inject a single block type along the boundary strip
+ */
+function injectSingleBlockStrip(section, edge, blockId) {
+  for (let y = 0; y < S; y++) {
+    for (let i = 0; i < S; i++) {
+      let lx, lz;
+      
+      switch (edge) {
+        case 'north': lx = i; lz = 0; break;
+        case 'south': lx = i; lz = 15; break;
+        case 'east': lx = 15; lz = i; break;
+        case 'west': lx = 0; lz = i; break;
+        case 'southeast': lx = 15; lz = 15; if (i > 0) continue; break;
+        case 'southwest': lx = 0; lz = 15; if (i > 0) continue; break;
+        case 'northeast': lx = 15; lz = 0; if (i > 0) continue; break;
+        case 'northwest': lx = 0; lz = 0; if (i > 0) continue; break;
+        default: continue;
+      }
+      
+      const idx = y * S2 + lz * S + lx;
+      section[idx] = blockId;
+    }
+  }
+}
+
+/**
+ * Inject per-block strip data along the boundary
+ */
+function injectStripData(section, edge, stripData) {
+  for (let y = 0; y < S; y++) {
+    for (let i = 0; i < S; i++) {
+      let lx, lz, stripIndex;
+      
+      switch (edge) {
+        case 'north': lx = i; lz = 0; stripIndex = y * S + lx; break;
+        case 'south': lx = i; lz = 15; stripIndex = y * S + lx; break;
+        case 'east': lx = 15; lz = i; stripIndex = y * S + lz; break;
+        case 'west': lx = 0; lz = i; stripIndex = y * S + lz; break;
+        case 'southeast': lx = 15; lz = 15; stripIndex = y * S; if (i > 0) continue; break;
+        case 'southwest': lx = 0; lz = 15; stripIndex = y * S; if (i > 0) continue; break;
+        case 'northeast': lx = 15; lz = 0; stripIndex = y * S; if (i > 0) continue; break;
+        case 'northwest': lx = 0; lz = 0; stripIndex = y * S; if (i > 0) continue; break;
+        default: continue;
+      }
+      
+      const blockId = stripData[stripIndex];
+      if (blockId !== 0) {
+        const idx = y * S2 + lz * S + lx;
+        section[idx] = blockId;
+      }
+    }
+  }
+}
+
+/**
+ * Inject light data along the boundary strip
+ */
+function injectLightStrip(lightSection, edge, skyLight, blockLight) {
+  for (let y = 0; y < S; y++) {
+    for (let i = 0; i < S; i++) {
+      let lx, lz, stripIndex;
+      
+      switch (edge) {
+        case 'north': lx = i; lz = 0; stripIndex = y * S + lx; break;
+        case 'south': lx = i; lz = 15; stripIndex = y * S + lx; break;
+        case 'east': lx = 15; lz = i; stripIndex = y * S + lz; break;
+        case 'west': lx = 0; lz = i; stripIndex = y * S + lz; break;
+        case 'southeast': lx = 15; lz = 15; stripIndex = y * S; if (i > 0) continue; break;
+        case 'southwest': lx = 0; lz = 15; stripIndex = y * S; if (i > 0) continue; break;
+        case 'northeast': lx = 15; lz = 0; stripIndex = y * S; if (i > 0) continue; break;
+        case 'northwest': lx = 0; lz = 0; stripIndex = y * S; if (i > 0) continue; break;
+        default: continue;
+      }
+      
+      const idx = y * S2 + lz * S + lx;
+      
+      // Combine sky light (lower nibble) and block light (upper nibble)
+      let value = lightSection[idx];
+      
+      if (skyLight && stripIndex < skyLight.length) {
+        value = (value & 0xF0) | (skyLight[stripIndex] & 0x0F);
+      }
+      
+      if (blockLight && stripIndex < blockLight.length) {
+        value = (value & 0x0F) | ((blockLight[stripIndex] & 0x0F) << 4);
+      }
+      
+      lightSection[idx] = value;
+    }
+  }
+}
+
+// ============================================================================
 // WASM Mesher Loading
 // ============================================================================
 
@@ -2867,7 +3029,7 @@ function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset = { x
 // ============================================================================
 
 async function processSuperChunk(data) {
-  const { chunks, neighbors, bounds } = data;
+  const { chunks, neighbors, boundaries, bounds } = data;
   const startTime = performance.now();
   
   const grid = new WorkerBinaryGrid();
@@ -2998,6 +3160,14 @@ async function processSuperChunk(data) {
           decodeChunk(chunk, grid, blockRegistry, stateGrid, stateRegistry, lightGrid);
         }
       }
+    }
+  }
+  
+  // Inject pre-loaded boundary data (from region cache, for chunks not yet loaded as super-chunks)
+  // This provides complete boundary information on first build, eliminating the need for rebuilds
+  if (boundaries && boundaries.length > 0) {
+    for (const boundary of boundaries) {
+      injectBoundaryData(grid, lightGrid, boundary);
     }
   }
   

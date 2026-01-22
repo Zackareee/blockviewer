@@ -44,6 +44,10 @@ import { parseNBTRaw } from '../utils/nbtParser.js';
 import pako from 'pako';
 import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
 import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
+import { 
+  getNeededBoundaryEdges,
+  getTransferableBuffers 
+} from '../mesh/BoundaryExtractor.js';
 
 // ============================================================================
 // MEMORY OPTIMIZATION: Convert Float32 attributes to smaller types
@@ -832,6 +836,9 @@ export class SuperChunkManager {
     this.stateRegistry = options.stateRegistry;
     this.enableModelMeshes = options.enableModelMeshes !== false;
     
+    // Reference to ChunkStreamer for boundary data extraction from region cache
+    this.chunkStreamer = options.chunkStreamer || null;
+    
     // Super-chunks indexed by "sx,sz"
     this.superChunks = new Map();
     
@@ -839,7 +846,8 @@ export class SuperChunkManager {
     this.dirtySet = new Set();
     
     // Set of super-chunks that need rebuild due to neighbor changes (boundary stitching)
-    // These are ALREADY BUILT chunks that have visible artifacts - highest priority
+    // DEPRECATED: With pre-loaded boundary data, this set is no longer populated
+    // Kept for backwards compatibility
     this.boundaryDirtySet = new Set();
     
     // Callbacks
@@ -1875,6 +1883,11 @@ export class SuperChunkManager {
     // Collect neighbor chunks for boundary handling - clone buffers too
     const neighbors = this._collectNeighborDataForWorker(superChunk, true /* cloneBuffers */);
     
+    // Collect boundary data from region cache/files for chunks not yet loaded as super-chunks
+    // This provides complete boundary data on first build, eliminating the need for rebuilds
+    // Will load region files on-demand if not already cached
+    const boundaries = await this._collectBoundaryFromRegions(superChunk);
+    
     // Calculate bounds
     const bounds = {
       minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
@@ -1883,10 +1896,11 @@ export class SuperChunkManager {
       maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
     };
     
-    // Process in worker
+    // Process in worker with boundary data included
     const { result, stats } = await this.superChunkWorkerPool.process({
       chunks,
       neighbors,
+      boundaries, // Pre-loaded boundary strips for chunks not in super-chunks yet
       bounds,
       priority: 0,
       superChunkKey: key,
@@ -1998,6 +2012,67 @@ export class SuperChunkManager {
     const isWithinZ = chunkZ >= minChunkZ - 1 && chunkZ <= maxChunkZ + 1;
     
     return (isAdjacentX && isWithinZ) || (isAdjacentZ && isWithinX);
+  }
+
+  /**
+   * Check if a chunk is loaded in any super-chunk
+   * @param {number} chunkX - Chunk X coordinate
+   * @param {number} chunkZ - Chunk Z coordinate
+   * @returns {boolean} True if chunk is loaded
+   */
+  _isChunkLoadedInAnySuperChunk(chunkX, chunkZ) {
+    // Calculate which super-chunk this chunk belongs to
+    const superX = Math.floor(chunkX / SUPER_CHUNK_SIZE);
+    const superZ = Math.floor(chunkZ / SUPER_CHUNK_SIZE);
+    
+    const superChunk = this.superChunks.get(`${superX},${superZ}`);
+    if (!superChunk) return false;
+    
+    return superChunk.loadedChunks.has(`${chunkX},${chunkZ}`);
+  }
+
+  /**
+   * Collect boundary data from region cache/files for chunks not yet loaded as super-chunks
+   * This pre-loads boundary strips (blocks + light) before meshing to avoid rebuilds
+   * 
+   * If a needed region isn't cached, it will be loaded from the region file on-demand.
+   * This ensures the first super chunk built has complete boundary data even before
+   * neighboring regions are loaded.
+   * 
+   * @param {SuperChunk} superChunk - The super-chunk to collect boundaries for
+   * @returns {Promise<Array>} Array of serialized boundary data for worker transfer
+   */
+  async _collectBoundaryFromRegions(superChunk) {
+    const boundaries = [];
+    
+    // Use the ChunkStreamer reference to access region cache/files
+    if (!this.chunkStreamer || !this.chunkStreamer.getBoundaryDataForChunk) {
+      return boundaries; // No streamer or method not available
+    }
+    
+    // Get all needed boundary edges for this super-chunk
+    const neededEdges = getNeededBoundaryEdges(superChunk.superX, superChunk.superZ, SUPER_CHUNK_SIZE);
+    
+    // Filter out chunks that are already loaded in super-chunks
+    const edgesToFetch = neededEdges.filter(({ chunkX, chunkZ }) => 
+      !this._isChunkLoadedInAnySuperChunk(chunkX, chunkZ)
+    );
+    
+    // Fetch all boundary data in parallel for better performance
+    const results = await Promise.all(
+      edgesToFetch.map(({ chunkX, chunkZ, edge }) => 
+        this.chunkStreamer.getBoundaryDataForChunk(chunkX, chunkZ, edge)
+      )
+    );
+    
+    // Collect non-null results
+    for (const boundaryData of results) {
+      if (boundaryData) {
+        boundaries.push(boundaryData);
+      }
+    }
+    
+    return boundaries;
   }
 
   /**
@@ -2865,39 +2940,12 @@ export class SuperChunkManager {
    * @param {boolean} isFirstBuild - True if this is the first build (not a rebuild)
    */
   _markNeighborsDirtyAfterBuild(superChunk, isFirstBuild) {
-    // Only mark neighbors on first build - not on rebuilds
-    // Rebuilds happen BECAUSE neighbor data changed, so marking neighbors
-    // would cause an infinite loop
-    if (!isFirstBuild) return;
-    
-    // Skip neighbor marking entirely if disabled
-    // The race condition fix (rebuildPending flag) prevents duplicate meshes,
-    // so neighbor rebuilds are optional for visual polish only
-    if (this._disableNeighborRebuilds) return;
-    
-    const sx = superChunk.superX;
-    const sz = superChunk.superZ;
-    
-    // Only mark cardinal neighbors (N, S, E, W) - corners rarely have visible artifacts
-    // This reduces rebuild overhead by 50% (4 instead of 8 neighbors)
-    const neighborOffsets = [
-      { dx: -1, dz: 0 },  // West
-      { dx: 1, dz: 0 },   // East
-      { dx: 0, dz: -1 },  // North
-      { dx: 0, dz: 1 },   // South
-    ];
-    
-    for (const { dx, dz } of neighborOffsets) {
-      const key = `${sx + dx},${sz + dz}`;
-      const neighbor = this.superChunks.get(key);
-      
-      if (neighbor && neighbor.hasBeenBuilt) {
-        // Neighbor was built before us, so it doesn't have our data
-        // Mark it for rebuild so it can include our blocks/light
-        this.boundaryDirtySet.add(key);
-        this.dirtySet.add(key);
-      }
-    }
+    // NO-OP: With pre-loaded boundary data from region cache, rebuilds are no longer needed.
+    // Boundary data (blocks + light) is now extracted before meshing, providing complete
+    // information on first build. This eliminates the need to mark neighbors dirty.
+    // 
+    // This method is kept as a no-op for backwards compatibility.
+    return;
   }
 
 
@@ -3461,37 +3509,22 @@ export class SuperChunkManager {
   /**
    * Rebuild all dirty super-chunks with frame budget awareness
    * 
-   * PRIORITY ORDER:
-   * 1. Boundary-dirty chunks (already built, have visible artifacts) - HIGHEST
-   * 2. Regular dirty chunks (new chunks needing initial build)
+   * With pre-loaded boundary data, only initial builds are needed.
+   * Boundary repairs are no longer required.
    * 
    * @param {number} maxRebuilds - Maximum number of super-chunks to rebuild per call
    * @param {number} budgetMs - Maximum time budget in ms (0 = no limit)
    * @returns {number} Number of super-chunks rebuilt
    */
   async rebuildDirty(maxRebuilds = 2, budgetMs = 0) {
-    const totalDirty = this.dirtySet.size + this.boundaryDirtySet.size;
-    if (totalDirty === 0) return 0;
+    if (this.dirtySet.size === 0) return 0;
     
-    // Prioritize boundary-dirty chunks (visible artifacts) over new chunks
-    // Build the list: boundary-dirty first, then regular dirty
+    // Get chunks to build (only dirtySet - boundaryDirtySet is no longer used)
     const keysToRebuild = [];
     
-    // First add boundary-dirty (already visible, have artifacts)
-    for (const key of this.boundaryDirtySet) {
+    for (const key of this.dirtySet) {
       if (keysToRebuild.length >= maxRebuilds) break;
       keysToRebuild.push(key);
-    }
-    
-    // Then add regular dirty (new chunks, not yet visible)
-    if (keysToRebuild.length < maxRebuilds) {
-      for (const key of this.dirtySet) {
-        if (keysToRebuild.length >= maxRebuilds) break;
-        // Skip if already in the list (boundary-dirty are also in dirtySet)
-        if (!this.boundaryDirtySet.has(key)) {
-          keysToRebuild.push(key);
-        }
-      }
     }
     
     if (keysToRebuild.length === 0) return 0;
@@ -3531,7 +3564,6 @@ export class SuperChunkManager {
         rebuiltCount++;
       }
       this.dirtySet.delete(key);
-      this.boundaryDirtySet.delete(key);
     }
     
     return rebuiltCount;
@@ -3597,6 +3629,10 @@ export class SuperChunkManager {
       
       // Clone neighbor buffers too
       const neighbors = this._collectNeighborDataForWorker(superChunk, true);
+      
+      // Collect boundary data from region cache/files (loads on-demand if needed)
+      const boundaries = await this._collectBoundaryFromRegions(superChunk);
+      
       const bounds = {
         minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
         minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
@@ -3609,12 +3645,11 @@ export class SuperChunkManager {
         superChunk,
         oldMeshes,
         buildVersion,
-        jobData: { chunks, neighbors, bounds, priority: 0, superChunkKey: key },
+        jobData: { chunks, neighbors, boundaries, bounds, priority: 0, superChunkKey: key },
       });
       
       // Mark as no longer dirty immediately (prevents re-queuing)
       this.dirtySet.delete(key);
-      this.boundaryDirtySet.delete(key);
     }
     
     if (buildJobs.length === 0) return 0;
@@ -3646,79 +3681,13 @@ export class SuperChunkManager {
   /**
    * Immediately process boundary repairs to minimize visible artifacts
    * @param {number} maxRepairs - Maximum number of repairs to process
+   * 
+   * @deprecated With pre-loaded boundary data, repairs are no longer needed.
+   * This method is kept as a no-op for backwards compatibility.
    */
   async _processBoundaryRepairsImmediate(maxRepairs) {
-    const keysToRepair = [...this.boundaryDirtySet].slice(0, maxRepairs);
-    
-    for (const key of keysToRepair) {
-      const superChunk = this.superChunks.get(key);
-      if (!superChunk || !superChunk.hasBeenBuilt) {
-        this.boundaryDirtySet.delete(key);
-        this.dirtySet.delete(key);
-        continue;
-      }
-      
-      // Skip if a rebuild is already in progress (race condition prevention)
-      if (superChunk.rebuildPending) {
-        continue;
-      }
-      
-      // Check if we can use worker pool
-      const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
-      if (!hasRawCompressed || !this.useSuperChunkWorkerPool) {
-        continue; // Skip - let normal rebuild handle it
-      }
-      
-      superChunk.rebuildPending = true;
-      
-      // Collect chunks and neighbors
-      const chunks = [];
-      for (const [, chunkInfo] of superChunk.loadedChunks) {
-        if (!chunkInfo.isRawCompressed || !chunkInfo.data) continue;
-        chunks.push({
-          chunkX: chunkInfo.chunkX,
-          chunkZ: chunkInfo.chunkZ,
-          compressedData: chunkInfo.data.compressedData.slice(0),
-          compressionType: chunkInfo.data.compressionType,
-        });
-      }
-      
-      if (chunks.length === 0) {
-        superChunk.rebuildPending = false;
-        continue;
-      }
-      
-      const neighbors = this._collectNeighborDataForWorker(superChunk, true);
-      const bounds = {
-        minChunkX: superChunk.superX * SUPER_CHUNK_SIZE,
-        minChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE,
-        maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
-        maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
-      };
-      
-      const oldMeshes = [...superChunk.meshes];
-      this._hideOldMeshes(oldMeshes);
-      
-      try {
-        const { result } = await this.superChunkWorkerPool.process({
-          chunks, neighbors, bounds,
-          priority: 100, // High priority for boundary repairs
-          superChunkKey: key,
-        });
-        
-        await this._createMeshesFromWorkerResult(superChunk, result);
-        this._disposeOldMeshes(oldMeshes);
-        
-        superChunk.isDirty = false;
-        // Don't mark neighbors dirty again - this is a repair, not first build
-      } catch (error) {
-        console.warn(`[SuperChunkManager] Boundary repair failed for ${key}:`, error.message);
-      }
-      
-      superChunk.rebuildPending = false;
-      this.boundaryDirtySet.delete(key);
-      this.dirtySet.delete(key);
-    }
+    // NO-OP: Boundary data is now pre-loaded before meshing, eliminating need for repairs
+    return;
   }
 
   /**
@@ -3779,17 +3748,10 @@ export class SuperChunkManager {
     const callback = async (deadline) => {
       this._idleCallbackId = null;
       
-      const totalDirty = this.dirtySet.size + this.boundaryDirtySet.size;
-      if (totalDirty === 0) return;
+      if (this.dirtySet.size === 0) return;
       
-      // Boundary-dirty chunks (visible artifacts) should be processed faster
-      // even during movement - these are the "seam" artifacts users see
-      const hasBoundaryDirty = this.boundaryDirtySet.size > 0;
-      
-      // When we have boundary artifacts, be more aggressive:
-      // - Use higher time budget
-      // - Process more chunks per callback
-      // - Use shorter delays between callbacks
+      // With pre-loaded boundary data, no special handling needed for boundary artifacts
+      // All chunks are built with complete boundary information from the start
       let budgetMs, chunksToMesh, nextDelay;
       
       // When using parallel worker pool, we can process many more chunks at once
@@ -3797,12 +3759,7 @@ export class SuperChunkManager {
       const canUseParallel = this.useSuperChunkWorkerPool && this.superChunkWorkerPoolInitialized;
       const parallelMultiplier = canUseParallel ? 4 : 1; // Process 4x more with parallel
       
-      if (hasBoundaryDirty) {
-        // High priority for visible artifacts - fix seams quickly
-        budgetMs = 0; // No budget limit when parallel
-        chunksToMesh = Math.max(4, this.meshingSpeed * parallelMultiplier);
-        nextDelay = 4;  // Fast follow-up
-      } else if (lowPriority) {
+      if (lowPriority) {
         // Low priority during streaming - but still batch multiple with parallel
         budgetMs = canUseParallel ? 0 : 8;
         chunksToMesh = canUseParallel ? Math.max(4, this.meshingSpeed * 2) : 1;
@@ -3817,23 +3774,21 @@ export class SuperChunkManager {
       await this.rebuildDirty(chunksToMesh, budgetMs);
       
       // Schedule another callback if more rebuilds needed
-      if (this.dirtySet.size > 0 || this.boundaryDirtySet.size > 0) {
+      if (this.dirtySet.size > 0) {
         // Use setTimeout for consistent scheduling - rIC has variable delays
         setTimeout(() => this.scheduleIdleRebuild(lowPriority), nextDelay);
       }
     };
     
-    // When boundary artifacts exist, schedule more urgently
-    const hasBoundaryDirty = this.boundaryDirtySet.size > 0;
-    const timeout = hasBoundaryDirty ? 16 : (lowPriority ? 100 : 32);
+    const timeout = lowPriority ? 100 : 32;
     
     if (typeof requestIdleCallback !== 'undefined') {
       this._idleCallbackId = requestIdleCallback(callback, { timeout });
     } else {
       // Fallback: use setTimeout with small delay
-      const fallbackDelay = hasBoundaryDirty ? 4 : (lowPriority ? 32 : 16);
+      const fallbackDelay = lowPriority ? 32 : 16;
       this._idleCallbackId = setTimeout(
-        () => callback({ timeRemaining: () => hasBoundaryDirty ? 16 : (lowPriority ? 8 : 12) }),
+        () => callback({ timeRemaining: () => lowPriority ? 8 : 12 }),
         fallbackDelay
       );
     }
@@ -4091,7 +4046,8 @@ export class SuperChunkManager {
    * @returns {boolean} true if any chunks need rebuilding
    */
   hasDirtyChunks() {
-    return this.dirtySet.size > 0 || this.boundaryDirtySet.size > 0;
+    // Only check dirtySet - boundaryDirtySet is no longer used (pre-loaded boundary data)
+    return this.dirtySet.size > 0;
   }
   
   /**
@@ -4099,7 +4055,9 @@ export class SuperChunkManager {
    * @returns {boolean} true if any built chunks have boundary artifacts
    */
   hasBoundaryDirtyChunks() {
-    return this.boundaryDirtySet.size > 0;
+    // Always return false - with pre-loaded boundary data, there are no boundary artifacts
+    // This method is kept for backwards compatibility
+    return false;
   }
   
   /**
@@ -4113,49 +4071,12 @@ export class SuperChunkManager {
    * @returns {Promise<number>} Number of super-chunks rebuilt
    */
   async repairBoundaries(maxRebuilds = 1) {
-    if (this.boundaryDirtySet.size === 0) return 0;
-    
-    // Only rebuild boundary-dirty chunks (the ones with visible artifacts)
-    const keysToRebuild = [...this.boundaryDirtySet].slice(0, maxRebuilds);
-    let rebuiltCount = 0;
-    
-    for (const key of keysToRebuild) {
-      const superChunk = this.superChunks.get(key);
-      // Rebuild if super-chunk exists - it's in boundaryDirtySet so needs fixing
-      if (superChunk) {
-        // Skip if a rebuild is already in progress (race condition prevention)
-        if (superChunk.rebuildPending) {
-          continue;
-        }
-        superChunk.rebuildPending = true;
-        
-        // Store old meshes to remove AFTER new ones are ready
-        const oldMeshes = [...superChunk.meshes];
-        
-        // Build new meshes
-        await this.buildSuperChunk(superChunk, true /* keepOldMeshes */);
-        
-        // Remove old meshes from manager arrays and scene
-        for (const mesh of oldMeshes) {
-          if (this.chunkManager.solidMeshes) removeFromArray(this.chunkManager.solidMeshes, mesh);
-          if (this.chunkManager.waterMeshes) removeFromArray(this.chunkManager.waterMeshes, mesh);
-          if (this.chunkManager.lavaMeshes) removeFromArray(this.chunkManager.lavaMeshes, mesh);
-          if (this.chunkManager.glassMeshes) removeFromArray(this.chunkManager.glassMeshes, mesh);
-          if (this.chunkManager.modelMeshes) removeFromArray(this.chunkManager.modelMeshes, mesh);
-          if (this.chunkManager.beaconMeshes) removeFromArray(this.chunkManager.beaconMeshes, mesh);
-          if (mesh.geometry) mesh.geometry.dispose();
-          if (mesh.parent) mesh.parent.remove(mesh);
-        }
-        
-        superChunk.rebuildPending = false;
-        rebuiltCount++;
-      }
-      // Remove from both sets
-      this.dirtySet.delete(key);
-      this.boundaryDirtySet.delete(key);
-    }
-    
-    return rebuiltCount;
+    // NO-OP: With pre-loaded boundary data from region cache, repairs are no longer needed.
+    // Boundary data (blocks + light) is now extracted before meshing, providing complete
+    // information on first build. This eliminates rebuild artifacts and lag.
+    // 
+    // This method is kept as a no-op for backwards compatibility.
+    return 0;
   }
 
   /**
@@ -4175,7 +4096,7 @@ export class SuperChunkManager {
       totalChunks,
       totalMeshes,
       dirtyCount: this.dirtySet.size,
-      boundaryDirtyCount: this.boundaryDirtySet.size
+      boundaryDirtyCount: 0 // Always 0 - pre-loaded boundary data eliminates need for boundary rebuilds
     };
   }
 

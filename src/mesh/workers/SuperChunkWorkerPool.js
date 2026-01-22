@@ -282,14 +282,14 @@ export class SuperChunkWorkerPool {
       throw new Error('SuperChunkWorkerPool not initialized');
     }
     
-    const { chunks, neighbors, bounds, priority = 0, superChunkKey } = options;
+    const { chunks, neighbors, boundaries, bounds, priority = 0, superChunkKey } = options;
     const jobId = this.nextJobId++;
     
     return new Promise((resolve, reject) => {
       const job = {
         jobId,
         superChunkKey,
-        data: { chunks, neighbors, bounds },
+        data: { chunks, neighbors, boundaries, bounds },
         priority,
       };
       
@@ -369,6 +369,31 @@ export class SuperChunkWorkerPool {
         } else if (neighbor.compressedData?.buffer instanceof ArrayBuffer) {
           transferables.push(neighbor.compressedData.buffer);
           neighbor.compressedData = neighbor.compressedData.buffer;
+        }
+      }
+    }
+    
+    // Add boundary data transferables (typed arrays for block and light strips)
+    if (job.data.boundaries) {
+      for (const boundary of job.data.boundaries) {
+        // Transfer block strip data
+        if (boundary.blocks) {
+          for (const block of boundary.blocks) {
+            if (block.stripData?.buffer instanceof ArrayBuffer) {
+              transferables.push(block.stripData.buffer);
+            }
+          }
+        }
+        // Transfer light strip data
+        if (boundary.light) {
+          for (const light of boundary.light) {
+            if (light.skyLight?.buffer instanceof ArrayBuffer) {
+              transferables.push(light.skyLight.buffer);
+            }
+            if (light.blockLight?.buffer instanceof ArrayBuffer) {
+              transferables.push(light.blockLight.buffer);
+            }
+          }
         }
       }
     }

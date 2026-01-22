@@ -40,6 +40,10 @@ import {
   initBlockRegistry,
 } from '../mesh/wasm/WasmMesher.js';
 import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
+import { 
+  extractBoundaryWithLight, 
+  serializeBoundaryForWorker 
+} from '../mesh/BoundaryExtractor.js';
 
 // Chunk size in blocks (Minecraft standard)
 const CHUNK_SIZE = 16;
@@ -470,6 +474,118 @@ export class ChunkStreamer {
   }
 
   /**
+   * Get boundary data (blocks + light) for a specific chunk
+   * Loads from region cache, or from region FILE on-demand if not cached
+   * 
+   * @param {number} chunkX - World chunk X coordinate
+   * @param {number} chunkZ - World chunk Z coordinate
+   * @param {string} edge - Which edge to extract: 'north', 'south', 'east', 'west', or corner variants
+   * @returns {Promise<Object|null>} Boundary data with blocks and light, or null if chunk not available
+   */
+  async getBoundaryDataForChunk(chunkX, chunkZ, edge) {
+    // Calculate region coordinates
+    const regionX = Math.floor(chunkX / REGION_SIZE);
+    const regionZ = Math.floor(chunkZ / REGION_SIZE);
+    
+    // Check if region is in cache
+    let regionData = this.regionCache.get(regionX, regionZ);
+    
+    // If not in cache, try to load from region file on-demand
+    if (!regionData) {
+      const regionKey = `${regionX},${regionZ}`;
+      const regionInfo = this.regionFiles.get(regionKey);
+      
+      if (regionInfo) {
+        try {
+          // Parse the region file and cache it
+          const buffer = await regionInfo.file.arrayBuffer();
+          const useUnified = isUnifiedPipelineReady();
+          const chunks = await this._parseRegionBuffer(buffer, regionX, regionZ, useUnified);
+          
+          // Cache for future use
+          this.regionCache.set(regionX, regionZ, buffer, chunks);
+          regionData = { buffer, chunks };
+        } catch (e) {
+          console.warn(`[ChunkStreamer] Failed to load region ${regionKey} for boundary:`, e.message);
+          return null;
+        }
+      } else {
+        // Region file doesn't exist - can't extract boundary
+        return null;
+      }
+    }
+    
+    // Find the specific chunk in the region
+    const localX = ((chunkX % REGION_SIZE) + REGION_SIZE) % REGION_SIZE;
+    const localZ = ((chunkZ % REGION_SIZE) + REGION_SIZE) % REGION_SIZE;
+    
+    const chunkData = regionData.chunks.find(c => c.x === localX && c.z === localZ);
+    
+    if (!chunkData) {
+      // Chunk doesn't exist in this region
+      return null;
+    }
+    
+    // Parse NBT if needed (unified pipeline stores raw compressed)
+    let parsedData;
+    if (chunkData.isRawCompressed) {
+      try {
+        const decompressed = chunkData.compressionType === 1
+          ? pako.ungzip(chunkData.compressedData)
+          : pako.inflate(chunkData.compressedData);
+        const nbt = parseNBTRaw(decompressed.buffer);
+        parsedData = nbt.value;
+      } catch (e) {
+        console.warn(`[ChunkStreamer] Failed to parse chunk ${chunkX},${chunkZ} for boundary:`, e.message);
+        return null;
+      }
+    } else {
+      parsedData = chunkData.data;
+    }
+    
+    // Extract boundary with light data
+    const boundary = extractBoundaryWithLight(parsedData, chunkX, chunkZ, edge, this.registry);
+    
+    // Serialize for worker transfer
+    return serializeBoundaryForWorker(boundary);
+  }
+
+  /**
+   * Get boundary data for multiple chunks at once (batch operation)
+   * More efficient than calling getBoundaryDataForChunk repeatedly
+   * 
+   * @param {Array<{chunkX, chunkZ, edge}>} requests - Array of boundary requests
+   * @returns {Promise<Array<Object|null>>} Array of boundary data (null for unavailable chunks)
+   */
+  async getBoundaryDataBatch(requests) {
+    const results = await Promise.all(
+      requests.map(({ chunkX, chunkZ, edge }) => 
+        this.getBoundaryDataForChunk(chunkX, chunkZ, edge)
+      )
+    );
+    return results;
+  }
+
+  /**
+   * Check if a chunk exists in any loaded region (without extracting data)
+   * @param {number} chunkX - World chunk X coordinate
+   * @param {number} chunkZ - World chunk Z coordinate
+   * @returns {boolean} True if chunk exists in a loaded region
+   */
+  isChunkInRegionCache(chunkX, chunkZ) {
+    const regionX = Math.floor(chunkX / REGION_SIZE);
+    const regionZ = Math.floor(chunkZ / REGION_SIZE);
+    
+    const regionData = this.regionCache.get(regionX, regionZ);
+    if (!regionData) return false;
+    
+    const localX = ((chunkX % REGION_SIZE) + REGION_SIZE) % REGION_SIZE;
+    const localZ = ((chunkZ % REGION_SIZE) + REGION_SIZE) % REGION_SIZE;
+    
+    return regionData.chunks.some(c => c.x === localX && c.z === localZ);
+  }
+
+  /**
    * Set pre-parsed chunks for streaming (single region mode)
    * @param {Array} chunks - Array of parsed chunk objects with { x, z, data }
    */
@@ -510,6 +626,7 @@ export class ChunkStreamer {
       stateRegistry: this.stateRegistry,
       enableModelMeshes: this.enableModelMeshes,
       useWorkers: true, // Enable worker-based meshing
+      chunkStreamer: this, // Reference to ChunkStreamer for boundary data extraction
       onSuperChunkRebuilt: () => {
         this.chunkManager.invalidate?.();
       }
