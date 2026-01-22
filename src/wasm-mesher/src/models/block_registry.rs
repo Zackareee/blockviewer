@@ -49,6 +49,141 @@ pub mod block_flags {
     pub const HAS_INNER_CUBE: u8 = 0x10;
 }
 
+/// LOD (Level of Detail) categories for model blocks
+/// Higher numbers = more likely to be skipped at distance
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LodCategory {
+    /// Always render (stairs, slabs, doors) - essential for navigation
+    Essential = 0,
+    /// Render at LOD 0-2 (torches, signs, fences) - important but not critical
+    Important = 1,
+    /// Render at LOD 0-1 (tall plants, lanterns) - visible details
+    Detail = 2,
+    /// Render at LOD 0 only (small plants, flowers, grass) - decorative
+    Decorative = 3,
+}
+
+impl LodCategory {
+    /// Check if this block should be rendered at the given LOD level
+    /// LOD 0 = full detail, LOD 3 = minimal detail
+    #[inline]
+    pub fn should_render(&self, lod_level: u8) -> bool {
+        (*self as u8) + lod_level < 4
+    }
+}
+
+/// Determine LOD category for a block based on its name
+/// This categorizes blocks by their importance for rendering
+pub fn get_lod_category(block_name: &str) -> LodCategory {
+    // Strip minecraft: prefix if present
+    let name = block_name.strip_prefix("minecraft:").unwrap_or(block_name);
+    
+    // Essential blocks - always render (navigation, structure)
+    if name.contains("stair") || 
+       name.contains("slab") ||
+       name.contains("door") ||
+       name.contains("trapdoor") ||
+       name.contains("fence_gate") ||
+       name.contains("bed") ||
+       name.contains("chest") ||
+       name.contains("barrel") ||
+       name.contains("furnace") ||
+       name.contains("crafting") ||
+       name.contains("enchanting") ||
+       name.contains("anvil") ||
+       name.contains("brewing") ||
+       name.contains("hopper") ||
+       name.contains("cauldron") ||
+       name.contains("campfire") ||
+       name.contains("ladder") ||
+       name.contains("rail") ||
+       name == "beacon" ||
+       name == "end_portal_frame" {
+        return LodCategory::Essential;
+    }
+    
+    // Important blocks - render at medium distance
+    if name.contains("torch") ||
+       name.contains("lantern") ||
+       name.contains("sign") ||
+       name.contains("fence") ||
+       name.contains("wall") && !name.contains("wall_") ||  // walls but not wall_torch etc
+       name.contains("bars") ||
+       name.contains("chain") ||
+       name.contains("button") ||
+       name.contains("lever") ||
+       name.contains("pressure_plate") ||
+       name.contains("tripwire") ||
+       name.contains("banner") ||
+       name.contains("bell") ||
+       name.contains("conduit") ||
+       name.contains("end_rod") ||
+       name.contains("lightning_rod") ||
+       name.contains("candle") ||
+       name.contains("head") ||
+       name.contains("skull") {
+        return LodCategory::Important;
+    }
+    
+    // Detail blocks - render at close distance
+    if name.contains("tall_") ||  // tall_grass, tall_seagrass, etc
+       name.contains("large_") ||  // large_fern
+       name.contains("vine") ||
+       name.contains("kelp") ||
+       name.contains("seagrass") ||
+       name.contains("coral") ||
+       name.contains("sea_pickle") ||
+       name.contains("glow_lichen") ||
+       name.contains("sculk_vein") ||
+       name.contains("lily_pad") ||
+       name.contains("dripleaf") ||
+       name.contains("azalea") ||
+       name.contains("spore_blossom") ||
+       name.contains("pointed_dripstone") ||
+       name.contains("amethyst_cluster") ||
+       name.contains("brewing_stand") {
+        return LodCategory::Detail;
+    }
+    
+    // Decorative blocks - only render very close
+    // This includes: short_grass, fern, flowers, saplings, mushrooms, etc.
+    if name == "short_grass" ||
+       name == "fern" ||
+       name == "dead_bush" ||
+       name.contains("sapling") ||
+       name.contains("propagule") ||
+       name.contains("_roots") ||
+       name.contains("sprouts") ||
+       name.contains("fungus") ||
+       // Flowers
+       name == "poppy" ||
+       name == "dandelion" ||
+       name == "blue_orchid" ||
+       name == "allium" ||
+       name == "azure_bluet" ||
+       name.contains("tulip") ||
+       name == "oxeye_daisy" ||
+       name == "cornflower" ||
+       name == "lily_of_the_valley" ||
+       name == "wither_rose" ||
+       name == "torchflower" ||
+       name == "pink_petals" ||
+       name == "eyeblossom" ||
+       // Mushrooms
+       name == "red_mushroom" ||
+       name == "brown_mushroom" ||
+       // Cave plants
+       name == "hanging_roots" ||
+       name == "cave_vines" ||
+       name.contains("cave_vines") {
+        return LodCategory::Decorative;
+    }
+    
+    // Default: Important (will render at medium distance)
+    LodCategory::Important
+}
+
 /// Face direction constants
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]

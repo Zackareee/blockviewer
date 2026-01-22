@@ -764,7 +764,7 @@ export class SuperChunkManager {
   }
   
   /**
-   * Update camera position for movement-aware mesh queue budgeting
+   * Update camera position for movement-aware mesh queue budgeting and LOD
    * Call this each frame before processQueuedMeshes
    * 
    * @param {number} x - Camera X position
@@ -777,6 +777,12 @@ export class SuperChunkManager {
     // Also update completion queue and visibility queue with movement status
     this.completionQueue.setCameraMovingFast(isMovingFast);
     this.visibilityWarmupQueue.setCameraMovingFast(isMovingFast);
+    
+    // Update worker pool with camera position for LOD calculations
+    // Workers use this to determine which blocks to skip at distance
+    if (this.superChunkWorkerPool) {
+      this.superChunkWorkerPool.updateCamera(x, z);
+    }
   }
   
   /**

@@ -438,6 +438,26 @@ export class SuperChunkWorkerPool {
   }
   
   /**
+   * Update camera position in all workers for LOD calculations
+   * Call this periodically (e.g., once per frame or when camera moves significantly)
+   * 
+   * @param {number} x - Camera X position (world coordinates)
+   * @param {number} z - Camera Z position (world coordinates)
+   */
+  updateCamera(x, z) {
+    const message = {
+      type: 'updateCamera',
+      data: { x, z },
+    };
+    
+    for (const worker of this.workers) {
+      if (worker) {
+        worker.postMessage(message);
+      }
+    }
+  }
+  
+  /**
    * Update registry data in all workers
    */
   updateRegistry(blockRegistryData, stateRegistryData) {

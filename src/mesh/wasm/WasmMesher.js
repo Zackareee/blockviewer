@@ -1302,15 +1302,16 @@ export function getBlockModelIndex(blockName) {
 }
 
 /**
- * Mesh models using V3 block-name-based registry
+ * Mesh models using V3 block-name-based registry with LOD support
  * 
  * @param {Uint8Array} gridData - Serialized BinaryGrid
  * @param {Uint8Array} lightData - Serialized LightGrid
  * @param {Uint8Array} modelStateData - Serialized ModelStateGrid
  * @param {Object} bounds - { minChunkX, minChunkZ, maxChunkX, maxChunkZ }
+ * @param {number} lodLevel - Level of detail (0-3, default 0 = full detail)
  * @returns {Object|null} Model mesh data
  */
-export function meshModelsV3(gridData, lightData, modelStateData, bounds) {
+export function meshModelsV3(gridData, lightData, modelStateData, bounds, lodLevel = 0) {
   if (!isWasmAvailable() || !blockModelRegistryInitialized) {
     console.warn('[WasmMesher] V3 meshing not available');
     return null;
@@ -1324,7 +1325,8 @@ export function meshModelsV3(gridData, lightData, modelStateData, bounds) {
       bounds.minChunkX,
       bounds.minChunkZ,
       bounds.maxChunkX,
-      bounds.maxChunkZ
+      bounds.maxChunkZ,
+      lodLevel
     );
     
     return {

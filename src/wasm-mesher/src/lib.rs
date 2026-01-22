@@ -175,6 +175,12 @@ fn mesh_chunk_with_bounds(
 
 /// V3 Model meshing - uses block-name-based registry with ModelStateGrid
 /// This is the preferred API for worker-based rendering
+/// 
+/// lod_level: Level of detail (0 = full detail, 3 = minimal)
+/// - 0: All blocks rendered
+/// - 1: Skip decorative blocks (small plants, flowers, grass)
+/// - 2: Skip decorative + detail blocks (tall plants, vines)
+/// - 3: Essential only (stairs, slabs, doors)
 #[wasm_bindgen]
 pub fn mesh_models_v3(
     grid_data: &[u8],
@@ -184,6 +190,7 @@ pub fn mesh_models_v3(
     min_chunk_z: i32,
     max_chunk_x: i32,
     max_chunk_z: i32,
+    lod_level: u8,
 ) -> ModelMeshResultWasm {
     // Import grids from serialized data
     let grid = grid::BinaryGrid::from_bytes(grid_data);
@@ -218,13 +225,14 @@ pub fn mesh_models_v3(
         max_chunk_z,
     });
     
-    // Run V3 model mesher
-    let result = models::mesher_v3::mesh_models_v3(
+    // Run V3 model mesher with LOD filtering
+    let result = models::mesher_v3::mesh_models_v3_with_lod(
         &grid,
         &model_state_grid,
         light_grid.as_ref(),
         &lookups,
         bounds.as_ref(),
+        lod_level,
     );
     
     ModelMeshResultWasm::from_result(result)

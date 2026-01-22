@@ -29,8 +29,10 @@ pub use block_registry::{
     get_block_model_registry,
     BlockModelRegistry, BlockModelData, BlockVariant, BakedFace, FaceDirection,
     block_flags,
+    // LOD support
+    LodCategory, get_lod_category,
 };
 
 // V3: Block-name-based meshing
 pub mod mesher_v3;
-pub use mesher_v3::mesh_models_v3;
+pub use mesher_v3::{mesh_models_v3, mesh_models_v3_with_lod};

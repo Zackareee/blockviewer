@@ -405,13 +405,55 @@ function wasmMeshChunk(grid, lightGrid, bounds) {
 }
 
 /**
+ * Calculate LOD level based on distance from camera
+ * @param {number} superChunkX - Super-chunk X coordinate
+ * @param {number} superChunkZ - Super-chunk Z coordinate  
+ * @param {number} cameraX - Camera X position
+ * @param {number} cameraZ - Camera Z position
+ * @returns {number} LOD level 0-3
+ */
+function calculateLodLevel(superChunkX, superChunkZ, cameraX, cameraZ) {
+  // Super-chunk center (each super-chunk is 32 blocks = 2 chunks)
+  const centerX = superChunkX * 32 + 16;
+  const centerZ = superChunkZ * 32 + 16;
+  
+  const dx = centerX - cameraX;
+  const dz = centerZ - cameraZ;
+  const distSq = dx * dx + dz * dz;
+  
+  // Distance thresholds for LOD levels (in blocks, squared)
+  // LOD 0: 0-48 blocks (2304 sq) - full detail
+  // LOD 1: 48-96 blocks (9216 sq) - skip small plants
+  // LOD 2: 96-160 blocks (25600 sq) - skip most plants
+  // LOD 3: 160+ blocks - essential only
+  if (distSq < 2304) return 0;   // < 48 blocks
+  if (distSq < 9216) return 1;   // < 96 blocks
+  if (distSq < 25600) return 2;  // < 160 blocks
+  return 3;                       // >= 160 blocks
+}
+
+// Camera position for LOD calculation (updated from main thread)
+let cameraPosition = { x: 0, z: 0 };
+
+/**
  * V3 Model Meshing - uses block-name-based registry with ModelStateGrid
  * This meshes model blocks in WASM using the pre-baked geometry
+ * 
+ * @param {Object} grid - Binary grid
+ * @param {Object} lightGrid - Light grid
+ * @param {Object} modelStateGrid - Model state grid
+ * @param {Object} bounds - Chunk bounds
+ * @param {number} lodLevel - LOD level (0-3), optional - calculated from camera if not provided
  */
-function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds) {
+function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds, lodLevel = null) {
   if (!wasmInitialized || !wasmLookupsInitialized || !v3RegistryInitialized) {
     throw new Error('V3 WASM model mesher not ready');
   }
+  
+  // Calculate LOD from camera position if not provided
+  const superChunkX = Math.floor((bounds.minChunkX + bounds.maxChunkX) / 4);
+  const superChunkZ = Math.floor((bounds.minChunkZ + bounds.maxChunkZ) / 4);
+  const lod = lodLevel !== null ? lodLevel : calculateLodLevel(superChunkX, superChunkZ, cameraPosition.x, cameraPosition.z);
   
   const gridData = serializeGridForWasm(grid);
   const lightData = serializeLightGridForWasm(lightGrid);
@@ -419,7 +461,8 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds) {
   
   const result = wasmModule.mesh_models_v3(
     gridData, lightData, modelStateData,
-    bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ
+    bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ,
+    lod
   );
   
   // Extract model meshes from result
@@ -3515,6 +3558,16 @@ self.onmessage = async function(e) {
         stateRegistry.importFromData(data.stateRegistry);
       }
       self.postMessage({ type: 'registryUpdated', id });
+      break;
+    }
+    
+    case 'updateCamera': {
+      // Update camera position for LOD calculations
+      if (data && typeof data.x === 'number' && typeof data.z === 'number') {
+        cameraPosition.x = data.x;
+        cameraPosition.z = data.z;
+      }
+      // No response needed - fire and forget
       break;
     }
   }

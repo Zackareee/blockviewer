@@ -2,13 +2,19 @@
 //!
 //! This mesher uses the BlockModelRegistry and ModelStateGrid to render
 //! model blocks without requiring state ID matching between workers and main thread.
+//!
+//! LOD Support:
+//! - LOD 0: Full detail (all blocks)
+//! - LOD 1: Skip decorative blocks (small plants, flowers)
+//! - LOD 2: Skip decorative + detail blocks (tall plants, vines)
+//! - LOD 3: Essential blocks only (stairs, slabs, doors)
 
 use crate::grid::{BinaryGrid, LightGrid, ModelStateGrid, ModelState};
 use crate::lookup::Lookups;
 use crate::mesher::MeshBounds;
 use crate::types::{SECTION_SIZE, block_index_in_section};
 use super::block_registry::{
-    get_block_model_registry, BakedFace, FaceDirection,
+    get_block_model_registry, BakedFace, FaceDirection, get_lod_category,
 };
 use super::geometry::ModelMeshData;
 use super::mesher::{ModelMeshResult, BlockPosition};
@@ -25,12 +31,31 @@ struct VertexLight {
 /// Mesh all model blocks using V3 registry (block-name based)
 /// 
 /// This is the preferred meshing function for worker-based rendering.
+/// Uses LOD level 0 (full detail).
 pub fn mesh_models_v3(
     grid: &BinaryGrid,
     model_state_grid: &ModelStateGrid,
     light_grid: Option<&LightGrid>,
     lookups: &Lookups,
     bounds: Option<&MeshBounds>,
+) -> ModelMeshResult {
+    mesh_models_v3_with_lod(grid, model_state_grid, light_grid, lookups, bounds, 0)
+}
+
+/// Mesh model blocks with LOD (Level of Detail) filtering
+/// 
+/// LOD levels:
+/// - 0: Full detail (all blocks rendered)
+/// - 1: Skip decorative blocks (small plants, flowers, grass)
+/// - 2: Skip decorative + detail blocks (tall plants, vines, coral)
+/// - 3: Essential only (stairs, slabs, doors, chests)
+pub fn mesh_models_v3_with_lod(
+    grid: &BinaryGrid,
+    model_state_grid: &ModelStateGrid,
+    light_grid: Option<&LightGrid>,
+    lookups: &Lookups,
+    bounds: Option<&MeshBounds>,
+    lod_level: u8,
 ) -> ModelMeshResult {
     let registry = match get_block_model_registry() {
         Some(r) => r,
@@ -43,10 +68,13 @@ pub fn mesh_models_v3(
     let mut result = ModelMeshResult::new();
     let mut blocks_found = 0u32;
     let mut blocks_meshed = 0u32;
+    let mut blocks_skipped_lod = 0u32;
     let mut _faces_emitted = 0u32;
     
-    // Debug logging for V3 debugging
-    web_sys::console::log_1(&format!("[WASM mesh_models_v3] Registry has {} blocks, grid has {} sections", registry.len(), model_state_grid.section_count()).into());
+    // Debug logging for V3 debugging (only for LOD 0 to reduce spam)
+    if lod_level == 0 {
+        web_sys::console::log_1(&format!("[WASM mesh_models_v3] Registry has {} blocks, grid has {} sections", registry.len(), model_state_grid.section_count()).into());
+    }
     
     // Iterate over sections with model states
     let mut section_count = 0u32;
@@ -106,6 +134,15 @@ pub fn mesh_models_v3(
                             continue;
                         }
                     };
+                    
+                    // LOD check: skip blocks that shouldn't render at this detail level
+                    if lod_level > 0 {
+                        let lod_category = get_lod_category(&block.name);
+                        if !lod_category.should_render(lod_level) {
+                            blocks_skipped_lod += 1;
+                            continue;
+                        }
+                    }
                     
                     // Get variant
                     let variant = match block.get_variant_by_index(variant_idx) {
@@ -215,14 +252,18 @@ pub fn mesh_models_v3(
         }
     }
     
-    // Debug logging disabled for performance
-    // web_sys::console::log_1(&format!(
-    //     "[WASM mesh_models_v3] Found {} blocks, meshed {}, opaque verts={}, trans verts={}",
-    //     blocks_found, blocks_meshed,
-    //     result.opaque.positions.len() / 3,
-    //     result.transparent.positions.len() / 3
-    // ).into());
-    let _ = (blocks_found, blocks_meshed, _faces_emitted); // Suppress unused warnings
+    // Log LOD stats if significant blocks were skipped
+    if lod_level > 0 && blocks_skipped_lod > 100 {
+        web_sys::console::log_1(&format!(
+            "[WASM LOD {}] Skipped {}/{} blocks ({:.0}%), {} meshed, {} tris",
+            lod_level, blocks_skipped_lod, blocks_found,
+            (blocks_skipped_lod as f32 / blocks_found.max(1) as f32) * 100.0,
+            blocks_meshed,
+            result.opaque.indices.len() / 3 + result.transparent.indices.len() / 3
+        ).into());
+    }
+    
+    let _ = (blocks_found, blocks_meshed, blocks_skipped_lod, _faces_emitted); // Suppress unused warnings
     
     result
 }
