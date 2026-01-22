@@ -76,7 +76,7 @@ const MODEL_LOD_DISTANCES = {
  */
 function calculateModelLodLevel(superX, superZ, camera) {
   if (!camera || !camera.position) {
-    return 0; // Full detail if no camera
+    return { lodLevel: 0, distance: 0 }; // Full detail if no camera
   }
   
   // Calculate super-chunk center in world coordinates
@@ -89,30 +89,37 @@ function calculateModelLodLevel(superX, superZ, camera) {
   const distance = Math.sqrt(dx * dx + dz * dz);
   
   // Determine LOD level based on distance
-  if (distance >= MODEL_LOD_DISTANCES.HIDE) return 4;  // Hide all models
-  if (distance >= MODEL_LOD_DISTANCES.LOD3) return 3;  // Only structural
-  if (distance >= MODEL_LOD_DISTANCES.LOD2) return 2;  // Skip more decorative
-  if (distance >= MODEL_LOD_DISTANCES.LOD1) return 1;  // Skip flowers/grass
-  return 0; // Full detail
+  let lodLevel = 0;
+  if (distance >= MODEL_LOD_DISTANCES.HIDE) lodLevel = 4;      // Hide all models
+  else if (distance >= MODEL_LOD_DISTANCES.LOD3) lodLevel = 3; // Only structural
+  else if (distance >= MODEL_LOD_DISTANCES.LOD2) lodLevel = 2; // Skip more decorative
+  else if (distance >= MODEL_LOD_DISTANCES.LOD1) lodLevel = 1; // Skip flowers/grass
+  
+  return { lodLevel, distance };
 }
 
-// Debug: Track LOD usage statistics (only logged once)
+// Debug: Track LOD usage statistics
 let _lodStatsLogged = false;
-const _lodStats = { lod0: 0, lod1: 0, lod2: 0, lod3: 0, lod4: 0 };
-function trackLodUsage(lodLevel) {
+let _lodStatsLogCount = 0;
+const _lodStats = { lod0: 0, lod1: 0, lod2: 0, lod3: 0, lod4: 0, maxDist: 0, minDist: Infinity };
+function trackLodUsage(lodLevel, distance = 0) {
   if (lodLevel === 0) _lodStats.lod0++;
   else if (lodLevel === 1) _lodStats.lod1++;
   else if (lodLevel === 2) _lodStats.lod2++;
   else if (lodLevel === 3) _lodStats.lod3++;
   else if (lodLevel >= 4) _lodStats.lod4++;
+  if (distance > _lodStats.maxDist) _lodStats.maxDist = distance;
+  if (distance < _lodStats.minDist) _lodStats.minDist = distance;
 }
 function logLodStats() {
-  if (_lodStatsLogged) return;
   const total = _lodStats.lod0 + _lodStats.lod1 + _lodStats.lod2 + _lodStats.lod3 + _lodStats.lod4;
-  if (total >= 20) { // Log after 20 chunks processed
-    _lodStatsLogged = true;
-    console.log(`[Model LOD] Distribution: LOD0=${_lodStats.lod0}, LOD1=${_lodStats.lod1}, LOD2=${_lodStats.lod2}, LOD3=${_lodStats.lod3}, LOD4(hidden)=${_lodStats.lod4}`);
-    console.log(`[Model LOD] Triangle reduction estimate: ${((_lodStats.lod1 + _lodStats.lod2*2 + _lodStats.lod3*3 + _lodStats.lod4*4) / total * 20).toFixed(0)}%`);
+  // Log every 50 chunks, up to 3 times
+  if (total >= 50 && total % 50 === 0 && _lodStatsLogCount < 3) {
+    _lodStatsLogCount++;
+    console.log(`[Model LOD] Distribution (${total} chunks): LOD0=${_lodStats.lod0}, LOD1=${_lodStats.lod1}, LOD2=${_lodStats.lod2}, LOD3=${_lodStats.lod3}, LOD4(hidden)=${_lodStats.lod4}`);
+    console.log(`[Model LOD] Distance range: ${_lodStats.minDist.toFixed(0)} - ${_lodStats.maxDist.toFixed(0)} blocks (thresholds: ${MODEL_LOD_DISTANCES.LOD1}/${MODEL_LOD_DISTANCES.LOD2}/${MODEL_LOD_DISTANCES.LOD3}/${MODEL_LOD_DISTANCES.HIDE})`);
+    const reduction = total > 0 ? ((_lodStats.lod1 * 0.3 + _lodStats.lod2 * 0.5 + _lodStats.lod3 * 0.7 + _lodStats.lod4) / total * 100) : 0;
+    console.log(`[Model LOD] Estimated triangle reduction: ${reduction.toFixed(0)}%`);
   }
 }
 
@@ -949,7 +956,9 @@ export class SuperChunkManager {
       
       // OPTIMIZATION: Calculate LOD level based on distance from camera
       const camera = this.chunkManager?.camera;
-      const lodLevel = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+      const { lodLevel, distance } = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+      trackLodUsage(lodLevel, distance);
+      logLodStats();
       
       // LOD 4 = skip all model meshes entirely
       if (lodLevel >= 4) {
@@ -2128,8 +2137,8 @@ export class SuperChunkManager {
     // OPTIMIZATION: Calculate LOD level based on distance from camera
     // This dramatically reduces triangle count for distant chunks
     const camera = this.chunkManager?.camera;
-    const lodLevel = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
-    trackLodUsage(lodLevel);
+    const { lodLevel, distance } = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+    trackLodUsage(lodLevel, distance);
     logLodStats();
     
     // LOD 4 = skip all model meshes entirely
@@ -2477,7 +2486,9 @@ export class SuperChunkManager {
       
       // OPTIMIZATION: Calculate LOD level based on distance from camera
       const camera = this.chunkManager?.camera;
-      const lodLevel = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+      const { lodLevel, distance } = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+      trackLodUsage(lodLevel, distance);
+      logLodStats();
       
       // LOD 4 = skip all model meshes entirely
       if (lodLevel >= 4) {
@@ -2937,7 +2948,9 @@ export class SuperChunkManager {
         
         // OPTIMIZATION: Calculate LOD level based on distance from camera
         const camera = this.chunkManager?.camera;
-        const lodLevel = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+        const { lodLevel, distance } = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+        trackLodUsage(lodLevel, distance);
+        logLodStats();
         
         // LOD 4 = skip all model meshes entirely
         let modelResult = null;
@@ -3070,7 +3083,9 @@ export class SuperChunkManager {
       
       // OPTIMIZATION: Calculate LOD level based on distance from camera
       const camera = this.chunkManager?.camera;
-      const lodLevel = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+      const { lodLevel, distance } = calculateModelLodLevel(superChunk.superX, superChunk.superZ, camera);
+      trackLodUsage(lodLevel, distance);
+      logLodStats();
       
       // LOD 4 = skip all model meshes entirely
       let modelResult = null;
