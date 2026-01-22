@@ -1,0 +1,44 @@
+{
+  "credit": "Extracted from Minecraft 1.21.11 BellModel.java - createBodyLayer()",
+  "texture_size": [32, 32],
+  "textures": {
+    "texture": "minecraft:entity/bell/bell_body",
+    "particle": "minecraft:block/stone"
+  },
+  "elements": [
+    {
+      "__comment": "Bell body - addBox(-3.0, -6.0, -3.0, 6.0, 7.0, 6.0) texOffs(0, 0) offset(8, 12, 8)",
+      "from": [5, 6, 5],
+      "to": [11, 13, 11],
+      "faces": {
+        "north": {"uv": [6, 6, 12, 13], "texture": "#texture"},
+        "east":  {"uv": [0, 6, 6, 13], "texture": "#texture"},
+        "south": {"uv": [18, 6, 24, 13], "texture": "#texture"},
+        "west":  {"uv": [12, 6, 18, 13], "texture": "#texture"},
+        "up":    {"uv": [12, 0, 6, 6], "texture": "#texture"},
+        "down":  {"uv": [18, 0, 12, 6], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Bell base - addBox(4.0, 4.0, 4.0, 8.0, 2.0, 8.0) texOffs(0, 13) relative to bell_body",
+      "from": [4, 4, 4],
+      "to": [12, 6, 12],
+      "faces": {
+        "north": {"uv": [8, 21, 16, 23], "texture": "#texture"},
+        "east":  {"uv": [0, 21, 8, 23], "texture": "#texture"},
+        "south": {"uv": [24, 21, 32, 23], "texture": "#texture"},
+        "west":  {"uv": [16, 21, 24, 23], "texture": "#texture"},
+        "up":    {"uv": [16, 13, 8, 21], "texture": "#texture"},
+        "down":  {"uv": [24, 13, 16, 21], "texture": "#texture"}
+      }
+    }
+  ]
+}
+
+
+
+
+
+
+
+

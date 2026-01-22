@@ -1,0 +1,19 @@
+{
+  "name": "wasm-mesher",
+  "type": "module",
+  "collaborators": [
+    "BlockViewer"
+  ],
+  "description": "High-performance Minecraft chunk meshing in WebAssembly",
+  "version": "0.1.0",
+  "files": [
+    "wasm_mesher_bg.wasm",
+    "wasm_mesher.js",
+    "wasm_mesher.d.ts"
+  ],
+  "main": "wasm_mesher.js",
+  "types": "wasm_mesher.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

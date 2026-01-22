@@ -455,6 +455,13 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds, lodLevel = nu
   const superChunkZ = Math.floor((bounds.minChunkZ + bounds.maxChunkZ) / 4);
   const lod = lodLevel !== null ? lodLevel : calculateLodLevel(superChunkX, superChunkZ, cameraPosition.x, cameraPosition.z);
   
+  // Debug: Log LOD calculation for first few calls
+  if (!wasmMeshModelsV3._debugCount) wasmMeshModelsV3._debugCount = 0;
+  if (wasmMeshModelsV3._debugCount < 10) {
+    console.log(`[LOD Debug] SC(${superChunkX},${superChunkZ}) cam(${cameraPosition.x.toFixed(0)},${cameraPosition.z.toFixed(0)}) => LOD ${lod}`);
+    wasmMeshModelsV3._debugCount++;
+  }
+  
   const gridData = serializeGridForWasm(grid);
   const lightData = serializeLightGridForWasm(lightGrid);
   const modelStateData = modelStateGrid.serializeForWasm();
@@ -2922,8 +2929,15 @@ function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset = { x
 // ============================================================================
 
 async function processSuperChunk(data) {
-  const { chunks, neighbors, bounds } = data;
+  const { chunks, neighbors, bounds, cameraPosition: jobCameraPos } = data;
   const startTime = performance.now();
+  
+  // Update global camera position from job data if provided
+  // This ensures we have the correct position even if async updateCamera hasn't arrived
+  if (jobCameraPos && typeof jobCameraPos.x === 'number' && typeof jobCameraPos.z === 'number') {
+    cameraPosition.x = jobCameraPos.x;
+    cameraPosition.z = jobCameraPos.z;
+  }
   
   const grid = new WorkerBinaryGrid();
   const stateGrid = new WorkerBlockStateGrid();

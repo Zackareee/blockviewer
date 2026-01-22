@@ -1,0 +1,53 @@
+{
+  "credit": "Minecraft bed foot - UV mapping with rotation support for proper side textures",
+  "texture_size": [64, 64],
+  "textures": {
+    "texture": "minecraft:entity/bed/white",
+    "particle": "minecraft:block/white_wool"
+  },
+  "elements": [
+    {
+      "__comment": "Mattress - 16 wide (X), 6 tall (Y), 16 deep (Z), at Y=3",
+      "from": [0, 3, 0],
+      "to": [16, 9, 16],
+      "faces": {
+        "up":    {"uv": [0.09375, 0.4375, 0.34375, 0.6875], "texture": "#texture"},
+        "down":  {"uv": [0.4375, 0.4375, 0.6875, 0.6875], "texture": "#texture"},
+        "north": {"uv": [0.09375, 0.59375, 0.34375, 0.6875], "texture": "#texture"},
+        "south": {"uv": [0.34375, 0.34375, 0.59375, 0.4375], "texture": "#texture"},
+        "west":  {"uv": [0.0, 0.4375, 0.09375, 0.6875], "texture": "#texture", "rotation": 90},
+        "east":  {"uv": [0.34375, 0.4375, 0.4375, 0.6875], "texture": "#texture", "rotation": 270}
+      }
+    },
+    {
+      "__comment": "Left leg - front left corner (X=0, Z=13), texOffs(50,0)",
+      "from": [0, 0, 13],
+      "to": [3, 3, 16],
+      "faces": {
+        "up":    {"uv": [0.828125, 0.0, 0.875, 0.046875], "texture": "#texture"},
+        "down":  {"uv": [0.875, 0.0, 0.921875, 0.046875], "texture": "#texture"},
+        "north": {"uv": [0.828125, 0.046875, 0.875, 0.09375], "texture": "#texture"},
+        "south": {"uv": [0.875, 0.046875, 0.921875, 0.09375], "texture": "#texture"},
+        "west":  {"uv": [0.78125, 0.046875, 0.828125, 0.09375], "texture": "#texture"},
+        "east":  {"uv": [0.921875, 0.046875, 0.96875, 0.09375], "texture": "#texture"}
+      }
+    },
+    {
+      "__comment": "Right leg - front right corner (X=13, Z=13), texOffs(50,12)",
+      "from": [13, 0, 13],
+      "to": [16, 3, 16],
+      "faces": {
+        "up":    {"uv": [0.828125, 0.1875, 0.875, 0.234375], "texture": "#texture"},
+        "down":  {"uv": [0.875, 0.1875, 0.921875, 0.234375], "texture": "#texture"},
+        "north": {"uv": [0.828125, 0.234375, 0.875, 0.28125], "texture": "#texture"},
+        "south": {"uv": [0.875, 0.234375, 0.921875, 0.28125], "texture": "#texture"},
+        "west":  {"uv": [0.78125, 0.234375, 0.828125, 0.28125], "texture": "#texture"},
+        "east":  {"uv": [0.921875, 0.234375, 0.96875, 0.28125], "texture": "#texture"}
+      }
+    }
+  ],
+  "__metadata": {
+    "normalized_uvs": true,
+    "shade": true
+  }
+}

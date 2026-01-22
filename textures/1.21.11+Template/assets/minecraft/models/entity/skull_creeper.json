@@ -1,0 +1,19 @@
+{
+  "__comment": "Creeper head - 8x8x8 at texOffs(0, 0) in 64x32 texture",
+  "texture_size": [64, 32],
+  "elements": [
+    {
+      "__comment": "Head - centered in block",
+      "from": [4.0, 0.0, 4.0],
+      "to": [12.0, 8.0, 12.0],
+      "faces": {
+        "up": {"uv": [0.125, 0.0, 0.25, 0.25], "texture": "#texture"},
+        "down": {"uv": [0.25, 0.0, 0.375, 0.25], "texture": "#texture"},
+        "west": {"uv": [0.0, 0.25, 0.125, 0.5], "texture": "#texture"},
+        "south": {"uv": [0.125, 0.25, 0.25, 0.5], "texture": "#texture"},
+        "east": {"uv": [0.25, 0.25, 0.375, 0.5], "texture": "#texture"},
+        "north": {"uv": [0.375, 0.25, 0.5, 0.5], "texture": "#texture"}
+      }
+    }
+  ]
+}

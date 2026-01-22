@@ -114,6 +114,9 @@ export class SuperChunkWorkerPool {
     this.onJobComplete = options.onJobComplete || null;
     this.onJobError = options.onJobError || null;
     
+    // Camera position for LOD calculations - passed with each job
+    this.cameraPosition = { x: 0, z: 0 };
+    
     console.log(`[SuperChunkWorkerPool] Configured with ${this.workerCount} workers (${this.capabilities.tier} tier)`);
   }
   
@@ -342,6 +345,10 @@ export class SuperChunkWorkerPool {
     // Mark worker as busy
     this.workerBusy[workerIndex] = true;
     
+    // Include camera position for LOD calculations - ensures worker has current camera
+    // even if async updateCamera message hasn't been processed yet
+    job.data.cameraPosition = { x: this.cameraPosition.x, z: this.cameraPosition.z };
+    
     // Prepare message
     const message = {
       type: 'process',
@@ -438,13 +445,18 @@ export class SuperChunkWorkerPool {
   }
   
   /**
-   * Update camera position in all workers for LOD calculations
-   * Call this periodically (e.g., once per frame or when camera moves significantly)
+   * Update camera position for LOD calculations
+   * Camera position is now passed with each job for reliability
    * 
    * @param {number} x - Camera X position (world coordinates)
    * @param {number} z - Camera Z position (world coordinates)
    */
   updateCamera(x, z) {
+    // Store locally - will be passed with each job
+    this.cameraPosition.x = x;
+    this.cameraPosition.z = z;
+    
+    // Also update workers directly for any in-flight calculations
     const message = {
       type: 'updateCamera',
       data: { x, z },
