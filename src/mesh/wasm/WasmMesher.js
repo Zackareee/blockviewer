@@ -1318,16 +1318,31 @@ export function meshModelsV3(gridData, lightData, modelStateData, bounds, lodLev
   }
   
   try {
-    const result = wasmModule.mesh_models_v3(
-      gridData,
-      lightData,
-      modelStateData,
-      bounds.minChunkX,
-      bounds.minChunkZ,
-      bounds.maxChunkX,
-      bounds.maxChunkZ,
-      lodLevel
-    );
+    // Try calling with LOD parameter first (new WASM), fall back to old signature
+    let result;
+    try {
+      result = wasmModule.mesh_models_v3(
+        gridData,
+        lightData,
+        modelStateData,
+        bounds.minChunkX,
+        bounds.minChunkZ,
+        bounds.maxChunkX,
+        bounds.maxChunkZ,
+        lodLevel
+      );
+    } catch (e) {
+      // Fall back to old signature without LOD
+      result = wasmModule.mesh_models_v3(
+        gridData,
+        lightData,
+        modelStateData,
+        bounds.minChunkX,
+        bounds.minChunkZ,
+        bounds.maxChunkX,
+        bounds.maxChunkZ
+      );
+    }
     
     return {
       modelOpaque: {

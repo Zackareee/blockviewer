@@ -459,11 +459,23 @@ function wasmMeshModelsV3(grid, lightGrid, modelStateGrid, bounds, lodLevel = nu
   const lightData = serializeLightGridForWasm(lightGrid);
   const modelStateData = modelStateGrid.serializeForWasm();
   
-  const result = wasmModule.mesh_models_v3(
-    gridData, lightData, modelStateData,
-    bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ,
-    lod
-  );
+  // Try calling with LOD parameter first (new WASM), fall back to old signature
+  let result;
+  try {
+    // New WASM signature with LOD support
+    result = wasmModule.mesh_models_v3(
+      gridData, lightData, modelStateData,
+      bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ,
+      lod
+    );
+  } catch (e) {
+    // Fall back to old WASM signature without LOD (backwards compatible)
+    console.warn('[SuperChunkWorker] LOD not available in WASM, using full detail. Rebuild WASM for LOD support.');
+    result = wasmModule.mesh_models_v3(
+      gridData, lightData, modelStateData,
+      bounds.minChunkX, bounds.minChunkZ, bounds.maxChunkX, bounds.maxChunkZ
+    );
+  }
   
   // Extract model meshes from result
   return {
