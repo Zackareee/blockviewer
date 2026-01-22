@@ -1039,6 +1039,9 @@ export class ChunkManager {
   updateChunkVisibility(camera) {
     if (!camera) return;
     
+    // Store camera reference for SuperChunkManager to use during mesh generation
+    this.camera = camera;
+    
     const renderDistanceChunks = this.renderDistance || 0;
     // Convert partialBlockDistance from blocks to chunks (it's stored as blocks)
     const detailDistanceChunks = this.partialBlockDistance ? Math.floor(this.partialBlockDistance / 16) : 0;
@@ -3561,6 +3564,9 @@ export class ChunkManager {
    */
   updateLODs(camera) {
     if (!camera) return;
+    
+    // Store camera reference for SuperChunkManager to use during mesh generation
+    this.camera = camera;
     
     // PERFORMANCE: Update LODs incrementally across frames to avoid spikes
     // Track which group we last updated
