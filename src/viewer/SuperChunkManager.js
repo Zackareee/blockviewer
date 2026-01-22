@@ -45,6 +45,51 @@ import pako from 'pako';
 import { chunkLoadLogger } from '../utils/ChunkLoadLogger.js';
 import { buildFaceTintTypeLookup } from '../data/biomeTinting.js';
 
+// ============================================================================
+// MEMORY OPTIMIZATION: Convert Float32 attributes to smaller types
+// This reduces GPU memory usage significantly (4x for integer attributes)
+// ============================================================================
+
+/**
+ * Convert Float32Array to Uint8Array for integer values 0-255
+ * @param {Float32Array} floatArray - Source array with integer values
+ * @returns {Uint8Array} - Compact array
+ */
+function floatToUint8(floatArray) {
+  const result = new Uint8Array(floatArray.length);
+  for (let i = 0; i < floatArray.length; i++) {
+    result[i] = Math.round(floatArray[i]);
+  }
+  return result;
+}
+
+/**
+ * Convert Float32Array to Uint8Array normalized (0-1 → 0-255)
+ * For use with THREE.BufferAttribute's normalized parameter
+ * @param {Float32Array} floatArray - Source array with 0-1 values
+ * @returns {Uint8Array} - Normalized compact array
+ */
+function floatToUint8Normalized(floatArray) {
+  const result = new Uint8Array(floatArray.length);
+  for (let i = 0; i < floatArray.length; i++) {
+    result[i] = Math.round(Math.min(1.0, Math.max(0.0, floatArray[i])) * 255);
+  }
+  return result;
+}
+
+/**
+ * Convert Float32Array to Uint16Array for texture indices
+ * @param {Float32Array} floatArray - Source array with integer values
+ * @returns {Uint16Array} - Compact array
+ */
+function floatToUint16(floatArray) {
+  const result = new Uint16Array(floatArray.length);
+  for (let i = 0; i < floatArray.length; i++) {
+    result[i] = Math.round(floatArray[i]);
+  }
+  return result;
+}
+
 // Super-chunk is 2x2 Minecraft chunks (32x32 blocks)
 // Smaller size = faster rebuilds, less jank, more responsive loading
 const SUPER_CHUNK_SIZE = 2;
@@ -822,6 +867,27 @@ export class SuperChunkManager {
    */
   setMeshingSpeed(speed) {
     this.meshingSpeed = Math.max(1, Math.min(4, speed));
+  }
+  
+  /**
+   * Enable or disable automatic neighbor/boundary chunk rebuilding
+   * When disabled, chunks won't be rebuilt when their neighbors load (fixes boundary artifacts)
+   * Initial chunk loading still works - this only affects rebuilds for boundary fixes
+   * Useful for debugging or when moving quickly through the world
+   * @param {boolean} enabled - Whether to enable neighbor rebuilds
+   */
+  setEnableDirtyRebuild(enabled) {
+    // _disableNeighborRebuilds is the inverse - true means disabled
+    this._disableNeighborRebuilds = !enabled;
+    console.log(`[SuperChunkManager] Neighbor rebuilds ${enabled ? 'enabled' : 'disabled'}`);
+  }
+  
+  /**
+   * Check if neighbor rebuild is enabled
+   * @returns {boolean} Whether neighbor rebuilds are enabled
+   */
+  isEnableDirtyRebuild() {
+    return !this._disableNeighborRebuilds;
   }
   
   /**
@@ -3183,12 +3249,14 @@ export class SuperChunkManager {
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
     
+    // MEMORY OPTIMIZATION: Use Uint8 normalized for colors (1 byte vs 4 per component)
     if (data.colors) {
       const colors = data.colors instanceof ArrayBuffer
         ? new Float32Array(data.colors)
         : data.colors;
       if (colors && colors.length > 0) {
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        const compactColors = floatToUint8Normalized(colors);
+        geometry.setAttribute('color', new THREE.BufferAttribute(compactColors, 3, true)); // normalized=true
       }
     }
     
@@ -3210,21 +3278,25 @@ export class SuperChunkManager {
       }
     }
     
+    // MEMORY OPTIMIZATION: Use Uint16 for texture indices (2 bytes vs 4)
     if (data.texIndices) {
       const texIndices = data.texIndices instanceof ArrayBuffer
         ? new Float32Array(data.texIndices)
         : data.texIndices;
       if (texIndices && texIndices.length > 0) {
-        geometry.setAttribute('texIndex', new THREE.BufferAttribute(texIndices, 1));
+        const compactTexIndices = floatToUint16(texIndices);
+        geometry.setAttribute('texIndex', new THREE.BufferAttribute(compactTexIndices, 1));
       }
     }
     
+    // MEMORY OPTIMIZATION: Use Uint8 for small integer values (1 byte vs 4)
     if (data.texRotations) {
       const texRotations = data.texRotations instanceof ArrayBuffer
         ? new Float32Array(data.texRotations)
         : data.texRotations;
       if (texRotations && texRotations.length > 0) {
-        geometry.setAttribute('texRotation', new THREE.BufferAttribute(texRotations, 1));
+        const compactTexRotations = floatToUint8(texRotations);
+        geometry.setAttribute('texRotation', new THREE.BufferAttribute(compactTexRotations, 1));
       }
     }
     
@@ -3233,7 +3305,8 @@ export class SuperChunkManager {
         ? new Float32Array(data.tintTypes)
         : data.tintTypes;
       if (tintTypes && tintTypes.length > 0) {
-        geometry.setAttribute('tintType', new THREE.BufferAttribute(tintTypes, 1));
+        const compactTintTypes = floatToUint8(tintTypes);
+        geometry.setAttribute('tintType', new THREE.BufferAttribute(compactTintTypes, 1));
       }
     }
     
@@ -3242,7 +3315,8 @@ export class SuperChunkManager {
         ? new Float32Array(data.shadeFlags)
         : data.shadeFlags;
       if (shadeFlags && shadeFlags.length > 0) {
-        geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(shadeFlags, 1));
+        const compactShadeFlags = floatToUint8(shadeFlags);
+        geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(compactShadeFlags, 1));
       }
     }
     
@@ -3251,10 +3325,12 @@ export class SuperChunkManager {
         ? new Float32Array(data.singleSided)
         : data.singleSided;
       if (singleSided && singleSided.length > 0) {
-        geometry.setAttribute('singleSided', new THREE.BufferAttribute(singleSided, 1));
+        const compactSingleSided = floatToUint8(singleSided);
+        geometry.setAttribute('singleSided', new THREE.BufferAttribute(compactSingleSided, 1));
       }
     }
     
+    // Note: skyLight and blockLight keep Float32 because they have decimal values from AO
     if (data.skyLight) {
       const skyLight = data.skyLight instanceof ArrayBuffer
         ? new Float32Array(data.skyLight)
@@ -3765,8 +3841,15 @@ export class SuperChunkManager {
     geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(meshData.normals, 3));
     
+    // MEMORY OPTIMIZATION: Use Uint8 normalized for colors (1 byte vs 4 per component)
     if (meshData.colors && meshData.colors.length > 0) {
-      geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3));
+      // Only convert if not already Uint8Array
+      if (meshData.colors instanceof Float32Array) {
+        const compactColors = floatToUint8Normalized(meshData.colors);
+        geometry.setAttribute('color', new THREE.BufferAttribute(compactColors, 3, true)); // normalized=true
+      } else {
+        geometry.setAttribute('color', new THREE.BufferAttribute(meshData.colors, 3, meshData.colors instanceof Uint8Array));
+      }
     }
     
     if (meshData.uvs && meshData.uvs.length > 0) {
@@ -3777,26 +3860,54 @@ export class SuperChunkManager {
       geometry.setAttribute('modelUV', new THREE.BufferAttribute(meshData.modelUVs, 2));
     }
     
+    // MEMORY OPTIMIZATION: Use Uint16 for texture indices (2 bytes vs 4)
     if (meshData.texIndices && meshData.texIndices.length > 0) {
-      geometry.setAttribute('texIndex', new THREE.BufferAttribute(meshData.texIndices, 1));
+      if (meshData.texIndices instanceof Float32Array) {
+        const compactTexIndices = floatToUint16(meshData.texIndices);
+        geometry.setAttribute('texIndex', new THREE.BufferAttribute(compactTexIndices, 1));
+      } else {
+        geometry.setAttribute('texIndex', new THREE.BufferAttribute(meshData.texIndices, 1));
+      }
     }
     
+    // MEMORY OPTIMIZATION: Use Uint8 for small integer values (1 byte vs 4)
     if (meshData.texRotations && meshData.texRotations.length > 0) {
-      geometry.setAttribute('texRotation', new THREE.BufferAttribute(meshData.texRotations, 1));
+      if (meshData.texRotations instanceof Float32Array) {
+        const compactTexRotations = floatToUint8(meshData.texRotations);
+        geometry.setAttribute('texRotation', new THREE.BufferAttribute(compactTexRotations, 1));
+      } else {
+        geometry.setAttribute('texRotation', new THREE.BufferAttribute(meshData.texRotations, 1));
+      }
     }
     
     if (meshData.tintTypes && meshData.tintTypes.length > 0) {
-      geometry.setAttribute('tintType', new THREE.BufferAttribute(meshData.tintTypes, 1));
+      if (meshData.tintTypes instanceof Float32Array) {
+        const compactTintTypes = floatToUint8(meshData.tintTypes);
+        geometry.setAttribute('tintType', new THREE.BufferAttribute(compactTintTypes, 1));
+      } else {
+        geometry.setAttribute('tintType', new THREE.BufferAttribute(meshData.tintTypes, 1));
+      }
     }
     
     if (meshData.shadeFlags && meshData.shadeFlags.length > 0) {
-      geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(meshData.shadeFlags, 1));
+      if (meshData.shadeFlags instanceof Float32Array) {
+        const compactShadeFlags = floatToUint8(meshData.shadeFlags);
+        geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(compactShadeFlags, 1));
+      } else {
+        geometry.setAttribute('shadeFlag', new THREE.BufferAttribute(meshData.shadeFlags, 1));
+      }
     }
     
     if (meshData.singleSided && meshData.singleSided.length > 0) {
-      geometry.setAttribute('singleSided', new THREE.BufferAttribute(meshData.singleSided, 1));
+      if (meshData.singleSided instanceof Float32Array) {
+        const compactSingleSided = floatToUint8(meshData.singleSided);
+        geometry.setAttribute('singleSided', new THREE.BufferAttribute(compactSingleSided, 1));
+      } else {
+        geometry.setAttribute('singleSided', new THREE.BufferAttribute(meshData.singleSided, 1));
+      }
     }
     
+    // Note: skyLight and blockLight keep Float32 because they have decimal values from AO
     if (meshData.skyLight && meshData.skyLight.length > 0) {
       geometry.setAttribute('skyLight', new THREE.BufferAttribute(meshData.skyLight, 1));
     }
