@@ -200,7 +200,7 @@ class MeshCreationQueue {
     // Camera movement tracking
     this._cameraMovingFast = false;
     this._lastCameraPos = { x: 0, y: 0, z: 0 };
-    this._movementThreshold = 2.0; // Movement speed threshold (blocks/frame)
+    this._movementThreshold = 0.5; // Movement speed threshold (blocks/frame) - lowered for more sensitive detection
     
     // Priority order: solid first for quick visual feedback, then models, then transparent
     this.priorityOrder = ['solid', 'modelOpaque', 'modelOverlay', 'glass', 'modelTransparent', 'water', 'lava'];

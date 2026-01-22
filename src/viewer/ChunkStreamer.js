@@ -313,6 +313,9 @@ export class ChunkStreamer {
     this.isProcessing = false;
     this.initialLoadComplete = false; // Only show progress during initial load
     this.registry = getBlockRegistry();
+    
+    // Settings to apply when SuperChunkManager is created
+    this._pendingEnableDirtyRebuild = true; // Default to enabled
     this.stateRegistry = null;
     
     // Pause flag for manual control
@@ -450,6 +453,21 @@ export class ChunkStreamer {
       this.superChunkManager.setMeshingSpeed(speed);
     }
   }
+  
+  /**
+   * Enable or disable automatic dirty chunk rebuilding
+   * When disabled, chunks won't be rebuilt when boundaries change (useful for debugging)
+   * @param {boolean} enabled - Whether to enable dirty rebuild
+   */
+  setEnableDirtyRebuild(enabled) {
+    // Store the setting in case SuperChunkManager isn't created yet
+    this._pendingEnableDirtyRebuild = enabled;
+    
+    // Apply immediately if SuperChunkManager exists
+    if (this.superChunkManager) {
+      this.superChunkManager.setEnableDirtyRebuild(enabled);
+    }
+  }
 
   /**
    * Set pre-parsed chunks for streaming (single region mode)
@@ -496,6 +514,11 @@ export class ChunkStreamer {
         this.chunkManager.invalidate?.();
       }
     });
+    
+    // Apply any pending settings that were set before SuperChunkManager was created
+    if (this._pendingEnableDirtyRebuild !== undefined) {
+      this.superChunkManager.setEnableDirtyRebuild(this._pendingEnableDirtyRebuild);
+    }
     
     // Set up mesh queue processor for per-frame mesh creation
     // This spreads mesh creation across frames to avoid lag spikes
@@ -1385,16 +1408,23 @@ export class ChunkStreamer {
           break;
         }
         
-        // Check if camera is moving fast - pause loading to prioritize smooth frame rates
-        // Resume after maxCameraMovePauseFrames to prevent complete loading stalls
+        // Check if camera is moving fast - use requestIdleCallback for truly idle loading
+        // This ensures chunk loading only happens when the browser is genuinely idle
         if (this.superChunkManager?.isCameraMovingFast()) {
           cameraMovePauseCount++;
           if (cameraMovePauseCount < maxCameraMovePauseFrames) {
-            // Wait for next frame and check again
-            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+            // Use requestIdleCallback if available, otherwise fall back to rAF
+            if (typeof requestIdleCallback !== 'undefined') {
+              await new Promise(r => requestIdleCallback(() => r(), { timeout: 100 }));
+            } else {
+              await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+            }
             continue;
           }
-          // Force resume after max pause frames
+          // Force resume after max pause frames, but use idle callback
+          if (typeof requestIdleCallback !== 'undefined') {
+            await new Promise(r => requestIdleCallback(() => r(), { timeout: 50 }));
+          }
         } else {
           cameraMovePauseCount = 0; // Reset counter when camera stops moving
         }
