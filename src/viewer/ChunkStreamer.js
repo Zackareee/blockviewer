@@ -1465,7 +1465,7 @@ export class ChunkStreamer {
     
     // Schedule idle rebuild for any remaining dirty chunks (non-blocking)
     if (this.superChunkManager?.hasDirtyChunks()) {
-      this.superChunkManager.scheduleIdleRebuild();
+      this.superChunkManager.scheduleIdleBuild();
     }
     
     // Also evict distant regions from cache to free memory
@@ -1577,7 +1577,7 @@ export class ChunkStreamer {
         // Schedule remaining super-chunk rebuilds for idle time
         // This prevents stuttering during movement while ensuring new chunks get built
         if (this.superChunkManager?.hasDirtyChunks()) {
-          this.superChunkManager.scheduleIdleRebuild(true); // Low priority during streaming
+          this.superChunkManager.scheduleIdleBuild(true); // Low priority during streaming
         }
         
         // Yield to browser between batches - use requestAnimationFrame for better timing
@@ -1587,7 +1587,7 @@ export class ChunkStreamer {
       
       // Schedule any remaining dirty super-chunks for idle time rebuilding
       if (this.superChunkManager?.hasDirtyChunks()) {
-        this.superChunkManager.scheduleIdleRebuild(false); // Normal priority when queue is empty
+        this.superChunkManager.scheduleIdleBuild(false); // Normal priority when queue is empty
       }
     } finally {
       this.isProcessing = false;
@@ -1665,7 +1665,7 @@ export class ChunkStreamer {
         
         while (this.superChunkManager.hasDirtyChunks()) {
           const beforeStats = this.superChunkManager.getStats();
-          await this.superChunkManager.rebuildDirty(4);
+          await this.superChunkManager.buildDirty(4);
           const afterStats = this.superChunkManager.getStats();
           rebuilt += beforeStats.dirtyCount - afterStats.dirtyCount;
           
@@ -1776,7 +1776,7 @@ export class ChunkStreamer {
       }
       
       // Add chunk to super-chunk manager (batched meshing)
-      // The actual meshing is deferred until rebuildDirty() is called
+      // The actual meshing is deferred until buildDirty() is called
       if (this.superChunkManager) {
         // For unified pipeline, pass the raw chunk data object (with compressedData)
         // For legacy, pass the parsed NBT data
@@ -2230,7 +2230,7 @@ export class ChunkStreamer {
   pause() {
     this.isPaused = true;
     if (this.superChunkManager) {
-      this.superChunkManager.cancelIdleRebuild();
+      this.superChunkManager.cancelIdleBuild();
     }
   }
 

@@ -729,9 +729,9 @@ class SuperChunk {
     // Track if we've ever been built
     this.hasBeenBuilt = false;
     
-    // Prevent concurrent rebuilds (race condition fix)
-    // When true, a rebuild is in progress - skip new rebuild requests
-    this.rebuildPending = false;
+    // Prevent concurrent builds (race condition fix)
+    // When true, a build is in progress - skip new build requests
+    this.buildPending = false;
     
     // Build version counter - incremented each time the super chunk is rebuilt
     // Used to detect stale queued operations (e.g., model mesh builds)
@@ -842,10 +842,10 @@ export class SuperChunkManager {
     // Super-chunks indexed by "sx,sz"
     this.superChunks = new Map();
     
-    // Set of dirty super-chunks that need rebuild
+    // Set of dirty super-chunks that need initial build
     this.dirtySet = new Set();
     
-    // Set of super-chunks that need rebuild due to neighbor changes (boundary stitching)
+    // DEPRECATED: Was used for boundary rebuilds, now unused with pre-loaded boundary data
     // DEPRECATED: With pre-loaded boundary data, this set is no longer populated
     // Kept for backwards compatibility
     this.boundaryDirtySet = new Set();
@@ -893,10 +893,9 @@ export class SuperChunkManager {
     // Enable/disable visibility staggering (can be toggled for debugging)
     this._staggerVisibility = options.staggerVisibility ?? true;
     
-    // Disable neighbor rebuilds to improve performance
-    // The race condition fix (rebuildPending flag) prevents duplicate meshes,
-    // so neighbor rebuilds are optional for visual polish (water levels, lighting)
-    // Set to true to disable rebuilds entirely (fastest, slight visual artifacts at edges)
+    // DEPRECATED: Neighbor rebuilds are no longer used.
+    // With pre-loaded boundary data, all chunks are built correctly on first pass.
+    // This property is kept for backwards compatibility but has no effect.
     this._disableNeighborRebuilds = options.disableNeighborRebuilds ?? false;
   }
   
@@ -909,24 +908,24 @@ export class SuperChunkManager {
   }
   
   /**
-   * Enable or disable automatic neighbor/boundary chunk rebuilding
-   * When disabled, chunks won't be rebuilt when their neighbors load (fixes boundary artifacts)
-   * Initial chunk loading still works - this only affects rebuilds for boundary fixes
-   * Useful for debugging or when moving quickly through the world
-   * @param {boolean} enabled - Whether to enable neighbor rebuilds
+   * @deprecated No longer has any effect. Neighbor rebuilds have been eliminated
+   * in favor of pre-loaded boundary data. All chunks are now built correctly
+   * on first pass with complete neighbor information.
+   * 
+   * Kept for backwards compatibility.
+   * @param {boolean} _enabled - Ignored
    */
-  setEnableDirtyRebuild(enabled) {
-    // _disableNeighborRebuilds is the inverse - true means disabled
-    this._disableNeighborRebuilds = !enabled;
-    console.log(`[SuperChunkManager] Neighbor rebuilds ${enabled ? 'enabled' : 'disabled'}`);
+  setEnableDirtyRebuild(_enabled) {
+    // NO-OP: Neighbor rebuilds no longer exist.
+    // Boundary data is now pre-loaded before meshing, eliminating the need for rebuilds.
   }
   
   /**
-   * Check if neighbor rebuild is enabled
-   * @returns {boolean} Whether neighbor rebuilds are enabled
+   * @deprecated Always returns true. Neighbor rebuilds have been eliminated.
+   * @returns {boolean} Always true
    */
   isEnableDirtyRebuild() {
-    return !this._disableNeighborRebuilds;
+    return true;
   }
   
   /**
@@ -1145,7 +1144,7 @@ export class SuperChunkManager {
     job.superChunk.hasBeenBuilt = true;
     
     // Clear rebuild pending flag (allows future rebuilds)
-    job.superChunk.rebuildPending = false;
+    job.superChunk.buildPending = false;
     
     // Mark neighbors for rebuild on first build
     this._markNeighborsDirtyAfterBuild(job.superChunk, isFirstBuild);
@@ -3507,41 +3506,42 @@ export class SuperChunkManager {
   }
 
   /**
-   * Rebuild all dirty super-chunks with frame budget awareness
+   * Build all pending super-chunks with frame budget awareness
    * 
-   * With pre-loaded boundary data, only initial builds are needed.
-   * Boundary repairs are no longer required.
+   * Processes super-chunks in dirtySet that need their initial mesh build.
+   * With pre-loaded boundary data, chunks are built once with complete
+   * neighbor information - no rebuilds are needed.
    * 
-   * @param {number} maxRebuilds - Maximum number of super-chunks to rebuild per call
+   * @param {number} maxBuilds - Maximum number of super-chunks to build per call
    * @param {number} budgetMs - Maximum time budget in ms (0 = no limit)
-   * @returns {number} Number of super-chunks rebuilt
+   * @returns {number} Number of super-chunks built
    */
-  async rebuildDirty(maxRebuilds = 2, budgetMs = 0) {
+  async buildDirty(maxBuilds = 2, budgetMs = 0) {
     if (this.dirtySet.size === 0) return 0;
     
-    // Get chunks to build (only dirtySet - boundaryDirtySet is no longer used)
-    const keysToRebuild = [];
+    // Get chunks that need building
+    const keysToBuild = [];
     
     for (const key of this.dirtySet) {
-      if (keysToRebuild.length >= maxRebuilds) break;
-      keysToRebuild.push(key);
+      if (keysToBuild.length >= maxBuilds) break;
+      keysToBuild.push(key);
     }
     
-    if (keysToRebuild.length === 0) return 0;
+    if (keysToBuild.length === 0) return 0;
     
     // Check if we can use parallel worker pool dispatch
     const canUseParallel = this.useSuperChunkWorkerPool && this.superChunkWorkerPoolInitialized;
     
     if (canUseParallel) {
       // PARALLEL PATH: Dispatch all jobs to workers at once, await all results
-      return await this._rebuildDirtyParallel(keysToRebuild);
+      return await this._buildDirtyParallel(keysToBuild);
     }
     
     // SEQUENTIAL PATH: Fallback for non-worker builds
-    let rebuiltCount = 0;
+    let builtCount = 0;
     const startTime = performance.now();
     
-    for (const key of keysToRebuild) {
+    for (const key of keysToBuild) {
       // Check budget if specified
       if (budgetMs > 0 && (performance.now() - startTime) >= budgetMs) {
         break; // Exceeded time budget
@@ -3549,43 +3549,43 @@ export class SuperChunkManager {
       
       const superChunk = this.superChunks.get(key);
       if (superChunk) {
-        // Skip if a rebuild is already in progress (race condition prevention)
-        if (superChunk.rebuildPending) {
+        // Skip if a build is already in progress (race condition prevention)
+        if (superChunk.buildPending) {
           continue;
         }
-        superChunk.rebuildPending = true;
+        superChunk.buildPending = true;
         
         const oldMeshes = [...superChunk.meshes];
         this._hideOldMeshes(oldMeshes);
         await this.buildSuperChunk(superChunk, true);
         this._disposeOldMeshes(oldMeshes);
         
-        superChunk.rebuildPending = false;
-        rebuiltCount++;
+        superChunk.buildPending = false;
+        builtCount++;
       }
       this.dirtySet.delete(key);
     }
     
-    return rebuiltCount;
+    return builtCount;
   }
 
   /**
-   * Parallel rebuild using worker pool - dispatches all jobs at once
+   * Parallel build using worker pool - dispatches all jobs at once
    * 
    * Jobs are dispatched to workers in parallel. As results arrive, they are
    * queued to the completion queue which processes 1-2 super-chunks per frame.
    * This spreads mesh creation across frames to avoid lag spikes.
    */
-  async _rebuildDirtyParallel(keysToRebuild) {
+  async _buildDirtyParallel(keysToBuild) {
     // Collect all super-chunks and their old meshes
     const buildJobs = [];
     
-    for (const key of keysToRebuild) {
+    for (const key of keysToBuild) {
       const superChunk = this.superChunks.get(key);
       if (!superChunk) continue;
       
-      // Skip if a rebuild is already in progress (race condition prevention)
-      if (superChunk.rebuildPending) {
+      // Skip if a build is already in progress (race condition prevention)
+      if (superChunk.buildPending) {
         continue;
       }
       
@@ -3593,8 +3593,8 @@ export class SuperChunkManager {
       const hasRawCompressed = [...superChunk.loadedChunks.values()].some(c => c.isRawCompressed);
       if (!hasRawCompressed) continue;
       
-      // Mark as rebuild pending to prevent concurrent rebuilds
-      superChunk.rebuildPending = true;
+      // Mark as build pending to prevent concurrent builds
+      superChunk.buildPending = true;
       
       // CRITICAL: Increment build version FIRST to invalidate any pending queued
       // operations BEFORE we capture oldMeshes or clear the meshes array.
@@ -3666,8 +3666,8 @@ export class SuperChunkManager {
         })
         .catch(error => {
           console.warn(`[SuperChunkManager] Worker failed for ${job.key}:`, error.message);
-          // Clear rebuild pending flag on error
-          job.superChunk.rebuildPending = false;
+          // Clear build pending flag on error
+          job.superChunk.buildPending = false;
           // Re-add to dirty set for retry
           this.dirtySet.add(job.key);
           this._pendingWorkerJobs--;
@@ -3734,7 +3734,7 @@ export class SuperChunkManager {
 
   
   /**
-   * Schedule rebuild using requestIdleCallback for non-blocking updates
+   * Schedule builds using requestIdleCallback for non-blocking updates
    * Used during player movement to avoid frame drops
    * 
    * IMPORTANT: Boundary-dirty chunks (visible artifacts) get higher priority
@@ -3742,7 +3742,7 @@ export class SuperChunkManager {
    * 
    * @param {boolean} lowPriority - If true, use longer timeout and smaller batches
    */
-  scheduleIdleRebuild(lowPriority = false) {
+  scheduleIdleBuild(lowPriority = false) {
     if (this._idleCallbackId) return; // Already scheduled
     
     const callback = async (deadline) => {
@@ -3771,12 +3771,12 @@ export class SuperChunkManager {
         nextDelay = canUseParallel ? 4 : 16;
       }
       
-      await this.rebuildDirty(chunksToMesh, budgetMs);
+      await this.buildDirty(chunksToMesh, budgetMs);
       
-      // Schedule another callback if more rebuilds needed
+      // Schedule another callback if more builds needed
       if (this.dirtySet.size > 0) {
         // Use setTimeout for consistent scheduling - rIC has variable delays
-        setTimeout(() => this.scheduleIdleRebuild(lowPriority), nextDelay);
+        setTimeout(() => this.scheduleIdleBuild(lowPriority), nextDelay);
       }
     };
     
@@ -3795,10 +3795,10 @@ export class SuperChunkManager {
   }
 
   /**
-   * Cancel any pending idle rebuilds
+   * Cancel any pending idle builds
    * Useful when movement is detected
    */
-  cancelIdleRebuild() {
+  cancelIdleBuild() {
     if (this._idleCallbackId) {
       if (typeof cancelIdleCallback !== 'undefined') {
         cancelIdleCallback(this._idleCallbackId);
@@ -4042,8 +4042,8 @@ export class SuperChunkManager {
   }
 
   /**
-   * Check if there are any dirty super-chunks needing rebuild
-   * @returns {boolean} true if any chunks need rebuilding
+   * Check if there are any dirty super-chunks needing build
+   * @returns {boolean} true if any chunks need building
    */
   hasDirtyChunks() {
     // Only check dirtySet - boundaryDirtySet is no longer used (pre-loaded boundary data)
