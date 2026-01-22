@@ -135,31 +135,74 @@ function DynamicFog({ fogEnabled, renderDistance, fogColor = '#c8d8ff', dimensio
 }
 
 /**
- * Movement regression - lower quality while camera is moving
- * This helps maintain smooth framerates during orbit/pan
- * PERFORMANCE: Only regress every N frames to reduce overhead
+ * Movement regression - lower quality while camera is moving OR rotating
+ * This helps maintain smooth framerates during movement/orbit/pan
+ * 
+ * WORKS WITH STREAMING: Directly manipulates renderer pixel ratio instead of
+ * relying on PerformanceMonitor which is disabled during streaming.
  */
 function MovementRegression() {
-  const { performance: perf } = useThree();
+  const { gl, performance: perf } = useThree();
   const lastPos = useRef({ x: 0, y: 0, z: 0 });
+  const lastRot = useRef({ x: 0, y: 0, z: 0, w: 1 }); // Quaternion
   const frameCounter = useRef(0);
+  const isRegressed = useRef(false);
+  const regressTimeout = useRef(null);
+  const baseDpr = useRef(gl.getPixelRatio());
   
-  // Only check every 5 frames to reduce useFrame overhead
+  // Only check every 2 frames - very responsive to movement/rotation
   useFrame(({ camera }) => {
     frameCounter.current++;
-    if (frameCounter.current < 5) return;
+    if (frameCounter.current < 2) return;
     frameCounter.current = 0;
     
+    // Check position change
     const dx = camera.position.x - lastPos.current.x;
     const dy = camera.position.y - lastPos.current.y;
     const dz = camera.position.z - lastPos.current.z;
-    const moved = dx * dx + dy * dy + dz * dz > 1.0; // Increased threshold
+    const positionMoved = dx * dx + dy * dy + dz * dz > 0.1; // Very sensitive
     
+    // Check rotation change (quaternion dot product)
+    const q = camera.quaternion;
+    const dotProduct = 
+      lastRot.current.x * q.x + 
+      lastRot.current.y * q.y + 
+      lastRot.current.z * q.z + 
+      lastRot.current.w * q.w;
+    const rotationChanged = Math.abs(dotProduct) < 0.99999; // Very sensitive to rotation
+    
+    // Update last values
     lastPos.current.x = camera.position.x;
     lastPos.current.y = camera.position.y;
     lastPos.current.z = camera.position.z;
+    lastRot.current.x = q.x;
+    lastRot.current.y = q.y;
+    lastRot.current.z = q.z;
+    lastRot.current.w = q.w;
     
-    if (moved) {
+    const isMoving = positionMoved || rotationChanged;
+    
+    if (isMoving) {
+      // Regress quality during movement
+      if (!isRegressed.current) {
+        baseDpr.current = gl.getPixelRatio();
+        const regressedDpr = Math.max(0.5, baseDpr.current * 0.6); // 60% quality during movement
+        gl.setPixelRatio(regressedDpr);
+        isRegressed.current = true;
+      }
+      
+      // Reset restore timeout
+      if (regressTimeout.current) {
+        clearTimeout(regressTimeout.current);
+      }
+      
+      // Schedule quality restore after movement stops
+      regressTimeout.current = setTimeout(() => {
+        gl.setPixelRatio(baseDpr.current);
+        isRegressed.current = false;
+      }, 150); // Restore after 150ms of no movement
+      
+      // Also trigger R3F's performance regression for other systems
       perf.regress();
     }
   });
@@ -567,6 +610,7 @@ function RegionScene({
   enableChunkStreaming = true, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
   chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest but may lag)
+  enableDirtyRebuild = true, // Enable/disable automatic dirty chunk rebuilding
   dimension = 'overworld', // Current dimension ('overworld', 'the_nether', 'the_end')
   biome = 'plains', // Current biome for sky/fog coloring ('plains', 'desert', 'dark_forest', etc.)
 }) {
@@ -1191,6 +1235,9 @@ function RegionScene({
       });
       streamerRef.current = streamer;
       
+      // Apply initial settings that may have been set before streamer was created
+      streamer.setEnableDirtyRebuild(enableDirtyRebuild);
+      
       // Expose ChunkStreamer to window for E2E testing
       if (typeof window !== 'undefined') {
         window.__chunkStreamer = streamer;
@@ -1321,6 +1368,14 @@ function RegionScene({
     // Cap at 4 since meshing is more expensive than loading
     streamer.setMeshingSpeed(Math.min(chunkLoadingSpeed, 4));
   }, [chunkLoadingSpeed, enableChunkStreaming]);
+  
+  // Update dirty rebuild setting when it changes
+  useEffect(() => {
+    const streamer = streamerRef.current;
+    if (!streamer || !enableChunkStreaming) return;
+    
+    streamer.setEnableDirtyRebuild(enableDirtyRebuild);
+  }, [enableDirtyRebuild, enableChunkStreaming]);
   
   // Update chunk streamer with camera position
   useEffect(() => {
@@ -1515,6 +1570,7 @@ export function RegionViewer({
   enableChunkStreaming = true, // Enable player-centric chunk streaming (fast chunk-by-chunk loading)
   chunkStreamDistance = 8, // Chunk load distance around player (when streaming enabled)
   chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest)
+  enableDirtyRebuild = true, // Enable/disable automatic dirty chunk rebuilding
   dimension = 'overworld', // Current dimension ('overworld', 'the_nether', 'the_end')
   biome = 'plains', // Current biome for sky/fog coloring ('plains', 'desert', 'dark_forest', etc.)
   style = {}
@@ -1630,6 +1686,7 @@ export function RegionViewer({
         enableChunkStreaming={enableChunkStreaming}
         chunkStreamDistance={chunkStreamDistance}
         chunkLoadingSpeed={chunkLoadingSpeed}
+        enableDirtyRebuild={enableDirtyRebuild}
         dimension={dimension}
         biome={biome}
       />
