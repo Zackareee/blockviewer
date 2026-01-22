@@ -3279,6 +3279,12 @@ export class SuperChunkManager {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = true;
     
+    // PERFORMANCE: Disable matrix auto-update since meshes are static
+    // This saves CPU time as Three.js won't recalculate matrices every frame
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();  // Compute once
+    mesh.updateMatrixWorld(true);  // Ensure world matrix is up-to-date
+    
     // Use pre-computed bounding box from worker if available
     if (data.boundingBox) {
       geometry.boundingBox = new THREE.Box3(

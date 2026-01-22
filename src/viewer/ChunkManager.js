@@ -78,14 +78,23 @@ export class ChunkManager {
     this.textureAtlas = options.textureAtlas || null;
     
     // Three.js groups (added to scene)
+    // PERFORMANCE: All groups use matrixAutoUpdate = false since they're static
     this.solidGroup = new THREE.Group();
+    this.solidGroup.matrixAutoUpdate = false;
     this.waterGroup = new THREE.Group();
+    this.waterGroup.matrixAutoUpdate = false;
     this.lavaGroup = new THREE.Group();
+    this.lavaGroup.matrixAutoUpdate = false;
     this.glassGroup = new THREE.Group(); // Glass and transparent blocks
+    this.glassGroup.matrixAutoUpdate = false;
     this.modelGroup = new THREE.Group(); // Opaque non-cube blocks (slabs, stairs, flowers, etc.)
+    this.modelGroup.matrixAutoUpdate = false;
     this.transparentModelGroup = new THREE.Group(); // Transparent non-cube blocks (glass panes, iron bars)
+    this.transparentModelGroup.matrixAutoUpdate = false;
     this.translucentModelGroup = new THREE.Group(); // Translucent blocks with inner cubes (slime, honey) - depthWrite: false
+    this.translucentModelGroup.matrixAutoUpdate = false;
     this.overlayModelGroup = new THREE.Group(); // Overlay effects (torch bulb glow) - rendered with depthWrite: false
+    this.overlayModelGroup.matrixAutoUpdate = false;
     // Render order for proper depth sorting:
     // 0: Solid blocks and opaque model blocks (write to depth)
     // 0.5: Transparent model blocks (glass panes, iron bars - write to depth)
@@ -105,6 +114,7 @@ export class ChunkManager {
     this.overlayModelGroup.renderOrder = 3; // Overlay renders last (but doesn't write to depth)
     // End portal group (for end_portal and end_gateway blocks)
     this.endPortalGroup = new THREE.Group();
+    this.endPortalGroup.matrixAutoUpdate = false;
     this.endPortalGroup.renderOrder = 0; // Same as solid (opaque, writes depth)
     
     scene.add(this.solidGroup);
@@ -144,6 +154,7 @@ export class ChunkManager {
     
     // Group for instanced meshes
     this.instancedGroup = new THREE.Group();
+    this.instancedGroup.matrixAutoUpdate = false;
     this.instancedGroup.renderOrder = 0; // Same as solid opaque blocks
     scene.add(this.instancedGroup);
     
