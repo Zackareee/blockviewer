@@ -1935,10 +1935,15 @@ export class ChunkManager {
    */
   updateParticles(deltaTime, time, camera) {
     // Process queued mesh creation (spread across frames)
-    // Pass camera position for movement-aware budgeting
+    // Pass camera position AND rotation for movement-aware budgeting
     if (this._meshQueueProcessor) {
       if (camera) {
-        this._meshQueueProcessor(camera.position.x, camera.position.y, camera.position.z);
+        // Pass quaternion for rotation detection (looking around while stationary)
+        const quat = camera.quaternion;
+        this._meshQueueProcessor(
+          camera.position.x, camera.position.y, camera.position.z,
+          { x: quat.x, y: quat.y, z: quat.z, w: quat.w }
+        );
       } else {
         this._meshQueueProcessor();
       }

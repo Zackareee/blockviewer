@@ -524,11 +524,11 @@ export class ChunkStreamer {
     // This spreads mesh creation across frames to avoid lag spikes
     // Also processes completed worker results (super-chunk mesh creation)
     // Camera position is passed for movement-aware budgeting (reduces work during fast camera movement)
-    this.chunkManager.setMeshQueueProcessor((camX, camY, camZ) => {
-      // Update camera position for movement-aware mesh queue budgeting
-      // This automatically reduces budget during fast camera movement for smoother frame rates
+    this.chunkManager.setMeshQueueProcessor((camX, camY, camZ, quaternion) => {
+      // Update camera position AND rotation for movement-aware mesh queue budgeting
+      // This automatically reduces budget during fast camera movement OR rotation for smoother frame rates
       if (camX !== undefined) {
-        this.superChunkManager.updateCameraPosition(camX, camY, camZ);
+        this.superChunkManager.updateCameraPosition(camX, camY, camZ, quaternion);
       }
       
       // Process completion queue (creates meshes for completed super-chunks)

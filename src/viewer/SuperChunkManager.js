@@ -197,10 +197,12 @@ class MeshCreationQueue {
     this.movingMaxMeshes = 1;   // Only 1 mesh during movement
     this.normalMaxMeshes = 2;   // Normal limit when stationary
     
-    // Camera movement tracking
+    // Camera movement tracking (position AND rotation)
     this._cameraMovingFast = false;
     this._lastCameraPos = { x: 0, y: 0, z: 0 };
-    this._movementThreshold = 0.5; // Movement speed threshold (blocks/frame) - lowered for more sensitive detection
+    this._lastCameraRot = { x: 0, y: 0, z: 0, w: 1 }; // Quaternion
+    this._movementThreshold = 0.5; // Position movement threshold (blocks/frame)
+    this._rotationThreshold = 0.01; // Rotation threshold (quaternion delta squared)
     
     // Priority order: solid first for quick visual feedback, then models, then transparent
     this.priorityOrder = ['solid', 'modelOpaque', 'modelOverlay', 'glass', 'modelTransparent', 'water', 'lava'];
@@ -218,20 +220,40 @@ class MeshCreationQueue {
   }
   
   /**
-   * Update camera position to detect movement
+   * Update camera position and rotation to detect movement
    * Call this each frame before processFrame
    * 
    * @param {number} x - Camera X position
    * @param {number} y - Camera Y position
    * @param {number} z - Camera Z position
+   * @param {Object} quaternion - Optional camera quaternion {x, y, z, w}
    */
-  updateCameraPosition(x, y, z) {
+  updateCameraPosition(x, y, z, quaternion = null) {
+    // Check position movement
     const dx = x - this._lastCameraPos.x;
     const dy = y - this._lastCameraPos.y;
     const dz = z - this._lastCameraPos.z;
     const distSq = dx * dx + dy * dy + dz * dz;
+    const isMoving = distSq > this._movementThreshold * this._movementThreshold;
     
-    this._cameraMovingFast = distSq > this._movementThreshold * this._movementThreshold;
+    // Check rotation movement (quaternion delta)
+    let isRotating = false;
+    if (quaternion) {
+      const rdx = quaternion.x - this._lastCameraRot.x;
+      const rdy = quaternion.y - this._lastCameraRot.y;
+      const rdz = quaternion.z - this._lastCameraRot.z;
+      const rdw = quaternion.w - this._lastCameraRot.w;
+      const rotDeltaSq = rdx * rdx + rdy * rdy + rdz * rdz + rdw * rdw;
+      isRotating = rotDeltaSq > this._rotationThreshold;
+      
+      this._lastCameraRot.x = quaternion.x;
+      this._lastCameraRot.y = quaternion.y;
+      this._lastCameraRot.z = quaternion.z;
+      this._lastCameraRot.w = quaternion.w;
+    }
+    
+    // Camera is "moving fast" if either position or rotation changed significantly
+    this._cameraMovingFast = isMoving || isRotating;
     
     this._lastCameraPos.x = x;
     this._lastCameraPos.y = y;
@@ -912,15 +934,16 @@ export class SuperChunkManager {
   }
   
   /**
-   * Update camera position for movement-aware mesh queue budgeting
+   * Update camera position and rotation for movement-aware mesh queue budgeting
    * Call this each frame before processQueuedMeshes
    * 
    * @param {number} x - Camera X position
    * @param {number} y - Camera Y position
    * @param {number} z - Camera Z position
+   * @param {Object} quaternion - Optional camera quaternion {x, y, z, w} for rotation detection
    */
-  updateCameraPosition(x, y, z) {
-    this.meshCreationQueue.updateCameraPosition(x, y, z);
+  updateCameraPosition(x, y, z, quaternion = null) {
+    this.meshCreationQueue.updateCameraPosition(x, y, z, quaternion);
     const isMovingFast = this.meshCreationQueue.isCameraMovingFast();
     // Also update completion queue and visibility queue with movement status
     this.completionQueue.setCameraMovingFast(isMovingFast);

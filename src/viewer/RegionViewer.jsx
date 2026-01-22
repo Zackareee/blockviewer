@@ -135,74 +135,31 @@ function DynamicFog({ fogEnabled, renderDistance, fogColor = '#c8d8ff', dimensio
 }
 
 /**
- * Movement regression - lower quality while camera is moving OR rotating
- * This helps maintain smooth framerates during movement/orbit/pan
- * 
- * WORKS WITH STREAMING: Directly manipulates renderer pixel ratio instead of
- * relying on PerformanceMonitor which is disabled during streaming.
+ * Movement regression - lower quality while camera is moving
+ * This helps maintain smooth framerates during orbit/pan
+ * PERFORMANCE: Only regress every N frames to reduce overhead
  */
 function MovementRegression() {
-  const { gl, performance: perf } = useThree();
+  const { performance: perf } = useThree();
   const lastPos = useRef({ x: 0, y: 0, z: 0 });
-  const lastRot = useRef({ x: 0, y: 0, z: 0, w: 1 }); // Quaternion
   const frameCounter = useRef(0);
-  const isRegressed = useRef(false);
-  const regressTimeout = useRef(null);
-  const baseDpr = useRef(gl.getPixelRatio());
   
-  // Only check every 2 frames - very responsive to movement/rotation
+  // Only check every 5 frames to reduce useFrame overhead
   useFrame(({ camera }) => {
     frameCounter.current++;
-    if (frameCounter.current < 2) return;
+    if (frameCounter.current < 5) return;
     frameCounter.current = 0;
     
-    // Check position change
     const dx = camera.position.x - lastPos.current.x;
     const dy = camera.position.y - lastPos.current.y;
     const dz = camera.position.z - lastPos.current.z;
-    const positionMoved = dx * dx + dy * dy + dz * dz > 0.1; // Very sensitive
+    const moved = dx * dx + dy * dy + dz * dz > 1.0; // Increased threshold
     
-    // Check rotation change (quaternion dot product)
-    const q = camera.quaternion;
-    const dotProduct = 
-      lastRot.current.x * q.x + 
-      lastRot.current.y * q.y + 
-      lastRot.current.z * q.z + 
-      lastRot.current.w * q.w;
-    const rotationChanged = Math.abs(dotProduct) < 0.99999; // Very sensitive to rotation
-    
-    // Update last values
     lastPos.current.x = camera.position.x;
     lastPos.current.y = camera.position.y;
     lastPos.current.z = camera.position.z;
-    lastRot.current.x = q.x;
-    lastRot.current.y = q.y;
-    lastRot.current.z = q.z;
-    lastRot.current.w = q.w;
     
-    const isMoving = positionMoved || rotationChanged;
-    
-    if (isMoving) {
-      // Regress quality during movement
-      if (!isRegressed.current) {
-        baseDpr.current = gl.getPixelRatio();
-        const regressedDpr = Math.max(0.5, baseDpr.current * 0.6); // 60% quality during movement
-        gl.setPixelRatio(regressedDpr);
-        isRegressed.current = true;
-      }
-      
-      // Reset restore timeout
-      if (regressTimeout.current) {
-        clearTimeout(regressTimeout.current);
-      }
-      
-      // Schedule quality restore after movement stops
-      regressTimeout.current = setTimeout(() => {
-        gl.setPixelRatio(baseDpr.current);
-        isRegressed.current = false;
-      }, 150); // Restore after 150ms of no movement
-      
-      // Also trigger R3F's performance regression for other systems
+    if (moved) {
       perf.regress();
     }
   });

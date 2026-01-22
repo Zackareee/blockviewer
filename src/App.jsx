@@ -126,6 +126,10 @@ function App() {
   // 1 = smoothest (1 chunk at a time), 8 = fastest (8 chunks simultaneously)
   const [chunkLoadingSpeed, setChunkLoadingSpeed] = useState(3);
   
+  // Dirty chunk rebuilding - when enabled, chunks are rebuilt when boundaries change
+  // Disabling can help debug rendering issues or improve performance when moving quickly
+  const [enableDirtyRebuild, setEnableDirtyRebuild] = useState(true);
+  
   // Target resolution (controls rendering DPR)
   // 'native' = full resolution, or a vertical pixel count like 720, 1080, 1440, 2160
   const [targetResolution, setTargetResolution] = useState('native');
@@ -941,6 +945,7 @@ function App() {
             enableChunkStreaming={chunkStreamingEnabled}
             chunkStreamDistance={renderDistance === 0 ? 16 : renderDistance} // Use render distance for streaming
             chunkLoadingSpeed={chunkLoadingSpeed}
+            enableDirtyRebuild={enableDirtyRebuild}
             dimension={currentDimension}
           />
         ) : !loading && (
@@ -1485,6 +1490,24 @@ function App() {
                 />
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', opacity: 0.7 }}>
                   How many chunks to process at once
+                </div>
+                
+                {/* Dirty Rebuild Toggle */}
+                <label 
+                  className={`toggle-option ${enableDirtyRebuild ? 'enabled' : ''}`} 
+                  style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.625rem' }}
+                >
+                  <input 
+                    type="checkbox"
+                    checked={enableDirtyRebuild}
+                    onChange={(e) => setEnableDirtyRebuild(e.target.checked)}
+                  />
+                  <span className="toggle-label">
+                    Auto-rebuild Chunks
+                  </span>
+                </label>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', opacity: 0.7 }}>
+                  Rebuild chunk boundaries as you move
                 </div>
               </div>
             )}
