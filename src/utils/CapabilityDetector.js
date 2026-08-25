@@ -176,7 +176,7 @@ export function getOptimalConfig(capabilities) {
       // Balanced: good performance without overwhelming the system
       // Increased worker count for better parallelism
       config = {
-        workers: Math.max(4, Math.min(8, cores - 1)),
+        workers: Math.max(2, Math.min(4, cores - 1)),
         batchSize: 4,
         yieldFrequency: 'batch',
         maxMemoryMB: 768,
@@ -189,7 +189,7 @@ export function getOptimalConfig(capabilities) {
       // Maximum throughput - use up to 12 workers for high-end systems
       // WASM model meshing offloads work from main thread, so more workers help
       config = {
-        workers: Math.max(4, Math.min(12, cores - 2)),
+        workers: Math.max(2, Math.min(4, cores - 2)),
         batchSize: 4,
         yieldFrequency: 'none',
         maxMemoryMB: 1024,

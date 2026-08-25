@@ -1312,7 +1312,8 @@ function RegionScene({
       }
       
       // Position camera at spawn BEFORE marking ready
-      positionCameraAt(spawnX, spawnY, spawnZ, result.chunksLoaded);
+      positionCameraAt(spawnX, spawnY, spawnZ, result.chunksLoaded, { exact: true });
+      streamer.superChunkManager?.revealPendingMeshes?.();
       
       // Now mark streaming as ready - SpectatorControls can render
       setStreamingReady(true);
@@ -1417,10 +1418,14 @@ function RegionScene({
   }, [continuousGlass, invalidate]);
 
   // Position camera at a specific target (updates initial position for SpectatorControls)
-  const positionCameraAt = useCallback((cx, cy, cz, chunkCount = 100) => {
-    // Position camera above and to the side of the center
-    const distance = Math.max(100, Math.sqrt(chunkCount) * 8);
-    const newPos = [cx, cy + distance * 0.3, cz + distance * 0.5];
+  const positionCameraAt = useCallback((cx, cy, cz, chunkCount = 100, options = {}) => {
+    // Streaming spawn already computed eye-level Y. An extra +Z offset plus the
+    // default south-facing yaw looks away from terrain and the world appears empty.
+    const exact = options.exact === true;
+    const distance = exact ? 0 : Math.max(100, Math.sqrt(chunkCount) * 8);
+    const newPos = exact
+      ? [cx, cy, cz]
+      : [cx, cy + distance * 0.3, cz + distance * 0.5];
     cameraPositionRef.current = newPos;
     camera.position.set(newPos[0], newPos[1], newPos[2]);
     invalidate();

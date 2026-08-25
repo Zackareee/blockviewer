@@ -1,11 +1,32 @@
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+// wasm-bindgen-rayon workers do `import('../../..')` to reach the pkg root.
+// wasm-pack normally writes a package.json there; these checkouts don't, so
+// Vite's import analysis fails. Point that import at wasm_mesher.js instead.
+function wasmBindgenRayonPkg() {
+  return {
+    name: 'wasm-bindgen-rayon-pkg',
+    resolveId(source, importer) {
+      if (
+        source === '../../..' &&
+        importer &&
+        importer.includes('wasm-bindgen-rayon') &&
+        importer.endsWith('workerHelpers.js')
+      ) {
+        return path.resolve(path.dirname(importer), '../../../wasm_mesher.js')
+      }
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
   // Set base path for GitHub Pages deployment (uses env var or defaults to '/')
   base: process.env.BASE_URL || '/',
   plugins: [
+    wasmBindgenRayonPkg(),
     react({
       // Don't clear browser console on fast refresh
       fastRefresh: {

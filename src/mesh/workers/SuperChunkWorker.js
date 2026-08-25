@@ -3105,33 +3105,6 @@ async function processSuperChunk(data) {
     gridMeshes = buildGridMeshes(grid, blockRegistry, offset);
   }
   
-  // Serialize grids for main thread model meshing
-  // Model meshing requires full ModelGeometry infrastructure not available in worker
-  const serializedGrid = grid.serialize();
-  const serializedStateGrid = stateGrid.serialize();
-  const serializedLightGrid = lightGrid.serialize();
-  
-  // Serialize state registry so main thread can map worker stateIds to its own IDs
-  // Only include states that are actually used in the stateGrid
-  const usedStateIds = new Set();
-  for (const { data } of serializedStateGrid) {
-    for (let i = 0; i < data.length; i++) {
-      if (data[i] !== 0) usedStateIds.add(data[i]);
-    }
-  }
-  
-  const serializedStates = [];
-  for (const stateId of usedStateIds) {
-    const state = stateRegistry.getState(stateId);
-    if (state) {
-      serializedStates.push({
-        workerStateId: stateId,
-        blockName: state.blockName,
-        properties: state.properties,
-      });
-    }
-  }
-  
   const meshTime = performance.now() - meshStart;
   
   // Collect transferables
@@ -3143,25 +3116,10 @@ async function processSuperChunk(data) {
     glass: null,
     models: null,
     blockEntity: null, // Block entity mesh (chests, beds, signs, etc.)
-    // Serialized grids for main thread model meshing
-    grids: {
-      grid: serializedGrid,
-      stateGrid: serializedStateGrid,
-      lightGrid: serializedLightGrid,
-      states: serializedStates, // Worker state ID -> blockName + properties mapping
-    },
+    // Full grids used to be copied to the main thread for the inspector.
+    // That duplicated every loaded super-chunk and OOMed large worlds.
+    grids: null,
   };
-  
-  // Add grid section buffers to transferables
-  for (const section of serializedGrid.sections) {
-    transferables.push(section.data.buffer);
-  }
-  for (const section of serializedStateGrid) {
-    transferables.push(section.data.buffer);
-  }
-  for (const section of serializedLightGrid.sections) {
-    transferables.push(section.data.buffer);
-  }
   
   // Add grid meshes with all attributes (texture indices, rotations, tint types, lighting)
   // Pre-compute bounding volumes in worker to avoid main thread computation

@@ -108,12 +108,14 @@ class MeshCreationQueue {
    * @param {number} z - Camera Z position
    */
   updateCameraPosition(x, y, z) {
+    const firstSample = this._lastCameraPos.x === 0 && this._lastCameraPos.y === 0 && this._lastCameraPos.z === 0;
     const dx = x - this._lastCameraPos.x;
     const dy = y - this._lastCameraPos.y;
     const dz = z - this._lastCameraPos.z;
     const distSq = dx * dx + dy * dy + dz * dz;
     
-    this._cameraMovingFast = distSq > this._movementThreshold * this._movementThreshold;
+    // First sample is often a teleport from the origin — do not treat as movement
+    this._cameraMovingFast = !firstSample && distSq > this._movementThreshold * this._movementThreshold;
     
     this._lastCameraPos.x = x;
     this._lastCameraPos.y = y;
@@ -416,8 +418,8 @@ class SuperChunkCompletionQueue {
 class VisibilityWarmupQueue {
   constructor() {
     this.queue = [];
-    this.maxPerFrame = 2;           // Max meshes to make visible per frame
-    this.movingMaxPerFrame = 0;     // Skip during fast movement
+    this.maxPerFrame = 4;           // Max meshes to make visible per frame
+    this.movingMaxPerFrame = 1;     // Still reveal something while looking around
     this._cameraMovingFast = false;
   }
   
@@ -796,6 +798,10 @@ export class SuperChunkManager {
    * 
    * @returns {number} Number of meshes created this frame
    */
+  revealPendingMeshes() {
+    this.visibilityWarmupQueue.processAll();
+  }
+
   processQueuedMeshes() {
     let count = 0;
     

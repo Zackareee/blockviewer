@@ -84,7 +84,9 @@ export class SuperChunkWorkerPool {
     this.config = getOptimalConfig(this.capabilities);
     
     // Allow overrides
-    this.workerCount = options.workerCount ?? this.config.workers;
+    // Each worker loads its own WASM heap. 8–12 workers OOM browser tabs quickly.
+    const requested = options.workerCount ?? this.config.workers;
+    this.workerCount = Math.max(1, Math.min(requested, 4));
     this.batchSize = options.batchSize ?? this.config.batchSize;
     
     // Worker pool state
