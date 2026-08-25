@@ -12,6 +12,7 @@ export { ChunkManager } from './ChunkManager';
 export { ChunkStreamer } from './ChunkStreamer';
 export { SpectatorControls } from './SpectatorControls';
 export { MobileControls, useTouchLayout } from './MobileControls';
+export { BenchmarkHud } from './BenchmarkHud';
 export { createWaterMaterial } from './materials/WaterMaterial';
 export { createLavaMaterial } from './materials/LavaMaterial';
 

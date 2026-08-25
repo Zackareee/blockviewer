@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { RegionViewer, MobileControls, useTouchLayout } from './viewer';
+import { BenchmarkHud } from './viewer/BenchmarkHud';
 import { parseMCAFile, parseEntityRegionFile } from './utils/mcaParser';
 import { extractSpawnFromLevelDat } from './utils/nbtParser';
 import { 
@@ -122,6 +123,11 @@ function App() {
   
   // Chunk streaming mode - loads chunks around player position instead of entire regions
   const [chunkStreamingEnabled, setChunkStreamingEnabled] = useState(true);
+  // Pre-load benchmark: lock camera south, measure until stable or 60s
+  const [benchmarkMode, setBenchmarkMode] = useState(false);
+  const [benchmarkLive, setBenchmarkLive] = useState(null);
+  const [benchmarkReport, setBenchmarkReport] = useState(null);
+  const [benchmarkActive, setBenchmarkActive] = useState(false);
   // Stream distance is automatically derived from render distance (render + 2 buffer)
   
   // Chunk loading speed (concurrency) - higher = faster loading but may cause frame drops
@@ -920,10 +926,20 @@ function App() {
             enableRGSS={enableRGSS}
             cloudsEnabled={cloudsEnabled}
             continuousGlass={continuousGlass}
-            enableChunkStreaming={chunkStreamingEnabled}
+            enableChunkStreaming={chunkStreamingEnabled || benchmarkMode}
             chunkStreamDistance={renderDistance === 0 ? 16 : renderDistance} // Use render distance for streaming
             chunkLoadingSpeed={chunkLoadingSpeed}
             dimension={currentDimension}
+            benchmarkMode={benchmarkMode}
+            onBenchmarkLive={(live) => {
+              setBenchmarkActive(true);
+              setBenchmarkLive(live);
+            }}
+            onBenchmarkComplete={(report) => {
+              setBenchmarkLive(null);
+              setBenchmarkReport(report);
+              setBenchmarkActive(false);
+            }}
           />
         ) : !loading && (
           <div className="empty-state">
@@ -941,7 +957,7 @@ function App() {
             )}
           </div>
         )}
-        {isMobile && hasContent && !loading && (
+        {isMobile && hasContent && !loading && !benchmarkMode && !benchmarkReport && (
           <MobileControls
             spectatorRef={spectatorRef}
             visible
@@ -949,6 +965,16 @@ function App() {
             onOpenMenu={() => setSidebarCollapsed((v) => !v)}
           />
         )}
+
+        <BenchmarkHud
+          live={benchmarkMode ? benchmarkLive : null}
+          report={benchmarkReport}
+          onDismiss={() => {
+            setBenchmarkReport(null);
+            setBenchmarkLive(null);
+            setBenchmarkActive(false);
+          }}
+        />
       </div>
 
       {isMobile && !sidebarCollapsed && (
@@ -1003,6 +1029,42 @@ function App() {
         {/* File Upload */}
         <section className="panel-section">
           <h3>Region Files</h3>
+          <label
+            className={`toggle-option ${benchmarkMode ? 'enabled' : ''}`}
+            style={{ marginBottom: '0.75rem' }}
+            title="Lock camera south and measure FPS/memory/chunks until stable or 60s"
+          >
+            <input
+              type="checkbox"
+              checked={benchmarkMode}
+              disabled={hasContent || loading || benchmarkActive}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setBenchmarkMode(on);
+                if (on) setChunkStreamingEnabled(true);
+                setBenchmarkReport(null);
+                setBenchmarkLive(null);
+              }}
+            />
+            <span className="toggle-label">
+              Benchmark Mode
+              <span style={{
+                fontSize: '0.6rem',
+                background: 'rgba(234, 179, 8, 0.45)',
+                padding: '0.1rem 0.35rem',
+                borderRadius: '3px',
+                marginLeft: '0.3rem',
+                fontWeight: '600',
+                letterSpacing: '0.5px',
+              }}>TEST</span>
+            </span>
+          </label>
+          {benchmarkMode && !hasContent && (
+            <p style={{ fontSize: '0.75rem', opacity: 0.75, margin: '0 0 0.75rem', lineHeight: 1.4 }}>
+              Load a world next. Camera locks south; run ends when chunks stabilize or after 60s.
+              Results include FPS, heap, chunk/mesh counts.
+            </p>
+          )}
           <div className="file-upload-group">
             {/* Main region loading row */}
             <div className="file-upload-row">
@@ -1451,6 +1513,7 @@ function App() {
                 type="checkbox"
                 checked={chunkStreamingEnabled}
                 onChange={(e) => setChunkStreamingEnabled(e.target.checked)}
+                disabled={hasContent || benchmarkActive}
               />
               <span className="toggle-label">
                 Chunk Streaming

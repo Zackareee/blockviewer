@@ -1404,3 +1404,84 @@ input[type="range"]:focus::-moz-range-thumb {
     height: 50vh;
   }
 }
+
+/* ── Benchmark HUD ─────────────────────────────────────────── */
+.benchmark-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0.75rem;
+}
+
+.benchmark-hud--done {
+  pointer-events: auto;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.benchmark-hud__card {
+  pointer-events: auto;
+  max-width: 22rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: rgba(12, 14, 18, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f3f4f6;
+  font: 500 0.8rem/1.35 Outfit, system-ui, sans-serif;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.benchmark-hud__card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.benchmark-hud__reason,
+.benchmark-hud__note {
+  margin: 0 0 0.65rem;
+  opacity: 0.8;
+  font-size: 0.75rem;
+}
+
+.benchmark-hud__grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.benchmark-hud__grid dt {
+  opacity: 0.65;
+}
+
+.benchmark-hud__grid dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.benchmark-hud__actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.benchmark-hud__actions button {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.benchmark-hud__actions .benchmark-hud__primary {
+  background: var(--accent-primary, #6366f1);
+  border-color: transparent;
+}

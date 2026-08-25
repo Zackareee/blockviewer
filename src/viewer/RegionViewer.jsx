@@ -14,6 +14,7 @@ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { AdaptiveDpr, PerformanceMonitor } from '@react-three/drei';
 import { SpectatorControls } from './SpectatorControls';
+import { BenchmarkController } from './BenchmarkController';
 import { ChunkManager } from './ChunkManager';
 import { ChunkStreamer } from './ChunkStreamer';
 import { getBlockNameFromColor } from '../data/blockColors';
@@ -570,6 +571,10 @@ function RegionScene({
   chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest but may lag)
   dimension = 'overworld', // Current dimension ('overworld', 'the_nether', 'the_end')
   biome = 'plains', // Current biome for sky/fog coloring ('plains', 'desert', 'dark_forest', etc.)
+  benchmarkMode = false,
+  onBenchmarkLive = null,
+  onBenchmarkComplete = null,
+  targetResolution = 'native',
 }) {
   const { scene, camera, invalidate } = useThree();
   const managerRef = useRef(null);
@@ -1470,9 +1475,27 @@ function RegionScene({
         <SpectatorControls 
           ref={spectatorRef}
           initialPosition={cameraPositionRef.current}
+          initialYaw={benchmarkMode ? 0 : 0}
+          initialPitch={0}
+          inputLocked={benchmarkMode}
           onCameraUpdate={handleCameraUpdate}
         />
       )}
+
+      {benchmarkMode && enableChunkStreaming && (
+        <BenchmarkController
+          enabled={benchmarkMode}
+          spectatorRef={spectatorRef}
+          streamerRef={streamerRef}
+          managerRef={managerRef}
+          renderDistance={renderDistance}
+          chunkLoadingSpeed={chunkLoadingSpeed}
+          targetResolution={targetResolution}
+          onLive={onBenchmarkLive}
+          onComplete={onBenchmarkComplete}
+        />
+      )}
+
       <ambientLight intensity={0.4} />
       <directionalLight position={[50, 100, 30]} intensity={0.8} />
       
@@ -1553,6 +1576,9 @@ export function RegionViewer({
   chunkLoadingSpeed = 1, // Chunk loading concurrency 1-8 (1=smoothest, 8=fastest)
   dimension = 'overworld', // Current dimension ('overworld', 'the_nether', 'the_end')
   biome = 'plains', // Current biome for sky/fog coloring ('plains', 'desert', 'dark_forest', etc.)
+  benchmarkMode = false,
+  onBenchmarkLive = null,
+  onBenchmarkComplete = null,
   style = {}
 }) {
   const statsRef = useRef(null);
@@ -1669,6 +1695,10 @@ export function RegionViewer({
         chunkLoadingSpeed={chunkLoadingSpeed}
         dimension={dimension}
         biome={biome}
+        benchmarkMode={benchmarkMode}
+        onBenchmarkLive={onBenchmarkLive}
+        onBenchmarkComplete={onBenchmarkComplete}
+        targetResolution={targetResolution}
       />
     </Canvas>
   );

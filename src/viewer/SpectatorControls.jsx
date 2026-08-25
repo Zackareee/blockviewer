@@ -123,9 +123,12 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
   initialPosition = [0, 100, 0],
   initialYaw = 0,
   initialPitch = 0,
+  inputLocked = false,
 }, ref) {
   const { camera, gl, invalidate } = useThree();
   const isLockedRef = useRef(false);
+  const inputLockedRef = useRef(!!inputLocked);
+  const lockAnglesRef = useRef({ yaw: initialYaw, pitch: initialPitch });
   const keysRef = useRef({
     forward: false,
     backward: false,
@@ -152,7 +155,30 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     pitch: initialPitch * (Math.PI / 180),        // Convert Minecraft pitch to internal radians
   });
 
+  useEffect(() => {
+    inputLockedRef.current = !!inputLocked;
+  }, [inputLocked]);
+
+  const applyMinecraftLook = useCallback((yaw, pitch) => {
+    rotationRef.current.yaw = (180 - yaw) * (Math.PI / 180);
+    rotationRef.current.pitch = pitch * (Math.PI / 180);
+    rotationRef.current.pitch = Math.max(
+      -Math.PI / 2 + 0.01,
+      Math.min(Math.PI / 2 - 0.01, rotationRef.current.pitch)
+    );
+    while (rotationRef.current.yaw > Math.PI) rotationRef.current.yaw -= 2 * Math.PI;
+    while (rotationRef.current.yaw < -Math.PI) rotationRef.current.yaw += 2 * Math.PI;
+    const euler = new THREE.Euler(
+      -rotationRef.current.pitch,
+      -rotationRef.current.yaw,
+      0,
+      'YXZ'
+    );
+    camera.quaternion.setFromEuler(euler);
+  }, [camera]);
+
   const applyLookDelta = useCallback((deltaX, deltaY, sensitivity = mouseSensitivity) => {
+    if (inputLockedRef.current) return;
     rotationRef.current.yaw += deltaX * sensitivity;
     while (rotationRef.current.yaw > Math.PI) rotationRef.current.yaw -= 2 * Math.PI;
     while (rotationRef.current.yaw < -Math.PI) rotationRef.current.yaw += 2 * Math.PI;
@@ -267,6 +293,11 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
      * x = strafe (-1 left … +1 right), y = forward (-1 back … +1 forward)
      */
     setAnalogMove(x, y) {
+      if (inputLockedRef.current) {
+        analogMoveRef.current.x = 0;
+        analogMoveRef.current.y = 0;
+        return;
+      }
       analogMoveRef.current.x = x;
       analogMoveRef.current.y = y;
     },
@@ -275,6 +306,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
      * Hold/release a named action: up, down, sprint
      */
     setAction(name, pressed) {
+      if (inputLockedRef.current) return;
       if (name in keysRef.current) {
         keysRef.current[name] = !!pressed;
       }
@@ -286,7 +318,32 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     look(deltaX, deltaY, sensitivity = mouseSensitivity) {
       applyLookDelta(deltaX, deltaY, sensitivity);
     },
-  }), [camera, invalidate, onCameraUpdate, onSpeedChange, mouseSensitivity]);
+
+    /**
+     * Lock/unlock movement + look (benchmark mode).
+     * @param {boolean} locked
+     * @param {number} [yaw] Minecraft yaw when locking
+     * @param {number} [pitch] Minecraft pitch when locking
+     */
+    setInputLocked(locked, yaw = 0, pitch = 0) {
+      inputLockedRef.current = !!locked;
+      if (locked) {
+        lockAnglesRef.current = { yaw, pitch };
+        velocityRef.current.set(0, 0, 0);
+        analogMoveRef.current.x = 0;
+        analogMoveRef.current.y = 0;
+        const keys = keysRef.current;
+        keys.forward = keys.backward = keys.left = keys.right = false;
+        keys.up = keys.down = keys.sprint = false;
+        applyMinecraftLook(yaw, pitch);
+        invalidate();
+      }
+    },
+
+    isInputLocked() {
+      return inputLockedRef.current;
+    },
+  }), [camera, invalidate, onCameraUpdate, onSpeedChange, mouseSensitivity, applyLookDelta, applyMinecraftLook]);
   
   // Initialize camera position and rotation
   useEffect(() => {
@@ -484,6 +541,13 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
   
   // Movement update each frame using Minecraft physics (smooth delta-time based)
   useFrame((state, delta) => {
+    // Benchmark / input lock: freeze motion and hold look direction
+    if (inputLockedRef.current) {
+      velocityRef.current.set(0, 0, 0);
+      applyMinecraftLook(lockAnglesRef.current.yaw, lockAnglesRef.current.pitch);
+      return;
+    }
+
     // Clamp delta to prevent physics explosions on tab switch or lag spikes
     const clampedDelta = Math.min(delta, 0.1);
     
