@@ -70,6 +70,11 @@ export default defineConfig({
     // Serve textures folder at /textures/
     fs: {
       allow: ['..'],
+      // Keep local Rust/Zig toolchains from thrashing HMR
+      deny: ['.cargo', '.rustup', '.tools'],
+    },
+    watch: {
+      ignored: ['**/.cargo/**', '**/.rustup/**', '**/.tools/**', '**/src/wasm-mesher/target/**'],
     },
   },
   preview: {

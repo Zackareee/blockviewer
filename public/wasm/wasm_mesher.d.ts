@@ -163,6 +163,10 @@ export class FusedSuperChunkResult {
     readonly model_transparent_tint_types: Float32Array;
     readonly model_transparent_uvs: Float32Array;
     readonly model_transparent_vertex_count: number;
+    /**
+     * Packed occupancy bitmasks for self chunks (neighbor stitch cache)
+     */
+    readonly occupancy_data: Uint8Array;
     readonly solid_block_light: Float32Array;
     readonly solid_colors: Float32Array;
     readonly solid_indices: Uint32Array;
@@ -525,8 +529,6 @@ export function get_block_variant_count(name: string): number;
  */
 export function init(): void;
 
-export function initThreadPool(num_threads: number): Promise<any>;
-
 /**
  * Initialize the block entity registry from binary data
  */
@@ -568,14 +570,6 @@ export function init_model_registry(state_ids: Uint16Array, geometry_data: Uint8
 export function init_model_registry_v2(state_ids: Uint16Array, block_names: string, flags_data: Uint8Array, geometry_data: Uint8Array): void;
 
 export function init_state_registry(state_strings: string, state_ids: Uint16Array): void;
-
-/**
- * Initialize Rayon thread pool for parallel meshing
- * Only available when built with the "parallel" feature
- * Must be called before any parallel meshing operations
- * Returns a Promise that resolves when the pool is ready
- */
-export function init_thread_pool(num_threads: number): Promise<any>;
 
 /**
  * Check if block entity registry is initialized
@@ -634,6 +628,20 @@ export function mesh_chunk_streaming(_grid_data: Uint8Array, _light_data: Uint8A
 export function mesh_models_v3(grid_data: Uint8Array, light_data: Uint8Array, model_state_data: Uint8Array, min_chunk_x: number, min_chunk_z: number, max_chunk_x: number, max_chunk_z: number): ModelMeshResultWasm;
 
 /**
+ * Mesh a 2×2 super-chunk from compressed bytes + optional occupancy collar.
+ *
+ * Skips the JS NBT→grid→serialize round-trip. Models can be deferred via `skip_models`.
+ *
+ * Chunk blob format (same as process_super_chunk_complete):
+ * per chunk `[4 LE len][compressed...][1 compression][4 LE x][4 LE z]`
+ *
+ * Occupancy blob: `[count:u32]` then per neighbor
+ * `[cx:i32][cz:i32][sec_count:u32]` then per section
+ * `[sy:i32][solidBits:512][fluidBits:512]`
+ */
+export function mesh_super_chunk(chunk_data_flat: Uint8Array, chunk_count: number, occupancy_blob: Uint8Array, min_chunk_x: number, min_chunk_z: number, max_chunk_x: number, max_chunk_z: number, skip_models: boolean): FusedSuperChunkResult;
+
+/**
  * Process a compressed chunk directly to mesh buffers
  *
  * This is the unified pipeline entry point that handles:
@@ -677,17 +685,6 @@ export function process_chunk_complete(compressed_data: Uint8Array, compression_
  * Input format: chunks as Vec of (compressed_data, compression_type, chunk_x, chunk_z)
  */
 export function process_super_chunk_complete(chunk_data_flat: Uint8Array, chunk_count: number): FusedSuperChunkResult;
-
-export class wbg_rayon_PoolBuilder {
-    private constructor();
-    free(): void;
-    [Symbol.dispose](): void;
-    build(): void;
-    numThreads(): number;
-    receiver(): number;
-}
-
-export function wbg_rayon_start_worker(receiver: number): void;
 
 /**
  * Write cached mesh data to pre-allocated JS typed arrays (zero-copy path)
@@ -844,6 +841,8 @@ export interface InitOutput {
     readonly fusedchunkresult_water_tex_indices: (a: number) => [number, number];
     readonly fusedchunkresult_water_uvs: (a: number) => [number, number];
     readonly fusedchunkresult_water_vertex_count: (a: number) => number;
+    readonly fusedsuperchunkresult_blocks_decoded: (a: number) => number;
+    readonly fusedsuperchunkresult_chunk_count: (a: number) => number;
     readonly fusedsuperchunkresult_error_message: (a: number) => [number, number];
     readonly fusedsuperchunkresult_glass_block_light: (a: number) => [number, number];
     readonly fusedsuperchunkresult_glass_colors: (a: number) => [number, number];
@@ -889,6 +888,7 @@ export interface InitOutput {
     readonly fusedsuperchunkresult_model_transparent_tex_indices: (a: number) => [number, number];
     readonly fusedsuperchunkresult_model_transparent_tint_types: (a: number) => [number, number];
     readonly fusedsuperchunkresult_model_transparent_uvs: (a: number) => [number, number];
+    readonly fusedsuperchunkresult_occupancy_data: (a: number) => [number, number];
     readonly fusedsuperchunkresult_solid_block_light: (a: number) => [number, number];
     readonly fusedsuperchunkresult_solid_colors: (a: number) => [number, number];
     readonly fusedsuperchunkresult_solid_indices: (a: number) => [number, number];
@@ -915,6 +915,7 @@ export interface InitOutput {
     readonly mesh_chunk_bounded: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => number;
     readonly mesh_chunk_streaming: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly mesh_models_v3: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => number;
+    readonly mesh_super_chunk: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => number;
     readonly meshresult_glass_block_light: (a: number) => [number, number];
     readonly meshresult_glass_colors: (a: number) => [number, number];
     readonly meshresult_glass_indices: (a: number) => [number, number];
@@ -1048,8 +1049,6 @@ export interface InitOutput {
     readonly process_chunk: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly process_chunk_complete: (a: number, b: number, c: number, d: number, e: number) => number;
     readonly process_super_chunk_complete: (a: number, b: number, c: number) => number;
-    readonly processedchunk_blocks_decoded: (a: number) => number;
-    readonly processedchunk_chunk_x: (a: number) => number;
     readonly processedchunk_chunk_z: (a: number) => number;
     readonly processedchunk_error_message: (a: number) => [number, number];
     readonly processedchunk_glass_block_light: (a: number) => [number, number];
@@ -1137,9 +1136,6 @@ export interface InitOutput {
     readonly write_mesh_to_buffers: (a: number, b: number, c: any, d: number, e: number, f: any, g: number, h: number, i: any, j: number, k: number, l: any, m: number, n: number, o: any, p: number, q: number, r: any, s: number, t: number, u: any, v: number, w: number, x: any, y: number, z: number, a1: any, b1: number, c1: number, d1: any, e1: number, f1: number, g1: any, h1: number, i1: number, j1: any, k1: number, l1: number, m1: any, n1: number, o1: number, p1: any, q1: number, r1: number, s1: any, t1: number, u1: number, v1: any, w1: number, x1: number, y1: any, z1: number, a2: number, b2: any, c2: number, d2: number, e2: any, f2: number, g2: number, h2: any, i2: number, j2: number, k2: any, l2: number, m2: number, n2: any, o2: number, p2: number, q2: any, r2: number, s2: number, t2: any, u2: number, v2: number, w2: any, x2: number, y2: number, z2: any, a3: number, b3: number, c3: any, d3: number, e3: number, f3: any, g3: number, h3: number, i3: any, j3: number, k3: number, l3: any) => number;
     readonly write_model_mesh_to_buffers: (a: number, b: number, c: any, d: number, e: number, f: any, g: number, h: number, i: any, j: number, k: number, l: any, m: number, n: number, o: any, p: number, q: number, r: any, s: number, t: number, u: any, v: number, w: number, x: any, y: number, z: number, a1: any, b1: number, c1: number, d1: any, e1: number, f1: number, g1: any, h1: number, i1: number, j1: any, k1: number, l1: number, m1: any, n1: number, o1: number, p1: any) => number;
     readonly init: () => void;
-    readonly clear_cached_result: () => void;
-    readonly fusedsuperchunkresult_blocks_decoded: (a: number) => number;
-    readonly fusedsuperchunkresult_chunk_count: (a: number) => number;
     readonly fusedsuperchunkresult_glass_vertex_count: (a: number) => number;
     readonly fusedsuperchunkresult_lava_vertex_count: (a: number) => number;
     readonly fusedsuperchunkresult_model_opaque_vertex_count: (a: number) => number;
@@ -1147,6 +1143,8 @@ export interface InitOutput {
     readonly fusedsuperchunkresult_model_transparent_vertex_count: (a: number) => number;
     readonly fusedsuperchunkresult_solid_vertex_count: (a: number) => number;
     readonly fusedsuperchunkresult_water_vertex_count: (a: number) => number;
+    readonly processedchunk_blocks_decoded: (a: number) => number;
+    readonly processedchunk_chunk_x: (a: number) => number;
     readonly processedchunk_glass_vertex_count: (a: number) => number;
     readonly processedchunk_lava_vertex_count: (a: number) => number;
     readonly processedchunk_model_opaque_vertex_count: (a: number) => number;
@@ -1156,7 +1154,10 @@ export interface InitOutput {
     readonly processedchunk_water_vertex_count: (a: number) => number;
     readonly streamingmeshresultwasm_boundary_neg_z_count: (a: number) => number;
     readonly streamingmeshresultwasm_vertex_count: (a: number) => number;
-    readonly init_thread_pool: (a: number) => any;
+    readonly clear_cached_result: () => void;
+    readonly init_model_registry: (a: number, b: number, c: number, d: number) => void;
+    readonly init_model_registry_v2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly init_state_registry: (a: number, b: number, c: number, d: number) => void;
     readonly init_entity_model_registry: (a: number, b: number) => number;
     readonly is_entity_registry_initialized: () => number;
     readonly init_block_entity_registry: (a: number, b: number) => number;
@@ -1167,21 +1168,11 @@ export interface InitOutput {
     readonly get_block_variant_count: (a: number, b: number) => number;
     readonly init_block_model_registry: (a: number, b: number, c: number, d: number) => number;
     readonly is_block_model_registry_initialized: () => number;
-    readonly init_model_registry: (a: number, b: number, c: number, d: number) => void;
-    readonly init_model_registry_v2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-    readonly init_state_registry: (a: number, b: number, c: number, d: number) => void;
-    readonly __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
-    readonly wbg_rayon_poolbuilder_build: (a: number) => void;
-    readonly wbg_rayon_poolbuilder_numThreads: (a: number) => number;
-    readonly wbg_rayon_poolbuilder_receiver: (a: number) => number;
-    readonly wbg_rayon_start_worker: (a: number) => void;
-    readonly initThreadPool: (a: number) => any;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_exn_store: (a: number) => void;
-    readonly __externref_table_alloc: () => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_externrefs: WebAssembly.Table;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_start: () => void;
 }
 

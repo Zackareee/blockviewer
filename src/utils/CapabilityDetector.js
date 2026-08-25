@@ -79,11 +79,18 @@ export function detectCapabilities() {
     ? navigator.hardwareConcurrency || 4 
     : 4;
   
-  // Device memory in GB - default to 4 if not available
+  // Device memory in GB - null when unavailable (Safari / Firefox / many phones)
   // Note: navigator.deviceMemory is only available in Chrome/Edge
-  const memory = typeof navigator !== 'undefined' && 'deviceMemory' in navigator
-    ? navigator.deviceMemory
-    : 4;
+  const memoryKnown = typeof navigator !== 'undefined' && 'deviceMemory' in navigator;
+  const memory = memoryKnown ? navigator.deviceMemory : null;
+  
+  // Touch / mobile heuristics — treat as low-end for worker budgeting
+  const coarsePointer = typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(pointer: coarse)').matches;
+  const saveData = typeof navigator !== 'undefined'
+    && !!navigator.connection?.saveData;
+  const isConstrainedDevice = coarsePointer || saveData || !memoryKnown;
   
   // Native DecompressionStream API (Chrome 80+, Firefox 113+, Safari 16.4+)
   const hasNativeDecompress = typeof DecompressionStream !== 'undefined';
@@ -109,11 +116,12 @@ export function detectCapabilities() {
   // WebGPU is available in Chrome 113+, Edge 113+, Firefox Nightly
   const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
   
-  // Classify hardware tier
+  // Classify hardware tier — constrained devices always low
+  const effectiveMemory = memory ?? (isConstrainedDevice ? 2 : 4);
   let tier;
-  if (cores <= 4 || memory < 4) {
+  if (isConstrainedDevice || cores <= 4 || effectiveMemory < 4) {
     tier = 'low';
-  } else if (cores <= 8 || memory < 8) {
+  } else if (cores <= 8 || effectiveMemory < 8) {
     tier = 'mid';
   } else {
     tier = 'high';
@@ -121,7 +129,9 @@ export function detectCapabilities() {
   
   cachedCapabilities = {
     cores,
-    memory,
+    memory: effectiveMemory,
+    memoryKnown,
+    isConstrainedDevice,
     hasNativeDecompress,
     hasTransferable,
     hasSharedArrayBuffer,
@@ -135,7 +145,8 @@ export function detectCapabilities() {
   // Log detected capabilities for debugging
   console.log('[CapabilityDetector] Detected capabilities:', {
     cores,
-    memory: `${memory}GB`,
+    memory: memoryKnown ? `${memory}GB` : 'unknown',
+    constrained: isConstrainedDevice,
     tier,
     nativeDecompress: hasNativeDecompress,
     sharedArrayBuffer: hasSharedArrayBuffer,
@@ -161,20 +172,24 @@ export function getOptimalConfig(capabilities) {
   
   switch (tier) {
     case 'low':
-      // Conservative: prioritize FPS stability over loading speed
+      // Conservative: prioritize FPS stability over loading speed.
+      // Mobile / unknown-memory devices get a single WASM worker to avoid OOM freezes.
       config = {
-        workers: Math.max(2, Math.min(2, cores - 1)),
+        workers: 1,
         batchSize: 1,
         yieldFrequency: 'every',
         maxMemoryMB: 256,
         useNativeDecompress: hasNativeDecompress,
         cacheNeighborData: false, // Save memory
+        deferModels: true,
+        skipMainThreadFallback: true,
       };
       break;
       
     case 'mid':
       // Balanced: good performance without overwhelming the system
       // Increased worker count for better parallelism
+      // First paint still defers models so WASM ingest can skip the JS grid copy
       config = {
         workers: Math.max(2, Math.min(4, cores - 1)),
         batchSize: 4,
@@ -182,12 +197,14 @@ export function getOptimalConfig(capabilities) {
         maxMemoryMB: 768,
         useNativeDecompress: hasNativeDecompress,
         cacheNeighborData: true,
+        deferModels: true,
+        skipMainThreadFallback: false,
       };
       break;
       
     case 'high':
-      // Maximum throughput - use up to 12 workers for high-end systems
-      // WASM model meshing offloads work from main thread, so more workers help
+      // Maximum throughput - use up to 4 workers (WASM heaps are expensive)
+      // Solids-first via WASM ingest; models/multipart follow after first paint
       config = {
         workers: Math.max(2, Math.min(4, cores - 2)),
         batchSize: 4,
@@ -195,6 +212,8 @@ export function getOptimalConfig(capabilities) {
         maxMemoryMB: 1024,
         useNativeDecompress: hasNativeDecompress,
         cacheNeighborData: true,
+        deferModels: true,
+        skipMainThreadFallback: false,
       };
       break;
       
@@ -207,14 +226,18 @@ export function getOptimalConfig(capabilities) {
         maxMemoryMB: 512,
         useNativeDecompress: hasNativeDecompress,
         cacheNeighborData: true,
+        deferModels: true,
+        skipMainThreadFallback: false,
       };
   }
   
   // Adjust for low memory
   if (memory < 4) {
-    config.workers = Math.min(config.workers, 2);
+    config.workers = Math.min(config.workers, caps.isConstrainedDevice ? 1 : 2);
     config.maxMemoryMB = Math.min(config.maxMemoryMB, 256);
     config.cacheNeighborData = false;
+    config.deferModels = true;
+    config.skipMainThreadFallback = true;
   }
   
   // Ensure at least 1 worker

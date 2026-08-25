@@ -1796,32 +1796,27 @@ pub fn process_chunk_complete(
     }
 }
 
-/// Process multiple compressed chunks for a super-chunk in a single call
-/// 
-/// This is the ultimate fused pipeline - processes 4 chunks together
-/// with proper neighbor handling for greedy meshing.
-/// 
-/// Input format: chunks as Vec of (compressed_data, compression_type, chunk_x, chunk_z)
-#[wasm_bindgen]
-pub fn process_super_chunk_complete(
+/// Bytes per section occupancy bitmask (4096 bits)
+const OCCUPANCY_BYTES_PER_SECTION: usize = types::SECTION_VOLUME / 8;
+
+/// Decode flat compressed chunk blob into merged grids.
+/// Format per chunk: [4 LE len][compressed...][1 compression][4 LE x][4 LE z]
+fn decode_super_chunk_flat(
     chunk_data_flat: &[u8],
     chunk_count: usize,
-) -> FusedSuperChunkResult {
-    // Parse the flat data format:
-    // For each chunk: [4 bytes len][compressed_data...][1 byte compression][4 bytes x][4 bytes z]
+) -> Result<(grid::BinaryGrid, grid::LightGrid, grid::BlockStateGrid, Vec<(i32, i32)>, u32), String> {
     let mut offset = 0;
-    let mut grids = Vec::with_capacity(chunk_count);
-    let mut light_grids = Vec::with_capacity(chunk_count);
-    let mut state_grids = Vec::with_capacity(chunk_count);
+    let mut merged_grid = grid::BinaryGrid::new();
+    let mut merged_light = grid::LightGrid::new();
+    let mut merged_state = grid::BlockStateGrid::new();
     let mut chunk_coords = Vec::with_capacity(chunk_count);
     let mut total_blocks = 0u32;
-    
+
     for _ in 0..chunk_count {
         if offset + 4 > chunk_data_flat.len() {
-            return FusedSuperChunkResult::error("Invalid chunk data format: truncated length");
+            return Err("Invalid chunk data format: truncated length".to_string());
         }
-        
-        // Read length (little-endian)
+
         let len = u32::from_le_bytes([
             chunk_data_flat[offset],
             chunk_data_flat[offset + 1],
@@ -1829,17 +1824,17 @@ pub fn process_super_chunk_complete(
             chunk_data_flat[offset + 3],
         ]) as usize;
         offset += 4;
-        
+
         if offset + len + 9 > chunk_data_flat.len() {
-            return FusedSuperChunkResult::error("Invalid chunk data format: truncated data");
+            return Err("Invalid chunk data format: truncated data".to_string());
         }
-        
+
         let compressed = &chunk_data_flat[offset..offset + len];
         offset += len;
-        
+
         let compression_type = chunk_data_flat[offset];
         offset += 1;
-        
+
         let chunk_x = i32::from_le_bytes([
             chunk_data_flat[offset],
             chunk_data_flat[offset + 1],
@@ -1847,7 +1842,7 @@ pub fn process_super_chunk_complete(
             chunk_data_flat[offset + 3],
         ]);
         offset += 4;
-        
+
         let chunk_z = i32::from_le_bytes([
             chunk_data_flat[offset],
             chunk_data_flat[offset + 1],
@@ -1855,82 +1850,241 @@ pub fn process_super_chunk_complete(
             chunk_data_flat[offset + 3],
         ]);
         offset += 4;
-        
-        // Decompress
-        let comp_type = match decode::CompressionType::from_u8(compression_type) {
-            Some(ct) => ct,
-            None => return FusedSuperChunkResult::error("Invalid compression type"),
-        };
-        
-        let decompressed = match decode::decompress(compressed, comp_type) {
-            Ok(data) => data,
-            Err(e) => return FusedSuperChunkResult::error(&format!("Decompression failed: {}", e)),
-        };
-        
-        // Parse NBT
-        let chunk_nbt = match decode::parse_nbt(&decompressed) {
-            Ok(data) => data,
-            Err(e) => return FusedSuperChunkResult::error(&format!("NBT parse failed: {}", e)),
-        };
-        
-        // Decode to grids
-        let (blocks, grid, light_grid, state_grid) = 
+
+        let comp_type = decode::CompressionType::from_u8(compression_type)
+            .ok_or_else(|| "Invalid compression type".to_string())?;
+
+        let decompressed = decode::decompress(compressed, comp_type)
+            .map_err(|e| format!("Decompression failed: {}", e))?;
+
+        let chunk_nbt = decode::parse_nbt(&decompressed)
+            .map_err(|e| format!("NBT parse failed: {}", e))?;
+
+        let (blocks, grid, light_grid, state_grid) =
             decode::decode_chunk_with_states(&chunk_nbt, chunk_x, chunk_z);
-        
+
         total_blocks += blocks;
-        grids.push(grid);
-        light_grids.push(light_grid);
-        state_grids.push(state_grid);
+        merged_grid.merge_from(&grid);
+        merged_light.merge_from(&light_grid);
+        merged_state.merge_from(&state_grid);
         chunk_coords.push((chunk_x, chunk_z));
     }
-    
-    // Merge grids
-    let mut merged_grid = grid::BinaryGrid::new();
-    let mut merged_light = grid::LightGrid::new();
-    let mut merged_state = grid::BlockStateGrid::new();
-    
-    for (i, grid) in grids.into_iter().enumerate() {
-        merged_grid.merge_from(&grid);
-        merged_light.merge_from(&light_grids[i]);
-        merged_state.merge_from(&state_grids[i]);
+
+    Ok((merged_grid, merged_light, merged_state, chunk_coords, total_blocks))
+}
+
+/// Stamp neighbor occupancy bitmasks into the grid as placeholder stone/water.
+/// Format: [count:u32] then per neighbor [cx:i32][cz:i32][sec_count:u32]
+/// then per section [sy:i32][solidBits:512][fluidBits:512]
+fn apply_occupancy_blob(grid: &mut grid::BinaryGrid, occupancy_blob: &[u8]) -> Result<(), String> {
+    if occupancy_blob.is_empty() {
+        return Ok(());
     }
-    
-    // Calculate bounds from chunk coords
-    let min_x = chunk_coords.iter().map(|(x, _)| *x).min().unwrap_or(0);
-    let max_x = chunk_coords.iter().map(|(x, _)| *x).max().unwrap_or(0);
-    let min_z = chunk_coords.iter().map(|(_, z)| *z).min().unwrap_or(0);
-    let max_z = chunk_coords.iter().map(|(_, z)| *z).max().unwrap_or(0);
-    
-    let bounds = Some(mesher::MeshBounds {
-        min_chunk_x: min_x,
-        min_chunk_z: min_z,
-        max_chunk_x: max_x,
-        max_chunk_z: max_z,
-    });
-    
-    // Get lookups
+    if occupancy_blob.len() < 4 {
+        return Err("Occupancy blob truncated".to_string());
+    }
+
+    let stone_id = {
+        let id = registry::get_block_id("minecraft:stone");
+        if id == 0 { registry::get_block_id("stone") } else { id }
+    };
+    let stone_id = if stone_id == 0 { 1 } else { stone_id };
+
+    let water_id = {
+        let id = registry::get_block_id("minecraft:water");
+        if id == 0 { registry::get_block_id("water") } else { id }
+    };
+    let water_packed = if water_id != 0 {
+        water_id | (8u16 << types::LEVEL_SHIFT)
+    } else {
+        0
+    };
+
+    let mut offset = 0;
+    let count = u32::from_le_bytes([
+        occupancy_blob[offset],
+        occupancy_blob[offset + 1],
+        occupancy_blob[offset + 2],
+        occupancy_blob[offset + 3],
+    ]) as usize;
+    offset += 4;
+
+    for _ in 0..count {
+        if offset + 12 > occupancy_blob.len() {
+            return Err("Occupancy neighbor truncated".to_string());
+        }
+        let cx = i32::from_le_bytes([
+            occupancy_blob[offset],
+            occupancy_blob[offset + 1],
+            occupancy_blob[offset + 2],
+            occupancy_blob[offset + 3],
+        ]);
+        offset += 4;
+        let cz = i32::from_le_bytes([
+            occupancy_blob[offset],
+            occupancy_blob[offset + 1],
+            occupancy_blob[offset + 2],
+            occupancy_blob[offset + 3],
+        ]);
+        offset += 4;
+        let sec_count = u32::from_le_bytes([
+            occupancy_blob[offset],
+            occupancy_blob[offset + 1],
+            occupancy_blob[offset + 2],
+            occupancy_blob[offset + 3],
+        ]) as usize;
+        offset += 4;
+
+        for _ in 0..sec_count {
+            if offset + 4 + OCCUPANCY_BYTES_PER_SECTION * 2 > occupancy_blob.len() {
+                return Err("Occupancy section truncated".to_string());
+            }
+            let sy = i32::from_le_bytes([
+                occupancy_blob[offset],
+                occupancy_blob[offset + 1],
+                occupancy_blob[offset + 2],
+                occupancy_blob[offset + 3],
+            ]);
+            offset += 4;
+            let solid_bits = &occupancy_blob[offset..offset + OCCUPANCY_BYTES_PER_SECTION];
+            offset += OCCUPANCY_BYTES_PER_SECTION;
+            let fluid_bits = &occupancy_blob[offset..offset + OCCUPANCY_BYTES_PER_SECTION];
+            offset += OCCUPANCY_BYTES_PER_SECTION;
+
+            let section = grid.get_or_create_section(cx, cz, sy);
+            for i in 0..types::SECTION_VOLUME {
+                let byte_index = i >> 3;
+                let bit = 1u8 << (i & 7);
+                if solid_bits[byte_index] & bit != 0 {
+                    section[i] = stone_id;
+                } else if water_packed != 0 && (fluid_bits[byte_index] & bit != 0) {
+                    section[i] = water_packed;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Pack self-chunk occupancy for later neighbor stitches.
+fn extract_occupancy_blob(
+    grid: &grid::BinaryGrid,
+    chunk_coords: &[(i32, i32)],
+    lookups: &lookup::Lookups,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&(chunk_coords.len() as u32).to_le_bytes());
+
+    for &(cx, cz) in chunk_coords {
+        let mut sections: Vec<(i32, [u8; OCCUPANCY_BYTES_PER_SECTION], [u8; OCCUPANCY_BYTES_PER_SECTION])> =
+            Vec::new();
+
+        for (key, section) in grid.iter_sections() {
+            if key.chunk_x != cx || key.chunk_z != cz {
+                continue;
+            }
+            let mut solid_bits = [0u8; OCCUPANCY_BYTES_PER_SECTION];
+            let mut fluid_bits = [0u8; OCCUPANCY_BYTES_PER_SECTION];
+            let mut has_any = false;
+
+            for i in 0..types::SECTION_VOLUME {
+                let packed = section[i];
+                if packed == 0 {
+                    continue;
+                }
+                let block_id = packed & types::BLOCK_ID_MASK;
+                if block_id == 0 {
+                    continue;
+                }
+                let byte_index = i >> 3;
+                let bit = 1u8 << (i & 7);
+                if lookups.fluid_type(block_id) != 0 {
+                    fluid_bits[byte_index] |= bit;
+                    has_any = true;
+                } else if lookups.is_opaque(block_id) || !lookups.is_non_cube(block_id) {
+                    solid_bits[byte_index] |= bit;
+                    has_any = true;
+                }
+            }
+
+            if has_any {
+                sections.push((key.section_y, solid_bits, fluid_bits));
+            }
+        }
+
+        out.extend_from_slice(&cx.to_le_bytes());
+        out.extend_from_slice(&cz.to_le_bytes());
+        out.extend_from_slice(&(sections.len() as u32).to_le_bytes());
+        for (sy, solid_bits, fluid_bits) in sections {
+            out.extend_from_slice(&sy.to_le_bytes());
+            out.extend_from_slice(&solid_bits);
+            out.extend_from_slice(&fluid_bits);
+        }
+    }
+
+    out
+}
+
+fn mesh_from_merged_grids(
+    merged_grid: &grid::BinaryGrid,
+    merged_light: &grid::LightGrid,
+    merged_state: &grid::BlockStateGrid,
+    chunk_coords: &[(i32, i32)],
+    total_blocks: u32,
+    min_chunk_x: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_z: i32,
+    skip_models: bool,
+) -> FusedSuperChunkResult {
     let lookups = match lookup::Lookups::get() {
         Some(l) => l,
         None => return FusedSuperChunkResult::error("Lookups not initialized"),
     };
-    
-    // Run meshers
-    let solid_result = mesher::greedy::mesh_solid_bounded(&merged_grid, Some(&merged_light), &lookups, bounds.as_ref());
-    let fluid_result = mesher::fluid::mesh_fluids_bounded(&merged_grid, Some(&merged_light), &lookups, bounds.as_ref());
-    let glass_result = mesher::greedy::mesh_glass_bounded(&merged_grid, Some(&merged_light), &lookups, bounds.as_ref());
-    
-    let (model_opaque, model_transparent, model_overlay) = if models::registry::is_hash_model_registry_initialized() {
-        let model_result = models::mesher::mesh_models_bounded(&merged_grid, &merged_state, Some(&merged_light), &lookups, bounds.as_ref());
-        (model_result.opaque, model_result.transparent, model_result.overlay)
+
+    let bounds = Some(mesher::MeshBounds {
+        min_chunk_x,
+        min_chunk_z,
+        max_chunk_x,
+        max_chunk_z,
+    });
+
+    let light_ref = if merged_light.is_empty() {
+        None
     } else {
-        (models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new(), models::geometry::ModelMeshData::new())
+        Some(merged_light)
     };
-    
+
+    let solid_result = mesher::greedy::mesh_solid_bounded(merged_grid, light_ref, &lookups, bounds.as_ref());
+    let fluid_result = mesher::fluid::mesh_fluids_bounded(merged_grid, light_ref, &lookups, bounds.as_ref());
+    let glass_result = mesher::greedy::mesh_glass_bounded(merged_grid, light_ref, &lookups, bounds.as_ref());
+
+    let (model_opaque, model_transparent, model_overlay) =
+        if !skip_models && models::registry::is_hash_model_registry_initialized() {
+            let model_result = models::mesher::mesh_models_bounded(
+                merged_grid,
+                merged_state,
+                light_ref,
+                &lookups,
+                bounds.as_ref(),
+            );
+            (model_result.opaque, model_result.transparent, model_result.overlay)
+        } else {
+            (
+                models::geometry::ModelMeshData::new(),
+                models::geometry::ModelMeshData::new(),
+                models::geometry::ModelMeshData::new(),
+            )
+        };
+
+    let occupancy_data = extract_occupancy_blob(merged_grid, chunk_coords, &lookups);
+
     FusedSuperChunkResult {
         success: true,
         error_message: String::new(),
         blocks_decoded: total_blocks,
-        chunk_count: chunk_count as u32,
+        chunk_count: chunk_coords.len() as u32,
         solid: solid_result,
         water: fluid_result.water,
         lava: fluid_result.lava,
@@ -1938,7 +2092,93 @@ pub fn process_super_chunk_complete(
         model_opaque,
         model_transparent,
         model_overlay,
+        occupancy_data,
     }
+}
+
+/// Process multiple compressed chunks for a super-chunk in a single call
+///
+/// This is the ultimate fused pipeline - processes 4 chunks together
+/// with proper neighbor handling for greedy meshing.
+///
+/// Input format: chunks as Vec of (compressed_data, compression_type, chunk_x, chunk_z)
+#[wasm_bindgen]
+pub fn process_super_chunk_complete(
+    chunk_data_flat: &[u8],
+    chunk_count: usize,
+) -> FusedSuperChunkResult {
+    let (merged_grid, merged_light, merged_state, chunk_coords, total_blocks) =
+        match decode_super_chunk_flat(chunk_data_flat, chunk_count) {
+            Ok(v) => v,
+            Err(e) => return FusedSuperChunkResult::error(&e),
+        };
+
+    let min_x = chunk_coords.iter().map(|(x, _)| *x).min().unwrap_or(0);
+    let max_x = chunk_coords.iter().map(|(x, _)| *x).max().unwrap_or(0);
+    let min_z = chunk_coords.iter().map(|(_, z)| *z).min().unwrap_or(0);
+    let max_z = chunk_coords.iter().map(|(_, z)| *z).max().unwrap_or(0);
+
+    mesh_from_merged_grids(
+        &merged_grid,
+        &merged_light,
+        &merged_state,
+        &chunk_coords,
+        total_blocks,
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+        false,
+    )
+}
+
+/// Mesh a 2×2 super-chunk from compressed bytes + optional occupancy collar.
+///
+/// Skips the JS NBT→grid→serialize round-trip. Models can be deferred via `skip_models`.
+///
+/// Chunk blob format (same as process_super_chunk_complete):
+/// per chunk `[4 LE len][compressed...][1 compression][4 LE x][4 LE z]`
+///
+/// Occupancy blob: `[count:u32]` then per neighbor
+/// `[cx:i32][cz:i32][sec_count:u32]` then per section
+/// `[sy:i32][solidBits:512][fluidBits:512]`
+#[wasm_bindgen]
+pub fn mesh_super_chunk(
+    chunk_data_flat: &[u8],
+    chunk_count: usize,
+    occupancy_blob: &[u8],
+    min_chunk_x: i32,
+    min_chunk_z: i32,
+    max_chunk_x: i32,
+    max_chunk_z: i32,
+    skip_models: bool,
+) -> FusedSuperChunkResult {
+    if !registry::is_initialized() {
+        return FusedSuperChunkResult::error("Block registry not initialized");
+    }
+
+    let (mut merged_grid, merged_light, merged_state, chunk_coords, total_blocks) =
+        match decode_super_chunk_flat(chunk_data_flat, chunk_count) {
+            Ok(v) => v,
+            Err(e) => return FusedSuperChunkResult::error(&e),
+        };
+
+    if let Err(e) = apply_occupancy_blob(&mut merged_grid, occupancy_blob) {
+        return FusedSuperChunkResult::error(&e);
+    }
+
+    mesh_from_merged_grids(
+        &merged_grid,
+        &merged_light,
+        &merged_state,
+        &chunk_coords,
+        total_blocks,
+        min_chunk_x,
+        min_chunk_z,
+        max_chunk_x,
+        max_chunk_z,
+        skip_models,
+    )
 }
 
 /// Result of fused single-chunk processing
@@ -2161,6 +2401,8 @@ pub struct FusedSuperChunkResult {
     model_opaque: models::geometry::ModelMeshData,
     model_transparent: models::geometry::ModelMeshData,
     model_overlay: models::geometry::ModelMeshData,
+    /// Packed self-chunk occupancy for later neighbor AO/water stitches
+    occupancy_data: Vec<u8>,
 }
 
 impl FusedSuperChunkResult {
@@ -2177,6 +2419,7 @@ impl FusedSuperChunkResult {
             model_opaque: models::geometry::ModelMeshData::new(),
             model_transparent: models::geometry::ModelMeshData::new(),
             model_overlay: models::geometry::ModelMeshData::new(),
+            occupancy_data: Vec::new(),
         }
     }
 }
@@ -2194,6 +2437,10 @@ impl FusedSuperChunkResult {
     
     #[wasm_bindgen(getter)]
     pub fn chunk_count(&self) -> u32 { self.chunk_count }
+
+    /// Packed occupancy bitmasks for self chunks (neighbor stitch cache)
+    #[wasm_bindgen(getter)]
+    pub fn occupancy_data(&self) -> Vec<u8> { self.occupancy_data.clone() }
     
     // Solid mesh getters
     #[wasm_bindgen(getter)]

@@ -286,14 +286,14 @@ export class SuperChunkWorkerPool {
       throw new Error('SuperChunkWorkerPool not initialized');
     }
     
-    const { chunks, neighbors, bounds, priority = 0, superChunkKey } = options;
+    const { chunks, neighbors, bounds, priority = 0, superChunkKey, skipModels = false, skipMultipart = false } = options;
     const jobId = this.nextJobId++;
     
     return new Promise((resolve, reject) => {
       const job = {
         jobId,
         superChunkKey,
-        data: { chunks, neighbors, bounds },
+        data: { chunks, neighbors, bounds, skipModels, skipMultipart },
         priority,
       };
       

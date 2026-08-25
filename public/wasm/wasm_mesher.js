@@ -1,12 +1,10 @@
 /* @ts-self-types="./wasm_mesher.d.ts" */
-import { startWorkers } from './snippets/wasm-bindgen-rayon-38edf6e439f6d70d/src/workerHelpers.js';
 
 /**
  * Result of block entity meshing
  */
 export class BlockEntityMeshResultWasm {
     static __wrap(ptr) {
-        ptr = ptr >>> 0;
         const obj = Object.create(BlockEntityMeshResultWasm.prototype);
         obj.__wbg_ptr = ptr;
         BlockEntityMeshResultWasmFinalization.register(obj, obj.__wbg_ptr, obj);
@@ -123,7 +121,6 @@ if (Symbol.dispose) BlockEntityMeshResultWasm.prototype[Symbol.dispose] = BlockE
  */
 export class FusedChunkResult {
     static __wrap(ptr) {
-        ptr = ptr >>> 0;
         const obj = Object.create(FusedChunkResult.prototype);
         obj.__wbg_ptr = ptr;
         FusedChunkResultFinalization.register(obj, obj.__wbg_ptr, obj);
@@ -797,7 +794,6 @@ if (Symbol.dispose) FusedChunkResult.prototype[Symbol.dispose] = FusedChunkResul
  */
 export class FusedSuperChunkResult {
     static __wrap(ptr) {
-        ptr = ptr >>> 0;
         const obj = Object.create(FusedSuperChunkResult.prototype);
         obj.__wbg_ptr = ptr;
         FusedSuperChunkResultFinalization.register(obj, obj.__wbg_ptr, obj);
@@ -817,14 +813,14 @@ export class FusedSuperChunkResult {
      * @returns {number}
      */
     get blocks_decoded() {
-        const ret = wasm.fusedchunkresult_blocks_decoded(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_blocks_decoded(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get chunk_count() {
-        const ret = wasm.fusedchunkresult_chunk_x(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_chunk_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -927,7 +923,7 @@ export class FusedSuperChunkResult {
      * @returns {number}
      */
     get glass_vertex_count() {
-        const ret = wasm.fusedchunkresult_glass_vertex_count(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_glass_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1006,7 +1002,7 @@ export class FusedSuperChunkResult {
      * @returns {number}
      */
     get lava_vertex_count() {
-        const ret = wasm.fusedchunkresult_lava_vertex_count(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_lava_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1094,7 +1090,7 @@ export class FusedSuperChunkResult {
      * @returns {number}
      */
     get model_opaque_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1182,7 +1178,7 @@ export class FusedSuperChunkResult {
      * @returns {number}
      */
     get model_overlay_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1270,8 +1266,18 @@ export class FusedSuperChunkResult {
      * @returns {number}
      */
     get model_transparent_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_transparent_vertex_count(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_model_transparent_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * Packed occupancy bitmasks for self chunks (neighbor stitch cache)
+     * @returns {Uint8Array}
+     */
+    get occupancy_data() {
+        const ret = wasm.fusedsuperchunkresult_occupancy_data(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
     }
     /**
      * @returns {Float32Array}
@@ -1367,7 +1373,7 @@ export class FusedSuperChunkResult {
      * @returns {number}
      */
     get solid_vertex_count() {
-        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_solid_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1453,7 +1459,7 @@ export class FusedSuperChunkResult {
      * @returns {number}
      */
     get water_vertex_count() {
-        const ret = wasm.fusedchunkresult_water_vertex_count(this.__wbg_ptr);
+        const ret = wasm.fusedsuperchunkresult_water_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
 }
@@ -1464,7 +1470,6 @@ if (Symbol.dispose) FusedSuperChunkResult.prototype[Symbol.dispose] = FusedSuper
  */
 export class MeshResult {
     static __wrap(ptr) {
-        ptr = ptr >>> 0;
         const obj = Object.create(MeshResult.prototype);
         obj.__wbg_ptr = ptr;
         MeshResultFinalization.register(obj, obj.__wbg_ptr, obj);
@@ -2150,7 +2155,6 @@ if (Symbol.dispose) MeshResult.prototype[Symbol.dispose] = MeshResult.prototype.
  */
 export class MeshSizes {
     static __wrap(ptr) {
-        ptr = ptr >>> 0;
         const obj = Object.create(MeshSizes.prototype);
         obj.__wbg_ptr = ptr;
         MeshSizesFinalization.register(obj, obj.__wbg_ptr, obj);
@@ -2408,7 +2412,6 @@ if (Symbol.dispose) MeshSizes.prototype[Symbol.dispose] = MeshSizes.prototype.fr
  */
 export class ModelMeshResultWasm {
     static __wrap(ptr) {
-        ptr = ptr >>> 0;
         const obj = Object.create(ModelMeshResultWasm.prototype);
         obj.__wbg_ptr = ptr;
         ModelMeshResultWasmFinalization.register(obj, obj.__wbg_ptr, obj);
@@ -2899,7 +2902,6 @@ if (Symbol.dispose) ModelMeshResultWasm.prototype[Symbol.dispose] = ModelMeshRes
  */
 export class ProcessedChunk {
     static __wrap(ptr) {
-        ptr = ptr >>> 0;
         const obj = Object.create(ProcessedChunk.prototype);
         obj.__wbg_ptr = ptr;
         ProcessedChunkFinalization.register(obj, obj.__wbg_ptr, obj);
@@ -3049,7 +3051,7 @@ export class ProcessedChunk {
      * @returns {number}
      */
     get glass_vertex_count() {
-        const ret = wasm.fusedchunkresult_glass_vertex_count(this.__wbg_ptr);
+        const ret = wasm.processedchunk_glass_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -3137,7 +3139,7 @@ export class ProcessedChunk {
      * @returns {number}
      */
     get lava_vertex_count() {
-        const ret = wasm.fusedchunkresult_lava_vertex_count(this.__wbg_ptr);
+        const ret = wasm.processedchunk_lava_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -3234,7 +3236,7 @@ export class ProcessedChunk {
      * @returns {number}
      */
     get model_opaque_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_opaque_vertex_count(this.__wbg_ptr);
+        const ret = wasm.processedchunk_model_opaque_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -3331,7 +3333,7 @@ export class ProcessedChunk {
      * @returns {number}
      */
     get model_overlay_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_overlay_vertex_count(this.__wbg_ptr);
+        const ret = wasm.processedchunk_model_overlay_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -3428,7 +3430,7 @@ export class ProcessedChunk {
      * @returns {number}
      */
     get model_transparent_vertex_count() {
-        const ret = wasm.fusedchunkresult_model_transparent_vertex_count(this.__wbg_ptr);
+        const ret = wasm.processedchunk_model_transparent_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -3542,7 +3544,7 @@ export class ProcessedChunk {
      * @returns {number}
      */
     get solid_vertex_count() {
-        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
+        const ret = wasm.processedchunk_solid_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -3638,7 +3640,7 @@ export class ProcessedChunk {
      * @returns {number}
      */
     get water_vertex_count() {
-        const ret = wasm.fusedchunkresult_water_vertex_count(this.__wbg_ptr);
+        const ret = wasm.processedchunk_water_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
 }
@@ -3649,7 +3651,6 @@ if (Symbol.dispose) ProcessedChunk.prototype[Symbol.dispose] = ProcessedChunk.pr
  */
 export class StreamingMeshResultWasm {
     static __wrap(ptr) {
-        ptr = ptr >>> 0;
         const obj = Object.create(StreamingMeshResultWasm.prototype);
         obj.__wbg_ptr = ptr;
         StreamingMeshResultWasmFinalization.register(obj, obj.__wbg_ptr, obj);
@@ -3676,7 +3677,7 @@ export class StreamingMeshResultWasm {
      * @returns {number}
      */
     get boundary_neg_z_count() {
-        const ret = wasm.fusedchunkresult_solid_vertex_count(this.__wbg_ptr);
+        const ret = wasm.streamingmeshresultwasm_boundary_neg_z_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -3769,7 +3770,7 @@ export class StreamingMeshResultWasm {
      * @returns {number}
      */
     get vertex_count() {
-        const ret = wasm.meshresult_solid_vertex_count(this.__wbg_ptr);
+        const ret = wasm.streamingmeshresultwasm_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
 }
@@ -3845,15 +3846,6 @@ export function get_block_variant_count(name) {
  */
 export function init() {
     wasm.init();
-}
-
-/**
- * @param {number} num_threads
- * @returns {Promise<any>}
- */
-export function initThreadPool(num_threads) {
-    const ret = wasm.initThreadPool(num_threads);
-    return ret;
 }
 
 /**
@@ -4014,19 +4006,6 @@ export function init_state_registry(state_strings, state_ids) {
 }
 
 /**
- * Initialize Rayon thread pool for parallel meshing
- * Only available when built with the "parallel" feature
- * Must be called before any parallel meshing operations
- * Returns a Promise that resolves when the pool is ready
- * @param {number} num_threads
- * @returns {Promise<any>}
- */
-export function init_thread_pool(num_threads) {
-    const ret = wasm.init_thread_pool(num_threads);
-    return ret;
-}
-
-/**
  * Check if block entity registry is initialized
  * @returns {boolean}
  */
@@ -4176,6 +4155,36 @@ export function mesh_models_v3(grid_data, light_data, model_state_data, min_chun
 }
 
 /**
+ * Mesh a 2×2 super-chunk from compressed bytes + optional occupancy collar.
+ *
+ * Skips the JS NBT→grid→serialize round-trip. Models can be deferred via `skip_models`.
+ *
+ * Chunk blob format (same as process_super_chunk_complete):
+ * per chunk `[4 LE len][compressed...][1 compression][4 LE x][4 LE z]`
+ *
+ * Occupancy blob: `[count:u32]` then per neighbor
+ * `[cx:i32][cz:i32][sec_count:u32]` then per section
+ * `[sy:i32][solidBits:512][fluidBits:512]`
+ * @param {Uint8Array} chunk_data_flat
+ * @param {number} chunk_count
+ * @param {Uint8Array} occupancy_blob
+ * @param {number} min_chunk_x
+ * @param {number} min_chunk_z
+ * @param {number} max_chunk_x
+ * @param {number} max_chunk_z
+ * @param {boolean} skip_models
+ * @returns {FusedSuperChunkResult}
+ */
+export function mesh_super_chunk(chunk_data_flat, chunk_count, occupancy_blob, min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z, skip_models) {
+    const ptr0 = passArray8ToWasm0(chunk_data_flat, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(occupancy_blob, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.mesh_super_chunk(ptr0, len0, chunk_count, ptr1, len1, min_chunk_x, min_chunk_z, max_chunk_x, max_chunk_z, skip_models);
+    return FusedSuperChunkResult.__wrap(ret);
+}
+
+/**
  * Process a compressed chunk directly to mesh buffers
  *
  * This is the unified pipeline entry point that handles:
@@ -4246,51 +4255,6 @@ export function process_super_chunk_complete(chunk_data_flat, chunk_count) {
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.process_super_chunk_complete(ptr0, len0, chunk_count);
     return FusedSuperChunkResult.__wrap(ret);
-}
-
-export class wbg_rayon_PoolBuilder {
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(wbg_rayon_PoolBuilder.prototype);
-        obj.__wbg_ptr = ptr;
-        wbg_rayon_PoolBuilderFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        wbg_rayon_PoolBuilderFinalization.unregister(this);
-        return ptr;
-    }
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_wbg_rayon_poolbuilder_free(ptr, 0);
-    }
-    build() {
-        wasm.wbg_rayon_poolbuilder_build(this.__wbg_ptr);
-    }
-    /**
-     * @returns {number}
-     */
-    numThreads() {
-        const ret = wasm.wbg_rayon_poolbuilder_numThreads(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * @returns {number}
-     */
-    receiver() {
-        const ret = wasm.wbg_rayon_poolbuilder_receiver(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-}
-if (Symbol.dispose) wbg_rayon_PoolBuilder.prototype[Symbol.dispose] = wbg_rayon_PoolBuilder.prototype.free;
-
-/**
- * @param {number} receiver
- */
-export function wbg_rayon_start_worker(receiver) {
-    wasm.wbg_rayon_start_worker(receiver);
 }
 
 /**
@@ -4453,26 +4417,13 @@ export function write_model_mesh_to_buffers(opaque_positions, opaque_normals, op
     const ret = wasm.write_model_mesh_to_buffers(ptr0, len0, opaque_positions, ptr1, len1, opaque_normals, ptr2, len2, opaque_colors, ptr3, len3, opaque_uvs, ptr4, len4, opaque_tex_indices, ptr5, len5, opaque_packed_light, ptr6, len6, opaque_indices, ptr7, len7, transparent_positions, ptr8, len8, transparent_normals, ptr9, len9, transparent_colors, ptr10, len10, transparent_uvs, ptr11, len11, transparent_tex_indices, ptr12, len12, transparent_packed_light, ptr13, len13, transparent_indices);
     return ret !== 0;
 }
-
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
-        __wbg___wbindgen_copy_to_typed_array_fc0809a4dec43528: function(arg0, arg1, arg2) {
+        __wbg___wbindgen_copy_to_typed_array_c7f28e53671b41e8: function(arg0, arg1, arg2) {
             new Uint8Array(arg2.buffer, arg2.byteOffset, arg2.byteLength).set(getArrayU8FromWasm0(arg0, arg1));
         },
-        __wbg___wbindgen_is_undefined_9e4d92534c42d778: function(arg0) {
-            const ret = arg0 === undefined;
-            return ret;
-        },
-        __wbg___wbindgen_memory_bd1fbcf21fbef3c8: function() {
-            const ret = wasm.memory;
-            return ret;
-        },
-        __wbg___wbindgen_module_f6b8052d79c1cc16: function() {
-            const ret = wasmModule;
-            return ret;
-        },
-        __wbg___wbindgen_string_get_72fb696202c56729: function(arg0, arg1) {
+        __wbg___wbindgen_string_get_d154f1e671052120: function(arg0, arg1) {
             const obj = arg1;
             const ret = typeof(obj) === 'string' ? obj : undefined;
             var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -4480,14 +4431,10 @@ function __wbg_get_imports() {
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
-        __wbg___wbindgen_throw_be289d5034ed271b: function(arg0, arg1) {
+        __wbg___wbindgen_throw_bb96b2010945f0bc: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_call_389efe28435a9388: function() { return handleError(function (arg0, arg1) {
-            const ret = arg0.call(arg1);
-            return ret;
-        }, arguments); },
-        __wbg_error_7534b8e9a36f1ab4: function(arg0, arg1) {
+        __wbg_error_757e9472f8410341: function(arg0, arg1) {
             let deferred0_0;
             let deferred0_1;
             try {
@@ -4498,58 +4445,24 @@ function __wbg_get_imports() {
                 wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
             }
         },
-        __wbg_error_9a7fe3f932034cde: function(arg0) {
+        __wbg_error_dd408a7b3cb542dd: function(arg0) {
             console.error(arg0);
         },
-        __wbg_instanceof_Window_ed49b2db8df90359: function(arg0) {
-            let result;
-            try {
-                result = arg0 instanceof Window;
-            } catch (_) {
-                result = false;
-            }
-            const ret = result;
-            return ret;
-        },
-        __wbg_log_6b5ca2e6124b2808: function(arg0) {
+        __wbg_log_e6372b4fbfc9f81e: function(arg0) {
             console.log(arg0);
         },
-        __wbg_new_8a6f238a6ece86ea: function() {
+        __wbg_new_227d7c05414eb861: function() {
             const ret = new Error();
             return ret;
         },
-        __wbg_new_no_args_1c7c842f08d00ebb: function(arg0, arg1) {
-            const ret = new Function(getStringFromWasm0(arg0, arg1));
-            return ret;
-        },
-        __wbg_stack_0ed75d68575b0f3c: function(arg0, arg1) {
+        __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
-        __wbg_startWorkers_2ca11761e08ff5d5: function(arg0, arg1, arg2) {
-            const ret = startWorkers(arg0, arg1, wbg_rayon_PoolBuilder.__wrap(arg2));
-            return ret;
-        },
-        __wbg_static_accessor_GLOBAL_12837167ad935116: function() {
-            const ret = typeof global === 'undefined' ? null : global;
-            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
-        },
-        __wbg_static_accessor_GLOBAL_THIS_e628e89ab3b1c95f: function() {
-            const ret = typeof globalThis === 'undefined' ? null : globalThis;
-            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
-        },
-        __wbg_static_accessor_SELF_a621d3dfbb60d0ce: function() {
-            const ret = typeof self === 'undefined' ? null : self;
-            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
-        },
-        __wbg_static_accessor_WINDOW_f8727f0cf888e0bd: function() {
-            const ret = typeof window === 'undefined' ? null : window;
-            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
-        },
-        __wbg_warn_f7ae1b2e66ccb930: function(arg0) {
+        __wbg_warn_917d7f727ab78481: function(arg0) {
             console.warn(arg0);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
@@ -4575,31 +4488,28 @@ function __wbg_get_imports() {
 
 const BlockEntityMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_blockentitymeshresultwasm_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_blockentitymeshresultwasm_free(ptr, 1));
 const FusedChunkResultFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_fusedchunkresult_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_fusedchunkresult_free(ptr, 1));
 const FusedSuperChunkResultFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_fusedsuperchunkresult_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_fusedsuperchunkresult_free(ptr, 1));
 const MeshResultFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_meshresult_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_meshresult_free(ptr, 1));
 const MeshSizesFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_meshsizes_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_meshsizes_free(ptr, 1));
 const ModelMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_modelmeshresultwasm_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_modelmeshresultwasm_free(ptr, 1));
 const ProcessedChunkFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_processedchunk_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_processedchunk_free(ptr, 1));
 const StreamingMeshResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_streamingmeshresultwasm_free(ptr >>> 0, 1));
-const wbg_rayon_PoolBuilderFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_wbg_rayon_poolbuilder_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_streamingmeshresultwasm_free(ptr, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
@@ -4652,8 +4562,7 @@ function getInt32ArrayMemory0() {
 }
 
 function getStringFromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    return decodeText(ptr, len);
+    return decodeText(ptr >>> 0, len);
 }
 
 let cachedUint16ArrayMemory0 = null;
@@ -4678,15 +4587,6 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
-}
-
-function handleError(f, args) {
-    try {
-        return f.apply(this, args);
-    } catch (e) {
-        const idx = addToExternrefTable0(e);
-        wasm.__wbindgen_exn_store(idx);
-    }
 }
 
 function isLikeNone(x) {
@@ -4797,8 +4697,9 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-let wasmModule, wasm;
+let wasmModule, wasmInstance, wasm;
 function __wbg_finalize_init(instance, module) {
+    wasmInstance = instance;
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
@@ -4813,11 +4714,15 @@ function __wbg_finalize_init(instance, module) {
 
 async function __wbg_load(module, imports) {
     if (typeof Response === 'function' && module instanceof Response) {
+        if (!module.ok) {
+            throw new Error(`failed to fetch Wasm: ${module.status} ${module.statusText} fetching '${module.url}'`);
+        }
+
         if (typeof WebAssembly.instantiateStreaming === 'function') {
             try {
                 return await WebAssembly.instantiateStreaming(module, imports);
             } catch (e) {
-                const validResponse = module.ok && expectedResponseType(module.type);
+                const validResponse = expectedResponseType(module.type);
 
                 if (validResponse && module.headers.get('Content-Type') !== 'application/wasm') {
                     console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", e);

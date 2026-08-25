@@ -31,6 +31,11 @@ src/wasm-mesher/target/
 src/wasm-mesher/Cargo.lock
 src/mesh/wasm/pkg/
 
+# Local toolchain installs (agent/dev machine)
+.cargo/
+.rustup/
+.tools/
+
 # Test outputs (regenerated on test runs)
 test/screenshots/current/
 test/screenshots/diff/

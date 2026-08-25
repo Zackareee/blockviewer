@@ -2930,22 +2930,476 @@ function buildModelMeshes(grid, stateGrid, registry, stateRegistry, offset = { x
 // Super-Chunk Processing
 // ============================================================================
 
-async function processSuperChunk(data) {
-  const { chunks, neighbors, bounds } = data;
+
+// ============================================================================
+// Occupancy neighbors (AO / water without full NBT)
+// ============================================================================
+
+const OCCUPANCY_BITS_PER_SECTION = S3; // 4096
+const OCCUPANCY_BYTES_PER_SECTION = OCCUPANCY_BITS_PER_SECTION >> 3; // 512
+
+/**
+ * Build compact solid/fluid bitmasks for each self chunk from the decoded grid.
+ * Returned to the main thread and reused as neighbor occupancy later.
+ */
+function extractOccupancy(grid, decodedChunks, registry) {
+  const occupancy = [];
+  for (const chunk of decodedChunks) {
+    const cx = chunk.x;
+    const cz = chunk.z;
+    const sections = [];
+    for (const [key, section] of grid.sections) {
+      const parsed = parseSectionKey(key);
+      if (parsed.chunkX !== cx || parsed.chunkZ !== cz) continue;
+      const solidBits = new Uint8Array(OCCUPANCY_BYTES_PER_SECTION);
+      const fluidBits = new Uint8Array(OCCUPANCY_BYTES_PER_SECTION);
+      let hasAny = false;
+      for (let i = 0; i < S3; i++) {
+        const packed = section[i];
+        if (!packed) continue;
+        const blockId = packed & BLOCK_ID_MASK;
+        if (!blockId) continue;
+        const info = registry.getBlockInfo(blockId);
+        const byteIndex = i >> 3;
+        const bit = 1 << (i & 7);
+        if (info?.isFluid) {
+          fluidBits[byteIndex] |= bit;
+          hasAny = true;
+        } else if (info?.isOpaque || !info?.isNonCube) {
+          // Treat full cubes / opaque as solid for AO occlusion
+          solidBits[byteIndex] |= bit;
+          hasAny = true;
+        }
+      }
+      if (hasAny) {
+        sections.push({ sy: parsed.sectionY, solidBits, fluidBits });
+      }
+    }
+    if (sections.length > 0) {
+      occupancy.push({ chunkX: cx, chunkZ: cz, sections });
+    }
+  }
+  return occupancy;
+}
+
+/**
+ * Stamp occupancy bitmasks into the grid as placeholder solid/fluid blocks.
+ * Enough for AO face culling and water corner sampling without NBT parse.
+ */
+function applyOccupancyNeighbors(grid, neighbors, registry) {
+  const stoneId = registry.getBlockId('minecraft:stone') || registry.getBlockId('stone') || 1;
+  const waterId = registry.getBlockId('minecraft:water') || registry.getBlockId('water') || 0;
+  // Encode water with full level in high nibble if we have a fluid id
+  const waterPacked = waterId ? (waterId | (8 << LEVEL_SHIFT)) : 0;
+
+  for (const n of neighbors) {
+    if (!n?.isOccupancy || !n.sections?.length) continue;
+    const cx = n.chunkX;
+    const cz = n.chunkZ;
+    for (const sec of n.sections) {
+      const solidBits = sec.solidBits instanceof Uint8Array
+        ? sec.solidBits
+        : new Uint8Array(sec.solidBits || []);
+      const fluidBits = sec.fluidBits instanceof Uint8Array
+        ? sec.fluidBits
+        : new Uint8Array(sec.fluidBits || []);
+      const gridSec = grid._getOrCreateSection(cx, cz, sec.sy);
+      for (let i = 0; i < S3; i++) {
+        const byteIndex = i >> 3;
+        const bit = 1 << (i & 7);
+        if (solidBits[byteIndex] & bit) {
+          gridSec[i] = stoneId;
+          grid.totalBlocks++;
+        } else if (waterPacked && (fluidBits[byteIndex] & bit)) {
+          gridSec[i] = waterPacked;
+          grid.totalBlocks++;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Pack compressed chunks for WASM mesh_super_chunk / process_super_chunk_complete.
+ * Per chunk: [4 LE len][bytes...][1 compression][4 LE x][4 LE z]
+ */
+function packChunksFlatForWasm(chunks) {
+  let total = 0;
+  const parts = [];
+  for (const chunk of chunks) {
+    const data = chunk.compressedData instanceof Uint8Array
+      ? chunk.compressedData
+      : new Uint8Array(chunk.compressedData);
+    total += 4 + data.byteLength + 1 + 4 + 4;
+    parts.push({ data, compressionType: chunk.compressionType | 0, x: chunk.chunkX | 0, z: chunk.chunkZ | 0 });
+  }
+  const out = new Uint8Array(total);
+  const view = new DataView(out.buffer);
+  let offset = 0;
+  for (const part of parts) {
+    view.setUint32(offset, part.data.byteLength, true);
+    offset += 4;
+    out.set(part.data, offset);
+    offset += part.data.byteLength;
+    out[offset++] = part.compressionType;
+    view.setInt32(offset, part.x, true);
+    offset += 4;
+    view.setInt32(offset, part.z, true);
+    offset += 4;
+  }
+  return out;
+}
+
+/**
+ * Pack occupancy-only neighbors for WASM collar stamping.
+ */
+function packOccupancyBlobForWasm(neighbors) {
+  if (!neighbors || neighbors.length === 0) {
+    return new Uint8Array(4); // count = 0
+  }
+  const occNeighbors = neighbors.filter((n) => n?.isOccupancy && n.sections?.length);
+  let size = 4;
+  for (const n of occNeighbors) {
+    size += 12; // cx, cz, secCount
+    size += n.sections.length * (4 + OCCUPANCY_BYTES_PER_SECTION * 2);
+  }
+  const out = new Uint8Array(size);
+  const view = new DataView(out.buffer);
+  let offset = 0;
+  view.setUint32(offset, occNeighbors.length, true);
+  offset += 4;
+  for (const n of occNeighbors) {
+    view.setInt32(offset, n.chunkX | 0, true);
+    offset += 4;
+    view.setInt32(offset, n.chunkZ | 0, true);
+    offset += 4;
+    view.setUint32(offset, n.sections.length, true);
+    offset += 4;
+    for (const sec of n.sections) {
+      view.setInt32(offset, sec.sy | 0, true);
+      offset += 4;
+      const solidBits = sec.solidBits instanceof Uint8Array
+        ? sec.solidBits
+        : new Uint8Array(sec.solidBits || []);
+      const fluidBits = sec.fluidBits instanceof Uint8Array
+        ? sec.fluidBits
+        : new Uint8Array(sec.fluidBits || []);
+      out.set(solidBits.subarray(0, OCCUPANCY_BYTES_PER_SECTION), offset);
+      offset += OCCUPANCY_BYTES_PER_SECTION;
+      out.set(fluidBits.subarray(0, OCCUPANCY_BYTES_PER_SECTION), offset);
+      offset += OCCUPANCY_BYTES_PER_SECTION;
+    }
+  }
+  return out;
+}
+
+/**
+ * Unpack WASM occupancy_data into the same shape as extractOccupancy().
+ */
+function unpackOccupancyBlobFromWasm(bytes) {
+  if (!bytes || bytes.byteLength < 4) return [];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  const count = view.getUint32(offset, true);
+  offset += 4;
+  const occupancy = [];
+  for (let i = 0; i < count; i++) {
+    if (offset + 12 > bytes.byteLength) break;
+    const chunkX = view.getInt32(offset, true);
+    offset += 4;
+    const chunkZ = view.getInt32(offset, true);
+    offset += 4;
+    const secCount = view.getUint32(offset, true);
+    offset += 4;
+    const sections = [];
+    for (let s = 0; s < secCount; s++) {
+      if (offset + 4 + OCCUPANCY_BYTES_PER_SECTION * 2 > bytes.byteLength) break;
+      const sy = view.getInt32(offset, true);
+      offset += 4;
+      const solidBits = bytes.slice(offset, offset + OCCUPANCY_BYTES_PER_SECTION);
+      offset += OCCUPANCY_BYTES_PER_SECTION;
+      const fluidBits = bytes.slice(offset, offset + OCCUPANCY_BYTES_PER_SECTION);
+      offset += OCCUPANCY_BYTES_PER_SECTION;
+      sections.push({ sy, solidBits, fluidBits });
+    }
+    if (sections.length > 0) {
+      occupancy.push({ chunkX, chunkZ, sections });
+    }
+  }
+  return occupancy;
+}
+
+/**
+ * Convert FusedSuperChunkResult mesh getters into the worker gridMeshes shape.
+ */
+function convertFusedResultToGridMeshes(fused) {
+  const copyMesh = (prefix, withUvs = false) => {
+    const vertexCount = fused[`${prefix}_vertex_count`];
+    if (!vertexCount) {
+      return {
+        positions: new Float32Array(0),
+        normals: new Float32Array(0),
+        colors: new Float32Array(0),
+        texIndices: new Float32Array(0),
+        texRotations: new Float32Array(0),
+        tintTypes: new Float32Array(0),
+        skyLight: new Float32Array(0),
+        blockLight: new Float32Array(0),
+        indices: new Uint32Array(0),
+        vertexCount: 0,
+        ...(withUvs ? { uvs: new Float32Array(0) } : {}),
+      };
+    }
+    const mesh = {
+      positions: new Float32Array(fused[`${prefix}_positions`]),
+      normals: new Float32Array(fused[`${prefix}_normals`]),
+      colors: new Float32Array(fused[`${prefix}_colors`]),
+      texIndices: new Float32Array(fused[`${prefix}_tex_indices`]),
+      skyLight: new Float32Array(fused[`${prefix}_sky_light`]),
+      blockLight: new Float32Array(fused[`${prefix}_block_light`]),
+      indices: new Uint32Array(fused[`${prefix}_indices`]),
+      vertexCount,
+    };
+    if (withUvs) {
+      mesh.uvs = new Float32Array(fused[`${prefix}_uvs`] || []);
+    } else {
+      mesh.texRotations = new Float32Array(fused[`${prefix}_tex_rotations`] || []);
+      mesh.tintTypes = new Float32Array(fused[`${prefix}_tint_types`] || []);
+    }
+    return mesh;
+  };
+
+  return {
+    solid: copyMesh('solid', false),
+    water: copyMesh('water', true),
+    lava: copyMesh('lava', true),
+    glass: copyMesh('glass', false),
+  };
+}
+
+/**
+ * Convert fused WASM model meshes (no shade flags — fill zeros).
+ */
+function convertFusedResultToModelMeshes(fused) {
+  const copyModel = (prefix) => {
+    const vertexCount = fused[`model_${prefix}_vertex_count`];
+    if (!vertexCount) {
+      return { positions: new Float32Array(0), vertexCount: 0 };
+    }
+    const positions = new Float32Array(fused[`model_${prefix}_positions`]);
+    return {
+      positions,
+      normals: new Float32Array(fused[`model_${prefix}_normals`]),
+      uvs: new Float32Array(fused[`model_${prefix}_uvs`]),
+      colors: new Float32Array(fused[`model_${prefix}_colors`]),
+      texIndices: new Float32Array(fused[`model_${prefix}_tex_indices`]),
+      tintTypes: new Float32Array(fused[`model_${prefix}_tint_types`]),
+      skyLight: new Float32Array(fused[`model_${prefix}_sky_light`]),
+      blockLight: new Float32Array(fused[`model_${prefix}_block_light`]),
+      shadeFlags: new Float32Array(vertexCount), // fused path has no shade flags
+      indices: new Uint32Array(fused[`model_${prefix}_indices`]),
+      vertexCount,
+    };
+  };
+  return {
+    modelOpaque: copyModel('opaque'),
+    modelTransparent: copyModel('transparent'),
+    modelTranslucent: { positions: new Float32Array(0), vertexCount: 0 },
+    modelOverlay: copyModel('overlay'),
+  };
+}
+
+/**
+ * WASM ingest path: decompress+NBT+mesh inside WASM (no JS grid serialize).
+ * Used when multipart can be skipped (first paint / deferred-models remesh).
+ */
+function processSuperChunkWasmIngest(data) {
+  const { chunks, neighbors, bounds, skipModels = false } = data;
   const startTime = performance.now();
+
+  if (!wasmInitialized || !wasmLookupsInitialized || !wasmModule) {
+    throw new Error('WASM not ready');
+  }
+  if (typeof wasmModule.mesh_super_chunk !== 'function' &&
+      typeof wasmModule.process_super_chunk_complete !== 'function') {
+    throw new Error('WASM ingest entry not available');
+  }
+
+  const chunksFlat = packChunksFlatForWasm(chunks);
+  const occupancyBlob = packOccupancyBlobForWasm(neighbors || []);
+  const decodeMeshStart = performance.now();
+
+  let fused;
+  if (typeof wasmModule.mesh_super_chunk === 'function') {
+    fused = wasmModule.mesh_super_chunk(
+      chunksFlat,
+      chunks.length,
+      occupancyBlob,
+      bounds.minChunkX,
+      bounds.minChunkZ,
+      bounds.maxChunkX,
+      bounds.maxChunkZ,
+      !!skipModels
+    );
+  } else {
+    // Older builds: fused decode+mesh without occupancy collar
+    fused = wasmModule.process_super_chunk_complete(chunksFlat, chunks.length);
+  }
+
+  if (!fused.success) {
+    throw new Error(fused.error_message || 'WASM mesh_super_chunk failed');
+  }
+
+  const meshTime = performance.now() - decodeMeshStart;
+  const gridMeshes = convertFusedResultToGridMeshes(fused);
+  const occupancy = unpackOccupancyBlobFromWasm(
+    fused.occupancy_data instanceof Uint8Array
+      ? fused.occupancy_data
+      : new Uint8Array(fused.occupancy_data || [])
+  );
+
+  const transferables = [];
+  const result = {
+    solid: null,
+    water: null,
+    lava: null,
+    glass: null,
+    models: null,
+    blockEntity: null,
+    grids: null,
+    v3Debug: {
+      enabled: !skipModels,
+      skipped: skipModels,
+      wasmIngest: true,
+      registryInit: v3RegistryInitialized,
+    },
+    occupancy,
+  };
+
+  const pushLayer = (key, mesh, withUvs) => {
+    if (!mesh || mesh.vertexCount <= 0) return;
+    const layer = {
+      positions: mesh.positions,
+      normals: mesh.normals,
+      colors: mesh.colors,
+      texIndices: mesh.texIndices,
+      skyLight: mesh.skyLight,
+      blockLight: mesh.blockLight,
+      indices: mesh.indices,
+      vertexCount: mesh.vertexCount,
+      triangleCount: mesh.indices.length / 3,
+    };
+    if (withUvs) {
+      layer.uvs = mesh.uvs;
+    } else {
+      layer.texRotations = mesh.texRotations;
+      layer.tintTypes = mesh.tintTypes;
+    }
+    addBoundsToMesh(layer);
+    result[key] = layer;
+    transferables.push(
+      mesh.positions.buffer,
+      mesh.normals.buffer,
+      mesh.colors.buffer,
+      mesh.texIndices.buffer,
+      mesh.skyLight.buffer,
+      mesh.blockLight.buffer,
+      mesh.indices.buffer
+    );
+    if (withUvs) {
+      transferables.push(mesh.uvs.buffer);
+    } else {
+      transferables.push(mesh.texRotations.buffer, mesh.tintTypes.buffer);
+    }
+  };
+
+  pushLayer('solid', gridMeshes.solid, false);
+  pushLayer('water', gridMeshes.water, true);
+  pushLayer('lava', gridMeshes.lava, true);
+  pushLayer('glass', gridMeshes.glass, false);
+
+  if (!skipModels) {
+    const v3Meshes = convertFusedResultToModelMeshes(fused);
+    const combined = combineMeshes(v3Meshes, null);
+    const pushModel = (key, mesh) => {
+      if (!mesh || mesh.vertexCount <= 0) return;
+      addBoundsToMesh(mesh);
+      result[key] = mesh;
+      transferables.push(
+        mesh.positions.buffer,
+        mesh.normals.buffer,
+        mesh.uvs.buffer,
+        mesh.colors.buffer,
+        mesh.texIndices.buffer,
+        mesh.tintTypes.buffer,
+        mesh.skyLight.buffer,
+        mesh.blockLight.buffer,
+        mesh.shadeFlags.buffer,
+        mesh.indices.buffer
+      );
+    };
+    pushModel('modelOpaque', combined.modelOpaque);
+    pushModel('modelTransparent', combined.modelTransparent);
+    pushModel('modelTranslucent', combined.modelTranslucent);
+    pushModel('modelOverlay', combined.modelOverlay);
+    result.v3Debug.opaqueVerts = combined.modelOpaque?.vertexCount ?? 0;
+    result.v3Debug.transVerts = combined.modelTransparent?.vertexCount ?? 0;
+  }
+
+  const blocksDecoded = fused.blocks_decoded || 0;
+
+  // Free WASM result if available
+  if (typeof fused.free === 'function') {
+    fused.free();
+  }
+
+  const totalTime = performance.now() - startTime;
+  return {
+    result,
+    transferables,
+    stats: {
+      chunksProcessed: chunks.length,
+      totalBlocks: blocksDecoded,
+      decodeTimeMs: meshTime,
+      meshTimeMs: meshTime,
+      totalTimeMs: totalTime,
+      wasmIngest: true,
+    },
+  };
+}
+
+async function processSuperChunk(data) {
+  const { chunks, neighbors, bounds, skipModels = false, skipMultipart = false } = data;
+  const startTime = performance.now();
+
+  // Prefer WASM ingest when multipart isn't needed (first paint / deferred solids).
+  // Multipart fences/panes still require the JS decode path.
+  if (
+    skipMultipart &&
+    wasmInitialized &&
+    wasmLookupsInitialized &&
+    chunks?.length > 0 &&
+    (typeof wasmModule?.mesh_super_chunk === 'function' ||
+      typeof wasmModule?.process_super_chunk_complete === 'function')
+  ) {
+    try {
+      return processSuperChunkWasmIngest(data);
+    } catch (e) {
+      console.warn('[SuperChunkWorker] WASM ingest failed, falling back to JS decode:', e.message);
+    }
+  }
   
   const grid = new WorkerBinaryGrid();
   const stateGrid = new WorkerBlockStateGrid();
   const lightGrid = new WorkerLightGrid();
   
-  // V3: Create model state grid only if V3 registry is initialized
-  const modelStateGrid = v3RegistryInitialized && modelStateLookup 
+  // V3: Create model state grid only if V3 registry is initialized and models aren't deferred
+  const modelStateGrid = !skipModels && v3RegistryInitialized && modelStateLookup 
     ? new WorkerModelStateGrid() 
     : null;
   
-  // Block entity state grid - created if entityStateLookup exists
-  // Collection happens regardless of WASM registry, meshing requires the registry
-  const entityStateGrid = entityStateLookup
+  // Block entity state grid — skip with deferred models on first paint
+  const entityStateGrid = !skipModels && entityStateLookup
     ? new WorkerEntityStateGrid()
     : null;
   
@@ -2986,89 +3440,13 @@ async function processSuperChunk(data) {
     }
   }
   
-  // Debug logging disabled for performance
-  // if (modelStateGrid) {
-  //   console.log(`[SuperChunkWorker] After decode: modelStateGrid has ${modelStateGrid.size} sections`);
-  // }
-  
   // Extract inactive beacon positions (beacons with Levels = 0)
   // This is used to filter out beacon beams on the main thread
   const inactiveBeacons = extractInactiveBeacons(decodedChunks);
   
-  // Determine which neighbors we actually need based on loaded chunk positions
-  // Only decompress neighbors adjacent to our actual chunk boundaries
+  // Apply occupancy-only neighbors (no NBT inflate/parse) for AO / water corners
   if (neighbors && neighbors.length > 0 && decodedChunks.length > 0) {
-    // Build set of loaded chunk positions
-    const loadedChunks = new Set(decodedChunks.map(c => `${c.x},${c.z}`));
-    
-    // Find min/max chunk coordinates
-    let minCX = Infinity, maxCX = -Infinity;
-    let minCZ = Infinity, maxCZ = -Infinity;
-    for (const c of decodedChunks) {
-      minCX = Math.min(minCX, c.x);
-      maxCX = Math.max(maxCX, c.x);
-      minCZ = Math.min(minCZ, c.z);
-      maxCZ = Math.max(maxCZ, c.z);
-    }
-    
-    // Filter neighbors to only those adjacent to boundary (including diagonals)
-    // Diagonals are needed for water corner height calculation which samples 2x2 blocks
-    const relevantNeighbors = neighbors.filter(n => {
-      const cx = n.chunkX, cz = n.chunkZ;
-      
-      // Check if chunk is within 1-chunk extended boundary (includes diagonals)
-      const isWithinExtended = (
-        cx >= minCX - 1 && cx <= maxCX + 1 &&
-        cz >= minCZ - 1 && cz <= maxCZ + 1
-      );
-      
-      // Must be outside main super-chunk area
-      const isOutside = cx < minCX || cx > maxCX || cz < minCZ || cz > maxCZ;
-      
-      return isWithinExtended && isOutside && !loadedChunks.has(`${cx},${cz}`);
-    });
-    
-    // Process relevant neighbors - handle both raw compressed and pre-parsed NBT
-    if (relevantNeighbors.length > 0) {
-      const neighborPromises = relevantNeighbors.map(async (neighborData) => {
-        try {
-          // Handle pre-parsed NBT data (from main-thread-built super-chunks)
-          if (neighborData.isParsed && neighborData.parsedData) {
-            return {
-              x: neighborData.chunkX,
-              z: neighborData.chunkZ,
-              data: neighborData.parsedData,
-            };
-          }
-          
-          // Handle raw compressed data (preferred path)
-          if (neighborData.compressedData) {
-            const decompressed = await decompressChunk(
-              new Uint8Array(neighborData.compressedData),
-              neighborData.compressionType
-            );
-            const nbt = parseNBT(decompressed.buffer);
-            return {
-              x: neighborData.chunkX,
-              z: neighborData.chunkZ,
-              data: nbt,
-            };
-          }
-          
-          return null;
-        } catch {
-          return null;
-        }
-      });
-      
-      const neighborResults = await Promise.all(neighborPromises);
-      
-      for (const chunk of neighborResults) {
-        if (chunk) {
-          decodeChunk(chunk, grid, blockRegistry, stateGrid, stateRegistry, lightGrid);
-        }
-      }
-    }
+    applyOccupancyNeighbors(grid, neighbors, blockRegistry);
   }
   
   // Propagate light if no Minecraft light data
@@ -3232,11 +3610,13 @@ async function processSuperChunk(data) {
   }
   
   // V3 Model Meshing - if V3 registry initialized, mesh models in WASM
-  const v3Enabled = v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0;
+  // First paint on constrained devices skips models for a faster solids-only mesh
+  const v3Enabled = !skipModels && v3RegistryInitialized && modelStateGrid && modelStateGrid.size > 0;
   
   // Debug info for testing
   result.v3Debug = {
     enabled: v3Enabled,
+    skipped: skipModels,
     registryInit: v3RegistryInitialized,
     gridSections: modelStateGrid?.size ?? 0,
     modelStateLookupReady: !!modelStateLookup,
@@ -3268,7 +3648,7 @@ async function processSuperChunk(data) {
   
   // Multipart meshing in worker (fences, walls, glass panes, redstone_wire, etc.)
   // This replaces main thread model meshing - no more grids sent to main thread
-  if (stateRegistry && stateRegistry.states && stateRegistry.states.length > 0) {
+  if (!skipMultipart && stateRegistry && stateRegistry.states && stateRegistry.states.length > 0) {
     try {
       const offset = { x: 0, y: 0, z: 0 };
       multipartMeshes = buildMultipartMeshes(
@@ -3414,6 +3794,9 @@ async function processSuperChunk(data) {
   if (inactiveBeacons.size > 0) {
     result.inactiveBeacons = Array.from(inactiveBeacons);
   }
+
+  // Compact occupancy for self chunks — neighbors use this instead of re-parsing NBT
+  result.occupancy = extractOccupancy(grid, decodedChunks, blockRegistry);
   
   return {
     result,

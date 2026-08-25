@@ -785,12 +785,19 @@ export class ChunkStreamer {
   async loadAroundPosition(worldX, worldZ) {
     this.playerChunkX = Math.floor(worldX / CHUNK_SIZE);
     this.playerChunkZ = Math.floor(worldZ / CHUNK_SIZE);
+
+    // During the spawn burst: no seam remeshes cascading off each 2×2
+    this.superChunkManager?.setBoundaryRepairsEnabled?.(false);
     
     // Queue chunks with immediate priority
     this._queueChunksAroundPlayer(true);
     
     // Process until all immediate chunks are loaded
-    return this._processQueueUntilComplete();
+    const result = await this._processQueueUntilComplete();
+
+    // Re-enable occupancy-based seam repairs for later exploration
+    this.superChunkManager?.setBoundaryRepairsEnabled?.(true);
+    return result;
   }
 
   /**
@@ -1423,7 +1430,8 @@ export class ChunkStreamer {
         // Fix boundary seams immediately for already-visible chunks
         // This repairs water/light artifacts at chunk borders as soon as neighbor data arrives
         // Repair up to 2 boundaries per batch to keep up with fast movement
-        if (this.superChunkManager?.hasBoundaryDirtyChunks()) {
+        // Skipped during initial spawn load (setBoundaryRepairsEnabled(false))
+        if (this.initialLoadComplete && this.superChunkManager?.hasBoundaryDirtyChunks()) {
           await this.superChunkManager.repairBoundaries(2);
         }
         
@@ -1503,6 +1511,9 @@ export class ChunkStreamer {
       // Rebuild ALL dirty super-chunks after initial load is complete
       // This is more efficient than rebuilding after each batch
       if (this.superChunkManager) {
+        // Flush debounce timers so every pending 2×2 is in dirtySet
+        this.superChunkManager.flushCoalescedMeshes?.();
+
         const stats = this.superChunkManager.getStats();
         const totalDirty = stats.dirtyCount;
         let rebuilt = 0;
@@ -1518,9 +1529,20 @@ export class ChunkStreamer {
         
         while (this.superChunkManager.hasDirtyChunks()) {
           const beforeStats = this.superChunkManager.getStats();
+          const beforeDirty = beforeStats.dirtyCount;
           await this.superChunkManager.rebuildDirty(4);
+
+          // Wait for parallel worker jobs / completion queue to settle
+          let waitFrames = 0;
+          while (this.superChunkManager.hasPendingWork?.() && waitFrames < 120) {
+            await this.superChunkManager.processCompletedChunks?.();
+            this.superChunkManager.processQueuedMeshes?.();
+            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+            waitFrames++;
+          }
+
           const afterStats = this.superChunkManager.getStats();
-          rebuilt += beforeStats.dirtyCount - afterStats.dirtyCount;
+          rebuilt += Math.max(0, beforeDirty - afterStats.dirtyCount);
           
           // Report meshing progress
           const progress = totalDirty > 0 ? Math.round((rebuilt / totalDirty) * 100) : 100;
@@ -1529,8 +1551,17 @@ export class ChunkStreamer {
             queued: 0,
             message: `Building meshes: ${rebuilt}/${totalDirty}`,
             stage: 'meshing',
-            stageProgress: progress,
+            stageProgress: Math.min(100, progress),
           });
+
+          // Yield so the browser can paint / handle input between mesh batches
+          await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+
+          // Stall guard: if dirty count is not dropping and nothing is pending, stop
+          if (afterStats.dirtyCount >= beforeDirty && !this.superChunkManager.hasPendingWork?.()) {
+            console.warn('[ChunkStreamer] Meshing stall detected, continuing with remaining dirty chunks deferred');
+            break;
+          }
         }
       }
     } finally {

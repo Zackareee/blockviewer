@@ -25,7 +25,7 @@ import { propagateSkyLight } from '../mesh/LightPropagator.js';
 import { propagateBlockLight } from '../mesh/BlockLightPropagator.js';
 import { getMeshWorkerPool, resetMeshWorkerPool } from '../mesh/workers/MeshWorkerPool.js';
 import { getSuperChunkWorkerPool, resetSuperChunkWorkerPool } from '../mesh/workers/SuperChunkWorkerPool.js';
-import { supportsWorkerPipeline } from '../utils/CapabilityDetector.js';
+import { supportsWorkerPipeline, detectCapabilities, getOptimalConfig } from '../utils/CapabilityDetector.js';
 import { getSharedLookupManager } from '../utils/SharedMemoryPool.js';
 import { 
   initWasmMesher, 
@@ -585,6 +585,42 @@ class SuperChunk {
     // Build version counter - incremented each time the super chunk is rebuilt
     // Used to detect stale queued operations (e.g., model mesh builds)
     this.buildVersion = 0;
+
+    // Compact occupancy per Minecraft chunk key "cx,cz" for neighbor AO/water
+    // without re-parsing NBT. Populated after a successful self-mesh.
+    // Map<"cx,cz", { sections: [{ sy, solidBits: Uint8Array, fluidBits: Uint8Array }] }>
+    this.occupancyByChunk = new Map();
+
+    // First successful mesh for this super-chunk (solids-only may apply)
+    this.firstPaintDone = false;
+  }
+
+  /**
+   * True when all SUPER_CHUNK_SIZE² slots have chunk data.
+   */
+  isFull() {
+    return this.loadedChunks.size >= SUPER_CHUNK_SIZE * SUPER_CHUNK_SIZE;
+  }
+
+  /**
+   * Get occupancy for a world chunk if we have already meshed it.
+   */
+  getChunkOccupancy(chunkX, chunkZ) {
+    return this.occupancyByChunk.get(`${chunkX},${chunkZ}`) || null;
+  }
+
+  /**
+   * Store occupancy maps returned from the worker after a successful mesh.
+   * @param {Array<{chunkX:number,chunkZ:number,sections:Array}>} occupancyList
+   */
+  setOccupancyFromWorker(occupancyList) {
+    if (!occupancyList) return;
+    for (const entry of occupancyList) {
+      if (!entry || entry.chunkX === undefined) continue;
+      this.occupancyByChunk.set(`${entry.chunkX},${entry.chunkZ}`, {
+        sections: entry.sections || [],
+      });
+    }
   }
 
   /**
@@ -629,6 +665,7 @@ class SuperChunk {
     const key = this.getLocalKey(chunkX, chunkZ);
     if (this.loadedChunks.has(key)) {
       this.loadedChunks.delete(key);
+      this.occupancyByChunk.delete(`${chunkX},${chunkZ}`);
       this.isDirty = true;
       return true;
     }
@@ -670,6 +707,8 @@ class SuperChunk {
     }
     this.meshes = [];
     this.hasBeenBuilt = false;
+    this.firstPaintDone = false;
+    this.occupancyByChunk.clear();
     // Increment build version to invalidate any pending queued operations
     this.buildVersion++;
   }
@@ -738,11 +777,25 @@ export class SuperChunkManager {
     // Enable/disable visibility staggering (can be toggled for debugging)
     this._staggerVisibility = options.staggerVisibility ?? true;
     
-    // Disable neighbor rebuilds to improve performance
-    // The race condition fix (rebuildPending flag) prevents duplicate meshes,
-    // so neighbor rebuilds are optional for visual polish (water levels, lighting)
-    // Set to true to disable rebuilds entirely (fastest, slight visual artifacts at edges)
-    this._disableNeighborRebuilds = options.disableNeighborRebuilds ?? false;
+    // Disable neighbor rebuilds by default — first paint accepts AO/water seams.
+    // Explicit repairBoundaries() can still stitch later with occupancy neighbors.
+    this._disableNeighborRebuilds = options.disableNeighborRebuilds ?? true;
+
+    // Coalesce 2×2 meshing: wait until full or debounce after last addChunk
+    this._meshDebounceMs = options.meshDebounceMs ?? 80;
+    this._meshDebounceTimers = new Map(); // key -> timeout id
+
+    // Skip boundary seam repairs during initial spawn load burst
+    this._boundaryRepairsEnabled = true;
+
+    // Keys that received a solids-only first paint and still need a models remesh
+    this._deferredModelKeys = new Set();
+
+    // Device-aware meshing options (mobile must not freeze the UI thread)
+    const caps = detectCapabilities();
+    const optimal = getOptimalConfig(caps);
+    this._deferModelsFirstPaint = options.deferModelsFirstPaint ?? !!optimal.deferModels;
+    this._skipMainThreadFallback = options.skipMainThreadFallback ?? !!optimal.skipMainThreadFallback;
   }
   
   /**
@@ -948,6 +1001,11 @@ export class SuperChunkManager {
     // Hide old meshes BEFORE creating new ones to prevent transparent overlap
     // (which causes flickering/darkness during rebuilds)
     this._hideOldMeshes(job.oldMeshes);
+
+    // Cache occupancy for future neighbor AO without re-parsing NBT
+    if (result?.result?.occupancy) {
+      job.superChunk.setOccupancyFromWorker(result.result.occupancy);
+    }
     
     // Create meshes from worker result
     await this._createMeshesFromWorkerResult(job.superChunk, result.result);
@@ -957,8 +1015,10 @@ export class SuperChunkManager {
     
     // Mark as built and handle neighbor marking
     const isFirstBuild = !job.superChunk.hasBeenBuilt;
+    const wasDeferredModels = job.jobData?.skipModels;
     job.superChunk.isDirty = false;
     job.superChunk.hasBeenBuilt = true;
+    job.superChunk.firstPaintDone = true;
     
     // Clear rebuild pending flag (allows future rebuilds)
     job.superChunk.rebuildPending = false;
@@ -968,6 +1028,11 @@ export class SuperChunkManager {
     
     this._pendingWorkerJobs--;
     this.onSuperChunkRebuilt?.(job.superChunk);
+
+    // After a solids-only first paint, queue a full remesh with models
+    if (wasDeferredModels) {
+      this._queueDeferredModels(job.key);
+    }
   }
   
   /**
@@ -1507,17 +1572,111 @@ export class SuperChunkManager {
     const superChunk = this.getOrCreateSuperChunk(chunkX, chunkZ);
     const wasAdded = superChunk.addChunk(chunkX, chunkZ, chunkData, isRawCompressed);
     
-    // Only mark for rebuild if chunk was actually added (not already present)
+    // Only schedule a coalesced rebuild if chunk was actually added
     if (wasAdded) {
       const key = this.getSuperChunkKey(chunkX, chunkZ);
-      this.dirtySet.add(key);
-      
-      // Note: We DON'T mark adjacent super-chunks dirty here anymore.
-      // Instead, we mark them after THIS super-chunk is built (in buildSuperChunk).
-      // This ensures neighbors rebuild with complete data, not partial data.
+      // Cancel any queued worker job so we don't mesh a partial 2×2 then remesh
+      this._cancelQueuedMeshForKey(key, superChunk);
+      this._scheduleCoalescedMesh(key, superChunk);
     }
     
     return wasAdded;
+  }
+
+  /**
+   * Cancel a queued (not yet started) worker job for this super-chunk and bump
+   * buildVersion so in-flight results are ignored.
+   */
+  _cancelQueuedMeshForKey(key, superChunk) {
+    if (this.superChunkWorkerPool?.cancelJobsForSuperChunk) {
+      this.superChunkWorkerPool.cancelJobsForSuperChunk(key);
+    }
+    // Bump version so any in-flight completion is treated as stale
+    if (superChunk.rebuildPending) {
+      superChunk.buildVersion++;
+      superChunk.rebuildPending = false;
+    }
+    // Not ready until coalesce says so
+    this.dirtySet.delete(key);
+  }
+
+  /**
+   * Mark a super-chunk ready to mesh when the 2×2 is full, or after a short
+   * debounce so partial spawn cells still appear without remeshing 4 times.
+   */
+  _scheduleCoalescedMesh(key, superChunk) {
+    if (this._meshDebounceTimers.has(key)) {
+      clearTimeout(this._meshDebounceTimers.get(key));
+      this._meshDebounceTimers.delete(key);
+    }
+
+    const markReady = () => {
+      this._meshDebounceTimers.delete(key);
+      if (superChunk.isEmpty()) return;
+      this.dirtySet.add(key);
+      superChunk.isDirty = true;
+      // Kick idle rebuild so a debounce completion is not stuck waiting for the next batch
+      this.scheduleIdleRebuild(true);
+    };
+
+    if (superChunk.isFull()) {
+      markReady();
+      return;
+    }
+
+    const timer = setTimeout(markReady, this._meshDebounceMs);
+    this._meshDebounceTimers.set(key, timer);
+  }
+
+  /**
+   * Flush any pending coalesce timers so dirtySet includes all pending keys.
+   * Used before a blocking rebuildDirty pass (initial spawn load).
+   */
+  flushCoalescedMeshes() {
+    for (const [key, timer] of this._meshDebounceTimers) {
+      clearTimeout(timer);
+      const superChunk = this.superChunks.get(key);
+      if (superChunk && !superChunk.isEmpty()) {
+        this.dirtySet.add(key);
+        superChunk.isDirty = true;
+      }
+    }
+    this._meshDebounceTimers.clear();
+  }
+
+  /**
+   * Enable/disable boundary seam repairs (neighbor remeshes).
+   * Disabled during the initial spawn load burst.
+   * When re-enabled, flush any deferred model remeshes.
+   */
+  setBoundaryRepairsEnabled(enabled) {
+    this._boundaryRepairsEnabled = !!enabled;
+    if (!enabled) {
+      this.boundaryDirtySet.clear();
+      return;
+    }
+    // Spawn burst finished — remesh solids-only chunks with models at idle priority
+    if (this._deferredModelKeys.size > 0 && this.enableModelMeshes) {
+      for (const key of this._deferredModelKeys) {
+        this.dirtySet.add(key);
+      }
+      this._deferredModelKeys.clear();
+      this.scheduleIdleRebuild(true);
+    }
+  }
+
+  /**
+   * Remember a solids-only first paint for a later models remesh.
+   * During the spawn burst we queue the key; after spawn we remesh immediately at idle.
+   */
+  _queueDeferredModels(key) {
+    if (!this.enableModelMeshes) return;
+    if (!this._boundaryRepairsEnabled) {
+      this._deferredModelKeys.add(key);
+      return;
+    }
+    this.dirtySet.add(key);
+    this.scheduleIdleRebuild(true);
   }
 
   /**
@@ -1581,20 +1740,38 @@ export class SuperChunkManager {
         return;
       } catch (error) {
         console.warn('[SuperChunkManager] SuperChunkWorkerPool failed, falling back:', error.message);
-        // Fall through to other methods
+        // On mobile / constrained devices never mesh on the main thread — that freezes the tab.
+        if (this._skipMainThreadFallback) {
+          superChunk.isDirty = true;
+          this.dirtySet.add(superChunkKey);
+          return;
+        }
+        // Fall through to other methods on desktop
       }
+    } else if (this._skipMainThreadFallback && hasRawCompressed) {
+      // Worker pool not ready yet — keep dirty and wait; do not lock the UI thread
+      superChunk.isDirty = true;
+      this.dirtySet.add(superChunkKey);
+      return;
     }
     
     // Priority 2: Check if we should use unified WASM pipeline (main thread)
     // IMPORTANT: Also check this.wasmInitialized to ensure lookup tables are current
     // (invalidateWorkerPool sets wasmInitialized=false to force reinit with new texture indices)
     const pipelineReady = isUnifiedPipelineReady() && this.wasmInitialized;
-    const useUnifiedPipeline = pipelineReady && hasRawCompressed;
+    const useUnifiedPipeline = pipelineReady && hasRawCompressed && !this._skipMainThreadFallback;
     
     if (useUnifiedPipeline) {
       await this._buildSuperChunkUnified(superChunk);
       const meshDuration = performance.now() - meshStartTime;
       chunkLoadLogger.logProcess('meshing', meshDuration, superChunk.superX, superChunk.superZ);
+      return;
+    }
+
+    if (this._skipMainThreadFallback) {
+      // Last-resort JS path also blocked on constrained devices
+      superChunk.isDirty = true;
+      this.dirtySet.add(superChunkKey);
       return;
     }
     
@@ -1724,15 +1901,23 @@ export class SuperChunkManager {
       maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
     };
     
-    // Process in worker
+    // Process in worker — first paint can skip models/multipart for faster spawn
+    const skipModels = this._deferModelsFirstPaint && !superChunk.firstPaintDone;
     const { result, stats } = await this.superChunkWorkerPool.process({
       chunks,
       neighbors,
       bounds,
       priority: 0,
       superChunkKey: key,
+      skipModels,
+      skipMultipart: skipModels,
     });
     
+    // Cache occupancy for future neighbor AO without re-parsing NBT
+    if (result?.occupancy) {
+      superChunk.setOccupancyFromWorker(result.occupancy);
+    }
+
     // Create Three.js meshes from worker result (main thread only, ~2ms total)
     await this._createMeshesFromWorkerResult(superChunk, result);
     
@@ -1747,21 +1932,32 @@ export class SuperChunkManager {
     
     // Mark as built
     const isFirstBuild = !superChunk.hasBeenBuilt;
+    const wasDeferredModels = skipModels;
     superChunk.isDirty = false;
     superChunk.hasBeenBuilt = true;
+    superChunk.firstPaintDone = true;
     
     // Mark neighbors that need updating
     this._markNeighborsDirtyAfterBuild(superChunk, isFirstBuild);
     
     this.onSuperChunkRebuilt?.(superChunk);
+
+    // After a solids-only first paint, queue a full remesh with models
+    if (wasDeferredModels) {
+      this._queueDeferredModels(key);
+    }
   }
 
   /**
-   * Collect neighbor chunk data for worker (raw compressed)
+   * Collect neighbor data for the worker.
+   * Prefers compact occupancy bitmasks from already-meshed neighbors.
+   * Never sends full NBT/compressed payloads for neighbors (AO/water only need occupancy).
+   * First paint (no occupancy yet) returns an empty list — seams are acceptable.
+   *
    * @param {SuperChunk} superChunk - The super-chunk to collect neighbors for
-   * @param {boolean} cloneBuffers - If true, clone ArrayBuffers to allow safe parallel transfer
+   * @param {boolean} _cloneBuffers - Unused (kept for call-site compatibility)
    */
-  _collectNeighborDataForWorker(superChunk, cloneBuffers = false) {
+  _collectNeighborDataForWorker(superChunk, _cloneBuffers = false) {
     const neighbors = [];
     const superX = superChunk.superX;
     const superZ = superChunk.superZ;
@@ -1779,7 +1975,7 @@ export class SuperChunkManager {
       if (!neighborSuperChunk) continue;
       
       for (const [, chunkInfo] of neighborSuperChunk.loadedChunks) {
-        if (!chunkInfo.data) continue;
+        if (!chunkInfo) continue;
         
         // Only include chunks that are adjacent to this super-chunk's boundary
         const isAdjacent = this._isChunkAdjacentToBoundary(
@@ -1787,36 +1983,18 @@ export class SuperChunkManager {
           superChunk.superX, superChunk.superZ
         );
         
-        if (isAdjacent) {
-          // Handle raw compressed data (preferred - worker can decompress)
-          if (chunkInfo.isRawCompressed && chunkInfo.data.compressedData) {
-            const originalBuffer = chunkInfo.data.compressedData;
-            neighbors.push({
-              chunkX: chunkInfo.chunkX,
-              chunkZ: chunkInfo.chunkZ,
-              // Clone buffer when needed for parallel dispatch to avoid detached buffer errors
-              compressedData: cloneBuffers ? originalBuffer.slice(0) : originalBuffer,
-              compressionType: chunkInfo.data.compressionType,
-            });
-          }
-          // Handle pre-parsed NBT data - re-compress for worker
-          // This ensures neighbors from main-thread-built super-chunks are included
-          else if (chunkInfo.data && !chunkInfo.isRawCompressed) {
-            try {
-              // The data is already parsed NBT, encode it as JSON for the worker
-              // Worker will detect this and handle accordingly
-              neighbors.push({
-                chunkX: chunkInfo.chunkX,
-                chunkZ: chunkInfo.chunkZ,
-                parsedData: chunkInfo.data, // Worker will handle parsed NBT directly
-                isParsed: true,
-              });
-            } catch (e) {
-              // Skip this neighbor if serialization fails
-              console.warn(`[SuperChunkManager] Failed to serialize neighbor ${chunkInfo.chunkX},${chunkInfo.chunkZ}:`, e.message);
-            }
-          }
+        if (!isAdjacent) continue;
+
+        const occupancy = neighborSuperChunk.getChunkOccupancy(chunkInfo.chunkX, chunkInfo.chunkZ);
+        if (occupancy?.sections?.length) {
+          neighbors.push({
+            chunkX: chunkInfo.chunkX,
+            chunkZ: chunkInfo.chunkZ,
+            isOccupancy: true,
+            sections: occupancy.sections,
+          });
         }
+        // No occupancy yet → skip (first paint / unmeshed neighbor)
       }
     }
     
@@ -3280,6 +3458,13 @@ export class SuperChunkManager {
     // SEQUENTIAL PATH: Fallback for non-worker builds
     let rebuiltCount = 0;
     const startTime = performance.now();
+
+    // Constrained devices must not run the JS/WASM mesh on the main thread.
+    // If the worker pool is not ready yet, leave keys dirty and bail — idle
+    // rebuild will retry once workers initialize.
+    if (this._skipMainThreadFallback && !this.superChunkWorkerPoolInitialized) {
+      return 0;
+    }
     
     for (const key of keysToRebuild) {
       // Check budget if specified
@@ -3301,10 +3486,15 @@ export class SuperChunkManager {
         this._disposeOldMeshes(oldMeshes);
         
         superChunk.rebuildPending = false;
-        rebuiltCount++;
+        // Only count as rebuilt if no longer dirty (worker-only skip keeps dirty)
+        if (!this.dirtySet.has(key) && !superChunk.isDirty) {
+          rebuiltCount++;
+        }
       }
-      this.dirtySet.delete(key);
-      this.boundaryDirtySet.delete(key);
+      if (!superChunk?.isDirty) {
+        this.dirtySet.delete(key);
+        this.boundaryDirtySet.delete(key);
+      }
     }
     
     return rebuiltCount;
@@ -3376,13 +3566,23 @@ export class SuperChunkManager {
         maxChunkX: superChunk.superX * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
         maxChunkZ: superChunk.superZ * SUPER_CHUNK_SIZE + SUPER_CHUNK_SIZE - 1,
       };
+
+      const skipModels = this._deferModelsFirstPaint && !superChunk.firstPaintDone;
       
       buildJobs.push({
         key,
         superChunk,
         oldMeshes,
         buildVersion,
-        jobData: { chunks, neighbors, bounds, priority: 0, superChunkKey: key },
+        jobData: {
+          chunks,
+          neighbors,
+          bounds,
+          priority: 0,
+          superChunkKey: key,
+          skipModels,
+          skipMultipart: skipModels,
+        },
       });
       
       // Mark as no longer dirty immediately (prevents re-queuing)
@@ -3946,6 +4146,7 @@ export class SuperChunkManager {
    * @returns {Promise<number>} Number of super-chunks rebuilt
    */
   async repairBoundaries(maxRebuilds = 1) {
+    if (!this._boundaryRepairsEnabled) return 0;
     if (this.boundaryDirtySet.size === 0) return 0;
     
     // Only rebuild boundary-dirty chunks (the ones with visible artifacts)
@@ -4016,6 +4217,10 @@ export class SuperChunkManager {
    * Clear all super-chunks
    */
   clear() {
+    for (const [, timer] of this._meshDebounceTimers) {
+      clearTimeout(timer);
+    }
+    this._meshDebounceTimers.clear();
     for (const [, superChunk] of this.superChunks) {
       this._removeMeshesFromManager(superChunk);
       superChunk.dispose(this);
@@ -4023,6 +4228,7 @@ export class SuperChunkManager {
     this.superChunks.clear();
     this.dirtySet.clear();
     this.boundaryDirtySet.clear();
+    this._deferredModelKeys?.clear();
   }
 
   /**
