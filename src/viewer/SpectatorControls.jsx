@@ -135,6 +135,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     down: false,
     sprint: false,  // Changed from 'fast' to 'sprint' to match Minecraft terminology
   });
+  const analogMoveRef = useRef({ x: 0, y: 0 });
   
   // Velocity state for physics-based movement (in blocks per tick)
   const velocityRef = useRef(new THREE.Vector3(0, 0, 0));
@@ -150,6 +151,27 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     yaw: (180 - initialYaw) * (Math.PI / 180),   // Convert Minecraft yaw to internal radians
     pitch: initialPitch * (Math.PI / 180),        // Convert Minecraft pitch to internal radians
   });
+
+  const applyLookDelta = useCallback((deltaX, deltaY, sensitivity = mouseSensitivity) => {
+    rotationRef.current.yaw += deltaX * sensitivity;
+    while (rotationRef.current.yaw > Math.PI) rotationRef.current.yaw -= 2 * Math.PI;
+    while (rotationRef.current.yaw < -Math.PI) rotationRef.current.yaw += 2 * Math.PI;
+
+    rotationRef.current.pitch += deltaY * sensitivity;
+    rotationRef.current.pitch = Math.max(
+      -Math.PI / 2 + 0.01,
+      Math.min(Math.PI / 2 - 0.01, rotationRef.current.pitch)
+    );
+
+    const euler = new THREE.Euler(
+      -rotationRef.current.pitch,
+      -rotationRef.current.yaw,
+      0,
+      'YXZ'
+    );
+    camera.quaternion.setFromEuler(euler);
+    invalidate();
+  }, [camera, invalidate, mouseSensitivity]);
   
   // Expose teleport and speed control functions via ref
   useImperativeHandle(ref, () => ({
@@ -238,8 +260,33 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
       if (onSpeedChange) {
         onSpeedChange(SPEED_LEVELS[speedLevelRef.current]);
       }
-    }
-  }), [camera, invalidate, onCameraUpdate, onSpeedChange]);
+    },
+
+    /**
+     * Analog move from the on-screen joystick.
+     * x = strafe (-1 left … +1 right), y = forward (-1 back … +1 forward)
+     */
+    setAnalogMove(x, y) {
+      analogMoveRef.current.x = x;
+      analogMoveRef.current.y = y;
+    },
+
+    /**
+     * Hold/release a named action: up, down, sprint
+     */
+    setAction(name, pressed) {
+      if (name in keysRef.current) {
+        keysRef.current[name] = !!pressed;
+      }
+    },
+
+    /**
+     * Look by pixel delta (same sign as mouse: +x look right, +y look down)
+     */
+    look(deltaX, deltaY, sensitivity = mouseSensitivity) {
+      applyLookDelta(deltaX, deltaY, sensitivity);
+    },
+  }), [camera, invalidate, onCameraUpdate, onSpeedChange, mouseSensitivity]);
   
   // Initialize camera position and rotation
   useEffect(() => {
@@ -274,17 +321,19 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     }
   }, []);
   
-  // Handle pointer lock
+  // Handle pointer lock (desktop only — touch uses on-screen look)
   const requestPointerLock = useCallback(() => {
-    gl.domElement.requestPointerLock();
+    if (window.matchMedia('(pointer: coarse)').matches) return;
+    gl.domElement.requestPointerLock?.();
   }, [gl]);
   
   // Set up event listeners
   useEffect(() => {
     const canvas = gl.domElement;
     
-    // Click to lock pointer
+    // Click to lock pointer (ignore touch — mobile uses the HUD)
     const handleClick = () => {
+      if (window.matchMedia('(pointer: coarse)').matches) return;
       if (!isLockedRef.current) {
         requestPointerLock();
       }
@@ -299,34 +348,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     const handleMouseMove = (event) => {
       if (!isLockedRef.current) return;
       
-      const movementX = event.movementX || 0;
-      const movementY = event.movementY || 0;
-      
-      // Update yaw (left/right)
-      // Mouse moves right (positive movementX) = look right = yaw increases
-      rotationRef.current.yaw += movementX * mouseSensitivity;
-      
-      // Normalize yaw to -PI to PI
-      while (rotationRef.current.yaw > Math.PI) rotationRef.current.yaw -= 2 * Math.PI;
-      while (rotationRef.current.yaw < -Math.PI) rotationRef.current.yaw += 2 * Math.PI;
-      
-      // Update pitch (up/down) with clamping
-      // Mouse down (positive movementY) = look down = positive Minecraft pitch
-      rotationRef.current.pitch += movementY * mouseSensitivity;
-      rotationRef.current.pitch = Math.max(
-        -Math.PI / 2 + 0.01,
-        Math.min(Math.PI / 2 - 0.01, rotationRef.current.pitch)
-      );
-      
-      // Apply rotation to camera
-      const euler = new THREE.Euler(
-        -rotationRef.current.pitch,
-        -rotationRef.current.yaw,
-        0,
-        'YXZ'
-      );
-      camera.quaternion.setFromEuler(euler);
-      invalidate();
+      applyLookDelta(event.movementX || 0, event.movementY || 0);
     };
     
     // Keyboard controls
@@ -449,7 +471,7 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
       window.removeEventListener('keyup', handleKeyUp);
       canvas.removeEventListener('wheel', handleWheel);
     };
-  }, [gl, camera, mouseSensitivity, requestPointerLock, invalidate, onSpeedChange]);
+  }, [gl, camera, mouseSensitivity, requestPointerLock, invalidate, onSpeedChange, applyLookDelta]);
   
   // PERFORMANCE: Reuse objects to avoid GC pressure from allocations every frame
   const forwardVec = useMemo(() => new THREE.Vector3(), []);
@@ -472,7 +494,8 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     const speedMultiplier = SPEED_LEVELS[speedLevelRef.current];
     
     // Sprint doubles the effective speed
-    const sprintMultiplier = keys.sprint ? SPRINT_MULTIPLIER : 1.0;
+    const analogSprint = analogMoveRef.current.y > 0.9 && Math.hypot(analogMoveRef.current.x, analogMoveRef.current.y) > 0.9;
+    const sprintMultiplier = (keys.sprint || analogSprint) ? SPRINT_MULTIPLIER : 1.0;
     
     // Combined multiplier for acceleration
     const totalMultiplier = speedMultiplier * sprintMultiplier;
@@ -487,20 +510,31 @@ export const SpectatorControls = forwardRef(function SpectatorControls({
     forwardVec.applyEuler(yawEuler);
     rightVec.applyEuler(yawEuler);
     
-    // Build input vector from key states
+    // Build input vector from analog joystick (mobile) or key states
     inputVec.set(0, 0, 0);
-    
-    if (keys.forward) inputVec.add(forwardVec);
-    if (keys.backward) inputVec.sub(forwardVec);
-    if (keys.right) inputVec.add(rightVec);
-    if (keys.left) inputVec.sub(rightVec);
+
+    const analog = analogMoveRef.current;
+    const analogMag = Math.hypot(analog.x, analog.y);
+    if (analogMag > 0.12) {
+      inputVec.addScaledVector(forwardVec, analog.y);
+      inputVec.addScaledVector(rightVec, analog.x);
+      if (inputVec.length() > 1) {
+        inputVec.normalize();
+      }
+    } else {
+      if (keys.forward) inputVec.add(forwardVec);
+      if (keys.backward) inputVec.sub(forwardVec);
+      if (keys.right) inputVec.add(rightVec);
+      if (keys.left) inputVec.sub(rightVec);
+      if (inputVec.length() > 0) {
+        inputVec.normalize();
+      }
+    }
     
     // Vertical movement (independent of look direction)
     if (keys.up) inputVec.y += 1;
     if (keys.down) inputVec.y -= 1;
-    
-    // Normalize input to prevent diagonal speed boost
-    if (inputVec.length() > 0) {
+    if (inputVec.length() > 1) {
       inputVec.normalize();
     }
     

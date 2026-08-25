@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
-import { RegionViewer } from './viewer';
+import { RegionViewer, MobileControls, useTouchLayout } from './viewer';
 import { parseMCAFile, parseEntityRegionFile } from './utils/mcaParser';
 import { extractSpawnFromLevelDat } from './utils/nbtParser';
 import { 
@@ -27,6 +27,7 @@ function App() {
   
   // Sidebar collapsed state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { isTouch: isMobile, orientation } = useTouchLayout();
   
   // Build progress for region rendering
   // stage: 'parsing' | 'decoding' | 'meshing' | 'adding' | 'particles' | 'complete'
@@ -780,8 +781,14 @@ function App() {
 
   const hasContent = chunks.length > 0 || regionFiles.length > 0;
 
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarCollapsed(true);
+    }
+  }, [isMobile, hasContent]);
+
   return (
-    <div className="app">
+    <div className={`app${isMobile ? ' mobile-layout' : ''} ${isMobile ? orientation : ''}`}>
       {/* Viewer */}
       <div className="viewer-container">
         {loading && (
@@ -923,9 +930,35 @@ function App() {
             <div className="empty-icon">⛏️</div>
             <h2>Region Viewer</h2>
             <p>Upload MCA region files or a world .zip to visualize in 3D</p>
+            {isMobile && (
+              <button
+                type="button"
+                className="mobile-load-cta"
+                onClick={() => setSidebarCollapsed(false)}
+              >
+                Load a world
+              </button>
+            )}
           </div>
         )}
+        {isMobile && hasContent && !loading && (
+          <MobileControls
+            spectatorRef={spectatorRef}
+            visible
+            orientation={orientation}
+            onOpenMenu={() => setSidebarCollapsed((v) => !v)}
+          />
+        )}
       </div>
+
+      {isMobile && !sidebarCollapsed && (
+        <button
+          type="button"
+          className="mobile-drawer-backdrop"
+          aria-label="Close menu"
+          onClick={() => setSidebarCollapsed(true)}
+        />
+      )}
 
       {/* Sidebar Toggle Button */}
       <button 
@@ -1931,16 +1964,31 @@ function App() {
         {/* Instructions */}
         <section className="panel-section instructions">
           <h3>Controls</h3>
-          <p className="controls-hint">Click on viewer to enable controls</p>
-          <ul>
-            <li><kbd>Mouse</kbd> Look around</li>
-            <li><kbd>W A S D</kbd> Move</li>
-            <li><kbd>Space</kbd> Up</li>
-            <li><kbd>Shift</kbd> Down</li>
-            <li><kbd>Ctrl</kbd> Sprint (2x)</li>
-            <li><kbd>Scroll</kbd> Speed (0.06x–32x)</li>
-            <li><kbd>Esc</kbd> Release mouse</li>
-          </ul>
+          {isMobile ? (
+            <>
+              <p className="controls-hint">Pocket Edition touch controls</p>
+              <ul>
+                <li>Left stick move (relative to look)</li>
+                <li>Drag right side look</li>
+                <li>Jump fly up · Sneak fly down</li>
+                <li>Sprint or push the stick fully forward</li>
+                <li>Rotate to landscape for fullscreen</li>
+              </ul>
+            </>
+          ) : (
+            <>
+              <p className="controls-hint">Click on viewer to enable controls</p>
+              <ul>
+                <li><kbd>Mouse</kbd> Look around</li>
+                <li><kbd>W A S D</kbd> Move</li>
+                <li><kbd>Space</kbd> Up</li>
+                <li><kbd>Shift</kbd> Down</li>
+                <li><kbd>Ctrl</kbd> Sprint (2x)</li>
+                <li><kbd>Scroll</kbd> Speed (0.06x–32x)</li>
+                <li><kbd>Esc</kbd> Release mouse</li>
+              </ul>
+            </>
+          )}
         </section>
       </div>
     </div>
